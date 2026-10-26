@@ -37,6 +37,7 @@
 | 规范 | very_good_analysis + riverpod_lint + 项目自定义检查脚本 | 11.0.0 |
 | 测试 | flutter_test（单元 / 组件 / golden）+ mocktail；integration_test；patrol 后补 | mocktail 1.0.5 / patrol 4.10.0 |
 | 日志 / 崩溃 | logging + 本机滚动日志 + 上报到自有服务器 | logging 1.3.0 |
+| 聊天渲染 | [ChatWeave](https://github.com/zz-howard/chatweave) 的 `chatweave_core`（纯 Dart：流解析、续传、块合并）+ `chatweave_flutter`（列表、Markdown、组件注册表、主题接口）；Markdown 由其内部的 flutter_markdown_plus 渲染（见 4.7） | 未发布，开发期路径依赖 |
 
 ## 1. 架构：照官方指南
 
@@ -61,7 +62,7 @@
 - **feature-first**（按用户功能而不是按页面分目录）：`features/chat|overview|history|auth`，每个功能下再分 `view/`、`view_model/`、`widgets/`。
 - **用包边界强制依赖方向**（借鉴 Very Good Ventures 的分层架构）：设计系统单独做成包；v1 不把每一层都拆成包（两个用户的 App，拆太细维护成本高于收益）。
 
-**聊天首页的特殊之处**：AI 解析在服务器端。手机先把“用户原话”作为聊天条目和 outbox 行写进本机数据库，显示为“待上传”便利贴；上传后服务器返回解析结果（草稿 / 追问），回写本机后渲染成记录卡或追问选项。
+**聊天首页的特殊之处**：AI 解析在服务器端。手机先把“用户原话”作为聊天条目和 outbox 行写进本机数据库，显示为“待上传”便利贴；上传后服务器返回这条回复的消息 ID，客户端订阅它的流式事件（SSE），文字逐步显示、记录卡 / 追问选项等组件整块出现；生成结束后服务器保存最终版本，经同步写回本机，**以同步下来的版本为准**。聊天渲染用 ChatWeave 库，接入方式见 4.7。
 
 **空间是客户端的第一层划分**：账户、记录、家庭资料、聊天与 AI 会话都属于某个空间。App 打开时进入上次使用的空间（ID 存在本机设置里；首次登录进入默认个人空间）；所有页面、查询、outbox 条目和 AI 请求都带当前 `spaceId`。用户不是成员的空间在客户端完全不存在：不缓存、不显示名称、不显示数量或任何动态提示。
 
@@ -133,7 +134,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 
 | 类别 | 我们怎么定 |
 |---|---|
-| HTTP | **dio**：拦截器统一注入 `Authorization: Bearer`、`Idempotency-Key`、`X-Request-Id`；把 RFC 9457 problem+json 错误解析成 `ApiError(code, requestId)`。**所有路径都写相对路径**，以便服务端部署在反向代理的子路径下（写测试守住） |
+| HTTP | **dio**（聊天流式 SSE 也走 dio 的字节流，见 4.7）：拦截器统一注入 `Authorization: Bearer`、`Idempotency-Key`、`X-Request-Id`；把 RFC 9457 problem+json 错误解析成 `ApiError(code, requestId)`。**所有路径都写相对路径**，以便服务端部署在反向代理的子路径下（写测试守住） |
 | 序列化 | Dart 宏已于 2025-01 官方停止开发，所以用 **freezed + json_serializable + build_runner**（build_runner 2.13+ 增量构建快 2–4 倍）。DTO 字段用 snake_case 映射（`build.yaml` 全局 `field_rename: snake`）。不引入 OpenAPI 代码生成器：DTO 手写，以服务器导出的 `openapi.json` 中的示例做 JSON 往返测试 |
 | 生成代码 | **提交进仓库**：评审者和 AI 代理不跑构建也能读到完整代码；CI 重新生成后 `git diff --exit-code`，不一致即失败 |
 | 路由 | go_router：`StatefulShellRoute.indexedStack` 实现底部“聊天 / 总览 / 历史”三栏（切换时各栏保留状态）；详情和编辑用底部弹层，不进路由栈 |
@@ -205,6 +206,64 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | 最近任务缩略图 | 启用后遮挡：进入 `inactive` / `paused` 时盖一层纸面遮罩；同时仅在应用锁开启时给窗口设置 `FLAG_SECURE`（平台通道，几行 Kotlin）。注意 `FLAG_SECURE` 也会禁止截屏和录屏，在设置里说明 |
 | 测试 | 单元测试覆盖超时判断、PIN 哈希校验与退避；组件测试覆盖锁屏遮挡与解锁流程；生物识别用假 Service 替身 |
 
+### 4.7 聊天：ChatWeave 接入（草案）
+
+聊天的消息模型、流式解析、断线续传、Markdown 渲染和通用组件来自独立开源库 [ChatWeave](https://github.com/zz-howard/chatweave)；库的内部设计见其文档。家簿只做“接线”，库里不出现任何家簿概念。
+
+**依赖与开发期路径依赖**
+
+| 阶段 | 写法 |
+|---|---|
+| 开发期（库未发布） | 两个仓库并排检出；`client/app/pubspec.yaml` 写 git 依赖并固定到库的某个提交（CI 用它），开发者本机用**不入库**的 `client/app/pubspec_overrides.yaml` 改成 `path: ../../../chatweave/dart/packages/chatweave_core`（及 `chatweave_flutter`），改库代码立即生效 |
+| 库发布后 | 改为版本依赖 `chatweave_core: ^0.x.y`，删除覆盖文件 |
+
+- `tool/allowed_deps.yaml` 登记 `chatweave_core`、`chatweave_flutter` 以及它们带入的 `flutter_markdown_plus`、`markdown`（需人审批）。
+- 升级库版本是独立的 PR：先跑全部聊天组件测试与 golden。
+
+**本机存储适配器（drift）**：实现 ChatWeave 的 `ChatWeaveStore` 接口，数据仍在 `chat_entries` 表：
+
+| 列 | 说明 |
+|---|---|
+| `id`、`space_id`、`role`、`created_at`、`sync_state` | 原有 |
+| `message_json` | ChatWeave 消息 JSON（块列表、状态、`rev`），按原样保存，渲染只读本机 |
+| `fallback_text` | 消息级纯文本，用于通知、搜索和降级显示 |
+| `protocol_version` | 生成该消息的协议版本 |
+| `stream_status` | `streaming` / `complete` / `interrupted` / `error` |
+| `rev` | 持久化版本号；同步下来的版本 `rev` ≥ 本地时整体替换 |
+| `last_seq` | 已应用的流事件序号，App 被杀后重启也能续传 |
+
+- `watchConversation` = 按当前 `space_id` 查询 `chat_entries` 的 drift `watch()`；空间切换时关闭上一个空间的所有流。
+- 流式中的临时状态节流写入（约 1 秒或每个块结束时）；**临时状态永远不覆盖同步下来的版本**（ChatWeave 的对账规则，家簿的适配器测试要覆盖）。
+- 退出空间时随该空间其他数据一起清除（C12）。
+
+**网络**
+
+- `StreamTransport`：用 dio 以 `ResponseType.stream` 打开 `GET /spaces/{space_id}/chat/messages/{message_id}/stream`，复用拦截器（`Authorization`、`X-Request-Id`），加 `Accept: text/event-stream`、`Last-Event-ID` 与 `ChatWeave-Capabilities`（由注册表生成，声明能渲染哪些块）；把字节流交给 ChatWeave 解码。
+- `ActionTransport`：点追问选项、确认、提交表单时，ChatWeave 生成动作请求（其 ID 即幂等键）；家簿把它写进 outbox（`op_type = 'chat_action'`，`id = 动作 ID`），块只显示“提交中”（离线时“已排队，联网后提交”），**不乐观标记“已选择”**；`OutboxProcessor` 上传到 `POST /spaces/{space_id}/chat/actions`。离线时照常排队，联网补发，重发复用同一个动作 ID。结果以服务端返回的补丁或同步下来的新版本为准：同一空间里别的成员先回答了，就显示对方的答案。
+- 生成中点“停止”：直接请求 `POST …/messages/{message_id}/cancel`（不进 outbox，离线时按钮不可用）。
+
+**注册家簿自定义组件**
+
+```dart
+final chatRegistry = BlockRegistry.withDefaults()
+  ..register<RecordCardRef>(
+    type: 'x-jiabu.record_card', maxSchemaVersion: 1,
+    parse: RecordCardRef.fromJson,              // 只有 recordId
+    build: (context, block, ref) => RecordCardBlock(recordId: ref.recordId),
+  )
+  ..register<DocumentCardRef>(
+    type: 'x-jiabu.document_card', maxSchemaVersion: 1,
+    parse: DocumentCardRef.fromJson,
+    build: (context, block, ref) => DocumentCardBlock(documentId: ref.documentId),
+  );
+```
+
+- 记录卡块**只带 `recordId`**，`RecordCardBlock` 通过 Riverpod 从本机 `records` 表 `watch` 内容：编辑 / 撤销后卡片自动更新；记录尚未同步到时显示“记录同步中”骨架。卡上的“编辑 / 撤销”是普通的记录操作（走记录仓库与 outbox），**不是** ChatWeave 动作。
+- 用户消息不用 ChatWeave 的默认样式：通过 `userMessageBuilder` 画成家簿的便利贴，并显示离线状态（待上传 / 待 AI 处理，见设计规范 4.11）。
+- 主题：`JiabuChatWeaveTheme`（`app/lib/shared/chatweave/`），见设计规范 7.8。
+
+**测试**：适配器的仓库测试（真 drift 内存库：临时状态 / 同步版本对账、空间过滤、退出清除）；用 ChatWeave 的一致性夹具驱动聊天页的组件测试；4.16 各组件的 golden（两种空间强调色 × 两种宽度 × 两档字号）与几何断言（宽 332、0°）。
+
 ## 5. 日志与崩溃
 
 - `package:logging` + 自写 `FileLogSink`（本机滚动 5 个 1 MB 文件）。
@@ -275,6 +334,7 @@ No Color/Colors/fontFamily/Duration literals outside jiabu_design. Use context.j
 Cards/lists/forms/sheets/snackbars are 0°. Tilt only decorations via Tilt(tiltFor(id) * amp).
 Icons only from JiabuIcons (generated from tool/icons/icons.json). Never Material/Cupertino icons for business UI.
 Hand font only for ARB keys starting with "hand"; user text always system sans.
+Chat replies render via ChatWeave (BlockRegistry). Never turn model text into components; custom blocks are x-jiabu.* and carry ids only.
 Motion only from JiabuMotion; honour MediaQuery.disableAnimations. Do not override scroll physics.
 
 ## Tests required with every change
@@ -304,7 +364,7 @@ new dependencies not in tool/allowed_deps.yaml, google_fonts, firebase, sqlite3_
 | 旧的 Flutter “AI rules” 文件 | 已从 flutter/flutter 仓库撤下，改指向 docs.flutter.dev/ai/get-started | 不使用 |
 | flutter/agent-plugins | 官方插件，含 10 个技能 | **只挑纯 markdown 的技能**（add-widget-test、apply-architecture-best-practices、fix-layout-issues、setup-localization），逐个审阅后拷进 `docs/agent-skills/flutter/`；`use-http-package` 用 `package:http`，与 dio 冲突，不拷 |
 | Dart & Flutter MCP 服务器（`dart mcp-server`，需 Dart ≥ 3.9） | 默认开启 analyze、hot reload、pub、widget inspector 等；run_tests、dart_format 默认关闭 | 只在构建机上给 AI 代理配置，按需 `--enable run_tests,dart_format` |
-| GenUI | `genui` 包仍是 alpha | 不用 |
+| GenUI | `genui` 包仍是 alpha | 不用；聊天里的生成 UI 用自有开源库 ChatWeave（4.7） |
 
 ## 8. 项目结构
 
@@ -338,15 +398,17 @@ client/                                  # pub workspace 根
       l10n/app_zh.arb
       domain/{money.dart, space.dart, record.dart, sync_state.dart, result.dart}
       data/
+        chat/{chatweave_store.dart, sse_transport.dart, chat_action_transport.dart}   # ChatWeave 接口的家簿实现（4.7）
         db/{tables.dart, daos/, database.dart, migrations/}
         api/{api_client.dart, interceptors/, dto/}
         repositories/{records_repository.dart, chat_repository.dart, overview_repository.dart, auth_repository.dart, spaces_repository.dart}
         services/app_lock_service.dart   # local_auth、PIN / 图案哈希、FLAG_SECURE 平台通道
         sync/{outbox_processor.dart, sync_triggers.dart, background_sync.dart}
       features/
-        chat/{view/chat_screen.dart, view_model/chat_view_model.dart, widgets/}
+        chat/{view/chat_screen.dart, view_model/chat_view_model.dart, widgets/, blocks/}   # blocks/：record_card_block 等自定义块组件
         overview/  history/  auth/  spaces/  lock/
       shared/                            # 跨 feature 的业务组件：RecordCard, RecordRow, EditRecordSheet, TimeLabel
+        chatweave/jiabu_chatweave_theme.dart   # ChatWeave 主题接口的手账实现（只引用令牌）
     test/  test/fixtures/sample_data.dart
     integration_test/
     goldens/ goldens/reference/          # 冻结的参考截图集（只读）
@@ -357,7 +419,7 @@ client/                                  # pub workspace 根
 
 1. 工程骨架：workspace、FVM、构建机工具链脚本、CI 关卡、AGENTS.md、check_rules，加一个空白页的 golden。
 2. `jiabu_design`：令牌、字体、图标、Tilt、PaperCard、Tape、Stamp、Sticker，配组件目录页、golden 和几何断言。
-3. 聊天页（离线、只用本机）：记录卡 / 追问 / 编辑 / 撤销 / 空间切换。
+3. 聊天页（离线、只用本机）：接入 ChatWeave（路径依赖），用其一致性夹具和本地假流跑通文字流式 + 记录卡 / 追问 / 编辑 / 撤销 / 空间切换。
 4. 数据层：drift + outbox + dio + 登录，对接服务端。
 5. 总览、历史。
 6. 空间管理（新建、改名、成员、邀请、移除、退出、移动记录）与应用锁。
@@ -393,6 +455,8 @@ client/                                  # pub workspace 根
 | 10 | 安装包比原生大（约 18 MB） | 几乎无影响 | 只打 arm64；混淆；字体子集化 |
 | 11 | Material 组件将拆分为独立的 `material_ui` / `cupertino_ui` 包 | 升级时要改导入 | 按官方迁移指南处理；业务 UI 大多是自绘组件 |
 | 12 | 本机残留已退出空间的数据 | 失去权限后仍能看到内容 | 成员关系刷新时事务性清除该空间的行、outbox、游标与缓存图片；仓库测试覆盖 |
+| 13 | ChatWeave 与家簿同时开发，接口还会变 | 家簿聊天页反复返工 | 开发期固定提交 + 本机路径覆盖；家簿需要的能力一律以通用形式进库；升级库是独立 PR |
+| 14 | 移动网络或代理切断 SSE 长连接 | 文字不能逐步显示 | ChatWeave 自带心跳与续传；最差情况等同步拿最终版本，功能不受影响 |
 
 ## 附录 A：pubspec 草案
 
@@ -434,6 +498,11 @@ dependencies:
   intl: ^0.20.3
   logging: ^1.3.0
   package_info_plus: ^10.2.2
+  # ChatWeave（4.7）：开发期固定到库的某个提交，本机用不入库的 pubspec_overrides.yaml 改成 path 依赖；发布后改版本依赖
+  chatweave_core:
+    git: { url: https://github.com/zz-howard/chatweave.git, ref: <提交>, path: dart/packages/chatweave_core }
+  chatweave_flutter:
+    git: { url: https://github.com/zz-howard/chatweave.git, ref: <提交>, path: dart/packages/chatweave_flutter }
 dev_dependencies:
   flutter_test: { sdk: flutter }
   integration_test: { sdk: flutter }

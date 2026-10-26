@@ -15,7 +15,8 @@
 |---|---|
 | [engineering/client-flutter.md](engineering/client-flutter.md) | Flutter 客户端：技术栈与版本、MVVM 分层、离线与 outbox、UI 系统、测试与质量关卡、代码规范、项目结构、构建发布、风险 |
 | [engineering/server-rust.md](engineering/server-rust.md) | Rust 服务端：技术栈与版本、工程结构、认证与授权、API 原则、数据模型草案、日志追踪、测试、CI / 发布 / 部署、风险 |
-| [engineering/ai-layer.md](engineering/ai-layer.md) | AI 层：领域接口、AiRouter 路由与降级、默认提供方（ChatGPT 订阅）与备选、结构化输出、追问与任务状态、可观测、测试与评测集 |
+| [engineering/ai-layer.md](engineering/ai-layer.md) | AI 层：领域接口、AiRouter 路由与降级、默认提供方（ChatGPT 订阅）与备选、结构化输出、追问与任务状态、可观测、测试与评测集、回复的语义块映射与流式 |
+| [ChatWeave](https://github.com/zz-howard/chatweave)（外部仓库） | 聊天交互开源库：Markdown 优先的生成 UI 协议、流式与续传、组件注册表、动作协议；家簿怎么用它见客户端 4.7、服务端 4.2、AI 层第 13 节、设计规范 4.16 |
 
 ## 决策与调研
 

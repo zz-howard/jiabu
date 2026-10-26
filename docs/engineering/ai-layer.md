@@ -10,6 +10,7 @@
 4. **结构化输出不信任库，信任服务端校验**：能用原生 JSON Schema 就用 → 否则工具调用 → 否则 JSON 模式 + 提示词里给 schema；结果一律经 serde 反序列化 + JSON Schema 校验 + 业务校验，失败带错误信息重试一次，再失败降级到下一个提供方。
 5. **计费红线**：不把按量付费的 API key 作为默认，也不在订阅额度耗尽或接入失败时自动切到付费提供方；付费备选只有显式开启才会被使用。全部失败时任务进入 `waiting_ai`，稍后重试，绝不丢数据。
 6. **Rig 不采用**：框架面太大、近 6 个月 10 个破坏性小版本、普通 OpenAI 配置只收静态 key、没有 namespace 工具，其内置 `chatgpt` provider 走的是非官方的 ChatGPT `backend-api`。
+7. **回复 = 语义块，流式下发（草案）**：模型的文字输出逐步流给客户端；结构化部分（记录草稿、追问、问数）由服务端**确定性地映射**成 [ChatWeave](https://github.com/zz-howard/chatweave) 语义块，数字来自服务端的真实查询而不是模型。v1 没有 UI Agent。见第 13 节。
 
 ## 1. 设计原则
 
@@ -46,6 +47,16 @@ pub trait ModelProvider: Send + Sync {
     fn capabilities(&self) -> &Capabilities;
     async fn parse_entry(&self, req: &ParseEntryRequest) -> Result<ParseOutcome, ProviderError>;
 }
+/// 流式一轮（草案）：用于需要逐字显示的回复。适配器把提供方的流事件翻译成 TurnEvent；
+/// 不支持流式的提供方在结束时一次性发出全部文字（自动降级，功能不变）。
+pub enum TurnEvent {
+    TextDelta(String),                                  // 给用户看的文字片段
+    ToolCall { name: String, arguments: serde_json::Value },   // 参数完整后才发出
+    Done { usage: Usage },
+}
+// ModelProvider 增加（草案）：
+// async fn run_turn(&self, req: &TurnRequest, sink: &mut dyn TurnSink) -> Result<(), ProviderError>;
+
 pub enum ProviderError {
     RateLimited { retry_after: Option<Duration> }, QuotaExhausted, Auth,
     Unsupported(&'static str), InvalidOutput { raw: String, reason: String },
@@ -141,14 +152,16 @@ create table ai_jobs (
   pending_question jsonb,                      -- 当前追问及选项
   provider_id text, last_error text,
   origin_request_id uuid,                      -- 用户原始请求的 X-Request-Id
+  assistant_message_id uuid,                   -- 本轮回复在 chat_entries 中的 ID（ChatWeave 消息 ID）
+  client_capabilities jsonb,                   -- 客户端声明能渲染的块类型（ChatWeave 能力声明），映射时参考
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 ```
 
 - 原话 / 图片入库时**同事务**插入 `ai_jobs(status = 'queued')`。
 - worker 用 `SELECT … FOR UPDATE SKIP LOCKED` 取任务，`LISTEN/NOTIFY` 唤醒；处理时设 `locked_until` 租约。
-- `Draft` → 校验后写记录，任务 `done`；`NeedsFollowUp` → 存 `pending_question`，任务 `waiting_user`；`NotARecord` → 写回复，任务 `done`。
-- 用户回答追问时带 `Idempotency-Key` 提交，服务端追加到 `conversation` 并把状态改回 `queued`。
+- `Draft` → 校验后写记录，回复 = 一句文字 + 记录卡块，任务 `done`；`NeedsFollowUp` → 存 `pending_question`，回复 = 已识别内容的文字 + 选项块（`choice`），任务 `waiting_user`；`NotARecord` → 回复为文字（流式），任务 `done`。块的映射见第 13 节。
+- 用户回答追问 = ChatWeave 动作 `clarification.answer`（动作 ID 即 `Idempotency-Key`）：服务端校验所选项确实在该选项块里、追问仍未回答，追加到 `conversation` 并把状态改回 `queued`；选项块状态改为“已回答”并同步到所有设备。
 - 链上全部提供方失败 → `waiting_ai`，按 `run_after` 退避重试；用户也可以手工补录。
 - 每次处理都从库里重建上下文，worker 本身无状态；重建时只读取 `space_id` 对应空间的数据，并确认发起成员仍是活跃成员——已退出则任务置 `failed`（原因“空间不可用”），不写入。
 
@@ -273,7 +286,44 @@ insta = { version = "1.49", features = ["json"] }
 
 见 [待定问题](../decisions/README.md#待定问题open-questions)。
 
-## 13. 来源
+## 13. 回复内容：语义块与流式输出（ChatWeave，草案）
+
+聊天回复使用开源库 [ChatWeave](https://github.com/zz-howard/chatweave) 的协议：一条回复是有序的“语义块”（只有数据和含义，没有颜色、尺寸、布局），外加一段必有的纯文本兜底。库的设计在其仓库里；这里只写家簿 AI 层怎么产出这些块。
+
+### 13.1 原则
+
+- **模型决定“说什么”，服务端决定“用哪个块”**：映射是服务端代码里的确定性规则（查表），不调用额外的模型，v1 没有 UI Agent。
+- **数字不由模型编**：余额、笔数、合计、视力数值等一律由服务端按任务的 `space_id` 经 `authorize()` 查询后填进块；模型只通过类型化工具说明“要查什么”。
+- **先校验再发出**：每个块经 ChatWeave 的 Schema 与限制校验（自定义块 `x-jiabu.*` 用家簿注册的 Schema）后才进入流和数据库；校验失败的块改为一段兜底文字，整条回复照常完成。
+- **按客户端能力选块**：任务记录了客户端声明的能力；客户端不支持某类型（例如图表）时，映射直接选更朴素的类型（表格或文字）。持久化的始终是规范形态。
+
+### 13.2 映射表（v1）
+
+| AI 结果 / 工具 | 生成的块 |
+|---|---|
+| 模型的文字输出（任何一轮） | `markdown`，逐字流式（服务端把 token 合并成约 20 字或 50ms 一批） |
+| `ParseOutcome::Draft` | `markdown`（服务端模板生成的一句话，如“记好了：午饭 68。”）+ `x-jiabu.record_card { recordId }` |
+| `ParseOutcome::NeedsFollowUp` | `markdown`（已识别的内容）+ `choice { prompt: 追问句, options, allowFreeText: true, action: clarification.answer }` |
+| `ParseOutcome::NotARecord` | `markdown` |
+| 家庭资料整理完成 | `markdown` + `x-jiabu.document_card { documentId }` |
+| 问数工具 `query_stats { metric, period, filters }`（v1 单主 Agent 的工具） | 服务端执行真实查询 → 单值用 `metric`，多值用 `metric_group`，明细用 `dataset`，按时间的数值用 `time_series`（例如历次视力） |
+| 首次设置缺多项信息 | `form_intent { action: setup.submit }`；设置完成后账户摘要用 `dataset` |
+| 需要用户确认的不可撤销操作（v1 预留） | 服务端暂存待执行操作 → `confirmation { severity: destructive, action: pending_operation.confirm }` |
+
+记录卡、资料卡只带 ID，卡片内容由客户端从本机已同步的记录读取：编辑 / 撤销后自动更新，聊天记录里也不复制业务数据。
+
+### 13.3 流式与提供方
+
+- SIWC 的 Responses API 本来就要求 `stream: true`：文字增量 → `TurnEvent::TextDelta` → `markdown` 块的增量；函数调用参数在流中分片到达，适配器**缓冲到完整**再发出 `TurnEvent::ToolCall`，服务端执行后整块发出组件（与 ChatWeave v1“组件整块到达”一致）。
+- genai 接入的提供方：支持流式的同样处理；不支持的在结束时一次性发出文字，客户端只是看不到逐字效果。
+- 记账解析（`parse_entry`）仍是一次结构化调用；它产出的回复很短，直接按 13.2 生成块，不需要逐字。
+- 链上降级发生在流开始之后时：已发出的文字保留，换下一个提供方前先结束当前块，并在回复里说明（不静默重复已说过的话）；全部失败则回复以 `interrupted` 结束，任务进入 `waiting_ai`。
+
+### 13.4 外部 Agent（v2）
+
+将来接入的外部 Agent（第 12 节）大多只会输出文本：它们的输出整体作为 `markdown` 块流式下发；**适配器不从文本里推断金额、账户等业务事实**，也不生成组件。外部 Agent 想展示结构化内容，只能调用家簿提供的受控工具，由服务端按 13.2 生成块。
+
+## 14. 来源
 
 - OpenAI SIWC：https://developers.openai.com/siwc/ 、https://developers.openai.com/siwc/token-sharing-open-source 、…/models-and-inference 、…/preview-limitations 、https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt
 - 各厂商：platform.claude.com（OpenAI SDK 兼容层限制）、ai.google.dev/gemini-api/docs/openai 、api-docs.deepseek.com/guides/json_mode 与 /guides/vision 、docs.ollama.com/api/openai-compatibility 、阿里云百炼结构化输出文档、platform.kimi.ai/docs/guide/response_format

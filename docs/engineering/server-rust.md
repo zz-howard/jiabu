@@ -10,6 +10,7 @@
 4. **数据按“空间”隔离**：空间是独立账本（自己的资金账户、用途账户、记录、资料、聊天与 AI 对话）。所有业务行带 `space_id`，每个请求都先解析出当前用户在该空间的**活跃成员**身份，否则一律按“不存在”（404）处理；同步按空间分别维护游标。
 5. **其余全用业界常规零件**：tower-http（追踪、请求 ID、超时、压缩、请求体上限）、tracing、thiserror / anyhow、serde、validator、config、utoipa（导出 OpenAPI）、object_store（原图先存本地磁盘，以后可换 S3）、image（缩略图）。
 6. **发布与部署**：打 tag 后由 GitHub Actions 在原生 x86_64 / aarch64 runner 上构建，产出 GitHub Releases 二进制 + GHCR 多架构镜像；用 docker compose（服务端 + PostgreSQL 18）或 systemd 部署，**部署机不编译**。日常开发测试在 x86 Linux 构建机上进行。
+7. **聊天回复用 ChatWeave 协议（草案）**：服务端把 AI 结果确定性地映射成语义块（文字、记录卡、指标、表格、选项……），经 SSE 流式下发、`chat_entries` 持久化并同步；UI 动作经 ChatWeave 的 Action Registry，再由统一的 `authorize()` 把关。ChatWeave 是独立开源库，不含任何家簿概念（见 4.2）。
 
 ## 1. 技术栈总表
 
@@ -35,6 +36,7 @@
 | OpenAPI | utoipa **6.0.0** + utoipa-axum 0.3.0 + utoipa-scalar 0.4.0 | | ✅ | 代码即文档，导出 `openapi.json` 给客户端做契约测试 |
 | ID / 时间 / 金额 | uuid 1.29（v7）· chrono 0.4.45 · 金额 `i64` 分 | | ✅ | 客户端生成 UUIDv7 当记录 ID 兼幂等键 |
 | AI 层 | genai `=0.7.1` · async-openai 0.42 · oauth2 5 · schemars 1.2 · jsonschema 0.60 | | ✅ | 见 [AI 层设计](ai-layer.md) |
+| 聊天协议 | [ChatWeave](https://github.com/zz-howard/chatweave) 的 `chatweave-protocol`（块与事件类型、Schema 校验、限制）+ `chatweave-server`（流生成器、SSE 辅助、Action Registry） | 未发布；开发期 `[patch]` 路径依赖 | ✅ | 见 4.2 |
 | 后台任务 | Postgres 任务表 + `FOR UPDATE SKIP LOCKED` + `LISTEN/NOTIFY`（同进程 tokio 任务） | | ✅ | 入库与入队同一事务 |
 | 后台任务（备选） | apalis 1.0.0 + apalis-postgres 1.0.0 | 2026-10-12 刚发 1.0 | 🔶 | 任务种类变多时再评估 |
 | 对象存储 | object_store | **0.14.2** | ✅ | `LocalFileSystem` ↔ `AmazonS3` 同一 trait |
@@ -57,6 +59,7 @@ server/
 │  ├─ domain/                # 纯类型与规则：Record, Space, SpaceMember, Money, RecordEvent；无 IO
 │  ├─ db/                    # SeaORM 实体与仓储：records, accounts, sessions, idempotency, sync, ai_jobs
 │  ├─ ai/                    # ModelProvider trait、AiRouter、各适配器、校验
+│  ├─ chat/                  # ChatWeave 接入：业务结果 → 语义块映射、自定义块 Schema、事件日志与消息存储实现、动作处理器
 │  ├─ storage/               # object_store 封装 + 图片处理
 │  └─ api/                   # axum 路由、提取器、中间件、utoipa、AppError
 ├─ bins/
@@ -66,7 +69,7 @@ server/
 └─ deploy/                   # docker-compose.yml、Dockerfile、jiabu.service（systemd）
 ```
 
-依赖方向：`api → {db, ai, storage} → domain`。`domain` 不依赖任何 IO 库；`ai` 不暴露第三方库类型。
+依赖方向：`api → chat → {db, ai, storage} → domain`（`api` 也可直接用 `db` / `storage`）。`domain` 不依赖任何 IO 库；`ai` 不暴露第三方库类型；只有 `chat` 和 `api` 依赖 ChatWeave 的 crate。
 
 ### 2.1 workspace.dependencies 草案
 
@@ -98,7 +101,14 @@ object_store = "0.14"
 image = "0.25"
 infer = "0.22"
 tower_governor = "0.8"
+chatweave-protocol = { git = "https://github.com/zz-howard/chatweave", rev = "<提交>" }   # 发布后改版本号
+chatweave-server = { git = "https://github.com/zz-howard/chatweave", rev = "<提交>", features = ["axum"] }
 # AI 层依赖见 ai-layer.md
+
+# 开发期本机覆盖（写在开发者本机的 .cargo/config.toml，不入库）：
+# [patch."https://github.com/zz-howard/chatweave"]
+# chatweave-protocol = { path = "../../chatweave/rust/crates/chatweave-protocol" }
+# chatweave-server   = { path = "../../chatweave/rust/crates/chatweave-server" }
 ```
 
 feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑完全部集成测试。
@@ -141,7 +151,7 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 - **乐观并发**：更新带 `expected_version`，版本不符返回 409，客户端拉取最新版本后提示用户。
 - **请求 ID**：每个请求带 `X-Request-Id`（UUIDv7，客户端生成，离线重发沿用同一个）；服务端校验格式后沿用，没有才自己生成，并在响应头回传。
 - **统一错误格式**：RFC 9457 风格 `application/problem+json`：`{type, title, status, detail, request_id}`；内部错误只记日志不外泄细节。
-- **AI 解析异步化**：提交原话 / 图片后立即返回“待 AI 处理”状态；结果（记录草稿、追问、非记账回复）通过同步接口拉取。
+- **AI 解析异步化 + 流式回复**：提交原话 / 图片后立即返回“待 AI 处理”状态和这次回复的 `assistant_message_id`；客户端可订阅该消息的 SSE 流逐步显示；生成结束后最终消息写入 `chat_entries`，照常通过同步接口下发（**以同步版本为准**）。见 4.2。
 - **其他**：`/healthz` 健康检查；`/client-logs` 接收客户端日志；所有路径对反向代理子路径透明（服务端不感知前缀）。
 - Axum 默认请求体上限 2 MB（`DefaultBodyLimit`），图片上传路由单独调大（例如 20 MB）；手机 App 不需要 CORS。
 
@@ -155,6 +165,7 @@ let api = OpenApiRouter::new()
     .routes(routes!(records::create, records::list))
     .routes(routes!(records::update, records::void, records::move_to_space))
     .routes(routes!(sync::pull, sync::push))
+    .routes(routes!(chat::stream, chat::actions, chat::cancel))   // 4.2；stream 路由不套 TimeoutLayer
     .routes(routes!(blobs::upload, blobs::get));
 let (router, openapi) = api.split_for_parts();
 let app = router
@@ -165,6 +176,31 @@ let app = router
     .layer(CompressionLayer::new())
     .with_state(state);
 ```
+
+### 4.2 聊天流式接口与 UI 动作（ChatWeave，草案）
+
+聊天回复的格式是 ChatWeave 协议：一条消息 = 有序的语义块（文字、记录卡、指标、表格、选项……）+ 纯文本兜底。协议、事件和续传规则见 [ChatWeave 文档](https://github.com/zz-howard/chatweave)；这里只写家簿怎么接。
+
+| 接口 | 说明 |
+|---|---|
+| 提交原话（现有写入接口 / `POST /sync/push`） | 响应里增加 `assistant_message_id`；请求头 `ChatWeave-Capabilities` 声明客户端能渲染的块类型，存进 `ai_jobs` 供映射时参考 |
+| `GET /spaces/{space_id}/chat/messages/{message_id}/stream` | SSE 流（`text/event-stream`）。用 `chatweave-server` 的 Axum 辅助实现：`Last-Event-ID` 续传、15 秒心跳、无法重放时发快照。消息已完成时只发快照后关闭 |
+| `POST /spaces/{space_id}/chat/actions` | UI 动作（选项、确认、表单）。`Idempotency-Key` = 动作 ID；交给 ChatWeave 的 `ActionRegistry::dispatch()` |
+| `POST /spaces/{space_id}/chat/messages/{message_id}/cancel` | 停止生成：消息以 `interrupted` 结束，已产出的部分保留 |
+
+**授权**：三个接口都先经 `SpaceMember` 提取器，非成员一律 404；续传请求同样每次鉴权（`Last-Event-ID` 只是序号）。动作处理器的 `authorize` 调用统一的 `authorize(member, module, action)`（例如回答记账追问需要 `ledger` 的写权限），无权与不存在同样返回 404 等价的 `not_found`。ChatWeave 的宿主上下文 `Ctx` = `{ member, space_id, request_id }`；`ActionStore::load_block` 只按 `(space_id, message_id)` 加载，保证不能跨空间引用块。
+
+**v1 动作处理器**（在 `crates/chat` 中注册）：
+
+| target | 动作类型 | 做什么 | 破坏性 |
+|---|---|---|---|
+| `clarification.answer` | `choice.select` / `form.submit`（用户直接打字回答时走普通聊天消息，由服务端关联到待回答的追问块并把它标为已回答） | 把回答追加到 `ai_jobs.conversation`，任务改回 `queued`；返回 `accepted` 和下一条回复的 `followUp.messageId` | 否 |
+| `setup.submit` | `form.submit` | 首次设置补齐账户信息；校验后交给同一 AI 任务继续 | 否 |
+| `pending_operation.confirm` | `confirmation.respond` | 执行服务端暂存的待确认操作（v1 预留，基本不用；日常记账靠撤销而不是确认，P2） | 是 |
+
+记录卡上的“编辑 / 撤销”不是 ChatWeave 动作，仍走记录接口。
+
+**SSE 与部署**：反向代理必须关闭对该路由的响应缓冲（Caddy 的 `reverse_proxy` 对 `text/event-stream` 响应默认即时刷新，以其文档为准；其他代理需显式配置），超时不短于心跳间隔；该路由不套用 30 秒的 `TimeoutLayer`，改用“空闲超时”。
 
 ## 5. 数据模型与关键模式
 
@@ -223,6 +259,26 @@ create table blob_refs (sha256 bytea not null references blobs, space_id uuid no
   uploaded_by_member_id uuid not null references space_members, created_at timestamptz not null default now(),
   primary key (sha256, space_id));   -- 同一张图在两个空间各有一条引用，下载按引用所在空间鉴权
 -- 家庭资料（documents）、聊天会话（conversations）同样带 space_id + created_by_member_id
+create table chat_entries (id uuid primary key, space_id uuid not null references spaces,
+  conversation_id uuid not null, role text not null check (role in ('user','assistant','system')),
+  created_by_member_id uuid references space_members,     -- 用户消息的发送者；助手消息为空
+  ai_job_id uuid,                                         -- 产生这条助手回复的任务
+  protocol_version text not null,                         -- ChatWeave 协议版本，如 '0.1'
+  message jsonb not null,                                 -- ChatWeave 消息（块列表、状态）；入库前经 Schema 校验
+  fallback_text text not null,                            -- 纯文本兜底：通知、搜索、旧客户端
+  stream_status text not null check (stream_status in ('streaming','complete','interrupted','error')),
+  rev int not null default 0,                             -- 完成时 1，之后每次块状态变化 +1
+  last_seq int not null default 0,                        -- 最后一个流事件序号（快照需要）
+  module text not null, visibility jsonb,                 -- 回复涉及的模块（账本 / 资料），见决策清单待定问题 17
+  change_seq bigint not null, created_at timestamptz not null, updated_at timestamptz not null);
+create table chat_stream_events (message_id uuid not null, seq int not null, event jsonb not null,
+  created_at timestamptz not null default now(), primary key (message_id, seq));   -- 续传用的短期事件日志
+create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂等键
+  space_id uuid not null, message_id uuid not null, block_id text not null,
+  action_type text not null, target text not null, payload jsonb not null,
+  status text not null, result jsonb not null,
+  actor_member_id uuid not null references space_members, request_id uuid,
+  created_at timestamptz not null default now());          -- 只追加，兼作审计
 -- ai_jobs / ai_calls 见 ai-layer.md
 ```
 
@@ -238,6 +294,7 @@ create table blob_refs (sha256 bytea not null references blobs, space_id uuid no
 4. **余额**：余额由记录推导（开户余额 + 关联记录），一笔支出同时影响真实账户和用途账户、只计一次消费；月度拨入和逻辑调拨是独立记录类型，不算收入或消费。
 5. **空间隔离**：每行带 `space_id`；任何查询、统计、提示都不跨空间，不在一个空间里透露其他空间的数量、合计或线索。聊天记录与 AI 上下文按空间隔离，其他空间的内容绝不进入模型请求。账号级事件（登录、改密）只记 `user_id`，空间内事件记 `actor_member_id`。
 6. **跨空间移动记录**：用户手工把记错空间的记录移走，要求在源空间和目标空间都是活跃成员。同一事务内：源记录作废（`move_out`，写 `moved_to_record_id`）+ 在目标空间新建一条（`move_in`，写 `moved_from_record_id`），账户与用途须从目标空间的账户中重新选择；两条审计事件互相关联。AI 不会发起或建议移动。
+7. **聊天回复的流式与持久化**（ChatWeave）：AI worker 用 `chatweave-server` 的流生成器产生事件，每个事件**先写 `chat_stream_events` 再广播**给在线订阅者（进程内 `tokio::sync::broadcast`，慢订阅者被断开后自行续传）；`message.end` 时在**同一事务**里写入 `chat_entries` 最终消息（`rev = 1`，分配 `change_seq`）并更新 `ai_jobs` 状态。事件日志在消息结束 10 分钟后由清理任务删除。进程崩溃后，启动时把租约过期仍为 `streaming` 的消息用库的折叠函数从事件日志恢复，标 `interrupted` 并持久化。块状态变化（追问被回答）= 更新 `chat_entries.message`、`rev + 1`、新的 `change_seq`，经同步下发到所有成员的设备。
 
 ### 5.3 原图存储
 
@@ -261,6 +318,7 @@ create table blob_refs (sha256 bytea not null references blobs, space_id uuid no
 - **跨进 AI 任务**：`ai_jobs` 存 `origin_request_id`；worker 开新 span，带 `job_id`、`origin_request_id`、`provider_id`、模型名、重试次数、降级原因、耗时、token 用量。
 - **跨进审计**：`record_events.request_id` 可反查“这笔账是哪次操作改的”。
 - **错误回执带 ID**：错误响应带 `request_id`，App 错误提示和客户端日志也显示 / 记录它；用户截个图就能定位服务器日志。
+- **聊天流**：每个 SSE 连接一个 span，带 `request_id`、`space_id`、`message_id`、续传起点 seq、持续时间、断开原因；不记事件内容。动作请求带 `X-Request-Id`，写入 `chat_actions.request_id`。
 - **客户端日志同一套 ID**：`/client-logs` 每条带 `request_id`、App 版本、设备型号、系统版本。
 - **不记敏感内容**：只记 ID、元数据、耗时和错误类型；不记密码、令牌、记账原话、图片和模型完整回复。需要看原话时到库里按 ID 查。
 - **保留与查看**：日志按天滚动，保留 30 天；v1 用文件 + `jq`。以后要可视化再接 OpenTelemetry（`tracing-opentelemetry`），span 代码不用改。
@@ -269,6 +327,7 @@ create table blob_refs (sha256 bytea not null references blobs, space_id uuid no
 
 - `cargo nextest run`；集成测试连**真实 PostgreSQL 18**（本地用 testcontainers 0.28，CI 用 service 容器），每个测试使用独立的临时数据库并自动跑迁移。
 - **关键查询必须有集成测试**：幂等（重复提交、哈希不同 422、响应回放）、`ON CONFLICT`、`FOR UPDATE SKIP LOCKED` 并发取任务、change_seq 游标增量与墓碑、空间隔离（非成员对空间的任何请求都得 404；列表、同步、统计不含他人空间；退出后立即不可访问、重新加入复用同一成员行；跨空间移动的事务与审计关联）、嵌套事务（SeaORM 与 SQLx 一样用 SAVEPOINT 实现）。
+- 聊天流与动作：中途断开后带 `Last-Event-ID` 续传的结果与不断开一致；事件日志清理后得到快照；非成员 / 已退出成员对流、动作、取消接口一律 404；越权动作（无模块权限、指向其他空间的消息、选项不在块里、重复动作 ID）全部被拒或回放。
 - HTTP 级测试用 `axum-test`；SeaORM 的 `MockDatabase` 只用于快照生成的 SQL，不替代真库测试。
 - AI 适配器：wiremock 回放 + insta 请求体快照，见 [AI 层设计](ai-layer.md#9-测试策略)。
 - 静态检查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo deny check`（许可证 + 漏洞库）、`cargo audit`。
@@ -282,6 +341,7 @@ create table blob_refs (sha256 bytea not null references blobs, space_id uuid no
 - 新接口必须有 utoipa 注解和集成测试。
 - 金额只用 `i64` 分；时间一律 `timestamptz`。
 - 日志不得出现令牌、密码、原话。
+- 聊天块只能由 `crates/chat` 的映射函数生成并经 Schema 校验；不得从模型文本里抽取组件；动作处理器必须实现 `authorize` 并有越权测试。
 
 可参考 microsoft/rust-guidelines（MIT，含给 AI 的合并版 `src/agents/all.txt`）、rust-lang/api-guidelines、leonardomso/rust-skills（MIT，挑选规则拷贝）。**不安装**带钩子脚本的第三方 skills 插件（有的插件注册了几乎匹配所有提问的 UserPromptSubmit 钩子并执行 shell 脚本），只阅读参考。clippy 严格模式本身就是最好的“AI 规则”。
 
@@ -333,3 +393,5 @@ GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 servi
 | 4 | 手机上传 HEIC | 客户端统一转 JPEG 再上传 |
 | 5 | 以上代码片段未编译 | 以首次编译和 docs.rs 为准 |
 | 6 | 漏写空间过滤导致跨空间泄露 | 仓储层唯一入口 + 集成测试 + `AGENTS.md` 规则；RLS 作为可选第二道防线（待定） |
+| 7 | ChatWeave 尚在设计阶段、与家簿同步开发 | 开发期固定提交 + 本机 `[patch]`；家簿需要的能力以通用形式进库；家簿侧集成测试守住接口 |
+| 8 | SSE 被反向代理缓冲或切断 | 关闭缓冲、心跳、续传；最差情况由同步拿最终版本 |
