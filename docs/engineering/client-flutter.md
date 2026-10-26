@@ -261,8 +261,9 @@ final chatRegistry = BlockRegistry.withDefaults()
 - 记录卡块**只带 `recordId`**，`RecordCardBlock` 通过 Riverpod 从本机 `records` 表 `watch` 内容：编辑 / 撤销后卡片自动更新；记录尚未同步到时显示“记录同步中”骨架。卡上的“编辑 / 撤销”是普通的记录操作（走记录仓库与 outbox），**不是** ChatWeave 动作。
 - 用户消息不用 ChatWeave 的默认样式：通过 `userMessageBuilder` 画成家簿的便利贴，并显示离线状态（待上传 / 待 AI 处理，见设计规范 4.11）。
 - 主题：`JiabuChatWeaveTheme`（`app/lib/shared/chatweave/`），见设计规范 7.8。
+- **过程条**（AI 正在做什么，见设计规范 4.17）：能力声明里带 `stream.steps`，服务端据此在同一条流里发步骤事件；步骤由 ChatWeave 折叠进消息的 `steps`（与块分开，随 `message_json` 一起存在 `chat_entries`，不新增列），不进 `fallback_text`。外观用 `processStripBuilder` 换成 `JiabuProcessStrip`（`app/lib/shared/chatweave/`）；展开 / 收起是 ChatWeave 管理的本地显示状态，回答写完时自动收起一次，用户手动操作过就不再自动切换。“等你确认”一行点按后滚动到对应的确认卡 / 选项块。不在任何地方显示工具名、参数或原始数据（协议里本来就没有）。
 
-**测试**：适配器的仓库测试（真 drift 内存库：临时状态 / 同步版本对账、空间过滤、退出清除）；用 ChatWeave 的一致性夹具驱动聊天页的组件测试；4.16 各组件的 golden（两种空间强调色 × 两种宽度 × 两档字号）与几何断言（宽 332、0°）。
+**测试**：适配器的仓库测试（真 drift 内存库：临时状态 / 同步版本对账、空间过滤、退出清除、带 `steps` 的消息往返无损）；用 ChatWeave 的一致性夹具驱动聊天页的组件测试（含步骤夹具：并行、某步失败、等你确认、生成中停止、步骤中途断线续传）；过程条的 golden 与几何断言（设计规范 4.17 / 7.8）；4.16 各组件的 golden（两种空间强调色 × 两种宽度 × 两档字号）与几何断言（宽 332、0°）。
 
 ## 5. 日志与崩溃
 
@@ -409,6 +410,7 @@ client/                                  # pub workspace 根
         overview/  history/  auth/  spaces/  lock/
       shared/                            # 跨 feature 的业务组件：RecordCard, RecordRow, EditRecordSheet, TimeLabel
         chatweave/jiabu_chatweave_theme.dart   # ChatWeave 主题接口的手账实现（只引用令牌）
+        chatweave/jiabu_process_strip.dart     # 过程条的手账外观（设计规范 4.17）
     test/  test/fixtures/sample_data.dart
     integration_test/
     goldens/ goldens/reference/          # 冻结的参考截图集（只读）

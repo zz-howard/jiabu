@@ -11,6 +11,7 @@
 5. **计费红线**：不把按量付费的 API key 作为默认，也不在订阅额度耗尽或接入失败时自动切到付费提供方；付费备选只有显式开启才会被使用。全部失败时任务进入 `waiting_ai`，稍后重试，绝不丢数据。
 6. **Rig 不采用**：框架面太大、近 6 个月 10 个破坏性小版本、普通 OpenAI 配置只收静态 key、没有 namespace 工具，其内置 `chatgpt` provider 走的是非官方的 ChatGPT `backend-api`。
 7. **回复 = 语义块，流式下发（草案）**：模型的文字输出逐步流给客户端；结构化部分（记录草稿、追问、问数）由服务端**确定性地映射**成 [ChatWeave](https://github.com/zz-howard/chatweave) 语义块，数字来自服务端的真实查询而不是模型。v1 没有 UI Agent。见第 13 节。
+8. **过程看得见（运行步骤）**：每个工具声明自己的步骤说明（和可选的一行结果说明），Agent 循环在工具调用和 `ask_user` 前后发出 ChatWeave 的步骤事件，客户端在回复顶部显示“过程”条。不下发工具名、参数和原始结果；模型的推理 / 思考文字从不下发也不保存。见 13.5。
 
 ## 1. 设计原则
 
@@ -242,6 +243,7 @@ create table ai_calls (
 - 每次模型调用写一行，用于比较提供方质量、延迟和成本，也可经任务的发起成员关联到内部用户 ID，统计共享订阅的用量。
 - worker span 带 `job_id`、`origin_request_id`、`provider_id`、模型名、重试次数、降级原因、耗时、token 用量。
 - 日志不记原话、图片和模型完整回复。
+- 每个运行步骤（13.5）在 worker span 里记一条子 span：工具名、耗时、结果状态（成功 / 失败 / 等用户 / 已停止）、错误类别；不记参数和结果内容。工具名只出现在服务端日志里，不下发给客户端。
 
 ## 9. 测试策略
 
@@ -281,7 +283,7 @@ insta = { version = "1.49", features = ["json"] }
 
 当前接口是“单次解析 + 追问”。后续可能需要“主 Agent 带工具”（例如查余额、查历史、调拨）乃至外部 Agent 接入。**分期尚未确定**，当前提议：
 
-- **v1**：持久化澄清（第 6 节的 Postgres 状态表）+ 单个主 Agent 带工具。Agent 循环在 genai / async-openai 之上自写（“调用模型 → 有工具调用则执行 → 回填结果 → 循环；遇到 `ask_user` 就挂起”，估 300–600 行），状态放 Postgres，工具执行前同样经过空间成员与业务校验。工具在服务端绑定任务的 `space_id`：工具参数里没有 `space_id`，模型无法指定或切换空间，查余额、查历史等也只能看到当前空间。
+- **v1**：持久化澄清（第 6 节的 Postgres 状态表）+ 单个主 Agent 带工具。Agent 循环在 genai / async-openai 之上自写（“调用模型 → 有工具调用则执行 → 回填结果 → 循环；遇到 `ask_user` 就挂起”，估 300–600 行），状态放 Postgres，工具执行前同样经过空间成员与业务校验。工具在服务端绑定任务的 `space_id`：工具参数里没有 `space_id`，模型无法指定或切换空间，查余额、查历史等也只能看到当前空间。每个工具还声明自己在“过程”条上的步骤说明，循环在每次工具调用和 `ask_user` 前后发出步骤事件（13.5）。
 - **v2**：外部 Agent 网关（例如接入 Claude Code 等通用编程 / 助手类 Agent）。
 - 不引入 Rig 的 `AgentRun` 作为持久状态（其 0.44 版本改过序列化格式，旧数据无法加载）；Temporal / Restate 等持久工作流引擎对两人应用过重。
 
@@ -320,10 +322,54 @@ insta = { version = "1.49", features = ["json"] }
 - genai 接入的提供方：支持流式的同样处理；不支持的在结束时一次性发出文字，客户端只是看不到逐字效果。
 - 记账解析（`parse_entry`）仍是一次结构化调用；它产出的回复很短，直接按 13.2 生成块，不需要逐字。
 - 链上降级发生在流开始之后时：已发出的文字保留，换下一个提供方前先结束当前块，并在回复里说明（不静默重复已说过的话）；全部失败则回复以 `interrupted` 结束，任务进入 `waiting_ai`。
+- **推理内容一律丢弃**：提供方返回的推理 / 思考内容（例如 Responses API 的 reasoning 条目或推理摘要、其他厂商的 thinking 字段）在适配器里直接丢掉，`TurnEvent` 没有对应的变体；它不进流、不进 `chat_entries`、不进日志，也不用来生成步骤说明。
 
 ### 13.4 外部 Agent（v2）
 
 将来接入的外部 Agent（第 12 节）大多只会输出文本：它们的输出整体作为 `markdown` 块流式下发；**适配器不从文本里推断金额、账户等业务事实**，也不生成组件。外部 Agent 想展示结构化内容，只能调用家簿提供的受控工具，由服务端按 13.2 生成块。
+
+### 13.5 运行步骤（“过程”条）
+
+客户端在每条回复顶部显示一条“过程”：生成中逐行显示 AI 正在做的事，回答写完后自动收起成一行（产品规则见[需求 · 聊天回复](../product/requirements.md#聊天回复文字与组件混排逐步显示)，外观见[设计规范 4.17](../design/design-spec.md#417-过程条ai-正在做什么)）。服务端用 ChatWeave 的步骤事件 `step.started` / `step.finished` 产出它（事件与 AG-UI 1.0 的 `STEP_STARTED` / `STEP_FINISHED` 对齐，协议细节见 ChatWeave 文档）。
+
+**每个工具声明自己的步骤说明**：
+
+```rust
+// crates/ai —— Agent 循环里的工具（草图，未编译）
+#[async_trait::async_trait]
+pub trait AgentTool: Send + Sync {
+    fn name(&self) -> &'static str;                          // 给模型看的工具名；只进服务端日志，不下发
+    fn parameters(&self) -> &serde_json::Value;              // 参数 JSON Schema
+    /// 过程条上的一句说明（≤ 60 字），服务端按固定模板生成，例如“查本月餐饮支出”。
+    /// 只能填入已经过 authorize() 的整理后名称（账户名、标签名、“本月 / 上月”这类期间），
+    /// 不得直接拼接模型给的原始参数。
+    fn step_label(&self, args: &ValidatedArgs, ctx: &JobCtx) -> StepLabel;
+    /// 可选的一行结果说明（≤ 120 字），例如“找到 23 笔”“暂时查不到”；默认不给。
+    fn step_summary(&self, outcome: &ToolOutcome) -> Option<StepSummary> { None }
+    async fn execute(&self, args: ValidatedArgs, ctx: &JobCtx) -> ToolOutcome;
+}
+```
+
+v1 工具与步骤说明（示例；工具清单随 Agent 运行时分期确定，见第 12 节）：
+
+| 工具 | 步骤说明 | 结果说明（可选） |
+|---|---|---|
+| `query_stats` | 查本月餐饮支出 / 对比上月 | 找到 23 笔 |
+| `query_balance` | 查教育用途余额 | — |
+| `search_records` | 查找相关记录 | 找到 5 条 |
+| `search_documents` | 查找视力检查资料 | 找到 3 次检查 |
+| `ask_user` | 确认用哪张卡付的 / 确认要不要调拨 | — |
+| 记账解析 `parse_entry`（单次结构化调用） | 整理这笔记录 / 识别照片里的信息 | — |
+
+**循环怎么发事件**（ChatWeave 的流生成器负责 `seq`、耗时和事件日志）：
+
+1. 模型给出完整的工具调用 → 参数校验通过后，`step.started{label: step_label(...)}` → 执行（同样经过 `authorize()`）→ `step.finished{state: succeeded | failed, summary: step_summary(...)}`。模型一次给出多个工具调用时并行执行，各自一个步骤。
+2. **失败只影响这一步**：工具出错、超时或被 `authorize()` 拒绝 → 这一步 `failed`（结果说明用模板，如“暂时查不到”），错误作为工具结果回填给模型，让它在回答里说明哪部分没查到；其他步骤和回答照常。整轮是否失败仍按第 7 节的降级规则判断。
+3. **`ask_user`**：映射出选项 / 确认块（13.2）后，发 `step.finished{state: awaiting_user, blockId: 该块}`，循环挂起（`ai_jobs.status = waiting_user`），回复正常结束。用户回答后继续执行的是新一轮回复（动作结果里的 `followUp`），有自己的步骤。
+4. **停止**：用户点“停止”时，仍在运行的步骤记为 `cancelled`，再结束回复（`interrupted`）。崩溃恢复时仍在运行的步骤记为 `failed`。
+5. **单次解析路径**（`parse_entry`）：图片或较长的输入发一个步骤（如“识别照片里的信息”）；很短的文字记账可以不发步骤，回复里就没有过程条。
+6. **不下发**工具名、参数、原始查询结果和模型的推理文字。步骤说明和结果说明只用当前空间、当前成员有权看到的数据生成；对话是一对一的，过程只有发起者本人看得到。
+7. **持久化**：回复结束时，ChatWeave 把精简的步骤记录（说明、最终状态、耗时、可选的结果说明）随消息存进 `chat_entries.message` 的 `steps` 字段，与内容块分开，不进纯文本兜底；不新增表。
 
 ## 14. 来源
 

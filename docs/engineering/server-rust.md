@@ -200,6 +200,8 @@ let app = router
 
 记录卡上的“编辑 / 撤销”不是 ChatWeave 动作，仍走记录接口。
 
+**运行步骤**（回复顶部的“过程”条）：AI worker 在工具调用和 `ask_user` 前后用流生成器发 ChatWeave 的步骤事件（每个工具的步骤说明见 [AI 层 13.5](ai-layer.md#135-运行步骤过程条)）。步骤事件和块事件一样写 `chat_stream_events`、续传重放；回复结束时精简的步骤记录随消息存进 `chat_entries.message` 的 `steps` 字段，不新增表或列。工具名、参数、原始结果和模型的推理文字不进事件、不进 `chat_entries`。
+
 **SSE 与部署**：反向代理必须关闭对该路由的响应缓冲（Caddy 的 `reverse_proxy` 对 `text/event-stream` 响应默认即时刷新，以其文档为准；其他代理需显式配置），超时不短于心跳间隔；该路由不套用 30 秒的 `TimeoutLayer`，改用“空闲超时”。
 
 ## 5. 数据模型与关键模式
