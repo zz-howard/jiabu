@@ -16,6 +16,7 @@
 10. **问用户分两种**：运行中途要用户确认或回答（`ask_user`、执行前需要确认的操作）是**中断**——同一条回复暂停，用户的回答是这一步的结果（不是一条新的聊天消息），回答后**同一条回复**接着做完；回答已经写完、最后带一个问题时，用户的回复是新消息、AI 的是新回复。见 13.5。卡片等待回答时输入框锁定，每张中断卡固定多一个“输入其他内容”。
 11. **持久执行自写在 PostgreSQL 里**：每次运行一行状态 + 一份只追加的步骤日志；暂停 = 写好后结束这次执行（没有线程在等），回答 = 重新排队，恢复时读日志、已完成的工具绝不重做；会改数据的工具和日志在同一个事务里，做到恰好一次。见第 14 节。
 12. **按缓存命中来组织请求**：固定顺序（静态指令 → 工具 → 空间上下文 → 历史 → 本轮输入 → 本次运行的步骤）、每次运行冻结提示词快照、确定性序列化、加密推理数据原样回放，让工具循环和及时回答后的恢复都能命中提示词缓存；长暂停接受一次未命中。见第 15 节。
+13. **配置和计量交给管理能力**：提供方、模型、每类任务的路由和官方价格表存在数据库里，经管理 API 或 `admin` 命令修改，改完即时生效（第 7 节）。每次模型调用都写一行计量（成功、失败都写），带空间、成员、API key 归属和所用的价格行；每一步只记操作类别和耗时，不记内容，供管理侧按空间 / 成员 / 提供方 / 模型统计用量和成本（第 8 节）。
 
 ## 1. 设计原则
 
@@ -117,6 +118,8 @@ pub enum ProviderError {
 
 SIWC 只有浏览器 + 本机回环回调，没有设备码流程。按官方“Self-hosted VMs”指南：在本地电脑上用 `admin` 命令完成登录，再经 SSH 等安全通道把凭据文件转移到服务器；服务器使用自己的 `ext_agent_host_id`，自行负责后续刷新。也可以用 SSH 端口转发在服务器上直接完成登录。官方说明：被转移会话的“按主机用量归属与吊销”暂不可用。
 
+**网页管理控制台做不了这个登录**：回调地址只能是发起登录那台机器的回环地址，而控制台跑在服务器上、管理员的浏览器在自己的电脑上，回调到的是管理员电脑的 localhost，控制台收不到；动态注册的客户端也不能把回调改成控制台的网址。所以登录只在 `admin provider login chatgpt` 里做，管理 API 只提供登录状态、令牌到期时间和最近一次刷新结果（[服务端 9.7](server-rust.md#97-chatgpt-订阅的登录只在命令行)）。
+
 ### 4.4 接入验证清单（实现 `SiwcProvider` 时逐项通过）
 
 1. 登录拿到含 `chatgpt.tokens.use.direct` 的令牌；`GET /v1/models` 查看账号可用模型。
@@ -154,11 +157,15 @@ AI 处理是异步的**运行**（run）：一条助手回复从开始到结束�
 - 回答已经写完、最后问一句（例如“要不要把它设成每月固定支出？”）不是中断：那条回复已经结束，用户的回复是一条新消息，开始新的一轮。
 - 链上全部提供方失败 → `waiting_ai`，按 `run_after` 退避重试（14.8）；用户也可以手工补录。
 - worker 本身无状态：每次领取都从库里读出运行行和 journal。空间上下文在运行开始时按 `space_id` 渲染一次、记进 journal（缓存需要，15.2）；每次领取仍重新确认发起成员是活跃成员——已退出则运行 `failed`（原因“空间不可用”），不写入。
+- **通过个人 API key 发起的运行**（[服务端 3.3](server-rust.md#33-个人-api-key)）：`agent_runs.api_key_id` 记下是哪个 key；每次领取同样确认这个 key 仍然有效（未撤销、未过期、账号未停用、空间仍在 key 的范围内），否则 `failed`（“API key 已失效”）。写入工具把 `api_key_id` 带进 `record_events`，界面上显示“通过 API key：名称”。
+- **只读运行**（只读 key 发起，`agent_runs.read_only = true`）：工具清单只保留 `effect = 'read'` 的工具和 `ask_user`，指令里多一句“这次只能查看，不能记账或修改”；用户要求写入时模型说明做不到。工具清单不同，提示词快照也不同（15.2）。
 
 ## 7. 路由、降级与计费策略
 
+**配置存在数据库里**（v0.13 起）：提供方、模型、路由、策略和价格表存在 `ai_providers`、`ai_models`、`ai_routes`、`ai_settings`、`ai_prices` 表里（[服务端 9.5](server-rust.md#95-表结构管理侧草案)），由管理 API 或 `admin` 命令修改；下面的 TOML 是首次导入（`admin ai import`）和导出备份用的格式，字段一一对应。路由按**任务类型**分：`chat`（对话 Agent）、`parse_entry`（文字记账）、`parse_entry_image`（图片识别，只挑支持视觉的模型）、`document_extract`（资料整理）；每类一个有序列表，第一个是默认模型，其余按顺序降级。
+
 ```toml
-# config/ai.toml（凭据只写环境变量名或文件路径变量名，不写值）
+# config/ai.toml —— 导入 / 导出格式（凭据只写环境变量名或文件路径变量名，不写值）
 [[provider]]
 id = "chatgpt"
 kind = "siwc"
@@ -228,27 +235,51 @@ as_of = "<核对日期>"
 
 - 每个提供方一个熔断器（连续失败 N 次冷却 M 分钟）。
 - **降级永远不越过 `billing` 策略**：订阅 / 本地失败后，只有 `allow_paid_fallback = true` 才会尝试付费提供方。
-- **热切换**：配置文件变更后重新加载 `AiRouter`（`ArcSwap`），无需重启；已在跑的任务不受影响。
+- **热切换**：管理侧每次改配置都在同一事务里把 `ai_settings.config_version` 加一并 `NOTIFY ai_config`；服务端收到后从库里重建 `AiRouter` 并用 `ArcSwap` 替换，无需重启（另每 60 秒比对一次版本号兜底）。已在跑的运行不受影响：它的提示词快照里记着模型和参数，下一次调用才按新路由选提供方（降级本来就会换提供方，14.10）。
+- **密钥**：提供方的 API key 可以经管理 API 录入（加密存库，只写不读），也可以继续用环境变量或文件（[服务端 9.6](server-rust.md#96-密钥加密)）。`AiRouter` 构造客户端时在进程内解密，密钥不进日志。
 
 ## 8. 可观测
 
 ```sql
 create table ai_calls (
   id bigint generated always as identity primary key,
-  run_id uuid not null, provider_id text not null, model text not null,
+  run_id uuid,                                               -- 管理侧的测试调用（probe）为空
+  space_id uuid, member_id uuid, user_id uuid, api_key_id uuid,   -- 归属：冗余存一份，统计时不用联查业务表
+  task_kind text not null,                                   -- chat | parse_entry | parse_entry_image | document_extract | probe
+  provider_id text not null, model text not null,
   structured_mode text not null, latency_ms int, input_tokens int, output_tokens int,
   cached_input_tokens int, cache_write_tokens int,           -- 提示词缓存读取 / 写入（第 15 节）
   call_kind text not null,                                   -- first | continue | resume | retry
   since_prev_call_ms bigint, prefix_hash bytea,              -- 距本运行上一次调用的时间；静态前缀 + 上下文的哈希
   cache_miss_reason text,                                    -- 提供方给出的未命中原因（有时才记）
-  cost_usd numeric(12,6), price_as_of date,                  -- 按官方 API 标价折算的成本（订阅也算）及所用价格的核对日期
+  cost_usd numeric(12,6), price_id uuid, price_as_of date,   -- 按官方 API 标价折算的成本（订阅也算）、所用价格行及其核对日期
   cache_saving_usd numeric(12,6),                            -- 缓存读取 token ×（输入价 − 缓存价）− 缓存写入的加价
   outcome text not null, error_kind text, at timestamptz not null default now()
 );
+create index ai_calls_at on ai_calls (at);
+create index ai_calls_space_at on ai_calls (space_id, at);
+
+-- 每一步只记“哪一类操作、结果、耗时”，供管理侧的运行明细使用；不记步骤说明、参数和结果内容
+create table ai_step_meters (
+  run_id uuid not null, step_no int not null,
+  step_kind text not null,          -- 固定目录：query_stats → “查询统计”，query_balance → “查询余额”，search_records → “搜索记录”，
+                                    -- search_documents → “搜索资料”，write_record → “写入记录”，ask_user → “询问用户”，parse_entry → “整理记录”…
+  status text not null,             -- succeeded | failed | awaiting_user | cancelled
+  started_at timestamptz not null, duration_ms int,   -- 不含等待用户的时间
+  primary key (run_id, step_no)
+);
 ```
 
-- 每次模型调用写一行，用于比较提供方质量、延迟和成本，也可经任务的发起成员关联到内部用户 ID，统计共享订阅的用量。
-- 每次调用的成本、缓存省下的金额按第 7 节的价格表折算（订阅提供方同样折算），按运行、按成员、按提供方汇总。
+**计量规则**：
+
+- **每次提供方调用结束就写一行 `ai_calls`**，不论成功、失败还是被降级跳过之后的重试；不和 journal 放在同一个事务里——调用失败、`model_turn` 没提交，钱也已经花了，照样要记。进程在流式输出中途崩溃时拿不到用量，这次调用记为 `outcome = 'lost'`、token 为空（数量很少，看板单独显示）。
+- **归属**：`space_id`、`member_id`、`user_id`、`api_key_id`、`task_kind` 在写入时从运行行复制过来；管理侧统计只读 `ai_calls`，不需要也没有权限联查业务表（[服务端 9.2](server-rust.md#92-管理侧看不到内容三层保证)）。
+- **价格**：按调用时刻取该模型 `effective_from` 不晚于调用时间的最新价格行，把成本、缓存省下的金额和 `price_id` 一起写进这一行；以后改价不重算历史。找不到价格时 `cost_usd` 为空、照常调用并告警，管理侧把它们单独计数。
+- **步骤**：Agent 循环在发 ChatWeave 步骤事件（13.5）的同时写 `ai_step_meters`；`step_kind` 由工具声明（`AgentTool::step_kind()`，取自固定目录），**不是** `step_label`——后者会带账户名、标签名，属于内容，只进 `chat_entries`。
+- **测试调用**（管理侧“测试连接”）：`task_kind = 'probe'`，不归属任何空间。
+
+- 每次模型调用写一行，用于比较提供方质量、延迟和成本，并按空间、成员、内部用户 ID、API key 统计共享订阅的用量。
+- 每次调用的成本、缓存省下的金额按第 7 节的价格表折算（订阅提供方同样折算），按运行、空间、成员、提供方、模型、日 / 月汇总；汇总经管理 API 与 `admin usage` 提供（[服务端 9.4](server-rust.md#94-接口清单adminv1)），v1 直接查 `ai_calls`（有时间与空间索引），量大了再加按日的汇总表。
 - 缓存命中率按 `call_kind` 统计；“暂停后恢复、距上次调用小于缓存有效期、却没命中”应为 0（15.5）。
 - worker span 带 `run_id`、`origin_request_id`、`provider_id`、模型名、重试次数、降级原因、耗时、token 用量。
 - 日志不记原话、图片和模型完整回复。
@@ -367,6 +398,10 @@ pub trait AgentTool: Send + Sync {
     fn step_label(&self, args: &ValidatedArgs, ctx: &JobCtx) -> StepLabel;
     /// 可选的一行结果说明（≤ 120 字），例如“找到 23 笔”“暂时查不到”；默认不给。
     fn step_summary(&self, outcome: &ToolOutcome) -> Option<StepSummary> { None }
+    /// 操作类别（固定目录里的一项，如 StepKind::QueryStats），只用于计量（第 8 节 ai_step_meters），不带任何内容。
+    fn step_kind(&self) -> StepKind;
+    /// read | local_write | external（14.5）；只读运行只保留 read 工具（第 6 节）。
+    fn effect(&self) -> Effect;
     async fn execute(&self, args: ValidatedArgs, ctx: &JobCtx) -> ToolOutcome;
 }
 ```
@@ -420,6 +455,7 @@ v1 工具与步骤说明（示例；工具清单随 Agent 运行时分期确定�
 create table agent_runs (
   id uuid primary key default uuidv7(),
   space_id uuid not null, member_id uuid not null,             -- 发起成员；每次领取都重新校验仍是活跃成员
+  api_key_id uuid, read_only boolean not null default false,   -- 经个人 API key 发起时（第 6 节）；只读 key 的运行只带只读工具
   conversation_id uuid not null,
   assistant_message_id uuid not null,                           -- ChatWeave 消息 ID（暂停 / 继续都是这一条）
   parent_run_id uuid references agent_runs, parent_call_id text, -- 子 Agent（以后）；v1 为空
@@ -637,7 +673,7 @@ journal 存的是**数据**，不是“代码执行到第几行”，所以服�
 ### 15.2 前缀稳定规则
 
 1. **请求的固定顺序**：①静态指令（SIWC 的 `instructions` / 其他提供方的 system）→ ②工具定义 → ③空间上下文（账户、标签、成员等）→ ④会话历史 → ⑤本轮用户输入 → ⑥本次运行的 journal 条目。**易变的东西只往后放**：当前日期时间放在⑤，不放进①或③。
-2. **每次运行冻结一份提示词快照**（`agent_prompt_snapshots`）：开始时把渲染好的指令、工具清单（固定顺序、含 schema）、模型、推理强度、verbosity、结构化输出格式存成快照，本次运行的每次调用（包括恢复后）都用它。空间上下文只在运行开始时渲染一次，存成 journal 的第一条（`context`）；运行中途工具改了空间数据，模型从工具结果里知道，不重新渲染。只有 `agent_def_version` 变了才换快照（14.10）。
+2. **每次运行冻结一份提示词快照**（`agent_prompt_snapshots`）：开始时把渲染好的指令、工具清单（固定顺序、含 schema）、模型、推理强度、verbosity、结构化输出格式存成快照，本次运行的每次调用（包括恢复后）都用它。只读运行（第 6 节）的工具清单不同，是另一份快照，缓存与普通运行分开，但只读运行之间照样共用。空间上下文只在运行开始时渲染一次，存成 journal 的第一条（`context`）；运行中途工具改了空间数据，模型从工具结果里知道，不重新渲染。只有 `agent_def_version` 变了才换快照（14.10）。
 3. **工具定义里不放动态数据**：例如不把本空间的账户名做成参数的 `enum`，否则每改一个账户，所有会话从工具定义起全部失效。账户名单放在③。
 4. **确定性序列化**：请求由纯函数 `render_request(快照, journal, 历史, 提供方)` 生成；不用 `HashMap`，JSON 字段顺序固定；工具调用参数保存模型给出的原始字符串并原样回放；加密推理数据原样回放（14.9）；图片只在入库时压缩一次，之后引用同一份字节，不重新压缩。
 5. **运行内不截断、不压缩**：journal 只追加；不用提供方的服务端压缩（会被记为 compaction 未命中）；运行长度由 14.8 的预算约束。

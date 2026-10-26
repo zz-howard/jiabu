@@ -151,6 +151,22 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | 模块权限（预留） | 服务器下发本人在当前空间各模块的级别；界面只显示有权限的模块，无权模块不出现入口、数量或提示。同步只拉有权限的模块；权限被收回时按“退出空间”同一套逻辑清除本机对应数据。v1 所有成员默认全开 |
 | 隔离测试 | 组件测试和仓库测试覆盖：切换空间后不出现其他空间的记录、资料、聊天、数量和合计；退出空间后本地数据被清除 |
 
+### 3.6 设置、账号与个人 API key
+
+产品规则见[需求 · 个人 API key](../product/requirements.md#个人-api-key)，外观见[设计规范 4.19 / 4.20](../design/design-spec.md#419-设置与个人-api-key)，服务端接口见[服务端 3.3](server-rust.md#33-个人-api-key)。
+
+| 项 | 我们怎么定 |
+|---|---|
+| 入口 | 三个主界面顶栏右侧的“我”入口 → `SettingsScreen`（go_router 普通路由，不进底部三栏）：账号（用户名、改密码）、应用锁、API key、关于与开源许可 |
+| 只在线 | API key 的列表、创建、改名、撤销都**只在线**：`ApiKeysRepository` 直接调 `/me/api-keys`，不进 outbox，不缓存进 drift（列表每次进入页面时拉取，离线时显示“需要联网”）。原因：明文只在创建响应里出现一次，排队重发拿不到；撤销必须马上生效，不能“已排队” |
+| 明文只在内存里 | 创建响应里的明文只放在“只显示一次”弹层的 ViewModel 状态里，弹层关闭即丢弃：不写 drift、不写 shared_preferences / flutter_secure_storage、不进日志和崩溃上报、不进 `Result` 的错误信息。dio 拦截器的日志对 `/me/api-keys` 的响应体一律不记 |
+| 防截屏与剪贴板 | “只显示一次”弹层打开期间设置 `FLAG_SECURE`（与应用锁共用 4.6 的平台通道，弹层关闭后恢复原状）；复制时经平台通道给剪贴板内容加 `ClipDescription.EXTRA_IS_SENSITIVE`（Android 13+ 的系统剪贴板预览不显示内容），低版本照常复制 |
+| 幂等 | 创建请求照常带 `Idempotency-Key`；重放时服务端只说“已创建”、不再给明文，界面提示“这个 key 已创建，但明文已无法再显示，请撤销后重建” |
+| 创建表单 | 名称（必填）；有效期 7 / 30 / 90（默认）/ 365 天 / 永不过期；权限只读 / 可读写；空间从本地 `spaces` 表多选（默认当前空间，至少一个）。只列本人在册的空间 |
+| “通过 API key”标注 | 同步下来的记录变更事件带 `via_api_key_name`，本机 `record_events` 增加同名列；记录卡、详情的记录人和变更记录、历史行按设计规范 4.20 显示。这是普通的同步数据，不需要额外请求 |
+| 改密码与临时密码 | 登录响应为“需要改密码”时进入 `ChangePasswordScreen`（只有这一页可用，返回键退出登录）；收到 401（会话被管理员撤销、账号停用、密码被重置）时按现有逻辑停下 outbox、回到登录页，本机数据保留，用同一账号登录后继续同步 |
+| 测试 | ViewModel 单元测试（创建 → 只显示一次 → 关闭后状态里不再有明文；离线时不可创建；撤销失败回滚显示）；组件测试（永不过期的风险提示、至少选一个空间、复制后按钮状态）；golden（列表含有效 / 已撤销 / 已过期、新建弹层、只显示一次弹层、详情、撤销确认）；仓库测试断言 drift 和日志里找不到 `jiabu_pat_` 字样 |
+
 ## 4. UI 系统
 
 ### 4.1 主题
@@ -410,12 +426,14 @@ client/                                  # pub workspace 根
         chat/{chatweave_store.dart, sse_transport.dart, chat_action_transport.dart}   # ChatWeave 接口的家簿实现（4.7）
         db/{tables.dart, daos/, database.dart, migrations/}
         api/{api_client.dart, interceptors/, dto/}
-        repositories/{records_repository.dart, chat_repository.dart, overview_repository.dart, auth_repository.dart, spaces_repository.dart}
+        repositories/{records_repository.dart, chat_repository.dart, overview_repository.dart, auth_repository.dart, spaces_repository.dart, api_keys_repository.dart}
         services/app_lock_service.dart   # local_auth、PIN / 图案哈希、FLAG_SECURE 平台通道
+        services/secure_clipboard_service.dart   # 复制 API key：带 EXTRA_IS_SENSITIVE（3.6）
         sync/{outbox_processor.dart, sync_triggers.dart, background_sync.dart}
       features/
         chat/{view/chat_screen.dart, view_model/chat_view_model.dart, widgets/, blocks/}   # blocks/：record_card_block 等自定义块组件
         overview/  history/  auth/  spaces/  lock/
+        settings/{view/settings_screen.dart, api_keys/, account/}   # 3.6
       shared/                            # 跨 feature 的业务组件：RecordCard, RecordRow, EditRecordSheet, TimeLabel
         chatweave/jiabu_chatweave_theme.dart   # ChatWeave 主题接口的手账实现（只引用令牌）
         chatweave/jiabu_process_strip.dart     # 过程条的手账外观（设计规范 4.17）
@@ -433,6 +451,7 @@ client/                                  # pub workspace 根
 4. 数据层：drift + outbox + dio + 登录，对接服务端。
 5. 总览、历史。
 6. 空间管理（新建、改名、成员、邀请、移除、退出、移动记录）与应用锁。
+7. 设置页：改密码、个人 API key（列表、创建、只显示一次、撤销）、“通过 API key”标注。
 
 ## 9. 构建与发布
 

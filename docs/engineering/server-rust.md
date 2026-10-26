@@ -12,6 +12,8 @@
 6. **发布与部署**：打 tag 后由 GitHub Actions 在原生 x86_64 / aarch64 runner 上构建，产出 GitHub Releases 二进制 + GHCR 多架构镜像；用 docker compose（服务端 + PostgreSQL 18）或 systemd 部署，**部署机不编译**。日常开发测试在 x86 Linux 构建机上进行。
 7. **聊天回复用 ChatWeave 协议（草案）**：服务端把 AI 结果确定性地映射成语义块（文字、记录卡、指标、表格、选项……），经 SSE 流式下发、`chat_entries` 持久化并同步；UI 动作经 ChatWeave 的 Action Registry，再由统一的 `authorize()` 把关。ChatWeave 是独立开源库，不含任何家簿概念（见 4.2）。
 8. **AI 运行可以暂停几天**：持久执行自写在 PostgreSQL 里（运行行 + 只追加的步骤日志），不引入 Temporal 等引擎；暂停时没有线程在等，崩溃后从日志接着做，会改数据的工具与日志同一事务、恰好一次（见 [AI 层第 14 节](ai-layer.md#14-持久执行暂停恢复与崩溃)）。
+9. **管理能力单独一个入口，碰不到内容**：带版本号的管理 API（`/admin/v1`）只在本机 Unix 套接字上监听，用 `admin` 命令创建的管理服务令牌访问；只管账号、AI 提供方 / 模型 / 价格和用量计量。**没有任何返回账本或聊天内容的接口**，由 crate 依赖边界、独立的数据库角色（列级授权）和测试三层保证。自己部署的人用 `admin` 命令完成同样的事（同一套服务层）。图形化的管理控制台是单独的服务，不在本仓库，本仓库也不依赖它（第 9 节）。
+10. **个人 API key**：用户在 App 里创建，以本人身份调用公开 API（包括 AI 对话和回答追问）；权限 = 本人权限 ∩ key 的范围（只读 / 读写、勾选的空间）。只存 SHA-256，固定前缀 `jiabu_pat_` 便于密钥扫描，按 key 限流，所有操作标注“通过 API key”（3.3）。key 进不了管理 API。
 
 ## 1. 技术栈总表
 
@@ -28,7 +30,9 @@
 | 特殊查询 | sea-query（SeaORM 内置）/ 原生 SQL（`Statement`） | sea-query 1.0.2 | ✅ | `ON CONFLICT`、`FOR UPDATE SKIP LOCKED`、游标同步等 |
 | 密码哈希 | argon2 | **0.6.0** | ✅ | Argon2id，OWASP 推荐 |
 | 会话 | 自有 `sessions` 表 + 随机令牌（`rand` 0.10 + `sha2` 0.11） | — | ✅ | 见 3.1 |
-| 登录限流 | tower_governor | 0.8.0 | ✅ | 防暴力破解 |
+| 登录 / API key 限流 | tower_governor（底层 governor 0.10） | 0.8.0 | ✅ | 登录防暴力破解；API key 按 key 限流（3.3） |
+| 密钥加密 | chacha20poly1305（XChaCha20-Poly1305） + zeroize | **0.11.0** / 1.9.1 | ✅ | 管理 API 写入的提供方 API key 等密钥落库前加密，主密钥来自文件（9.6） |
+| 令牌校验位 | crc32fast | 1.5.3 | ✅ | API key / 管理令牌末尾的校验位：密钥扫描工具可离线校验格式，减少误报 |
 | 序列化 | serde 1.0.229 / serde_json 1.0.154 | | ✅ | |
 | 校验 | validator | **0.21.0** | ✅ | `#[derive(Validate)]` |
 | 错误 | thiserror 2 / anyhow 1 | | ✅ | 领域用 thiserror，入口与脚本用 anyhow |
@@ -62,15 +66,20 @@ server/
 │  ├─ ai/                    # ModelProvider trait、AiRouter、各适配器、校验
 │  ├─ chat/                  # ChatWeave 接入：业务结果 → 语义块映射、自定义块 Schema、事件日志与消息存储实现、动作处理器
 │  ├─ storage/               # object_store 封装 + 图片处理
-│  └─ api/                   # axum 路由、提取器、中间件、utoipa、AppError
+│  ├─ api/                   # 公开 API（App 与个人 API key）：axum 路由、提取器、中间件、utoipa、AppError
+│  ├─ db-admin/              # 管理侧专用的 SeaORM 实体：只覆盖允许管理侧访问的表和列（9.2）
+│  ├─ admin/                 # 管理服务层：账号、提供方 / 模型 / 路由 / 价格、用量查询、管理审计、管理令牌
+│  └─ admin-api/             # 管理 API（/admin/v1）的 axum 路由与 utoipa；只依赖 admin
 ├─ bins/
-│  ├─ server/ main.rs        # 启动 HTTP + 后台 worker
-│  └─ admin/  main.rs        # 建用户、重置密码、提供方登录、导出 openapi.json、迁移
+│  ├─ server/ main.rs        # 启动公开 HTTP、管理 API 监听器（Unix 套接字）+ 后台 worker
+│  └─ admin/  main.rs        # 管理命令：账号、提供方（含 ChatGPT 订阅登录）、价格、用量、管理令牌、导出 OpenAPI、迁移（9.8）
 ├─ tests/                    # 集成测试（真实 PostgreSQL 18 + axum-test）
 └─ deploy/                   # docker-compose.yml、Dockerfile、jiabu.service（systemd）
 ```
 
 依赖方向：`api → chat → {db, ai, storage} → domain`（`api` 也可直接用 `db` / `storage`）。`domain` 不依赖任何 IO 库；`ai` 不暴露第三方库类型；只有 `chat` 和 `api` 依赖 ChatWeave 的 crate。
+
+管理侧单独一条线：`admin-api → admin → {db-admin, domain}`；`bins/admin` 也只调用 `admin`（另加 `ai` 的 SIWC 登录流程）。`admin`、`admin-api` **不得**依赖 `db`、`chat`、`storage`、`api`：CI 用 `cargo tree -p jiabu-admin -p jiabu-admin-api -e normal` 检查，出现这几个 crate 就失败。`db-admin` 里没有记录、资料、聊天、运行日志这些实体，管理侧代码想读也没有类型可用（9.2）。
 
 ### 2.1 workspace.dependencies 草案
 
@@ -121,8 +130,10 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 - **密码**：`argon2` 0.6 的 Argon2id + PHC 字符串。
 - **会话**：登录成功 → 生成 32 字节随机令牌 → 返回给 App（客户端用 flutter_secure_storage 保存，底层是 Android Keystore 加密）→ 数据库只存 `sha256(token)`、`user_id`、`device`、`expires_at`、`last_seen_at`。请求带 `Authorization: Bearer <token>`。登出 / 改密 = 删行。这是“有状态会话”的标准实现，所用加密原语都来自成熟 crate。
 - **为什么不用 JWT**：吊销要另建黑名单；两人规模没有横向扩展需求。
-- 首版预建两个账号，由 `admin` 命令创建和重置密码；无公开注册。创建账号时在同一事务内为其建好**默认个人空间**（`is_default = true`，本人为 owner）。
+- 首版预建两个账号，由 `admin` 命令或管理 API 创建（9.4）；无公开注册。创建账号时在同一事务内为其建好**默认个人空间**（`is_default = true`，本人为 owner）。
+- **停用与临时密码**：`users.disabled_at` 非空的账号登录被拒，令牌和 API key 鉴权时一并检查（停用时同一事务删除全部会话）。管理员重置密码 = 生成一次性临时密码（只显示一次）+ `must_change_password = true` + 删除全部会话；带此标记登录时只返回受限令牌，只能调用改密码接口，改完才是正常会话。
 - 登录接口用 tower_governor 限流。
+- 令牌（会话令牌、个人 API key、管理令牌）都只存 SHA-256，按哈希的唯一索引查找；三者在不同的表、不同的前缀（会话令牌无前缀，`jiabu_pat_`，`jiabu_adm_`），公开 API 不接受管理令牌，管理 API 只接受管理令牌。
 
 ### 3.2 授权（空间成员）
 
@@ -139,6 +150,52 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 - **单条可见范围（预留）**：内容表预留可空的 `visibility jsonb`（例如指定可见成员列表），v1 恒为空、不读取。
 - 不区分成人 / 未成年账号类型，差异由按模块授权表达。
 - PostgreSQL 行级安全（RLS，以空间成员关系与模块授权为条件）可作为第二道防线（待定）。
+
+### 3.3 个人 API key
+
+产品规则见[需求 · 个人 API key](../product/requirements.md#个人-api-key)。
+
+**格式**：`jiabu_pat_` + 40 位 base62 随机字符（`rand` 的系统随机源，约 238 位熵）+ 6 位 base62 的 CRC32 校验位，共 56 个字符。固定前缀加校验位，让密钥扫描工具能可靠识别（以后可向代码托管平台登记该格式）。列表里显示的是 `display_prefix` = `jiabu_pat_` + 随机部分的前 6 位。
+
+**创建与保存**：`POST /me/api-keys` 只接受**会话令牌**（key 不能创建 key）。服务端生成 key、在响应里返回一次明文，库里只存 `sha256(key)`；明文不进日志、不进幂等响应缓存（该接口的幂等记录只存 key 的 ID，重放时返回“已创建，明文不再显示”）。每个账号最多 20 个有效 key。
+
+**鉴权**：`Authorization: Bearer jiabu_pat_…`。提取器先看前缀和校验位（格式不对直接 401，不查库），再按哈希查 `api_keys`：未撤销、未过期、账号未停用。得到 `Principal { user_id, via: Session(session_id) | ApiKey { id, name, scope, spaces } }`，后面的提取器和仓储层都拿它。
+
+**授权 = 本人权限 ∩ key 的范围**，都在统一的授权入口里判断，不在 handler 里写：
+
+| 检查 | 不满足时 |
+|---|---|
+| 空间成员身份（与会话相同，3.2） | 404 |
+| 空间在 key 勾选的范围内（`api_key_spaces`） | 404，与非成员一样：没勾选的空间对 key 不存在 |
+| `authorize(member, module, action)`（与会话相同） | 404 |
+| 只读 key 只允许读类动作 | 403 `api_key_read_only`（空间对它是存在的，不泄露信息） |
+| 接口不在 key 的允许范围（下表） | 403 `api_key_not_allowed` |
+
+| 接口类别 | 会话 | API key |
+|---|---|---|
+| 空间列表、同步、记录读写、移动记录、资料、原图上传下载 | ✅ | ✅（列表只返回勾选的空间；写入需要读写 key） |
+| 聊天：提交、SSE 流、动作（回答追问 / 确认）、停止 | ✅ | ✅（在 key 自己的对话里，见下文） |
+| `/me/api-keys` 的增、改、撤销；改密码；会话管理 | ✅ | ❌ |
+| 空间成员管理：邀请、移除、退出、删除空间、转让所有权；新建空间 | ✅ | ❌ |
+| 管理 API | ❌ | ❌（不同的监听器，第 9 节） |
+
+**对话**：`conversations` 增加可空的 `api_key_id`。通过 key 提交的消息进入 `(space_id, member_id, api_key_id)` 这一段对话，没有就创建；手机上的对话 `api_key_id` 为空。这样 agent 和手机各自的运行互不抢占 `one_active_run_per_conversation`，手机聊天首页也不会冒出 agent 的消息。同步接口不下发 key 对话的 `chat_entries`（v1 App 不显示它们）；通过同一个 key 可以读取这段对话的历史（`GET /spaces/{space_id}/chat/conversations/current/messages`）。对话仍然只属于这位成员，其他成员一律 404。
+
+**只读 key 的 AI 对话**：运行带 `read_only = true`（`agent_runs`），Agent 的工具清单只保留只读工具和 `ask_user`，提示词里说明“这次只能查看”；需要写入时模型照实告诉用户。工具清单不同，所以提示词快照也不同（缓存按快照分开，见 AI 层 15.2）。
+
+**运行中的 key 被撤销或过期**：worker 每次领取运行时，除了成员身份，还检查发起它的 key 仍然有效，否则运行以 `failed`（“API key 已失效”）结束、不写业务数据；用该 key 打开的 SSE 流在下一次心跳（15 秒）时重新校验，失效即关闭。
+
+**限流**（`config` 可调）：按 key 的令牌桶，普通请求 60 次 / 分钟，聊天提交与动作 10 次 / 分钟；每个 key 同时最多 2 个进行中的运行（跨空间）。超限返回 429 + `Retry-After`。格式正确但查不到的 key 按来源 IP 限流，防止猜测。
+
+**最近使用时间**：`last_used_at` 最多每 60 秒写一次（条件更新 `WHERE last_used_at < now() - interval '60 seconds'`），不为每个请求写库。不记录调用方 IP。
+
+**标注“通过 API key”**：`record_events`、`chat_actions` 增加 `via_api_key_id`；`record_events` 另存 `via_api_key_name`（操作当时的名称快照），随同步下发，客户端在记录卡、变更记录和历史里显示“通过 API key：名称”，同一空间的其他成员也能看到。`agent_runs.api_key_id` 记录运行由哪个 key 发起；运行里的写入工具把它带进 `record_events`。AI 用量照常计入空间与成员（`ai_calls` 同样带 `api_key_id`，AI 层第 8 节）。
+
+**接口**：`GET /me/api-keys`（列表：名称、`display_prefix`、权限、空间、到期、最近使用、状态）· `POST /me/api-keys`（创建，返回一次明文）· `PATCH /me/api-keys/{id}`（只能改名称）· `POST /me/api-keys/{id}/revoke`。撤销立即生效（鉴权每次查库，v1 不加缓存）。key 行永不物理删除，撤销或过期的保留，以便历史标注和审计能找到名字。
+
+### 3.4 管理身份
+
+管理员不是 `users` 里的账号：公开 API 上没有任何管理能力，管理 API 只认管理令牌，二者在不同的监听器上。人的登录（包括第二因子）由使用管理 API 的控制台负责，服务端只认服务令牌。设计与理由见第 9 节。
 
 ## 4. API 原则
 
@@ -167,8 +224,10 @@ let api = OpenApiRouter::new()
     .routes(routes!(records::update, records::void, records::move_to_space))
     .routes(routes!(sync::pull, sync::push))
     .routes(routes!(chat::stream, chat::actions, chat::cancel))   // 4.2；stream 路由不套 TimeoutLayer
-    .routes(routes!(blobs::upload, blobs::get));
+    .routes(routes!(blobs::upload, blobs::get))
+    .routes(routes!(me::api_keys_list, me::api_keys_create, me::api_keys_rename, me::api_keys_revoke));   // 3.3，只接受会话
 let (router, openapi) = api.split_for_parts();
+// 管理 API 是另一个 Router（crates/admin-api），绑在另一个监听器上（第 9 节）；公开 Router 里没有任何 /admin 路由
 let app = router
     .layer(TraceLayer::new_for_http())
     .layer(PropagateRequestIdLayer::x_request_id())
@@ -213,7 +272,9 @@ let app = router
 
 ```sql
 create table users (id uuid primary key default uuidv7(), username text unique not null,
-  password_hash text not null, created_at timestamptz not null default now());
+  password_hash text not null, must_change_password boolean not null default false,
+  disabled_at timestamptz,                            -- 管理员停用；非空时登录、会话、API key 一律拒绝
+  password_changed_at timestamptz, created_at timestamptz not null default now());
 create table sessions (token_hash bytea primary key, user_id uuid not null references users,
   device text, expires_at timestamptz not null, last_seen_at timestamptz not null default now());
 create table spaces (id uuid primary key default uuidv7(), name text not null,
@@ -249,6 +310,7 @@ create table records (id uuid primary key, space_id uuid not null references spa
 create sequence change_seq;
 create table record_events (id bigint generated always as identity primary key, record_id uuid not null,
   space_id uuid not null, actor_member_id uuid not null references space_members,
+  via_api_key_id uuid references api_keys, via_api_key_name text,   -- 通过 API key 操作时（3.3），名称为当时的快照
   request_id uuid, kind text not null, before jsonb, after jsonb,
   at timestamptz not null default now());
 create table space_events (id bigint generated always as identity primary key, space_id uuid not null,
@@ -265,6 +327,7 @@ create table blob_refs (sha256 bytea not null references blobs, space_id uuid no
   primary key (sha256, space_id));   -- 同一张图在两个空间各有一条引用，下载按引用所在空间鉴权
 -- 家庭资料（documents）、聊天会话（conversations）同样带 space_id + created_by_member_id
 -- 聊天会话一对一：每个 conversation 只属于 created_by_member_id 这一位成员，同一空间的其他成员不可见
+-- conversations 另有可空的 api_key_id：通过 API key 的对话与手机上的对话分开，唯一键 (space_id, created_by_member_id, api_key_id)（3.3）
 create table chat_entries (id uuid primary key, space_id uuid not null references spaces,
   conversation_id uuid not null, role text not null check (role in ('user','assistant','system')),
   created_by_member_id uuid references space_members,     -- 用户消息的发送者；助手消息为空
@@ -284,13 +347,25 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
   action_type text not null, target text not null, payload jsonb not null,
   status text not null, result jsonb not null,
   actor_member_id uuid not null references space_members, request_id uuid,
+  via_api_key_id uuid references api_keys,                 -- 通过 API key 回答时（3.3）
   created_at timestamptz not null default now());          -- 只追加，兼作审计
+-- 个人 API key（3.3）
+create table api_keys (id uuid primary key default uuidv7(), user_id uuid not null references users,
+  name text not null, token_hash bytea unique not null,   -- sha256(明文)；明文只在创建响应里出现一次
+  display_prefix text not null,                           -- 'jiabu_pat_' + 随机部分前 6 位
+  scope text not null check (scope in ('read','read_write')),
+  expires_at timestamptz,                                 -- 空 = 永不过期
+  created_at timestamptz not null default now(), last_used_at timestamptz,
+  revoked_at timestamptz, revoked_by text check (revoked_by in ('user','admin')));   -- 行不物理删除
+create table api_key_spaces (api_key_id uuid not null references api_keys,
+  space_id uuid not null references spaces, primary key (api_key_id, space_id));
+-- 管理侧的表（admin_tokens、admin_audit、ai_providers、ai_models、ai_routes、ai_settings、ai_prices、secrets、ai_step_meters）见 9.5
 -- agent_runs / agent_run_items / agent_tool_calls / agent_prompt_snapshots 见 ai-layer.md 14.2；ai_calls 见 ai-layer.md 第 8 节
 ```
 
 金额一律 `bigint` 存“分”（`*_minor` 列），不用浮点；主键用 UUIDv7。
 
-**迁移**：上面这些表和 AI 运行的一组表（`agent_runs`、`agent_run_items`、`agent_tool_calls`、`agent_prompt_snapshots`、`ai_calls`）都在首批迁移里建好，`chat_entries.stream_status` 从一开始就包含 `paused`。已发布的迁移只追加、不修改；步骤日志的格式变化靠行上的 `schema_version` 加读取时升级，不改历史行。迁移工具见[待定问题 2](../decisions/README.md#待定问题open-questions)。
+**迁移**：上面这些表、AI 运行的一组表（`agent_runs`、`agent_run_items`、`agent_tool_calls`、`agent_prompt_snapshots`、`ai_calls`）以及管理侧的表和数据库角色授权（9.5）都在首批迁移里建好，`chat_entries.stream_status` 从一开始就包含 `paused`。已发布的迁移只追加、不修改；步骤日志的格式变化靠行上的 `schema_version` 加读取时升级，不改历史行。迁移工具见[待定问题 2](../decisions/README.md#待定问题open-questions)。
 
 **账户属于空间**：资金账户和用途账户都挂在某个空间下。同一张真实银行卡可以在两个空间各建一次，各自只记本空间的流水、显示本空间推导出的余额；系统不尝试合并成整张卡的余额，App 内整卡余额对不上是已接受的取舍。
 
@@ -333,7 +408,8 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
 - **错误回执带 ID**：错误响应带 `request_id`，App 错误提示和客户端日志也显示 / 记录它；用户截个图就能定位服务器日志。
 - **聊天流**：每个 SSE 连接一个 span，带 `request_id`、`space_id`、`message_id`、续传起点 seq、持续时间、断开原因；不记事件内容。动作请求带 `X-Request-Id`，写入 `chat_actions.request_id`。
 - **客户端日志同一套 ID**：`/client-logs` 每条带 `request_id`、App 版本、设备型号、系统版本。
-- **不记敏感内容**：只记 ID、元数据、耗时和错误类型；不记密码、令牌、记账原话、图片和模型完整回复。需要看原话时到库里按 ID 查。
+- **不记敏感内容**：只记 ID、元数据、耗时和错误类型；不记密码、令牌、API key、提供方密钥、记账原话、图片和模型完整回复。需要看原话时到库里按 ID 查。
+- **鉴权方式进 span**：请求 span 带 `auth_kind`（`session` / `api_key`）和 `api_key_id`（如有）；管理 API 的请求 span 带 `admin_token_id` 和控制台传来的 `X-Admin-Actor`，并且一律不记请求体。
 - **保留与查看**：日志按天滚动，保留 30 天；v1 用文件 + `jq`。以后要可视化再接 OpenTelemetry（`tracing-opentelemetry`），span 代码不用改。
 
 ## 7. 测试与质量
@@ -342,6 +418,8 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
 - **关键查询必须有集成测试**：幂等（重复提交、哈希不同 422、响应回放）、`ON CONFLICT`、`FOR UPDATE SKIP LOCKED` 并发取任务、change_seq 游标增量与墓碑、空间隔离（非成员对空间的任何请求都得 404；列表、同步、统计不含他人空间；退出后立即不可访问、重新加入复用同一成员行；跨空间移动的事务与审计关联）、嵌套事务（SeaORM 与 SQLx 一样用 SAVEPOINT 实现）。
 - 聊天流与动作：中途断开后带 `Last-Event-ID` 续传的结果与不断开一致；事件日志清理后得到快照；非成员 / 已退出成员对流、动作、取消接口一律 404，同一空间的其他成员访问别人的会话同样 404、同步也拿不到；越权动作（无模块权限、指向其他空间的消息、选项不在块里、重复动作 ID）全部被拒或回放。
 - AI 运行（持久执行）：多个 worker 并发领取不重复；租约过期被别的 worker 接手后，旧 worker 的写入因 `lease_epoch` 不符失败；本地写入工具在事务回滚时不留痕、提交后恢复不重做；两台设备同时回答只有一个成功；回答与过期 / 停止竞态只有一个成功；离线排队的新消息先结束暂停中的回复；`one_active_run_per_conversation` 生效。
+- 个人 API key：key 不能创建 / 撤销 key、不能改密码和管理成员；只读 key 的任何写入被拒；没勾选的空间与不存在的空间返回完全相同的 404；退出空间、账号停用、撤销、过期后立即失效（包括正在暂停中的运行和打开的 SSE 流）；限流返回 429；`record_events` 的标注随同步下发；key 对话不出现在手机的同步里。
+- 管理 API（9.2 的三层）：① `cargo tree` 依赖检查；② 用 `jiabu_admin` 数据库角色连接后，对 `records`、`documents`、`chat_entries`、`agent_run_items`、`agent_tool_calls`、`blobs` 等表以及 `spaces.name` 列的 `SELECT` 必须报权限错误；③ 导出的 `openapi-admin.json` 做字段快照（每个 schema 的字段名与类型），任何新增字段都会让快照变化，必须在评审里说明它不是内容。管理令牌访问公开 API、会话令牌和 API key 访问管理 API 一律 401。
 - HTTP 级测试用 `axum-test`；SeaORM 的 `MockDatabase` 只用于快照生成的 SQL，不替代真库测试。
 - AI 适配器：wiremock 回放 + insta 请求体快照，见 [AI 层设计](ai-layer.md#9-测试策略)。
 - 静态检查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo deny check`（许可证 + 漏洞库）、`cargo audit`。
@@ -363,7 +441,7 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
 
 ### 8.1 CI（每个 PR）
 
-GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 service 容器）→ cargo-deny / cargo-audit → 导出 `openapi.json` 并检查与仓库中一致。
+GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 service 容器）→ cargo-deny / cargo-audit → 管理侧 crate 依赖检查（2 节）→ 导出 `openapi.json` 与 `openapi-admin.json` 并检查与仓库中一致。
 
 ### 8.2 发布（打 tag）
 
@@ -395,9 +473,190 @@ GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 servi
 
 - 反向代理默认不限请求体大小，限制交给后端。
 - 每日 `pg_dump` 备份到独立的备份目录；原图目录一并备份。
-- 密钥（数据库密码、提供方凭据）只通过环境变量或权限 600 的文件注入，绝不进镜像或仓库。
+- 密钥（数据库密码、提供方凭据、密钥加密主密钥）只通过环境变量或权限 600 的文件注入，绝不进镜像或仓库。
+- 管理 API 的 Unix 套接字放在数据目录下（如 `<data_dir>/run/admin.sock`），反向代理**不得**转发到它；docker compose 部署时用命名卷把套接字目录共享给同一台机器上的管理控制台容器（如有）。数据库里要有两个登录角色：`jiabu_app`（公开 API 与 worker）和 `jiabu_admin`（管理 API 与 `admin` 命令），角色由部署脚本创建（`admin db init-roles`，需要数据库超级用户一次），授权由迁移维护（9.5）。
 
-## 9. 风险
+## 9. 管理能力与管理 API
+
+产品规则见[需求 · 管理员](../product/requirements.md#管理员管得了服务看不到内容)。
+
+### 9.1 边界：本仓库提供什么
+
+- **本仓库（开源）只提供基础能力**：用量计量（每次模型调用的 token 与按官方价格折算的成本）、提供方与模型配置（提供方、模型、密钥 / 订阅登录状态、每类任务的默认模型与降级顺序、带来源和日期的官方价格表）、账号管理（新建、停用 / 启用、重置密码、查看成员关系、撤销 API key、登出所有设备）。这些能力通过两种方式使用，二者调用**同一套服务层**（`crates/admin`）：
+  - `admin` 命令（9.8）：自己部署的人在服务器上直接用，不需要任何控制台；
+  - **管理 API**（`/admin/v1`，9.3、9.4）：带版本号、有 OpenAPI 描述（`openapi-admin.json`），任何控制台都可以基于它来做。
+- **图形化的管理控制台不在本仓库**：网页界面、报表等放在单独的服务里，部署在同一台机器上，只通过管理 API 与服务端交互。本仓库不依赖它，没有它也能完整使用。
+
+### 9.2 管理侧看不到内容：三层保证
+
+“管理员看不到账本和聊天内容”不是靠约定，而是管理侧代码根本拿不到这些数据：
+
+1. **接口层**：管理 API 没有任何返回记录、账户、余额、标签、资料、原图、聊天消息、AI 的输入输出、运行日志（journal）或工具参数的接口。运行明细（9.4）只返回：每次模型调用的提供方、模型、token、成本、耗时、结果，以及每一步的**操作类别**（来自固定目录，例如“查询统计”“查询余额”“搜索记录”“询问用户”），**不**返回过程条上渲染好的步骤说明（那里面可能带账户名、标签名）。空间只返回 ID、类型（默认个人 / 共享）、创建者用户名、成员数和创建时间，**不返回空间名称**（名称是用户起的，可能本身就是隐私）。
+2. **代码层**：`admin` / `admin-api` 只依赖 `db-admin`，后者只定义允许管理侧访问的表和列的实体；CI 检查依赖图（第 2 节）。
+3. **数据库层**：管理 API 和 `admin` 命令用独立的连接池，登录角色 `jiabu_admin`，只有下列授权（迁移里维护）；其余表一律无权限，即使管理侧代码写了原生 SQL 也读不到：
+
+| 表 | `jiabu_admin` 的权限 |
+|---|---|
+| `users` | `SELECT (id, username, must_change_password, disabled_at, password_changed_at, created_at)`；`INSERT`；`UPDATE (password_hash, must_change_password, disabled_at, password_changed_at)` |
+| `sessions` | `SELECT (user_id, device, expires_at, last_seen_at)`；`DELETE` |
+| `spaces` | `SELECT (id, is_default, created_by_user_id, created_at, archived_at)`；`INSERT`（建账号时建默认个人空间）——**没有 `name` 列的读权限** |
+| `space_members` | `SELECT (id, space_id, user_id, role, status, joined_at, left_at)`；`INSERT` |
+| `space_member_grants` | `INSERT` |
+| `api_keys` / `api_key_spaces` | `SELECT`（除 `token_hash`）；`UPDATE (revoked_at, revoked_by)` |
+| `agent_runs` | `SELECT (id, space_id, member_id, api_key_id, kind, status, read_only, provider_id, model, model_turns, active_ms, attempt, created_at, ended_at)` |
+| `ai_calls`、`ai_step_meters` | `SELECT` |
+| `ai_providers`、`ai_models`、`ai_routes`、`ai_settings`、`ai_prices`、`secrets`、`admin_tokens`、`admin_audit` | 读写（`admin_audit` 只有 `INSERT` / `SELECT`） |
+| `records`、`record_events`、`accounts`、`documents`、`blobs`、`blob_refs`、`conversations`、`chat_entries`、`chat_stream_events`、`chat_actions`、`agent_run_items`、`agent_tool_calls`、`agent_prompt_snapshots`、`idempotency` | **无** |
+
+公开 API 与 worker 用 `jiabu_app` 角色，对管理侧的表只有业务需要的权限：读 `ai_*` 配置和 `secrets`（只有密文，解密在进程内用主密钥做，9.6），写 `ai_calls`、`ai_step_meters`；不能读写 `admin_tokens`、`admin_audit`。
+
+### 9.3 监听与认证
+
+**监听**：管理 API 不挂在公开端口上。`server` 进程另起一个监听器：
+
+- 默认且推荐：**Unix 套接字** `<data_dir>/run/admin.sock`，文件权限 `0660`，属组为专用的 `jiabu-admin` 组；只有同一台机器上、在这个组里的进程（`admin` 命令、管理控制台）能连上。连接时用 `SO_PEERCRED` 取对端的 uid，配置了 `admin.allowed_uids` 时不在列表里的直接断开（第二道检查）。axum 0.8 的 `serve` 支持 `UnixListener`（以编译为准）。
+- 备选：`127.0.0.1:<端口>`（例如容器之间不方便共享套接字时）。配置成非回环地址时服务端**拒绝启动**。
+- 两个 Router 完全分开：公开 Router 没有任何 `/admin` 路由，管理 Router 没有任何公开接口；各自导出各自的 OpenAPI（`openapi.json` / `openapi-admin.json`）。
+
+**认证：管理服务令牌**。管理 API 只认 `Authorization: Bearer jiabu_adm_…`：
+
+- 只能在服务器上用 `admin token create --name <名称> --scope read|write [--expires 365d]` 创建，明文只显示一次，库里只存 SHA-256；`admin token list / revoke` 管理。**管理 API 本身不能创建管理令牌**，所以拿到一个令牌的控制台没法给自己“续命”或扩权。
+- `read` 只能查询（用量、配置、账号列表、审计）；`write` 还能改配置、录入密钥、管理账号。控制台可以给“只看报表”的人用 `read` 令牌。
+- 格式与 API key 相同（固定前缀 + 随机部分 + 校验位），不同前缀。会话令牌、个人 API key 访问管理 API 一律 401；管理令牌访问公开 API 同样 401。
+- 每个请求可带 `X-Admin-Actor: <控制台里的管理员标识>`，原样写进审计（只用于“是谁点的”，不参与授权）。
+
+**人的登录和第二因子由控制台负责**。服务端不保存管理员的用户名、密码或 TOTP，也不提供网页登录：
+
+- 自己部署、只用 `admin` 命令时：能在服务器上执行命令（并能读数据库凭据）本身就是管理员身份，不需要额外登录；
+- 用管理控制台时：人在控制台登录（控制台必须要求第二因子，例如 TOTP），控制台再用自己保管的管理令牌（权限 600 的文件）经本机套接字调用管理 API。
+
+这样分工的理由：① 服务端不需要实现网页会话、CSRF、第二因子、找回这些与家簿本身无关的东西，攻击面小；② 管理 API 只在本机可达，令牌被偷走也得先进到这台机器；③ 换控制台、写自己的脚本都不用改服务端；④ 本仓库不依赖任何控制台。
+
+### 9.4 接口清单（`/admin/v1`）
+
+所有写请求带 `Idempotency-Key`；错误格式与公开 API 相同（problem+json）；时间一律 UTC 的 RFC 3339，按日 / 月分组时由请求参数 `tz` 指定时区。金额以美元计、保留 6 位小数（与价格表一致）。
+
+| 分组 | 接口 | 权限 | 说明 |
+|---|---|---|---|
+| 元信息 | `GET /meta` | read | 服务端版本、管理 API 版本、支持的分组维度和任务类型 |
+| 用量 | `GET /usage/summary` | read | 参数：`from`、`to`、`tz`、`group_by`（`space` / `user` / `member` / `provider` / `model` / `task_kind` / `api_key` / `day` / `month`，可组合两个）、过滤条件。返回每组的调用次数、各类 token、成本、缓存省下的金额、失败次数；价格缺失的调用单独计数 |
+| | `GET /usage/runs` | read | 运行列表（分页）：运行 ID、空间 ID、成员、发起方式（手机 / API key 名称）、任务类型、状态、模型调用次数、token 合计、成本、活跃时长、开始 / 结束时间 |
+| | `GET /usage/runs/{run_id}` | read | 运行明细：每次模型调用（序号、调用种类 first / continue / resume / retry、提供方、模型、各类 token、成本、缓存省下的金额、耗时、结果、错误类别）+ 每一步（序号、操作类别、状态、耗时）。**不含**任何文字内容 |
+| | `GET /usage/calls` | read | 调用明细（分页），字段同上，用于导出 |
+| 空间（只有元数据） | `GET /spaces` | read | ID、类型、创建者用户名、成员数、创建时间；不含名称 |
+| 提供方 | `GET /providers`、`POST /providers`、`PATCH /providers/{id}` | read / write | 提供方：种类（`siwc` / genai 的各家 / `ollama` …）、`base_url`、计费类别（`subscription` / `local` / `paid`）、是否启用 |
+| | `PUT /providers/{id}/secret`、`DELETE /providers/{id}/secret` | write | 录入 / 删除 API key（只写不读，9.6）。也可以不录入，而是继续用环境变量或文件（`secret_source = env:NAME` / `file:PATH`） |
+| | `GET /providers/{id}/status` | read | 是否已配置凭据（只给“已设置 · 末 4 位”）、熔断器状态、最近一次成功 / 失败及错误类别；ChatGPT 订阅另给登录状态、令牌到期时间、最近一次刷新、`ext_agent_host_id`（9.7） |
+| | `POST /providers/{id}/test` | write | 用固定的测试提示发一次最小调用，返回是否成功、延迟、token；计入用量（`task_kind = probe`，不归属任何空间） |
+| 模型 | `GET /models`、`POST /models`、`PATCH /models/{id}` | read / write | 某提供方下的一个模型：模型名、能力（视觉、结构化输出方式、上下文长度）、是否启用 |
+| 路由 | `GET /routes`、`PUT /routes/{task_kind}` | read / write | 每类任务（`chat`、`parse_entry`、`parse_entry_image`、`document_extract`）的有序模型列表：第一个是默认，其余按顺序降级 |
+| 策略 | `GET /settings`、`PATCH /settings` | read / write | `allow_paid_fallback`、熔断参数 |
+| 价格 | `GET /prices`、`POST /prices` | read / write | 价格行只追加、不修改：模型、各类 token 的单价（每百万 token，美元）、缓存写入按有效期的单价、长上下文加价、`source`（官方价格页 URL）、`as_of`（核对日期）、`effective_from`。改价 = 新增一行；历史调用的成本不重算 |
+| 账号 | `GET /users`、`POST /users`、`GET /users/{id}` | read / write | 列表与详情：用户名、状态、创建时间、最近活跃（取自会话）、空间数、有效 API key 数。新建账号同时建默认个人空间，返回一次性临时密码 |
+| | `POST /users/{id}/disable`、`POST /users/{id}/enable` | write | 停用（同一事务删除全部会话）/ 启用 |
+| | `POST /users/{id}/reset-password` | write | 生成一次性临时密码（只在响应里出现一次）、要求下次登录改密、删除全部会话 |
+| | `GET /users/{id}/memberships` | read | 所在空间：空间 ID、类型、角色、状态、加入 / 退出时间；不含空间名称 |
+| | `GET /users/{id}/sessions`、`DELETE /users/{id}/sessions` | read / write | 设备名、到期、最近活跃；“在所有设备上退出” |
+| | `GET /users/{id}/api-keys`、`POST /users/{id}/api-keys/{key_id}/revoke` | read / write | key 的名称、`display_prefix`、权限、空间数、到期、最近使用、状态；撤销（`revoked_by = 'admin'`）。不能创建 |
+| 审计 | `GET /audit` | read | 管理审计（9.5），按时间、令牌、对象过滤 |
+
+不提供：删除账号（数据归属复杂，首版不做）、修改空间或成员关系、任何读取内容的接口、创建管理令牌。
+
+### 9.5 表结构（管理侧，草案）
+
+```sql
+-- 管理服务令牌（9.3）：只能由 admin 命令创建
+create table admin_tokens (id uuid primary key default uuidv7(), name text not null,
+  token_hash bytea unique not null, display_prefix text not null,
+  scope text not null check (scope in ('read','write')),
+  expires_at timestamptz, created_at timestamptz not null default now(), created_by text not null,  -- 执行 admin 命令的系统用户
+  last_used_at timestamptz, revoked_at timestamptz);
+-- 管理审计：只追加（jiabu_admin 无 UPDATE / DELETE）
+create table admin_audit (id bigint generated always as identity primary key,
+  at timestamptz not null default now(),
+  actor_kind text not null check (actor_kind in ('cli','token')),
+  actor_token_id uuid references admin_tokens, actor_label text,   -- X-Admin-Actor 或命令行的系统用户
+  action text not null,                     -- 如 'user.disable'、'provider.secret.set'、'price.add'、'route.update'
+  target_kind text, target_id text, request_id uuid,
+  detail jsonb);                            -- 改动摘要；绝不含密码、令牌、密钥明文
+-- AI 配置（取代 config/ai.toml 作为事实来源；AI 层第 7 节）
+create table ai_providers (id text primary key,                     -- 'chatgpt'、'gemini' …
+  kind text not null, base_url text,
+  billing text not null check (billing in ('subscription','local','paid')),
+  secret_source text,                       -- 'stored' | 'env:NAME' | 'file:PATH' | 空（不需要凭据）
+  enabled boolean not null default true, version int not null default 1,
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+create table ai_models (id uuid primary key default uuidv7(), provider_id text not null references ai_providers,
+  model text not null, structured text not null, vision boolean not null, context_tokens int,
+  enabled boolean not null default true, unique (provider_id, model));
+create table ai_routes (task_kind text not null, position smallint not null,
+  model_id uuid not null references ai_models, primary key (task_kind, position));
+create table ai_settings (id boolean primary key default true check (id),   -- 单行
+  allow_paid_fallback boolean not null default false, breaker jsonb not null, config_version bigint not null default 1);
+create table ai_prices (id uuid primary key default uuidv7(),
+  provider_kind text not null, model text not null,         -- 按“官方模型名”定价；订阅提供方用该模型的官方 API 标价
+  currency text not null default 'USD',
+  input numeric(12,6) not null, cached_input numeric(12,6), output numeric(12,6) not null,
+  cache_write jsonb,                        -- {"5m": …, "1h": …} / {"30m": …}，按有效期
+  long_context jsonb,                       -- {above_tokens, input, cached_input, output}
+  source text not null, as_of date not null, effective_from timestamptz not null,
+  created_at timestamptz not null default now());          -- 只追加；同一模型取 effective_from 不晚于调用时间的最新一行
+-- 加密保存的密钥（9.6）
+create table secrets (id uuid primary key default uuidv7(), owner_kind text not null, owner_id text not null,
+  field text not null, key_id text not null, nonce bytea not null, ciphertext bytea not null,
+  last4 text not null, updated_at timestamptz not null default now(), unique (owner_kind, owner_id, field));
+-- ai_calls（扩展后）与 ai_step_meters 见 AI 层第 8 节
+```
+
+迁移最后一步是一段 `GRANT` / `REVOKE`，按 9.2 的表给 `jiabu_admin` 和 `jiabu_app` 授权；集成测试用两个角色分别连接验证。`config/ai.toml` 不再是运行时的事实来源，只作为首次导入的格式（`admin ai import config/ai.toml`），也可以导出当前配置备份（`admin ai export`，不含密钥）。
+
+### 9.6 密钥加密
+
+- 管理 API 录入的提供方 API key 用 **XChaCha20-Poly1305**（`chacha20poly1305` crate）加密后存进 `secrets`：每次加密随机 24 字节 nonce；附加数据（AAD）= `owner_kind/owner_id/field`，密文被挪到别的提供方名下会解密失败。
+- **主密钥**：32 字节随机数，放在权限 600 的文件里（`JIABU_SECRETS_KEY_FILE`，`admin secrets init-key` 生成），或环境变量；用 `secrecy` 包装、用完 `zeroize`。不进数据库、不进镜像，与数据库**分开备份**（数据库备份被偷，密文也解不开；主密钥丢了，只能重新录入密钥）。
+- **轮换**：`key_id` 标明用的是哪把主密钥；`admin secrets rotate --new-key-file …` 用新主密钥重新加密全部行后停用旧的。
+- **只写不读**：管理 API 和 `admin` 命令都不返回明文，只返回“已设置 · 末 4 位 · 更新时间”。明文只在 `AiRouter` 构造提供方客户端时在进程内解密。
+- 以前的方式继续可用：`secret_source = env:NAME` 或 `file:PATH` 时服务端从环境变量 / 文件读取，管理 API 只显示来源，不显示值。
+
+### 9.7 ChatGPT 订阅的登录只在命令行
+
+SIWC 只有“浏览器 + 本机回环地址回调”一种登录方式（AI 层 4.1、4.3）：登录发起方在本机临时监听一个端口，浏览器在同一台机器上完成授权后跳回 `http://localhost:<端口>/…`。管理控制台运行在服务器上，而管理员的浏览器在自己的电脑上，回调到的是**管理员电脑**的 localhost，控制台收不到；动态注册的客户端也只允许回环地址作为回调，不能改成控制台的网址。另外官方说明远程托管的应用需要另外申请。所以：
+
+- 登录仍然用 `admin provider login chatgpt`：在自己电脑上运行后把凭据文件经 SSH 转移到服务器，或在服务器上配合 SSH 端口转发完成（AI 层 4.3）；
+- 管理 API 只给状态：是否已登录、访问令牌到期时间、最近一次刷新及结果、额度不足的最近时间、`ext_agent_host_id`；需要重新登录时控制台显示应在服务器上执行的命令；
+- 令牌刷新仍由服务端负责（原子替换凭据文件），刷新失败计入提供方状态并告警。
+
+### 9.8 `admin` 命令
+
+`admin` 命令直接调用 `crates/admin`（与管理 API 同一套服务层、同样写审计，`actor_kind = 'cli'`、`actor_label` = 系统用户名），用 `jiabu_admin` 角色连接数据库：
+
+```
+admin user create|list|show|disable|enable|reset-password|memberships|sessions|logout-all
+admin user api-keys <用户> [--revoke <key_id>]
+admin provider list|add|update|enable|disable|status|test|set-secret|clear-secret
+admin provider login chatgpt              # SIWC 浏览器登录（9.7）
+admin model list|add|update|enable|disable
+admin route show|set <task_kind> <模型…>
+admin price list|add                      # 只追加
+admin usage summary --from … --to … --group-by space,model [--tz …] [--json]
+admin usage run <run_id>
+admin token create|list|revoke            # 管理服务令牌（只能在这里创建）
+admin secrets init-key|rotate
+admin ai import <ai.toml> | export
+admin audit [--since …]
+admin db init-roles | migrate
+admin openapi export [--admin]
+```
+
+`set-secret` 从标准输入或文件读取密钥，不接受命令行参数（避免进 shell 历史）。所有命令支持 `--json` 输出，便于脚本使用。
+
+### 9.9 版本与兼容
+
+- 路径带主版本 `/admin/v1`。同一主版本内只做**向后兼容**的改动（新增接口、新增可选参数、响应新增字段）；客户端必须忽略不认识的字段。
+- 不兼容的改动开 `/admin/v2`，至少与 v1 并存一个发布周期，`GET /meta` 列出支持的版本。
+- `openapi-admin.json` 与代码一起提交，CI 检查一致；它也是控制台生成客户端代码的依据。
+
+## 10. 风险
 
 | # | 事项 | 对策 |
 |---|---|---|
@@ -409,3 +668,6 @@ GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 servi
 | 6 | 漏写空间过滤导致跨空间泄露 | 仓储层唯一入口 + 集成测试 + `AGENTS.md` 规则；RLS 作为可选第二道防线（待定） |
 | 7 | ChatWeave 尚在设计阶段、与家簿同步开发 | 开发期固定提交 + 本机 `[patch]`；家簿需要的能力以通用形式进库；家簿侧集成测试守住接口 |
 | 8 | SSE 被反向代理缓冲或切断 | 关闭缓冲、心跳、续传；最差情况由同步拿最终版本 |
+| 9 | 以后给管理 API 加接口时不小心带出内容 | 9.2 的三层保证：crate 依赖检查、`jiabu_admin` 角色的列级授权、`openapi-admin.json` 字段快照；新增管理接口必须在评审里说明“为什么这不是内容” |
+| 10 | API key 泄露 | 默认 90 天过期；可识别前缀便于扫描；只存哈希；按 key 限流；最近使用时间可见；本人和管理员都能随时撤销 |
+| 11 | 密钥加密主密钥丢失 | 库里加密保存的提供方密钥全部无法解密，需要重新录入；主密钥文件与数据库分开备份（9.6） |
