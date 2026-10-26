@@ -13,8 +13,9 @@
 
 ## 1. 设计原则
 
-- **AI 只“提议”，服务端“执行”**：模型输出的是记录草稿或工具调用参数；真正写库前由服务端校验权限、范围和业务规则。提供方失败不能绕过权限。
-- **上下文先过滤再调用**：两位用户共享一份订阅凭据，所以每次调用前必须按内部用户 ID 和家庭 / 私人范围筛选上下文；私人上下文绝不进入另一人的请求。
+- **AI 只“提议”，服务端“执行”**：模型输出的是记录草稿或工具调用参数；真正写库前由服务端校验空间成员身份和业务规则。提供方失败不能绕过权限。
+- **一个任务只属于一个空间**：每个 AI 任务和聊天会话都带 `space_id`；上下文只从该空间组装（该空间的账户、标签、成员、资料和聊天记录），AI 只往当前空间记账，不推断、不建议其他空间，也看不到其他空间的任何内容。各空间的聊天记录和 AI 上下文互相隔离。
+- **上下文先过滤再调用**：用户共享一份订阅凭据，所以每次调用前必须先按空间（并校验发起者是该空间的活跃成员）筛选上下文；其他空间的内容绝不进入请求。记错空间的记录由用户手工移动，AI 不参与。
 - **可替换**：领域 trait 隔离第三方库；即使 genai 停更，手写适配器的退路成本可控（估 1,000–1,500 行）。
 - **可观测**：每次调用记账（提供方、模型、模式、耗时、token、结果），日志与用户的原始请求 ID 串起来。
 - **可测试**：无网络的单元测试覆盖全部状态机与降级；适配器用录制回放 + 请求体快照守住库升级。
@@ -28,7 +29,7 @@ pub struct ParseEntryRequest {
     pub text: String,                // 用户原话
     pub images: Vec<ImageInput>,     // { mime, bytes }，已在服务端压缩到 ≤1600px JPEG
     pub today: NaiveDate, pub tz: Tz,
-    pub context: ParseContext,       // 只含该用户在当前范围内可见的账户 / 标签 / 成员
+    pub context: ParseContext,       // 只含当前空间的账户 / 标签 / 成员（由 ai_jobs.space_id 决定）
     pub history: Vec<Turn>,          // 追问来回
 }
 pub enum ParseOutcome {
@@ -115,7 +116,7 @@ SIWC 只有浏览器 + 本机回环回调，没有设备码流程。按官方“
   - `JsonSchema` 模式：直接下发；
   - `ToolCall` 模式：包成唯一工具 `submit_record_draft`（SIWC 下放进 namespace）；
   - `JsonObject` / `PromptOnly` 模式：写进系统提示。
-- **统一校验 `validate()`**：serde 反序列化 → `jsonschema` 0.60 校验 → 业务规则（金额 > 0、账户 / 标签存在且在当前范围可见、日期不在未来过远）。
+- **统一校验 `validate()`**：serde 反序列化 → `jsonschema` 0.60 校验 → 业务规则（金额 > 0、账户 / 标签存在且属于任务所在空间、日期不在未来过远）。
 - 校验失败：带错误原因重试一次；再失败按降级规则处理。
 - 图片在服务端先压缩到 ≤ 1600px JPEG 再发给模型；原图另行留存。
 
@@ -127,7 +128,8 @@ AI 解析是异步任务，状态放在 PostgreSQL 里（“持久的人在回�
 create table ai_jobs (
   id uuid primary key default uuidv7(),
   record_id uuid,                    -- 关联的聊天条目 / 记录
-  user_id uuid not null, scope text not null,
+  space_id uuid not null,                      -- 任务所属空间；上下文与写入都只限于此空间
+  requested_by_member_id uuid not null,        -- 发起者的空间成员 ID
   status text not null check (status in ('queued','running','waiting_user','waiting_ai','done','failed')),
   attempt int not null default 0,
   run_after timestamptz not null default now(),
@@ -145,7 +147,7 @@ create table ai_jobs (
 - `Draft` → 校验后写记录，任务 `done`；`NeedsFollowUp` → 存 `pending_question`，任务 `waiting_user`；`NotARecord` → 写回复，任务 `done`。
 - 用户回答追问时带 `Idempotency-Key` 提交，服务端追加到 `conversation` 并把状态改回 `queued`。
 - 链上全部提供方失败 → `waiting_ai`，按 `run_after` 退避重试；用户也可以手工补录。
-- 每次处理都从库里重建上下文，worker 本身无状态。
+- 每次处理都从库里重建上下文，worker 本身无状态；重建时只读取 `space_id` 对应空间的数据，并确认发起成员仍是活跃成员——已退出则任务置 `failed`（原因“空间不可用”），不写入。
 
 ## 7. 路由、降级与计费策略
 
@@ -220,7 +222,7 @@ create table ai_calls (
 );
 ```
 
-- 每次模型调用写一行，用于比较提供方质量、延迟和成本，也按内部用户 ID 统计共享订阅的用量。
+- 每次模型调用写一行，用于比较提供方质量、延迟和成本，也可经任务的发起成员关联到内部用户 ID，统计共享订阅的用量。
 - worker span 带 `job_id`、`origin_request_id`、`provider_id`、模型名、重试次数、降级原因、耗时、token 用量。
 - 日志不记原话、图片和模型完整回复。
 
@@ -262,7 +264,7 @@ insta = { version = "1.49", features = ["json"] }
 
 当前接口是“单次解析 + 追问”。后续可能需要“主 Agent 带工具”（例如查余额、查历史、调拨）乃至外部 Agent 接入。**分期尚未确定**，当前提议：
 
-- **v1**：持久化澄清（第 6 节的 Postgres 状态表）+ 单个主 Agent 带工具。Agent 循环在 genai / async-openai 之上自写（“调用模型 → 有工具调用则执行 → 回填结果 → 循环；遇到 `ask_user` 就挂起”，估 300–600 行），状态放 Postgres，工具执行前同样经过权限与范围校验。
+- **v1**：持久化澄清（第 6 节的 Postgres 状态表）+ 单个主 Agent 带工具。Agent 循环在 genai / async-openai 之上自写（“调用模型 → 有工具调用则执行 → 回填结果 → 循环；遇到 `ask_user` 就挂起”，估 300–600 行），状态放 Postgres，工具执行前同样经过空间成员与业务校验。工具在服务端绑定任务的 `space_id`：工具参数里没有 `space_id`，模型无法指定或切换空间，查余额、查历史等也只能看到当前空间。
 - **v2**：外部 Agent 网关（例如接入 Claude Code 等通用编程 / 助手类 Agent）。
 - 不引入 Rig 的 `AgentRun` 作为持久状态（其 0.44 版本改过序列化格式，旧数据无法加载）；Temporal / Restate 等持久工作流引擎对两人应用过重。
 

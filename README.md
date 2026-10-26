@@ -1,8 +1,8 @@
 # 家簿 Jiabu
 
-> **Jiabu** (家簿, "family ledger") is a chat-first family bookkeeping app. You talk to an AI assistant in plain language or send it a photo; it records expenses against both real accounts (where the money actually is) and logical "purpose" accounts (envelope-style budgets that roll over month to month), and keeps family documents such as medical check-up records searchable. Family-shared and private spaces are kept strictly separate. The client is Flutter (Android first), the server is Rust (Axum + PostgreSQL), and the AI layer is provider-agnostic. **Status: specification stage — no code yet.**
+> **Jiabu** (家簿, "family ledger") is a chat-first family bookkeeping app. You talk to an AI assistant in plain language or send it a photo; it records expenses against both real accounts (where the money actually is) and logical "purpose" accounts (envelope-style budgets that roll over month to month), and keeps family documents such as medical check-up records searchable. Everything lives in isolated "spaces": each user gets a default personal space, and a family is simply a space with invited members; a space you are not a member of does not exist for you. The client is Flutter (Android first), the server is Rust (Axum + PostgreSQL), and the AI layer is provider-agnostic. **Status: specification stage — no code yet.**
 
-家簿是一个**以聊天为首页**的家庭记账与家庭资料记录 App：用一句话或一张照片告诉 AI 助手发生了什么，它把账记到“真实资金账户”和“逻辑用途账户”上，也帮你留存、查询家庭资料（例如视力检查单）。家庭共享与私人空间始终明确区分。
+家簿是一个**以聊天为首页**的家庭记账与家庭资料记录 App：用一句话或一张照片告诉 AI 助手发生了什么，它把账记到“真实资金账户”和“逻辑用途账户”上，也帮你留存、查询家庭资料（例如视力检查单）。所有内容按“空间”严格隔离：每人自动有一个默认个人空间，家庭只是邀请了成员的普通空间。
 
 ## 当前状态
 
@@ -12,7 +12,7 @@
 
 - **聊天即入口**：文字、拍照、选图都在同一个对话页里完成；信息明确就直接记账并回复记录卡，缺项或识别不确定时才追问；每条记录都可编辑、可撤销。
 - **两类账户**：真实资金账户（钱实际在哪里）+ 逻辑用途账户（心理账户，按月拨入、持续结转，不做预算管理）。一笔支出同时关联两者，只计一次消费。
-- **家庭 / 私人两种范围**：家庭空间成员共享，私人空间仅本人可见；服务端强制校验。
+- **按空间隔离**：每个空间是独立账本（账户、记录、资料、聊天各自独立），可建多个；每人自动有一个仅自己可见的默认个人空间，邀请成员即成为共享空间；不是成员的空间完全不可见，服务端强制校验。可选应用锁（生物识别 / 手势，PIN 兜底）。
 - **离线可用**：没网时先存在手机里显示“待上传”，联网后自动补传，绝不静默丢失。
 - **AI 可插拔**：服务端自有领域接口，默认通过官方 “Sign in with ChatGPT” 使用 ChatGPT 订阅，其他模型服务商作为备选。
 
@@ -46,7 +46,7 @@ docs/
 
 | 文档 | 内容 |
 |---|---|
-| [docs/product/requirements.md](docs/product/requirements.md) | 产品需求：三块主界面、三条关键流程、记账规则、家庭资料、身份与权限 |
+| [docs/product/requirements.md](docs/product/requirements.md) | 产品需求：空间模型、三块主界面、三条关键流程、记账规则、家庭资料、身份与权限 |
 | [docs/design/design-spec.md](docs/design/design-spec.md) | 设计规范「手账拼贴」：颜色、字体、间距、倾斜、组件、动效、无障碍、Flutter 实现要点 |
 | [docs/engineering/client-flutter.md](docs/engineering/client-flutter.md) | Flutter 客户端技术与开发规范 |
 | [docs/engineering/server-rust.md](docs/engineering/server-rust.md) | Rust 服务端技术规范、数据与同步原则、日志、测试、发布与部署 |

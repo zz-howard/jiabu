@@ -7,8 +7,9 @@
 1. **主干：Rust + Tokio + Axum + PostgreSQL 18，数据库访问用 SeaORM 2.0。** Axum 由 tokio 官方组织维护，是 2026 年 Rust 后端资料最多的组合。SeaORM 原生异步、底层就是 sqlx 0.9；版本锁定，幂等、outbox、同步游标这类关键查询配集成测试，特殊查询可退回 sea-query 或原生 SQL。
 2. **AI 层：自有领域 trait + `AiRouter`**。默认提供方是 ChatGPT 订阅（官方 “Sign in with ChatGPT”，基于 async-openai 的自写适配器），其他提供方经 genai 0.7 接入作为降级备选。业务代码只认领域 trait。
 3. **登录**：Argon2id 密码哈希 + **不透明随机令牌**（Bearer，数据库只存 SHA-256），不用 JWT。
-4. **其余全用业界常规零件**：tower-http（追踪、请求 ID、超时、压缩、请求体上限）、tracing、thiserror / anyhow、serde、validator、config、utoipa（导出 OpenAPI）、object_store（原图先存本地磁盘，以后可换 S3）、image（缩略图）。
-5. **发布与部署**：打 tag 后由 GitHub Actions 在原生 x86_64 / aarch64 runner 上构建，产出 GitHub Releases 二进制 + GHCR 多架构镜像；用 docker compose（服务端 + PostgreSQL 18）或 systemd 部署，**部署机不编译**。日常开发测试在 x86 Linux 构建机上进行。
+4. **数据按“空间”隔离**：空间是独立账本（自己的资金账户、用途账户、记录、资料、聊天与 AI 对话）。所有业务行带 `space_id`，每个请求都先解析出当前用户在该空间的**活跃成员**身份，否则一律按“不存在”（404）处理；同步按空间分别维护游标。
+5. **其余全用业界常规零件**：tower-http（追踪、请求 ID、超时、压缩、请求体上限）、tracing、thiserror / anyhow、serde、validator、config、utoipa（导出 OpenAPI）、object_store（原图先存本地磁盘，以后可换 S3）、image（缩略图）。
+6. **发布与部署**：打 tag 后由 GitHub Actions 在原生 x86_64 / aarch64 runner 上构建，产出 GitHub Releases 二进制 + GHCR 多架构镜像；用 docker compose（服务端 + PostgreSQL 18）或 systemd 部署，**部署机不编译**。日常开发测试在 x86 Linux 构建机上进行。
 
 ## 1. 技术栈总表
 
@@ -53,7 +54,7 @@ server/
 ├─ config/ base.toml, local.toml, production.toml, ai.toml
 ├─ migrations/
 ├─ crates/
-│  ├─ domain/                # 纯类型与规则：Record, Scope, Money, RecordEvent；无 IO
+│  ├─ domain/                # 纯类型与规则：Record, Space, SpaceMember, Money, RecordEvent；无 IO
 │  ├─ db/                    # SeaORM 实体与仓储：records, accounts, sessions, idempotency, sync, ai_jobs
 │  ├─ ai/                    # ModelProvider trait、AiRouter、各适配器、校验
 │  ├─ storage/               # object_store 封装 + 图片处理
@@ -109,24 +110,30 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 - **密码**：`argon2` 0.6 的 Argon2id + PHC 字符串。
 - **会话**：登录成功 → 生成 32 字节随机令牌 → 返回给 App（客户端用 flutter_secure_storage 保存，底层是 Android Keystore 加密）→ 数据库只存 `sha256(token)`、`user_id`、`device`、`expires_at`、`last_seen_at`。请求带 `Authorization: Bearer <token>`。登出 / 改密 = 删行。这是“有状态会话”的标准实现，所用加密原语都来自成熟 crate。
 - **为什么不用 JWT**：吊销要另建黑名单；两人规模没有横向扩展需求。
-- 首版预建两个账号，由 `admin` 命令创建和重置密码；无公开注册。
+- 首版预建两个账号，由 `admin` 命令创建和重置密码；无公开注册。创建账号时在同一事务内为其建好**默认个人空间**（`is_default = true`，本人为 owner）。
 - 登录接口用 tower_governor 限流。
 
-### 3.2 授权（家庭 / 私人）
+### 3.2 授权（空间成员）
 
-- 自定义 Axum 提取器 `CurrentUser`（从令牌解析出内部用户 ID 和所属家庭）。
-- 所有查询带范围过滤：`(scope = 'family' AND family_id = $fam) OR (scope = 'private' AND owner_id = $uid)`；仓储层提供唯一的“带范围查询”入口，禁止绕过。
-- 写入前服务端**再次校验** scope，不信任客户端状态。
-- 同步接口同样经过范围过滤。
-- PostgreSQL 行级安全（RLS）可作为第二道防线（待定）。
+- **账号与空间成员是两个实体**：`users` 是登录身份；加入某个空间会生成一行 `space_members`（每个空间内的显示名、角色 owner / member、状态 active / left）。业务数据的创建者引用 `space_members.id`（`created_by_member_id`），不直接引用 `user_id`。
+- 自定义 Axum 提取器 `CurrentUser`（从令牌解析出内部用户 ID）；凡是路径或请求体涉及空间的接口，再经提取器 `SpaceMember` 按 `(space_id, user_id, status = 'active')` 解析成员身份。查不到一律返回 **404**（不是 403），让非成员无法判断某个空间是否存在。
+- 所有业务查询必须带 `space_id`，并与活跃成员关系联查；仓储层只提供“带空间成员校验的查询”入口，禁止绕过。`GET /spaces` 只返回当前用户为活跃成员的空间，不返回其他空间的名称、数量或任何动态。
+- 写入前服务端**再次校验**成员身份，并校验引用的账户、标签、资料都属于同一空间；不信任客户端状态。
+- 同步接口同样只返回活跃成员所在空间的数据（见第 4 节）。
+- **成员管理**：创建空间（创建者成为 owner）、改名、邀请已有账号（v1 没有公开注册，只能邀请预建账号）、owner 移除成员、成员自行退出。默认个人空间拒绝邀请他人。最后一位 owner 不能直接退出，须先转让 owner 或删除空间（细节待定）。
+- **退出 / 被移除**：该行 `status = 'left'`、写 `left_at`；之后对该空间的所有请求立即 404（会话本身不失效，只是空间校验不通过）。其创建的记录保留，界面仍显示其显示名并标注“已退出”。
+- **重新加入**：复用同一行 `space_members`（改回 `active`、更新 `joined_at`、清空 `left_at`），旧记录自动重新关联；每次加入 / 退出都追加一条审计事件。
+- PostgreSQL 行级安全（RLS，以空间成员关系为条件）可作为第二道防线（待定）。
 
 ## 4. API 原则
 
 > **API 契约尚未定稿，将在服务端开工时重新编写**，由 utoipa 从代码生成 `openapi.json` 并提交进仓库。以下是契约必须遵守的原则。
 
-- **幂等写入**：客户端为每条记录生成 UUIDv7 作 `id`，每个改动请求带 `Idempotency-Key` 头（与 IETF httpapi 草案同名）。服务端在同一事务内：`INSERT INTO idempotency (user_id, key, request_hash) … ON CONFLICT DO NOTHING`；已存在且有保存的响应则直接回放；请求体哈希不同则返回 422。`records` 用 `INSERT … ON CONFLICT (id) DO NOTHING`。
-- **outbox 同步**：客户端把离线期间的改动按顺序推送；`POST /sync/push` 批量提交（每条带幂等键），逐条返回结果。
-- **change_seq 游标**：每次改动写入全局递增的 `change_seq`（PostgreSQL sequence）；`GET /sync?since=<cursor>` 返回 seq 更大的记录（含已作废的“墓碑”）和新游标。
+- **幂等写入**：客户端为每条记录生成 UUIDv7 作 `id`，每个改动请求带 `Idempotency-Key` 头（与 IETF httpapi 草案同名），幂等键仍按用户维度存储。服务端在同一事务内：`INSERT INTO idempotency (user_id, key, request_hash) … ON CONFLICT DO NOTHING`；已存在且有保存的响应则直接回放；请求体哈希不同则返回 422。`records` 用 `INSERT … ON CONFLICT (id) DO NOTHING`。
+- **outbox 同步**：客户端把离线期间的改动按顺序推送；`POST /sync/push` 批量提交（每条带幂等键和 `space_id`），逐条返回结果；目标空间已不可用（例如已退出）的条目返回“空间不可用”，客户端保留原文供用户处理。
+- **change_seq 游标（按空间分别维护）**：每次改动写入全局递增的 `change_seq`（PostgreSQL sequence），每行带 `space_id`。客户端**每个空间保存一个游标**；`POST /sync/pull` 提交 `{space_id: cursor}` 映射，服务端只返回当前用户为活跃成员的空间中 seq 大于对应游标的行（含已作废的“墓碑”）和各空间的新游标；不可用或不存在的空间统一标为“不可用”，不区分两种情况。
+  - 客户端靠 `GET /spaces`（成员关系列表）知道有哪些空间：某空间从列表消失（退出 / 被移除）→ 清除本机该空间的数据和游标；新加入或重新加入 → 游标从 0 开始，完整回填该空间。
+  - **为什么不用单一的全局游标再按成员关系过滤**：新加入空间的历史行 seq 都小于全局游标，会被跳过，需要另写回填逻辑和边界处理，容易出错；按空间分游标时“新加入 = 游标 0”自然完成回填，退出时也只需丢掉一个游标。两种方式都不泄露其他空间的信息，按空间分游标更简单。
 - **乐观并发**：更新带 `expected_version`，版本不符返回 409，客户端拉取最新版本后提示用户。
 - **请求 ID**：每个请求带 `X-Request-Id`（UUIDv7，客户端生成，离线重发沿用同一个）；服务端校验格式后沿用，没有才自己生成，并在响应头回传。
 - **统一错误格式**：RFC 9457 风格 `application/problem+json`：`{type, title, status, detail, request_id}`；内部错误只记日志不外泄细节。
@@ -139,8 +146,10 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 ```rust
 let api = OpenApiRouter::new()
     .routes(routes!(auth::login, auth::logout))
+    .routes(routes!(spaces::list, spaces::create, spaces::rename))
+    .routes(routes!(members::invite, members::remove, members::leave))
     .routes(routes!(records::create, records::list))
-    .routes(routes!(records::update, records::void))
+    .routes(routes!(records::update, records::void, records::move_to_space))
     .routes(routes!(sync::pull, sync::push))
     .routes(routes!(blobs::upload, blobs::get));
 let (router, openapi) = api.split_for_parts();
@@ -159,47 +168,73 @@ let app = router
 
 ```sql
 create table users (id uuid primary key default uuidv7(), username text unique not null,
-  password_hash text not null, family_id uuid not null, created_at timestamptz not null default now());
+  password_hash text not null, created_at timestamptz not null default now());
 create table sessions (token_hash bytea primary key, user_id uuid not null references users,
   device text, expires_at timestamptz not null, last_seen_at timestamptz not null default now());
-create table accounts (id uuid primary key, family_id uuid not null, owner_id uuid not null references users,
-  scope text not null check (scope in ('family','private')), kind text not null check (kind in ('real','purpose')),
+create table spaces (id uuid primary key default uuidv7(), name text not null,
+  accent_color text not null,                       -- 固定色板中的键名，例如 'teal'
+  is_default boolean not null default false,        -- 账号的默认个人空间，不可邀请他人
+  created_by_user_id uuid not null references users, created_at timestamptz not null default now(),
+  archived_at timestamptz, change_seq bigint not null, version int not null default 1);
+create unique index one_default_space_per_user on spaces (created_by_user_id) where is_default;
+create table space_members (id uuid primary key default uuidv7(), space_id uuid not null references spaces,
+  user_id uuid not null references users, display_name text not null,
+  role text not null check (role in ('owner','member')),
+  status text not null check (status in ('active','left')),
+  joined_at timestamptz not null, left_at timestamptz, change_seq bigint not null,
+  unique (space_id, user_id));                      -- 重新加入复用同一行
+create table accounts (id uuid primary key, space_id uuid not null references spaces,
+  created_by_member_id uuid not null references space_members,
+  kind text not null check (kind in ('real','purpose')),
   name text not null, opening_balance_minor bigint not null default 0,
   monthly_allocation_minor bigint, allocation_day smallint default 1, auto_allocate boolean not null default false,
   archived_at timestamptz, change_seq bigint not null, version int not null default 1);
-create table records (id uuid primary key, family_id uuid not null, owner_id uuid not null references users,
-  scope text not null check (scope in ('family','private')), kind text not null,
+create table records (id uuid primary key, space_id uuid not null references spaces,
+  created_by_member_id uuid not null references space_members, kind text not null,
   amount_minor bigint, account_id uuid, purpose_id uuid, tags text[] not null default '{}',
   content jsonb not null default '{}', status text not null, version int not null default 1,
   change_seq bigint not null, voided boolean not null default false,
+  moved_to_record_id uuid, moved_from_record_id uuid,   -- 跨空间移动的双向关联
   created_at timestamptz not null, updated_at timestamptz not null);
 create sequence change_seq;
 create table record_events (id bigint generated always as identity primary key, record_id uuid not null,
-  actor_id uuid not null, request_id uuid, kind text not null, before jsonb, after jsonb,
+  space_id uuid not null, actor_member_id uuid not null references space_members,
+  request_id uuid, kind text not null, before jsonb, after jsonb,
+  at timestamptz not null default now());
+create table space_events (id bigint generated always as identity primary key, space_id uuid not null,
+  actor_member_id uuid references space_members, subject_member_id uuid references space_members,
+  request_id uuid, kind text not null,   -- create|rename|invite|join|leave|remove|rejoin
   at timestamptz not null default now());
 create table idempotency (user_id uuid not null, key text not null, request_hash bytea not null,
   response_status smallint, response_body jsonb, created_at timestamptz not null default now(),
   primary key (user_id, key));
 create table blobs (sha256 bytea primary key, mime text not null, bytes bigint not null,
-  width int, height int, uploaded_by uuid not null, scope text not null, created_at timestamptz not null default now());
+  width int, height int, created_at timestamptz not null default now());
+create table blob_refs (sha256 bytea not null references blobs, space_id uuid not null references spaces,
+  uploaded_by_member_id uuid not null references space_members, created_at timestamptz not null default now(),
+  primary key (sha256, space_id));   -- 同一张图在两个空间各有一条引用，下载按引用所在空间鉴权
+-- 家庭资料（documents）、聊天会话（conversations）同样带 space_id + created_by_member_id
 -- ai_jobs / ai_calls 见 ai-layer.md
 ```
 
 金额一律 `bigint` 存“分”（`*_minor` 列），不用浮点；主键用 UUIDv7。
 
+**账户属于空间**：资金账户和用途账户都挂在某个空间下。同一张真实银行卡可以在两个空间各建一次，各自只记本空间的流水、显示本空间推导出的余额；系统不尝试合并成整张卡的余额，App 内整卡余额对不上是已接受的取舍。
+
 ### 5.2 关键模式
 
 1. **幂等写入**：见第 4 节。
 2. **AI 解析任务**：原话 / 图片入库时同事务插入 `ai_jobs(status = 'queued')`；后台 worker `SELECT … FOR UPDATE SKIP LOCKED LIMIT 1` 取任务 → 调 `AiRouter` → 结果经校验后写 `records` → 任务置 `done`；失败指数退避；需要追问则置 `waiting_user`。细节见 [AI 层设计](ai-layer.md#6-任务与追问状态)。
-3. **追加式审计 / 撤销**：`record_events(record_id, actor_id, request_id, kind[create|update|void|restore], before, after, at)` 只 INSERT（应用数据库角色对该表无 UPDATE / DELETE 权限）。撤销 = 追加一条反向事件并更新 `records` 当前态，绝不删除历史。
+3. **追加式审计 / 撤销**：`record_events(record_id, space_id, actor_member_id, request_id, kind[create|update|void|restore|move_out|move_in], before, after, at)` 与 `space_events` 只 INSERT（应用数据库角色对该表无 UPDATE / DELETE 权限）。撤销 = 追加一条反向事件并更新 `records` 当前态，绝不删除历史。
 4. **余额**：余额由记录推导（开户余额 + 关联记录），一笔支出同时影响真实账户和用途账户、只计一次消费；月度拨入和逻辑调拨是独立记录类型，不算收入或消费。
-5. **家庭 / 私人隔离**：每行带 `scope`、`owner_id`、`family_id`；聊天会话按内部用户 ID 隔离，私人上下文绝不进入另一人的模型请求。
+5. **空间隔离**：每行带 `space_id`；任何查询、统计、提示都不跨空间，不在一个空间里透露其他空间的数量、合计或线索。聊天记录与 AI 上下文按空间隔离，其他空间的内容绝不进入模型请求。账号级事件（登录、改密）只记 `user_id`，空间内事件记 `actor_member_id`。
+6. **跨空间移动记录**：用户手工把记错空间的记录移走，要求在源空间和目标空间都是活跃成员。同一事务内：源记录作废（`move_out`，写 `moved_to_record_id`）+ 在目标空间新建一条（`move_in`，写 `moved_from_record_id`），账户与用途须从目标空间的账户中重新选择；两条审计事件互相关联。AI 不会发起或建议移动。
 
 ### 5.3 原图存储
 
-- v1：`object_store::local::LocalFileSystem` 存原图到 `<data_dir>/blobs/{sha256 前 2 位}/{sha256}`（内容寻址，天然去重），数据库存元数据（大小、MIME、宽高、上传者、scope）。以后换 S3 兼容服务只换构造函数。
+- v1：`object_store::local::LocalFileSystem` 存原图到 `<data_dir>/blobs/{sha256 前 2 位}/{sha256}`（内容寻址，天然去重），数据库存元数据（大小、MIME、宽高）以及按空间的引用（`blob_refs`：所属空间、上传成员）。以后换 S3 兼容服务只换构造函数。
 - 处理：`infer` 嗅探真实类型（不信任客户端 Content-Type）；`image` 生成 512px 缩略图；按 EXIF 方向转正；对外下发的图片重新编码以去掉 GPS 等 EXIF（原图保留供 AI 和核对）。
-- 下载：经鉴权后流式返回（`tokio_util::io::ReaderStream`），不开放静态目录。
+- 下载：校验当前用户是该图所在空间的活跃成员后流式返回（`tokio_util::io::ReaderStream`），不开放静态目录。
 
 ### 5.4 中间件、配置、错误、校验
 
@@ -213,7 +248,7 @@ create table blobs (sha256 bytea primary key, mime text not null, bytes bigint n
 目标：拿到一个 ID，就能把“手机上点了什么 → 服务器收到什么 → AI 任务怎么跑的 → 数据库改了什么”串成一条线。
 
 - **一个请求 ID 贯穿全程**：客户端每个用户动作生成 `X-Request-Id`，离线重发沿用（与幂等键一起存在 outbox 里）；服务器优先接收客户端的值并校验格式。
-- **每行日志带上下文**：`tracing` 请求 span 带 `request_id`、内部 `user_id`、路由、耗时、状态码。输出 JSON，一行一条，便于 `grep` / `jq` 过滤。
+- **每行日志带上下文**：`tracing` 请求 span 带 `request_id`、内部 `user_id`、`space_id`（如有）、路由、耗时、状态码。输出 JSON，一行一条，便于 `grep` / `jq` 过滤。
 - **跨进 AI 任务**：`ai_jobs` 存 `origin_request_id`；worker 开新 span，带 `job_id`、`origin_request_id`、`provider_id`、模型名、重试次数、降级原因、耗时、token 用量。
 - **跨进审计**：`record_events.request_id` 可反查“这笔账是哪次操作改的”。
 - **错误回执带 ID**：错误响应带 `request_id`，App 错误提示和客户端日志也显示 / 记录它；用户截个图就能定位服务器日志。
@@ -224,7 +259,7 @@ create table blobs (sha256 bytea primary key, mime text not null, bytes bigint n
 ## 7. 测试与质量
 
 - `cargo nextest run`；集成测试连**真实 PostgreSQL 18**（本地用 testcontainers 0.28，CI 用 service 容器），每个测试使用独立的临时数据库并自动跑迁移。
-- **关键查询必须有集成测试**：幂等（重复提交、哈希不同 422、响应回放）、`ON CONFLICT`、`FOR UPDATE SKIP LOCKED` 并发取任务、change_seq 游标增量与墓碑、范围过滤（私人记录对另一用户不可见）、嵌套事务（SeaORM 与 SQLx 一样用 SAVEPOINT 实现）。
+- **关键查询必须有集成测试**：幂等（重复提交、哈希不同 422、响应回放）、`ON CONFLICT`、`FOR UPDATE SKIP LOCKED` 并发取任务、change_seq 游标增量与墓碑、空间隔离（非成员对空间的任何请求都得 404；列表、同步、统计不含他人空间；退出后立即不可访问、重新加入复用同一成员行；跨空间移动的事务与审计关联）、嵌套事务（SeaORM 与 SQLx 一样用 SAVEPOINT 实现）。
 - HTTP 级测试用 `axum-test`；SeaORM 的 `MockDatabase` 只用于快照生成的 SQL，不替代真库测试。
 - AI 适配器：wiremock 回放 + insta 请求体快照，见 [AI 层设计](ai-layer.md#9-测试策略)。
 - 静态检查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo deny check`（许可证 + 漏洞库）、`cargo audit`。
@@ -233,7 +268,7 @@ create table blobs (sha256 bytea primary key, mime text not null, bytes bigint n
 
 `server/AGENTS.md` 写明项目规则，例如：
 
-- 所有改动请求必须带幂等键；所有查询必须经范围过滤入口。
+- 所有改动请求必须带幂等键；所有查询必须经空间成员校验入口，不得手写不带 `space_id` 的业务查询。
 - 请求路径上禁止 `unwrap` / `expect`。
 - 新接口必须有 utoipa 注解和集成测试。
 - 金额只用 `i64` 分；时间一律 `timestamptz`。
@@ -288,3 +323,4 @@ GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 servi
 | 3 | 默认 AI 提供方的合规与额度 | 见 [AI 层设计 · 风险](ai-layer.md#11-风险) |
 | 4 | 手机上传 HEIC | 客户端统一转 JPEG 再上传 |
 | 5 | 以上代码片段未编译 | 以首次编译和 docs.rs 为准 |
+| 6 | 漏写空间过滤导致跨空间泄露 | 仓储层唯一入口 + 集成测试 + `AGENTS.md` 规则；RLS 作为可选第二道防线（待定） |

@@ -27,8 +27,9 @@
 | 数据类 / JSON | freezed + json_serializable + build_runner | 4.0.3 / 6.15.2 / 2.17.1 |
 | 路由 | go_router（StatefulShellRoute 做底部三栏） | 18.1.1 |
 | 后台同步 | 前台触发为主 + workmanager 兜底 + connectivity_plus | 0.10.10 / 7.3.2 |
-| 安全存储 | flutter_secure_storage（登录令牌，Android Keystore 加密） | 11.2.0 |
-| 本地设置 | shared_preferences（当前范围、引导是否完成） | 2.5.6 |
+| 安全存储 | flutter_secure_storage（登录令牌、应用锁 PIN / 图案的加盐哈希，Android Keystore 加密） | 11.2.0 |
+| 本地设置 | shared_preferences（上次使用的空间 ID、引导是否完成、应用锁开关与超时） | 2.5.6 |
+| 应用锁 | local_auth（指纹 / 人脸）+ 自绘图案锁组件 + 数字 PIN 兜底；默认关闭（见 4.6） | 开工时核实后锁定 |
 | ID | uuid（客户端生成 UUIDv7） | 4.6.0 |
 | 图标 | `icons.json` → 生成 Dart `Path` 代码；flutter_svg / vector_graphics 仅用于将来的插画 | flutter_svg 2.3.0 / vector_graphics 1.2.4 |
 | 动效 | 隐式动画 + 主题里的动效令牌；animations 包按需 | animations 3.0.0 |
@@ -62,6 +63,8 @@
 
 **聊天首页的特殊之处**：AI 解析在服务器端。手机先把“用户原话”作为聊天条目和 outbox 行写进本机数据库，显示为“待上传”便利贴；上传后服务器返回解析结果（草稿 / 追问），回写本机后渲染成记录卡或追问选项。
 
+**空间是客户端的第一层划分**：账户、记录、家庭资料、聊天与 AI 会话都属于某个空间。App 打开时进入上次使用的空间（ID 存在本机设置里；首次登录进入默认个人空间）；所有页面、查询、outbox 条目和 AI 请求都带当前 `spaceId`。用户不是成员的空间在客户端完全不存在：不缓存、不显示名称、不显示数量或任何动态提示。
+
 ## 2. 状态管理：Riverpod 3（代码生成写法）
 
 官方立场：Flutter 官方状态管理页现在只介绍内置方案（`setState`、`ValueNotifier`、`InheritedWidget`），不点名第三方包；官方示范 App 用 `ChangeNotifier` + provider。
@@ -78,6 +81,8 @@
 2. **依赖注入合一**：仓库、Service、数据库都是 provider。
 3. **异步状态标准化**：`AsyncValue`（加载中 / 数据 / 错误）让每个页面的加载和出错写法一致，golden 也好覆盖。
 4. **测试替身简单**：`ProviderContainer(overrides: [...])` 一行换成假实现。
+
+**空间作用域**：`currentSpaceProvider`（`@riverpod` Notifier）保存当前空间 ID，并写回本机设置；仓库方法一律显式接收 `spaceId`，不在仓库内部偷读全局状态；按空间取数的 provider 以 `spaceId` 为参数（带参数的生成式 provider），并 `watch(currentSpaceProvider)`，切换空间时这些 provider 自动失效重建，不残留上一个空间的数据。聊天 ViewModel 也按空间分开：每个空间有自己的聊天记录和 AI 会话，切换空间就切换对话。
 
 风险：网上和模型语料里有大量 Riverpod 1/2 时代的旧写法（`StateNotifierProvider`、`StateProvider`、`ChangeNotifierProvider`）。对策：AGENTS.md 明文禁止 + CI 检查脚本拦截 + 锁定主版本 `^3.4.3`。
 
@@ -99,7 +104,8 @@
 
 outbox 即“待发送队列”：所有改动先写进本机，再按顺序发给服务器。
 
-- 表：`records`、`chat_entries`、`accounts`（缓存）、`outbox(id UUID = 幂等键, op_type, payload_json, entity_id, request_id, created_at, attempts, state, last_error)`。
+- 表：`records`、`chat_entries`、`accounts`（缓存）、`documents`（缓存）、`outbox(id UUID = 幂等键, space_id, op_type, payload_json, entity_id, request_id, created_at, attempts, state, last_error)`，以及 `spaces`（本人是有效成员的空间：名称、强调色、角色）、`space_members`（成员显示名与状态，用于记录卡上的创建者）、`sync_cursors(space_id, cursor)`。
+- **所有业务表都带 `space_id`**，DAO 查询一律按当前空间过滤；没有不带 `space_id` 条件的业务查询（写测试守住）。
 - 写操作在 **drift 的同一个事务**里完成：更新业务表（`sync_state = pending_upload`）+ 插入 outbox 行。
 - `OutboxProcessor.drain()`：FIFO 逐条上传，`Idempotency-Key = outbox.id`，`X-Request-Id = outbox.request_id`（重发沿用同一个）。
   - 网络错误或超时：停下，稍后退避重试。
@@ -108,7 +114,11 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
   - 成功：回写服务器返回值并删除 outbox 行。
 - **互斥**：前台触发和后台任务共用一个 drain 锁（串行 `Future` 链或 `package:synchronized`）。workmanager 回调跑在**另一个 isolate**（独立的 Dart 执行线程），内存锁不共享，所以还要用数据库里的租约字段防止两个 isolate 同时上传同一条。服务器端幂等是最后一道兜底。
 - **冲突**：更新带 `expected_version`，服务器返回 409 时客户端标记冲突、拉取最新版本并提示用户。
-- **增量拉取**：用服务器返回的 `change_seq` 游标拉取变更（含已作废记录的“墓碑”），两个范围分别刷新。
+- **增量拉取**：每个空间一个游标（`sync_cursors`），按空间用服务器返回的 `change_seq` 拉取变更（含已作废记录的“墓碑”）；当前空间优先，其余空间随后刷新。幂等规则不变。
+- **成员关系刷新**：每次同步先拉取本人的空间成员关系，更新 `spaces` 表。
+  - 新加入或重新加入的空间：游标从 0 开始，完整回填该空间数据。
+  - 某个空间从成员关系中消失（主动退出或被移除）：在一个事务里删除该空间的全部本地行、outbox 条目和游标，并清理该空间的缓存图片；若它是当前空间，切回默认个人空间。尚未上传的 outbox 条目一并丢弃，界面提示“已退出该空间，未上传的内容无法保存”。
+- **创建者显示**：记录卡和详情上的创建者取自 `space_members.display_name`；成员已退出的显示“名字（已退出）”。
 
 ### 3.3 后台同步（无 GMS、厂商后台限制）
 
@@ -116,7 +126,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 |---|---|---|
 | workmanager 0.10.10 | Flutter 官方“后台处理”页推荐；封装 Android WorkManager / iOS BGTaskScheduler；回调在独立 isolate 执行 | 注册唯一任务 “outbox”，要求联网，指数退避。**只当兜底** |
 | connectivity_plus 7.3.2 | 只能说明有网卡连接，不保证真能上网 | 前台时网络从无到有立刻 drain；先用一次轻量 `/healthz` 请求确认可达 |
-| App 生命周期 | `AppLifecycleListener` 监听回到前台 | 每次回到前台 drain 一次，并增量刷新两个范围 |
+| App 生命周期 | `AppLifecycleListener` 监听回到前台 | 每次回到前台 drain 一次，刷新成员关系，并按空间增量刷新（当前空间优先）；启用应用锁时先验证（见 4.6） |
 | 厂商后台限制 | 部分国内厂商系统默认几乎不允许后台任务运行 | 首次使用时引导用户把省电策略设为“无限制”、允许“自启动”；不设也不丢数据，只是上传延迟 |
 
 ### 3.4 网络、序列化、路由
@@ -129,12 +139,22 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | 路由 | go_router：`StatefulShellRoute.indexedStack` 实现底部“聊天 / 总览 / 历史”三栏（切换时各栏保留状态）；详情和编辑用底部弹层，不进路由栈 |
 | 金额 | 一律整数“分”（`int`），绝不用 `double` |
 
+### 3.5 空间与成员
+
+| 项 | 我们怎么定 |
+|---|---|
+| 切换 | `SpaceSwitcher`：顶栏左侧显示空间名称 + 一个强调色小圆点，低调不抢眼；点一下打开底部弹层，列出本人是有效成员的空间，底部是“新建空间”“空间设置”。切换只改当前空间，不换整屏配色 |
+| 空间设置 | 改名、查看成员、邀请已有账号（v1 只有预建账号，按用户名邀请，无公开注册）、移除成员（仅 owner）、退出空间。默认个人空间不显示邀请入口，也不能退出 |
+| 新建空间 | 填名称、从固定色板选强调色；创建者成为 owner |
+| 移动记录 | 记录详情里的手动操作“移到其他空间”，只列出本人同时是成员的空间；服务器端执行“原空间作废 + 目标空间新建”并互相关联，客户端走普通 outbox 写入（带幂等键），完成后两边按增量同步刷新。AI 不做跨空间建议 |
+| 隔离测试 | 组件测试和仓库测试覆盖：切换空间后不出现其他空间的记录、资料、聊天、数量和合计；退出空间后本地数据被清除 |
+
 ## 4. UI 系统
 
 ### 4.1 主题
 
 - **两层结构**：① Material 3 底座 `ColorScheme`、`TextTheme`、组件主题（按钮最小 48×48、底部弹层圆角 20 等）；② `JiabuColors`、`JiabuType`、`JiabuDecor`、`JiabuMotion` 四个 `ThemeExtension`（必须实现 `copyWith` 和 `lerp`）。
-- **家庭 / 私人切换**：`JiabuTheme.of(scope)` 返回整套 `ThemeData`，外包 `AnimatedTheme(duration: 250ms)`，颜色自动渐变。
+- **单一主题 + 空间强调色**：只有一套 `ThemeData`（`JiabuTheme.light()`），不随空间换整屏配色。每个空间创建时从固定色板选一个强调色；色板颜色是 `jiabu_design` 里的设计令牌（`JiabuColors.spaceAccents`），业务代码只按色板序号取色。强调色只用在空间名称和小标记上（例如 SpaceSwitcher 的圆点、记录卡角标），不用于按钮、背景或金额。
 - 访问方式统一为 `context.jiabu.colors.primary`；业务代码**禁止**出现 `Color(0x…)`、`Colors.*`、`TextStyle(fontFamily:)`。
 - 不启用 Material You 动态取色；v1 不做深色主题。
 
@@ -162,7 +182,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | animations 包 | 按需使用（例如记录卡到详情），不强制引入 |
 | 页面转场 | 保留框架默认（3.38 起安卓默认 `PredictiveBackPageTransitionsBuilder`，时长 450ms；测试里用 `TransitionDurationObserver`，不写死等待时间）；底部三栏切换不用页面转场 |
 | 滚动物理 | **不改默认滚动物理**；业务代码禁止设置 `physics:`，除非 AGENTS.md 列为例外 |
-| 动效令牌 | `JiabuMotion`：`sheet = 260ms, Cubic(.2,.8,.2,1)`、`scrim = 220ms`、`snack = 220ms`、`scope = 250ms`、`send = 200ms`、`cardIn = 220ms`；业务代码禁止写 `Duration(milliseconds: …)` 字面量 |
+| 动效令牌 | `JiabuMotion`：`sheet = 260ms, Cubic(.2,.8,.2,1)`、`scrim = 220ms`、`snack = 220ms`、`space = 250ms`（切换空间时内容淡入淡出）、`send = 200ms`、`cardIn = 220ms`；业务代码禁止写 `Duration(milliseconds: …)` 字面量 |
 | 减少动态效果 | 跟随系统：`disableAnimations` 为真时所有时长为 0，循环动画换静态图标；倾斜角保留。v1 不做 App 内开关 |
 
 ### 4.5 渲染与性能
@@ -170,6 +190,19 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 - **Impeller**（新一代渲染引擎，构建时预编译着色器，消除首次运行卡顿）：Flutter 3.27 起是 Android API 29+ 的默认引擎。这是 minSdk 定为 29 的主要理由之一——保证所有设备走同一条渲染路径。出现渲染异常时先记录机型和 GPU 再排查，不把“关掉 Impeller”当长期方案。
 - 性能验收一律用 profile 或 release 包；在真机上 `flutter run --profile`，用 DevTools 看 UI / Raster 线程（每帧约 16ms 预算）。
 - 常见卡顿源：build 里做重计算、整页 `setState`、未加 `const`、`saveLayer`（`Opacity`、`ClipRRect` 等离屏绘制）、过大的阴影模糊。对策：点阵用平铺图块；纸片阴影控制在两层；列表用 `ListView.builder` + `itemExtent` / `prototypeItem`（定高时）。
+
+### 4.6 应用锁与隐私
+
+可选功能，**默认关闭**，在设置里开启；锁的是整个 App，不按空间分别加锁（按空间加锁不在 v1 范围）。
+
+| 项 | 我们怎么定 |
+|---|---|
+| 验证方式 | 生物识别（指纹 / 人脸，`local_auth`，Android 上走系统 BiometricPrompt，需把 `MainActivity` 改为 `FlutterFragmentActivity`）或图案锁（自绘组件，放在 `jiabu_design`）；两者都必须设置数字 PIN 作为兜底。设备不支持或未录入生物识别时直接用 PIN |
+| 何时验证 | App 冷启动时；从后台回到前台且离开超过超时时间时（可配置，建议默认 1 分钟）。验证前只显示锁屏，不渲染任何业务页面 |
+| 存储 | PIN 与图案只存加盐哈希（存于 flutter_secure_storage），不存明文；开关与超时存本机设置。连续输错退避等待；忘记 PIN 时重新输入账号密码登录后重设 |
+| 通知 | 启用后通知不显示内容，只写“家簿有新消息”之类的通用文字，不出现金额、账户、记录或资料内容 |
+| 最近任务缩略图 | 启用后遮挡：进入 `inactive` / `paused` 时盖一层纸面遮罩；同时仅在应用锁开启时给窗口设置 `FLAG_SECURE`（平台通道，几行 Kotlin）。注意 `FLAG_SECURE` 也会禁止截屏和录屏，在设置里说明 |
+| 测试 | 单元测试覆盖超时判断、PIN 哈希校验与退避；组件测试覆盖锁屏遮挡与解锁流程；生物识别用假 Service 替身 |
 
 ## 5. 日志与崩溃
 
@@ -185,9 +218,9 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | 层 | 工具 | 内容 | 关卡 |
 |---|---|---|---|
 | 单元测试 | `flutter_test` + mocktail 1.0.5 | Money 运算与格式、ViewModel 状态迁移、仓库（真 drift 内存库）、OutboxProcessor 全部分支、DTO JSON 往返（用 `openapi.json` 示例做夹具）、drift 迁移测试 | CI 必过 |
-| 组件测试 | `flutter_test` | 交互流程：发送 → 记录卡 → 编辑 → 撤销 → 恢复；范围隔离；360 / 430 宽 × 100% / 200% 字号无溢出（`tester.takeException()` 为空） | CI 必过 |
+| 组件测试 | `flutter_test` | 交互流程：发送 → 记录卡 → 编辑 → 撤销 → 恢复；空间切换与隔离；应用锁遮挡与解锁；360 / 430 宽 × 100% / 200% 字号无溢出（`tester.takeException()` 为空） | CI 必过 |
 | **几何断言** | `flutter_test` | 直接断言关键元素：记录卡宽 332、胶带角度 −5°、相对卡片上沿 −10、印章 −5°、贴纸 −6°、便利贴角度 = `tiltFor(id)`；期望值取自设计规范 | **硬关卡，零容差**（尺寸 ±0.5 逻辑像素、角度精确相等） |
-| golden 截图 | `matchesGoldenFile`（内置） | 每个界面状态 × 家庭 / 私人 × 390×844@2.75 与 360×780；字体真实加载 | CI 必过（只在固定工具链里生成 / 校验） |
+| golden 截图 | `matchesGoldenFile`（内置） | 每个界面状态 × 两种空间强调色 × 390×844@2.75 与 360×780；字体真实加载 | CI 必过（只在固定工具链里生成 / 校验） |
 | 像素差异报告 | `tool/parity/report.py` | 与冻结的参考截图集比较：每个状态的“差异像素 %”和“>16/255 差异 %”、差异图和叠加图 | **趋势关卡**：不得高于上次批准值，目标 < 6% |
 | 集成测试 | `integration_test`（不能操作系统原生界面）；patrol 4.10.0 后补（能操作权限弹窗、通知栏） | 真机冷启动 → 登录 → 记账 → 杀进程 → 重开数据仍在 | 发版前在测试机上手动触发 |
 | 静态检查 | `dart analyze`、`dart format --set-exit-if-changed`、`tool/check_rules.dart` | 见第 7 节 | CI 必过 |
@@ -231,6 +264,8 @@ fvm flutter test · fvm flutter test --tags golden · dart run tool/check_rules.
 ## Architecture (docs.flutter.dev/app-architecture)
 View → ViewModel (@riverpod Notifier/AsyncNotifier) → Repository → Service. Views never import data/.
 drift is the single source of truth. A write = local row change + outbox row in ONE transaction.
+Everything is scoped by spaceId: every table has space_id, every query filters by it, repositories take spaceId explicitly.
+Never show, count or hint at data from another space.
 Every mutating request carries Idempotency-Key = outbox.id and X-Request-Id. Money = int minor units (fen). Never double.
 Repositories return Result<T>; ViewModels expose immutable freezed UiState.
 
@@ -243,7 +278,7 @@ Motion only from JiabuMotion; honour MediaQuery.disableAnimations. Do not overri
 
 ## Tests required with every change
 Unit tests for ViewModel/repository; widget test for interaction; golden for every new visual state
-(family+private, 390 and 360, 100% and 200% text); geometry assertions for card/tape/stamp/sticker.
+(two space accents, 390 and 360, 100% and 200% text); geometry assertions for card/tape/stamp/sticker.
 Never run --update-goldens unless the task says the visual change is intended; attach before/after.
 
 ## Forbidden
@@ -286,29 +321,30 @@ client/                                  # pub workspace 根
     parity/report.py                     # 像素差异报告
     build-host/setup.sh                  # 构建机工具链安装脚本（用户目录安装、锁版本）
   packages/jiabu_design/
-    lib/src/tokens/{colors,type,decor,motion}.dart   # ThemeExtension × 4，家庭 / 私人两套
-    lib/src/theme.dart                   # JiabuTheme.of(scope) → ThemeData
+    lib/src/tokens/{colors,type,decor,motion}.dart   # ThemeExtension × 4，单套 + 空间强调色色板
+    lib/src/theme.dart                   # JiabuTheme.light() → ThemeData
     lib/src/geometry/{tilt,tape_path,paper,shadow}.dart
     lib/src/icons/jiabu_icons.g.dart     # 生成，提交
     lib/src/components/                  # PaperCard, Tape, Sticker, Stamp, Polaroid, HandText,
-                                         # AmountText, ScopeToggle, NoteBubble, PaperSheet, PaperSnackBar …
+                                         # AmountText, SpaceSwitcher, PatternLock, NoteBubble, PaperSheet, PaperSnackBar …
     assets/fonts/ assets/licenses/
-    test/ goldens/                       # 组件级 golden（家庭 / 私人）
+    test/ goldens/                       # 组件级 golden（两种空间强调色）
   app/
     pubspec.yaml                         # resolution: workspace
     lib/
       main_dev.dart  main_prod.dart      # flavor 入口
       app/{app.dart, router.dart, env.dart}
       l10n/app_zh.arb
-      domain/{money.dart, scope.dart, record.dart, sync_state.dart, result.dart}
+      domain/{money.dart, space.dart, record.dart, sync_state.dart, result.dart}
       data/
         db/{tables.dart, daos/, database.dart, migrations/}
         api/{api_client.dart, interceptors/, dto/}
-        repositories/{records_repository.dart, chat_repository.dart, overview_repository.dart, auth_repository.dart}
+        repositories/{records_repository.dart, chat_repository.dart, overview_repository.dart, auth_repository.dart, spaces_repository.dart}
+        services/app_lock_service.dart   # local_auth、PIN / 图案哈希、FLAG_SECURE 平台通道
         sync/{outbox_processor.dart, sync_triggers.dart, background_sync.dart}
       features/
         chat/{view/chat_screen.dart, view_model/chat_view_model.dart, widgets/}
-        overview/  history/  auth/
+        overview/  history/  auth/  spaces/  lock/
       shared/                            # 跨 feature 的业务组件：RecordCard, RecordRow, EditRecordSheet, TimeLabel
     test/  test/fixtures/sample_data.dart
     integration_test/
@@ -320,9 +356,10 @@ client/                                  # pub workspace 根
 
 1. 工程骨架：workspace、FVM、构建机工具链脚本、CI 关卡、AGENTS.md、check_rules，加一个空白页的 golden。
 2. `jiabu_design`：令牌、字体、图标、Tilt、PaperCard、Tape、Stamp、Sticker，配组件目录页、golden 和几何断言。
-3. 聊天页（离线、只用本机）：记录卡 / 追问 / 编辑 / 撤销 / 范围切换。
+3. 聊天页（离线、只用本机）：记录卡 / 追问 / 编辑 / 撤销 / 空间切换。
 4. 数据层：drift + outbox + dio + 登录，对接服务端。
 5. 总览、历史。
+6. 空间管理（新建、改名、成员、邀请、移除、退出、移动记录）与应用锁。
 
 ## 9. 构建与发布
 
@@ -354,6 +391,7 @@ client/                                  # pub workspace 根
 | 9 | Google 对 Flutter 的长期投入存在不确定性 | 长期风险 | Flutter 仍保持每季度一个稳定版；数据层与 UI 分离，迁移成本可控 |
 | 10 | 安装包比原生大（约 18 MB） | 几乎无影响 | 只打 arm64；混淆；字体子集化 |
 | 11 | Material 组件将拆分为独立的 `material_ui` / `cupertino_ui` 包 | 升级时要改导入 | 按官方迁移指南处理；业务 UI 大多是自绘组件 |
+| 12 | 本机残留已退出空间的数据 | 失去权限后仍能看到内容 | 成员关系刷新时事务性清除该空间的行、outbox、游标与缓存图片；仓库测试覆盖 |
 
 ## 附录 A：pubspec 草案
 
@@ -389,6 +427,7 @@ dependencies:
   workmanager: ^0.10.10
   connectivity_plus: ^7.3.2
   flutter_secure_storage: ^11.2.0
+  # local_auth: 应用锁（4.6），开工时核实最新稳定版后锁定
   shared_preferences: ^2.5.6
   uuid: ^4.6.0
   intl: ^0.20.3
@@ -460,6 +499,8 @@ fvm flutter build apk --release --flavor prod --target-platform android-arm64 \
 3. Flutter 3.47 所需的最低 Kotlin / Gradle 版本（官方只写“AGP 9+”）。
 4. 国内厂商系统（相对已有社区资料）具体的后台限制。
 5. 无 GMS 的国内设备不受 Google 开发者验证影响（推断）。
+6. `local_auth` 在国内厂商系统上的实际可用方式：BiometricPrompt 不依赖 GMS，但不少机型的人脸解锁不对第三方 App 开放，可能只能用指纹（需真机验证）。
+7. 各厂商系统对 `FLAG_SECURE` 与最近任务缩略图遮挡的实际表现。
 
 ## 附录 E：主要来源
 
