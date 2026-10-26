@@ -120,10 +120,14 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 - 所有业务查询必须带 `space_id`，并与活跃成员关系联查；仓储层只提供“带空间成员校验的查询”入口，禁止绕过。`GET /spaces` 只返回当前用户为活跃成员的空间，不返回其他空间的名称、数量或任何动态。
 - 写入前服务端**再次校验**成员身份，并校验引用的账户、标签、资料都属于同一空间；不信任客户端状态。
 - 同步接口同样只返回活跃成员所在空间的数据（见第 4 节）。
-- **成员管理**：创建空间（创建者成为 owner）、改名、邀请已有账号（v1 没有公开注册，只能邀请预建账号）、owner 移除成员、成员自行退出。默认个人空间拒绝邀请他人。最后一位 owner 不能直接退出，须先转让 owner 或删除空间（细节待定）。
+- **成员管理**：创建空间（创建者成为 owner）、改名、邀请已有账号（v1 没有公开注册，只能邀请预建账号）、owner 移除成员、成员自行退出。默认个人空间拒绝邀请他人。最后一位 owner 不能直接退出，须先转让 owner 或删除空间。
 - **退出 / 被移除**：该行 `status = 'left'`、写 `left_at`；之后对该空间的所有请求立即 404（会话本身不失效，只是空间校验不通过）。其创建的记录保留，界面仍显示其显示名并标注“已退出”。
 - **重新加入**：复用同一行 `space_members`（改回 `active`、更新 `joined_at`、清空 `left_at`），旧记录自动重新关联；每次加入 / 退出都追加一条审计事件。
-- PostgreSQL 行级安全（RLS，以空间成员关系为条件）可作为第二道防线（待定）。
+- **模块与按模块授权（扩展预留）**：空间内容分模块（v1：`ledger` 账本、`documents` 资料；以后加 `memories` 等）。所有内容表带 `module` 列；`space_member_grants (member_id, module, level)` 记录每位成员对每个模块的级别（`none` / `read` / `write` / `manage`）。v1 加入空间时为每个模块写入 `manage`（owner）或 `write`（member），不提供授权界面。
+- **统一授权入口**：所有业务读写只经一个函数 `authorize(member, module, action)`（由 `SpaceMember` 提取器之后的仓储层调用），禁止在 handler 里写“是成员就放行”。无权模块与非成员同样返回 404；同步、AI 上下文组装、导出都调用同一函数。
+- **单条可见范围（预留）**：内容表预留可空的 `visibility jsonb`（例如指定可见成员列表），v1 恒为空、不读取。
+- 不区分成人 / 未成年账号类型，差异由按模块授权表达。
+- PostgreSQL 行级安全（RLS，以空间成员关系与模块授权为条件）可作为第二道防线（待定）。
 
 ## 4. API 原则
 
@@ -183,6 +187,11 @@ create table space_members (id uuid primary key default uuidv7(), space_id uuid 
   status text not null check (status in ('active','left')),
   joined_at timestamptz not null, left_at timestamptz, change_seq bigint not null,
   unique (space_id, user_id));                      -- 重新加入复用同一行
+create table space_member_grants (member_id uuid not null references space_members,
+  module text not null,                             -- 'ledger' | 'documents'（以后 'memories' …）
+  level text not null check (level in ('none','read','write','manage')),
+  change_seq bigint not null, primary key (member_id, module));
+-- 所有内容表（accounts、records、documents、blob_refs …）都带 module text not null 与预留的 visibility jsonb
 create table accounts (id uuid primary key, space_id uuid not null references spaces,
   created_by_member_id uuid not null references space_members,
   kind text not null check (kind in ('real','purpose')),
