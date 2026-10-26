@@ -16,7 +16,8 @@
 10. **问用户分两种**：运行中途要用户确认或回答（`ask_user`、执行前需要确认的操作）是**中断**——同一条回复暂停，用户的回答是这一步的结果（不是一条新的聊天消息），回答后**同一条回复**接着做完；回答已经写完、最后带一个问题时，用户的回复是新消息、AI 的是新回复。见 13.5。卡片等待回答时输入框锁定，每张中断卡固定多一个“输入其他内容”。
 11. **持久执行自写在 PostgreSQL 里**：每次运行一行状态 + 一份只追加的步骤日志；暂停 = 写好后结束这次执行（没有线程在等），回答 = 重新排队，恢复时读日志、已完成的工具绝不重做；会改数据的工具和日志在同一个事务里，做到恰好一次。见第 14 节。
 12. **按缓存命中来组织请求**：固定顺序（静态指令 → 工具 → 空间上下文 → 历史 → 本轮输入 → 本次运行的步骤）、每次运行冻结提示词快照、确定性序列化、加密推理数据原样回放，让工具循环和及时回答后的恢复都能命中提示词缓存；长暂停接受一次未命中。见第 15 节。
-13. **配置和计量交给管理能力**：提供方、模型、每类任务的路由和官方价格表存在数据库里，经管理 API 或 `admin` 命令修改，改完即时生效（第 7 节）。每次模型调用都写一行计量（成功、失败都写），带空间、成员、API key 归属和所用的价格行；每一步只记操作类别和耗时，不记内容，供管理侧按空间 / 成员 / 提供方 / 模型统计用量和成本（第 8 节）。
+13. **配置和计量交给管理能力**：提供方、模型、每类任务的路由和官方价格表存在数据库里，经管理 API 或 `admin` 命令修改，改完即时生效（第 7 节）。每次模型调用都写一行计量（成功、失败都写），带空间、成员归属和所用的价格行；每一步只记操作类别和耗时，不记内容，供管理侧按空间 / 成员 / 提供方 / 模型统计用量和成本（第 8 节）。
+14. **工具只定义一次，同时开放给 API key**：API key 不能使用 AI 对话；AI 在对话里能调用的工具（除 `ask_user` 这类只在对话里有意义的）都由同一份定义自动生成公开接口，key 直接调用，走同一套参数校验、空间绑定、权限检查和业务校验；AI 要做需要确认的写入时先弹确认卡，key 调用写入类工具直接执行。见 13.6。
 
 ## 1. 设计原则
 
@@ -157,8 +158,7 @@ AI 处理是异步的**运行**（run）：一条助手回复从开始到结束�
 - 回答已经写完、最后问一句（例如“要不要把它设成每月固定支出？”）不是中断：那条回复已经结束，用户的回复是一条新消息，开始新的一轮。
 - 链上全部提供方失败 → `waiting_ai`，按 `run_after` 退避重试（14.8）；用户也可以手工补录。
 - worker 本身无状态：每次领取都从库里读出运行行和 journal。空间上下文在运行开始时按 `space_id` 渲染一次、记进 journal（缓存需要，15.2）；每次领取仍重新确认发起成员是活跃成员——已退出则运行 `failed`（原因“空间不可用”），不写入。
-- **通过个人 API key 发起的运行**（[服务端 3.3](server-rust.md#33-个人-api-key)）：`agent_runs.api_key_id` 记下是哪个 key；每次领取同样确认这个 key 仍然有效（未撤销、未过期、账号未停用、空间仍在 key 的范围内），否则 `failed`（“API key 已失效”）。写入工具把 `api_key_id` 带进 `record_events`，界面上显示“通过 API key：名称”。
-- **只读运行**（只读 key 发起，`agent_runs.read_only = true`）：工具清单只保留 `effect = 'read'` 的工具和 `ask_user`，指令里多一句“这次只能查看，不能记账或修改”；用户要求写入时模型说明做不到。工具清单不同，提示词快照也不同（15.2）。
+- **运行只能由本人在手机上发起**：个人 API key 不能使用 AI（[服务端 3.3](server-rust.md#33-个人-api-key)）。创建运行的唯一入口只接受会话身份，key 提交的聊天、回答和需要 AI 整理的内容一律被拒绝，所以运行没有“经哪个 key”的归属，也没有只读运行。key 需要的查询和写入经工具 API 直接调用同一批工具（13.6），不经过模型。
 
 ## 7. 路由、降级与计费策略
 
@@ -244,7 +244,7 @@ as_of = "<核对日期>"
 create table ai_calls (
   id bigint generated always as identity primary key,
   run_id uuid,                                               -- 管理侧的测试调用（probe）为空
-  space_id uuid, member_id uuid, user_id uuid, api_key_id uuid,   -- 归属：冗余存一份，统计时不用联查业务表
+  space_id uuid, member_id uuid, user_id uuid,               -- 归属：冗余存一份，统计时不用联查业务表
   task_kind text not null,                                   -- chat | parse_entry | parse_entry_image | document_extract | probe
   provider_id text not null, model text not null,
   structured_mode text not null, latency_ms int, input_tokens int, output_tokens int,
@@ -273,12 +273,12 @@ create table ai_step_meters (
 **计量规则**：
 
 - **每次提供方调用结束就写一行 `ai_calls`**，不论成功、失败还是被降级跳过之后的重试；不和 journal 放在同一个事务里——调用失败、`model_turn` 没提交，钱也已经花了，照样要记。进程在流式输出中途崩溃时拿不到用量，这次调用记为 `outcome = 'lost'`、token 为空（数量很少，看板单独显示）。
-- **归属**：`space_id`、`member_id`、`user_id`、`api_key_id`、`task_kind` 在写入时从运行行复制过来；管理侧统计只读 `ai_calls`，不需要也没有权限联查业务表（[服务端 9.2](server-rust.md#92-管理侧看不到内容三层保证)）。
+- **归属**：`space_id`、`member_id`、`user_id`、`task_kind` 在写入时从运行行复制过来；管理侧统计只读 `ai_calls`，不需要也没有权限联查业务表（[服务端 9.2](server-rust.md#92-管理侧看不到内容三层保证)）。
 - **价格**：按调用时刻取该模型 `effective_from` 不晚于调用时间的最新价格行，把成本、缓存省下的金额和 `price_id` 一起写进这一行；以后改价不重算历史。找不到价格时 `cost_usd` 为空、照常调用并告警，管理侧把它们单独计数。
 - **步骤**：Agent 循环在发 ChatWeave 步骤事件（13.5）的同时写 `ai_step_meters`；`step_kind` 由工具声明（`AgentTool::step_kind()`，取自固定目录），**不是** `step_label`——后者会带账户名、标签名，属于内容，只进 `chat_entries`。
 - **测试调用**（管理侧“测试连接”）：`task_kind = 'probe'`，不归属任何空间。
 
-- 每次模型调用写一行，用于比较提供方质量、延迟和成本，并按空间、成员、内部用户 ID、API key 统计共享订阅的用量。
+- 每次模型调用写一行，用于比较提供方质量、延迟和成本，并按空间、成员、内部用户 ID 统计共享订阅的用量。工具 API 的调用不经过模型，不写 `ai_calls`（13.6）。
 - 每次调用的成本、缓存省下的金额按第 7 节的价格表折算（订阅提供方同样折算），按运行、空间、成员、提供方、模型、日 / 月汇总；汇总经管理 API 与 `admin usage` 提供（[服务端 9.4](server-rust.md#94-接口清单adminv1)），v1 直接查 `ai_calls`（有时间与空间索引），量大了再加按日的汇总表。
 - 缓存命中率按 `call_kind` 统计；“暂停后恢复、距上次调用小于缓存有效期、却没命中”应为 0（15.5）。
 - worker span 带 `run_id`、`origin_request_id`、`provider_id`、模型名、重试次数、降级原因、耗时、token 用量。
@@ -387,35 +387,57 @@ insta = { version = "1.49", features = ["json"] }
 **每个工具声明自己的步骤说明**：
 
 ```rust
-// crates/ai —— Agent 循环里的工具（草图，未编译）
+// crates/tools —— AI 的工具。Agent 循环和工具 API（服务端 4.3）共用这一份定义（草图，未编译）
 #[async_trait::async_trait]
 pub trait AgentTool: Send + Sync {
-    fn name(&self) -> &'static str;                          // 给模型看的工具名；只进服务端日志，不下发
-    fn parameters(&self) -> &serde_json::Value;              // 参数 JSON Schema
+    fn name(&self) -> &'static str;                          // 工具名：给模型看的名字，也是工具 API 的路径段；不下发给 App
+    fn description(&self) -> &'static str;                   // 给模型的说明，同时是 OpenAPI 里的说明
+    fn parameters(&self) -> &serde_json::Value;              // 参数 JSON Schema（由参数类型经 schemars 生成）
+    fn output_schema(&self) -> &serde_json::Value;           // 结果 JSON Schema：回填给模型的、工具 API 返回的都是它
+    fn schema_version(&self) -> u32;
+    /// 所属模块与动作，执行前交给 authorize(member, module, action)。
+    fn permission(&self) -> (Module, Action);
+    /// read | local_write | external（14.5）；只读 key 只能调用 read 工具（服务端 3.3）。
+    fn effect(&self) -> Effect;
+    /// 在对话里执行前是否要用户确认（确认卡，14.4 C）。只有 Agent 循环看它；工具 API 不确认、直接执行。
+    fn confirm_in_chat(&self, args: &ValidatedArgs) -> bool { false }
+    /// AgentAndApi（默认）| AgentOnly（如 ask_user：只在对话里有意义，不注册 API 路由）。
+    fn exposure(&self) -> Exposure { Exposure::AgentAndApi }
     /// 过程条上的一句说明（≤ 60 字），服务端按固定模板生成，例如“查本月餐饮支出”。
     /// 只能填入已经过 authorize() 的整理后名称（账户名、标签名、“本月 / 上月”这类期间），
-    /// 不得直接拼接模型给的原始参数。
-    fn step_label(&self, args: &ValidatedArgs, ctx: &JobCtx) -> StepLabel;
+    /// 不得直接拼接模型给的原始参数。只有 Agent 循环用。
+    fn step_label(&self, args: &ValidatedArgs, ctx: &ToolCtx) -> StepLabel;
     /// 可选的一行结果说明（≤ 120 字），例如“找到 23 笔”“暂时查不到”；默认不给。
-    fn step_summary(&self, outcome: &ToolOutcome) -> Option<StepSummary> { None }
+    fn step_summary(&self, outcome: &ToolOutput) -> Option<StepSummary> { None }
     /// 操作类别（固定目录里的一项，如 StepKind::QueryStats），只用于计量（第 8 节 ai_step_meters），不带任何内容。
     fn step_kind(&self) -> StepKind;
-    /// read | local_write | external（14.5）；只读运行只保留 read 工具（第 6 节）。
-    fn effect(&self) -> Effect;
-    async fn execute(&self, args: ValidatedArgs, ctx: &JobCtx) -> ToolOutcome;
+    /// 业务校验 + 执行。参数里没有 space_id：空间、成员和调用方都来自 ctx。
+    async fn execute(&self, args: ValidatedArgs, ctx: &ToolCtx) -> Result<ToolOutput, ToolError>;
+}
+
+/// 调用上下文：两个入口各自构造，工具本身不关心调用它的是模型还是 HTTP 请求。
+pub struct ToolCtx {
+    pub space_id: SpaceId,
+    pub member: SpaceMember,             // 已解析的活跃成员
+    pub via: Via,                        // Agent { run_id, call_id } | Api { principal }（会话或 API key：id + 名称快照）
+    pub idempotency_key: Uuid,           // Agent：uuidv5(run_id, call_id)；API：uuidv5(user_id, Idempotency-Key)
+    pub request_id: Uuid,
 }
 ```
 
+实现时每个工具写成带类型参数的 `TypedTool`（`type Args: DeserializeOwned + JsonSchema + Validate`、`type Output: Serialize + JsonSchema`），由一个通用实现得到上面这个对象安全的 `AgentTool`；`parameters()` / `output_schema()` 由 schemars 从类型生成并缓存，所以 schema 不会和代码走样。
+
 v1 工具与步骤说明（示例；工具清单随 Agent 运行时分期确定，见第 12 节）：
 
-| 工具 | 步骤说明 | 结果说明（可选） |
-|---|---|---|
-| `query_stats` | 查本月餐饮支出 / 对比上月 | 找到 23 笔 |
-| `query_balance` | 查教育用途余额 | — |
-| `search_records` | 查找相关记录 | 找到 5 条 |
-| `search_documents` | 查找视力检查资料 | 找到 3 次检查 |
-| `ask_user` | 确认用哪张卡付的 / 确认要不要调拨 | — |
-| 记账解析 `parse_entry`（单次结构化调用） | 整理这笔记录 / 识别照片里的信息 | — |
+| 工具 | `effect` | 开放给 API | 步骤说明 | 结果说明（可选） |
+|---|---|---|---|---|
+| `query_stats` | read | ✅ | 查本月餐饮支出 / 对比上月 | 找到 23 笔 |
+| `query_balance` | read | ✅ | 查教育用途余额 | — |
+| `search_records` | read | ✅ | 查找相关记录 | 找到 5 条 |
+| `search_documents` | read | ✅ | 查找视力检查资料 | 找到 3 次检查 |
+| 写入类（如 `create_record` 记一笔、`update_record` 改一笔、`void_record` 作废、调拨） | local_write | ✅（只限读写 key） | 记下这笔 / 修改这笔记录 | — |
+| `ask_user` | — | ❌（`AgentOnly`） | 确认用哪张卡付的 / 确认要不要调拨 | — |
+| 记账解析 `parse_entry`（单次结构化调用，不是工具） | — | ❌（需要模型） | 整理这笔记录 / 识别照片里的信息 | — |
 
 **循环怎么发事件**（ChatWeave 的流生成器负责 `seq`、耗时和事件日志）：
 
@@ -428,6 +450,17 @@ v1 工具与步骤说明（示例；工具清单随 Agent 运行时分期确定�
 7. **单次解析路径**（`parse_entry`）：图片或较长的输入发一个步骤（如“识别照片里的信息”）；很短的文字记账可以不发步骤，回复里就没有过程条。
 8. **不下发**工具名、参数、原始查询结果和模型的推理文字。步骤说明和结果说明只用当前空间、当前成员有权看到的数据生成；对话是一对一的，过程只有发起者本人看得到。
 9. **持久化**：回复结束时，ChatWeave 把精简的步骤记录（说明、最终状态、耗时、可选的结果说明）随消息存进 `chat_entries.message` 的 `steps` 字段，与内容块分开，不进纯文本兜底；不新增表。
+
+### 13.6 工具同时是公开 API
+
+> 2026-10-26 定（P31、A15）。API key 不能使用 AI 对话；作为替代，AI 在对话里能调用的每个工具也开放成公开接口，key 可以直接调用。接口、路由与 OpenAPI 的细节见 [服务端 4.3](server-rust.md#43-工具-apiai-能用的工具key-也能直接调用)。
+
+- **唯一的事实来源**：工具只在 `crates/tools` 里定义一次（13.5 的 `AgentTool`）。参数与结果的 schema、说明、权限（模块与动作）、`effect`、空间绑定、业务校验和执行都在这里；Agent 循环和工具 API 都经同一个 `ToolRegistry::invoke()`，不存在“给模型的一份、给 API 的另一份”。
+- **Agent 循环额外做的**：把工具清单渲染进提示词快照（15.2）；`confirm_in_chat()` 为真时先发起中断、冻结参数、等确认（14.4 C）；写 journal、`agent_tool_calls`、步骤事件和 `ai_step_meters`；按 13.2 把结果映射成语义块。
+- **工具 API 额外做的**：从 `Principal`（会话或 key）和路径里的空间构造 `ToolCtx`；只读 key 只能调 `effect = read` 的工具；写入类要求 `Idempotency-Key`、**不确认、直接执行**；key 调用时写 `api_key_audit`；直接返回结构化结果，不生成语义块。不调用模型，所以不写 `ai_calls` / `ai_step_meters`，也没有 AI 用量。
+- **不开放的**：`exposure = AgentOnly` 的工具（`ask_user`，以后子 Agent 的委派）；`parse_entry`（它本身是一次模型调用）。
+- **改工具要同时想到两边**：工具的说明和 schema 既是提示词的一部分，也是公开接口。只做向后兼容的改动，并照常升 `agent_def_version`（14.10）；不兼容时起新工具名。`openapi.json` 的 CI 检查会把每次改动摆出来。
+- **测试**：同一组参数分别经 `MockProvider` 驱动的 Agent 循环和工具 API 调用，断言写入结果、`record_events`、权限拒绝一致（服务端 4.3）。
 
 ## 14. 持久执行：暂停、恢复与崩溃
 
@@ -455,7 +488,6 @@ v1 工具与步骤说明（示例；工具清单随 Agent 运行时分期确定�
 create table agent_runs (
   id uuid primary key default uuidv7(),
   space_id uuid not null, member_id uuid not null,             -- 发起成员；每次领取都重新校验仍是活跃成员
-  api_key_id uuid, read_only boolean not null default false,   -- 经个人 API key 发起时（第 6 节）；只读 key 的运行只带只读工具
   conversation_id uuid not null,
   assistant_message_id uuid not null,                           -- ChatWeave 消息 ID（暂停 / 继续都是这一条）
   parent_run_id uuid references agent_runs, parent_call_id text, -- 子 Agent（以后）；v1 为空
@@ -673,7 +705,7 @@ journal 存的是**数据**，不是“代码执行到第几行”，所以服�
 ### 15.2 前缀稳定规则
 
 1. **请求的固定顺序**：①静态指令（SIWC 的 `instructions` / 其他提供方的 system）→ ②工具定义 → ③空间上下文（账户、标签、成员等）→ ④会话历史 → ⑤本轮用户输入 → ⑥本次运行的 journal 条目。**易变的东西只往后放**：当前日期时间放在⑤，不放进①或③。
-2. **每次运行冻结一份提示词快照**（`agent_prompt_snapshots`）：开始时把渲染好的指令、工具清单（固定顺序、含 schema）、模型、推理强度、verbosity、结构化输出格式存成快照，本次运行的每次调用（包括恢复后）都用它。只读运行（第 6 节）的工具清单不同，是另一份快照，缓存与普通运行分开，但只读运行之间照样共用。空间上下文只在运行开始时渲染一次，存成 journal 的第一条（`context`）；运行中途工具改了空间数据，模型从工具结果里知道，不重新渲染。只有 `agent_def_version` 变了才换快照（14.10）。
+2. **每次运行冻结一份提示词快照**（`agent_prompt_snapshots`）：开始时把渲染好的指令、工具清单（固定顺序、含 schema）、模型、推理强度、verbosity、结构化输出格式存成快照，本次运行的每次调用（包括恢复后）都用它。运行只由本人发起（第 6 节），工具清单不随发起方式变化，同一版本的所有运行共用一份。空间上下文只在运行开始时渲染一次，存成 journal 的第一条（`context`）；运行中途工具改了空间数据，模型从工具结果里知道，不重新渲染。只有 `agent_def_version` 变了才换快照（14.10）。
 3. **工具定义里不放动态数据**：例如不把本空间的账户名做成参数的 `enum`，否则每改一个账户，所有会话从工具定义起全部失效。账户名单放在③。
 4. **确定性序列化**：请求由纯函数 `render_request(快照, journal, 历史, 提供方)` 生成；不用 `HashMap`，JSON 字段顺序固定；工具调用参数保存模型给出的原始字符串并原样回放；加密推理数据原样回放（14.9）；图片只在入库时压缩一次，之后引用同一份字节，不重新压缩。
 5. **运行内不截断、不压缩**：journal 只追加；不用提供方的服务端压缩（会被记为 compaction 未命中）；运行长度由 14.8 的预算约束。
