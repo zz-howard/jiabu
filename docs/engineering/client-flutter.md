@@ -232,15 +232,15 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | `rev` | 持久化版本号；同步下来的版本 `rev` ≥ 本地时整体替换 |
 | `last_seq` | 已应用的流事件序号，App 被杀后重启也能续传 |
 
-- `watchConversation` = 按当前 `space_id` 查询 `chat_entries` 的 drift `watch()`；空间切换时关闭上一个空间的所有流。
+- `watchConversation` = 按当前 `space_id` 查询本人会话的 `chat_entries` 的 drift `watch()`（对话一对一，本机只会同步到自己的会话）；空间切换时关闭上一个空间的所有流。
 - 流式中的临时状态节流写入（约 1 秒或每个块结束时）；**临时状态永远不覆盖同步下来的版本**（ChatWeave 的对账规则，家簿的适配器测试要覆盖）。
 - 退出空间时随该空间其他数据一起清除（C12）。
 
 **网络**
 
 - `StreamTransport`：用 dio 以 `ResponseType.stream` 打开 `GET /spaces/{space_id}/chat/messages/{message_id}/stream`，复用拦截器（`Authorization`、`X-Request-Id`），加 `Accept: text/event-stream`、`Last-Event-ID` 与 `ChatWeave-Capabilities`（由注册表生成，声明能渲染哪些块）；把字节流交给 ChatWeave 解码。
-- `ActionTransport`：点追问选项、确认、提交表单时，ChatWeave 生成动作请求（其 ID 即幂等键）；家簿把它写进 outbox（`op_type = 'chat_action'`，`id = 动作 ID`），块只显示“提交中”（离线时“已排队，联网后提交”），**不乐观标记“已选择”**；`OutboxProcessor` 上传到 `POST /spaces/{space_id}/chat/actions`。离线时照常排队，联网补发，重发复用同一个动作 ID。结果以服务端返回的补丁或同步下来的新版本为准：同一空间里别的成员先回答了，就显示对方的答案。
-- 生成中点“停止”：直接请求 `POST …/messages/{message_id}/cancel`（不进 outbox，离线时按钮不可用）。
+- `ActionTransport`：点追问选项、确认、提交表单时，ChatWeave 生成动作请求（其 ID 即幂等键）；家簿把它写进 outbox（`op_type = 'chat_action'`，`id = 动作 ID`），块只显示“提交中”（离线时“已排队，联网后提交”），**不乐观标记“已选择”**；`OutboxProcessor` 上传到 `POST /spaces/{space_id}/chat/actions`。离线时照常排队，联网补发，重发复用同一个动作 ID。结果以服务端返回的补丁或同步下来的新版本为准：对话是一对一的，没有其他成员抢答；但服务端仍可能拒绝（权限、相关记录已变化或删除、校验不通过），自己的另一台手机也可能已经回答过，这时显示服务端记录的结果。
+- 生成中点“停止”：直接请求 `POST …/messages/{message_id}/cancel`（不进 outbox，离线时按钮不可用）。这是 ChatWeave 的显式停止请求；切后台、断网、离开聊天页都只是断线，不会停止生成。
 
 **注册家簿自定义组件**
 

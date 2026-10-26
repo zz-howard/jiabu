@@ -188,7 +188,7 @@ let app = router
 | `POST /spaces/{space_id}/chat/actions` | UI 动作（选项、确认、表单）。`Idempotency-Key` = 动作 ID；交给 ChatWeave 的 `ActionRegistry::dispatch()` |
 | `POST /spaces/{space_id}/chat/messages/{message_id}/cancel` | 停止生成：消息以 `interrupted` 结束，已产出的部分保留 |
 
-**授权**：三个接口都先经 `SpaceMember` 提取器，非成员一律 404；续传请求同样每次鉴权（`Last-Event-ID` 只是序号）。动作处理器的 `authorize` 调用统一的 `authorize(member, module, action)`（例如回答记账追问需要 `ledger` 的写权限），无权与不存在同样返回 404 等价的 `not_found`。ChatWeave 的宿主上下文 `Ctx` = `{ member, space_id, request_id }`；`ActionStore::load_block` 只按 `(space_id, message_id)` 加载，保证不能跨空间引用块。
+**授权**：三个接口都先经 `SpaceMember` 提取器，非成员一律 404；对话是一对一的，消息所属会话必须属于请求者本人，同一空间的其他成员访问别人的流、动作、停止也一律 404；续传请求同样每次鉴权（`Last-Event-ID` 只是序号）。动作处理器的 `authorize` 调用统一的 `authorize(member, module, action)`（例如回答记账追问需要 `ledger` 的写权限），无权与不存在同样返回 404 等价的 `not_found`。ChatWeave 的宿主上下文 `Ctx` = `{ member, space_id, request_id }`；`ActionStore::load_block` 只按 `(space_id, message_id)` 加载，保证不能跨空间引用块。
 
 **v1 动作处理器**（在 `crates/chat` 中注册）：
 
@@ -259,6 +259,7 @@ create table blob_refs (sha256 bytea not null references blobs, space_id uuid no
   uploaded_by_member_id uuid not null references space_members, created_at timestamptz not null default now(),
   primary key (sha256, space_id));   -- 同一张图在两个空间各有一条引用，下载按引用所在空间鉴权
 -- 家庭资料（documents）、聊天会话（conversations）同样带 space_id + created_by_member_id
+-- 聊天会话一对一：每个 conversation 只属于 created_by_member_id 这一位成员，同一空间的其他成员不可见
 create table chat_entries (id uuid primary key, space_id uuid not null references spaces,
   conversation_id uuid not null, role text not null check (role in ('user','assistant','system')),
   created_by_member_id uuid references space_members,     -- 用户消息的发送者；助手消息为空
@@ -294,7 +295,7 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
 4. **余额**：余额由记录推导（开户余额 + 关联记录），一笔支出同时影响真实账户和用途账户、只计一次消费；月度拨入和逻辑调拨是独立记录类型，不算收入或消费。
 5. **空间隔离**：每行带 `space_id`；任何查询、统计、提示都不跨空间，不在一个空间里透露其他空间的数量、合计或线索。聊天记录与 AI 上下文按空间隔离，其他空间的内容绝不进入模型请求。账号级事件（登录、改密）只记 `user_id`，空间内事件记 `actor_member_id`。
 6. **跨空间移动记录**：用户手工把记错空间的记录移走，要求在源空间和目标空间都是活跃成员。同一事务内：源记录作废（`move_out`，写 `moved_to_record_id`）+ 在目标空间新建一条（`move_in`，写 `moved_from_record_id`），账户与用途须从目标空间的账户中重新选择；两条审计事件互相关联。AI 不会发起或建议移动。
-7. **聊天回复的流式与持久化**（ChatWeave）：AI worker 用 `chatweave-server` 的流生成器产生事件，每个事件**先写 `chat_stream_events` 再广播**给在线订阅者（进程内 `tokio::sync::broadcast`，慢订阅者被断开后自行续传）；`message.end` 时在**同一事务**里写入 `chat_entries` 最终消息（`rev = 1`，分配 `change_seq`）并更新 `ai_jobs` 状态。事件日志在消息结束 10 分钟后由清理任务删除。进程崩溃后，启动时把租约过期仍为 `streaming` 的消息用库的折叠函数从事件日志恢复，标 `interrupted` 并持久化。块状态变化（追问被回答）= 更新 `chat_entries.message`、`rev + 1`、新的 `change_seq`，经同步下发到所有成员的设备。
+7. **聊天回复的流式与持久化**（ChatWeave）：AI worker 用 `chatweave-server` 的流生成器产生事件，每个事件**先写 `chat_stream_events` 再广播**给在线订阅者（进程内 `tokio::sync::broadcast`，慢订阅者被断开后自行续传）；`message.end` 时在**同一事务**里写入 `chat_entries` 最终消息（`rev = 1`，分配 `change_seq`）并更新 `ai_jobs` 状态。事件日志在消息结束 10 分钟后由清理任务删除。进程崩溃后，启动时把租约过期仍为 `streaming` 的消息用库的折叠函数从事件日志恢复，标 `interrupted` 并持久化。块状态变化（追问被回答）= 更新 `chat_entries.message`、`rev + 1`、新的 `change_seq`，经同步下发到会话所属成员的设备。**聊天条目只同步给会话所属成员**：同步接口按 `conversations.created_by_member_id = 请求者` 过滤 `chat_entries`，同一空间的其他成员拿不到别人的对话。
 
 ### 5.3 原图存储
 
@@ -327,7 +328,7 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
 
 - `cargo nextest run`；集成测试连**真实 PostgreSQL 18**（本地用 testcontainers 0.28，CI 用 service 容器），每个测试使用独立的临时数据库并自动跑迁移。
 - **关键查询必须有集成测试**：幂等（重复提交、哈希不同 422、响应回放）、`ON CONFLICT`、`FOR UPDATE SKIP LOCKED` 并发取任务、change_seq 游标增量与墓碑、空间隔离（非成员对空间的任何请求都得 404；列表、同步、统计不含他人空间；退出后立即不可访问、重新加入复用同一成员行；跨空间移动的事务与审计关联）、嵌套事务（SeaORM 与 SQLx 一样用 SAVEPOINT 实现）。
-- 聊天流与动作：中途断开后带 `Last-Event-ID` 续传的结果与不断开一致；事件日志清理后得到快照；非成员 / 已退出成员对流、动作、取消接口一律 404；越权动作（无模块权限、指向其他空间的消息、选项不在块里、重复动作 ID）全部被拒或回放。
+- 聊天流与动作：中途断开后带 `Last-Event-ID` 续传的结果与不断开一致；事件日志清理后得到快照；非成员 / 已退出成员对流、动作、取消接口一律 404，同一空间的其他成员访问别人的会话同样 404、同步也拿不到；越权动作（无模块权限、指向其他空间的消息、选项不在块里、重复动作 ID）全部被拒或回放。
 - HTTP 级测试用 `axum-test`；SeaORM 的 `MockDatabase` 只用于快照生成的 SQL，不替代真库测试。
 - AI 适配器：wiremock 回放 + insta 请求体快照，见 [AI 层设计](ai-layer.md#9-测试策略)。
 - 静态检查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo deny check`（许可证 + 漏洞库）、`cargo audit`。
