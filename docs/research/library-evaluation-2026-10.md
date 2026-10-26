@@ -112,6 +112,8 @@
 
 建议：v1 用手写 Postgres 状态机，把 `NeedsFollowUp` 落库为 `waiting_user`；任务种类变多再引入 apalis；Temporal / Restate 只在出现跨服务长事务编排需求时考虑。
 
+> 后续（2026-10-26）：持久执行重新评估后定稿为自写的“运行行 + 步骤日志”（`agent_runs` 取代这里的 `ai_jobs`），理由与设计见 [AI 层第 12、14 节](../engineering/ai-layer.md#14-持久执行暂停恢复与崩溃)。
+
 ## 7. 未能核实
 
 1. SIWC 文档无日期戳，无法严格证明某日之后未改动；SIWC 下 `text.format` 是否可用官方未写。

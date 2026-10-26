@@ -11,6 +11,7 @@
 5. **其余全用业界常规零件**：tower-http（追踪、请求 ID、超时、压缩、请求体上限）、tracing、thiserror / anyhow、serde、validator、config、utoipa（导出 OpenAPI）、object_store（原图先存本地磁盘，以后可换 S3）、image（缩略图）。
 6. **发布与部署**：打 tag 后由 GitHub Actions 在原生 x86_64 / aarch64 runner 上构建，产出 GitHub Releases 二进制 + GHCR 多架构镜像；用 docker compose（服务端 + PostgreSQL 18）或 systemd 部署，**部署机不编译**。日常开发测试在 x86 Linux 构建机上进行。
 7. **聊天回复用 ChatWeave 协议（草案）**：服务端把 AI 结果确定性地映射成语义块（文字、记录卡、指标、表格、选项……），经 SSE 流式下发、`chat_entries` 持久化并同步；UI 动作经 ChatWeave 的 Action Registry，再由统一的 `authorize()` 把关。ChatWeave 是独立开源库，不含任何家簿概念（见 4.2）。
+8. **AI 运行可以暂停几天**：持久执行自写在 PostgreSQL 里（运行行 + 只追加的步骤日志），不引入 Temporal 等引擎；暂停时没有线程在等，崩溃后从日志接着做，会改数据的工具与日志同一事务、恰好一次（见 [AI 层第 14 节](ai-layer.md#14-持久执行暂停恢复与崩溃)）。
 
 ## 1. 技术栈总表
 
@@ -37,8 +38,8 @@
 | ID / 时间 / 金额 | uuid 1.29（v7）· chrono 0.4.45 · 金额 `i64` 分 | | ✅ | 客户端生成 UUIDv7 当记录 ID 兼幂等键 |
 | AI 层 | genai `=0.7.1` · async-openai 0.42 · oauth2 5 · schemars 1.2 · jsonschema 0.60 | | ✅ | 见 [AI 层设计](ai-layer.md) |
 | 聊天协议 | [ChatWeave](https://github.com/zz-howard/chatweave) 的 `chatweave-protocol`（块与事件类型、Schema 校验、限制）+ `chatweave-server`（流生成器、SSE 辅助、Action Registry） | 未发布；开发期 `[patch]` 路径依赖 | ✅ | 见 4.2 |
-| 后台任务 | Postgres 任务表 + `FOR UPDATE SKIP LOCKED` + `LISTEN/NOTIFY`（同进程 tokio 任务） | | ✅ | 入库与入队同一事务 |
-| 后台任务（备选） | apalis 1.0.0 + apalis-postgres 1.0.0 | 2026-10-12 刚发 1.0 | 🔶 | 任务种类变多时再评估 |
+| 后台任务 | AI 运行表 `agent_runs` 本身就是队列：`FOR UPDATE SKIP LOCKED` + 租约 + 防护令牌 + `LISTEN/NOTIFY`（同进程 tokio 任务，每 5 秒轮询兜底） | | ✅ | 入库与入队同一事务；持久执行（暂停 / 恢复 / 崩溃）见 [AI 层第 14 节](ai-layer.md#14-持久执行暂停恢复与崩溃) |
+| 后台任务（备选） | apalis 1.0.0 + apalis-postgres 1.0.0 | 2026-10-12 刚发 1.0 | 🔶 | 任务种类变多时可替代领取 / 重试部分；“暂停”和防护令牌仍需自写，v1 不引入 |
 | 对象存储 | object_store | **0.14.2** | ✅ | `LocalFileSystem` ↔ `AmazonS3` 同一 trait |
 | 图片 | image 0.25.10 · infer 0.22.0 · kamadak-exif 0.6.1 | | ✅ | 缩略图、真实 MIME 嗅探、方向；不支持 HEIC（客户端统一转 JPEG） |
 | 测试 | axum-test 21.1.0 · testcontainers 0.28.0 · cargo-nextest 0.9.149 · wiremock 0.6 · insta 1.49 | | ✅ | 见第 7 节 |
@@ -57,7 +58,7 @@ server/
 ├─ migrations/
 ├─ crates/
 │  ├─ domain/                # 纯类型与规则：Record, Space, SpaceMember, Money, RecordEvent；无 IO
-│  ├─ db/                    # SeaORM 实体与仓储：records, accounts, sessions, idempotency, sync, ai_jobs
+│  ├─ db/                    # SeaORM 实体与仓储：records, accounts, sessions, idempotency, sync, agent_runs（运行 / 步骤日志 / 工具调用）
 │  ├─ ai/                    # ModelProvider trait、AiRouter、各适配器、校验
 │  ├─ chat/                  # ChatWeave 接入：业务结果 → 语义块映射、自定义块 Schema、事件日志与消息存储实现、动作处理器
 │  ├─ storage/               # object_store 封装 + 图片处理
@@ -183,7 +184,7 @@ let app = router
 
 | 接口 | 说明 |
 |---|---|
-| 提交原话（现有写入接口 / `POST /sync/push`） | 响应里增加 `assistant_message_id`；请求头 `ChatWeave-Capabilities` 声明客户端能渲染的块类型，存进 `ai_jobs` 供映射时参考 |
+| 提交原话（现有写入接口 / `POST /sync/push`） | 响应里增加 `assistant_message_id`；请求头 `ChatWeave-Capabilities` 声明客户端能渲染的块类型，存进 `agent_runs.client_capabilities` 供映射时参考 |
 | `GET /spaces/{space_id}/chat/messages/{message_id}/stream` | SSE 流（`text/event-stream`）。用 `chatweave-server` 的 Axum 辅助实现：`Last-Event-ID` 续传、15 秒心跳、无法重放时发快照。消息已完成时只发快照后关闭 |
 | `POST /spaces/{space_id}/chat/actions` | UI 动作（选项、确认、表单）。`Idempotency-Key` = 动作 ID；交给 ChatWeave 的 `ActionRegistry::dispatch()` |
 | `POST /spaces/{space_id}/chat/messages/{message_id}/cancel` | 停止生成：消息以 `interrupted` 结束，已产出的部分保留 |
@@ -194,13 +195,13 @@ let app = router
 
 | target | 动作类型 | 做什么 | 破坏性 |
 |---|---|---|---|
-| `clarification.answer` | `choice.select`（点选项 `selected`，或打字回答 `freeText`）/ `form.submit` | 追问是一次中断：确认追问仍未回答后，把回答作为这次中断的结果记进任务（追加到 `ai_jobs.conversation`，不写成聊天消息），任务改回 `queued`；返回 `accepted` 和 `resume.messageId`（**同一条回复**继续，不是新回复） | 否 |
+| `clarification.answer` | `choice.select`（点选项 `selected`，或点“输入其他内容”后打字 `freeText`）/ `form.submit`（`values` 或 `freeText`） | 追问是一次中断：条件写入确认中断仍开着、未过期后，把回答作为这次中断的结果写进运行 journal（不写成聊天消息），运行改回 `queued`；返回 `accepted` 和 `resume.messageId`（**同一条回复**继续，不是新回复）。实现见 AI 层 14.4 A | 否 |
 | `setup.submit` | `form.submit` | 首次设置补齐账户信息；校验后交给同一 AI 任务继续 | 否 |
-| `pending_operation.confirm` | `confirmation.respond` | 中断的确认：确认则执行服务端暂存的操作，取消则不执行，结果交回 Agent 在同一条回复里继续；返回 `accepted` + `resume.messageId`（v1 预留，基本不用；日常记账靠撤销而不是确认，P2） | 是 |
+| `pending_operation.confirm` | `confirmation.respond`（`outcome`，或点“输入其他内容”后的 `freeText`） | 中断的确认：确认则由 worker 按冻结的参数执行（执行前再校验记录版本，变了就不写、交给 Agent 说明），取消或写了别的话则不执行，结果交回 Agent 在同一条回复里继续；返回 `accepted` + `resume.messageId`（v1 预留，基本不用；日常记账靠撤销而不是确认，P2） | 是 |
 
 记录卡上的“编辑 / 撤销”不是 ChatWeave 动作，仍走记录接口。
 
-**中断（回复暂停与继续）**：追问和需要确认的操作让回复暂停（ChatWeave `message.paused`）。服务端对外的契约：暂停时把暂停中的回复（`status = paused`）写进 `chat_entries` 并把任务置 `waiting_user`（同一事务），关闭这条流；回答经上表的动作处理器记录后，worker 在**同一条回复**里继续，事件序号接着往下数；暂停中停止、改发别的话或过期时，结束这条回复（“已停止”）。暂停中的回复也出现在“活动消息”查询里。运行状态在暂停期间如何保存与恢复，见服务端持久执行设计（待定，另文）。
+**中断（回复暂停与继续）**：追问和需要确认的操作让回复暂停（ChatWeave `message.paused`）。暂停时在同一事务里写 journal、把暂停中的回复（`stream_status = paused`）写进 `chat_entries`、运行置 `paused` 并释放租约，然后关闭这条流；回答经上表的动作处理器记录后，运行重新排队，worker 在**同一条回复**里继续，事件序号接着往下数。暂停中停止或过期（改记录类确认 24 小时、澄清 7 天）时结束这条回复（“已停止 / 已过期”）。等待回答时客户端锁定输入框，所以正常情况下不会有新消息；离线排队的新消息到达时若恰好有暂停中的回复，提交接口先按停止处理它，再开始新的一轮。暂停中的回复也出现在“活动消息”查询里。运行的保存、恢复与崩溃处理见 [AI 层第 14 节](ai-layer.md#14-持久执行暂停恢复与崩溃)。
 
 **运行步骤**（回复顶部的“过程”条）：AI worker 在工具调用和 `ask_user` 前后用流生成器发 ChatWeave 的步骤事件（每个工具的步骤说明见 [AI 层 13.5](ai-layer.md#135-运行步骤过程条)）。步骤事件和块事件一样写 `chat_stream_events`、续传重放；回复结束时精简的步骤记录随消息存进 `chat_entries.message` 的 `steps` 字段，不新增表或列。工具名、参数、原始结果和模型的推理文字不进事件、不进 `chat_entries`。
 
@@ -267,11 +268,11 @@ create table blob_refs (sha256 bytea not null references blobs, space_id uuid no
 create table chat_entries (id uuid primary key, space_id uuid not null references spaces,
   conversation_id uuid not null, role text not null check (role in ('user','assistant','system')),
   created_by_member_id uuid references space_members,     -- 用户消息的发送者；助手消息为空
-  ai_job_id uuid,                                         -- 产生这条助手回复的任务
+  agent_run_id uuid,                                      -- 产生这条助手回复的运行
   protocol_version text not null,                         -- ChatWeave 协议版本，如 '0.1'
   message jsonb not null,                                 -- ChatWeave 消息（块列表、状态）；入库前经 Schema 校验
   fallback_text text not null,                            -- 纯文本兜底：通知、搜索、旧客户端
-  stream_status text not null check (stream_status in ('streaming','complete','interrupted','error')),
+  stream_status text not null check (stream_status in ('streaming','paused','complete','interrupted','error')),
   rev int not null default 0,                             -- 完成时 1，之后每次块状态变化 +1
   last_seq int not null default 0,                        -- 最后一个流事件序号（快照需要）
   module text not null, visibility jsonb,                 -- 回复涉及的模块（账本 / 资料），见决策清单待定问题 17
@@ -284,22 +285,29 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
   status text not null, result jsonb not null,
   actor_member_id uuid not null references space_members, request_id uuid,
   created_at timestamptz not null default now());          -- 只追加，兼作审计
--- ai_jobs / ai_calls 见 ai-layer.md
+-- agent_runs / agent_run_items / agent_tool_calls / agent_prompt_snapshots 见 ai-layer.md 14.2；ai_calls 见 ai-layer.md 第 8 节
 ```
 
 金额一律 `bigint` 存“分”（`*_minor` 列），不用浮点；主键用 UUIDv7。
+
+**迁移**：上面这些表和 AI 运行的一组表（`agent_runs`、`agent_run_items`、`agent_tool_calls`、`agent_prompt_snapshots`、`ai_calls`）都在首批迁移里建好，`chat_entries.stream_status` 从一开始就包含 `paused`。已发布的迁移只追加、不修改；步骤日志的格式变化靠行上的 `schema_version` 加读取时升级，不改历史行。迁移工具见[待定问题 2](../decisions/README.md#待定问题open-questions)。
 
 **账户属于空间**：资金账户和用途账户都挂在某个空间下。同一张真实银行卡可以在两个空间各建一次，各自只记本空间的流水、显示本空间推导出的余额；系统不尝试合并成整张卡的余额，App 内整卡余额对不上是已接受的取舍。
 
 ### 5.2 关键模式
 
 1. **幂等写入**：见第 4 节。
-2. **AI 解析任务**：原话 / 图片入库时同事务插入 `ai_jobs(status = 'queued')`；后台 worker `SELECT … FOR UPDATE SKIP LOCKED LIMIT 1` 取任务 → 调 `AiRouter` → 结果经校验后写 `records` → 任务置 `done`；失败指数退避；需要追问则回复暂停、任务置 `waiting_user`，回答后在同一条回复里继续（中断；暂停与恢复的实现见服务端持久执行设计，待定，另文）。细节见 [AI 层设计](ai-layer.md#6-任务与追问状态)。
+2. **AI 运行（队列 + 持久执行）**：原话 / 图片入库时同事务插入 `agent_runs(status = 'queued')` 并 `NOTIFY`。同进程 2–4 个 worker（tokio 任务）被 `LISTEN/NOTIFY` 唤醒，另每 5 秒轮询兜底：
+   - **领取**：`UPDATE … SET status = 'running', lease_owner, lease_until = now() + 60s, lease_epoch = lease_epoch + 1 WHERE id = (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1)`；每 20 秒续租；之后的每一次写入都带 `lease_epoch` 条件（防护令牌），影响 0 行就放弃。
+   - **执行**：读运行行和步骤日志，跑到下一个停顿点：中断（暂停并释放租约）、最终回答（完成）、全部提供方失败（`waiting_ai`，按 `run_after` 指数退避）。会改数据的工具在同一个事务里写业务表和步骤结果。
+   - **清扫器**：每 30 秒把租约过期的运行放回队列（崩溃重试最多 2 次，超过则以“没有完成、可重试”结束）；每分钟把过期的中断关闭（改记录类确认 24 小时、澄清 7 天）。
+   - **优雅停机**：停止领取，进行中的调用最多等约 20 秒，否则把运行放回队列，重启后马上接上。
+   - 细节（表结构、状态机、恢复算法、恰好一次、崩溃处理、预算）见 [AI 层第 14 节](ai-layer.md#14-持久执行暂停恢复与崩溃)。
 3. **追加式审计 / 撤销**：`record_events(record_id, space_id, actor_member_id, request_id, kind[create|update|void|restore|move_out|move_in], before, after, at)` 与 `space_events` 只 INSERT（应用数据库角色对该表无 UPDATE / DELETE 权限）。撤销 = 追加一条反向事件并更新 `records` 当前态，绝不删除历史。
 4. **余额**：余额由记录推导（开户余额 + 关联记录），一笔支出同时影响真实账户和用途账户、只计一次消费；月度拨入和逻辑调拨是独立记录类型，不算收入或消费。
 5. **空间隔离**：每行带 `space_id`；任何查询、统计、提示都不跨空间，不在一个空间里透露其他空间的数量、合计或线索。聊天记录与 AI 上下文按空间隔离，其他空间的内容绝不进入模型请求。账号级事件（登录、改密）只记 `user_id`，空间内事件记 `actor_member_id`。
 6. **跨空间移动记录**：用户手工把记错空间的记录移走，要求在源空间和目标空间都是活跃成员。同一事务内：源记录作废（`move_out`，写 `moved_to_record_id`）+ 在目标空间新建一条（`move_in`，写 `moved_from_record_id`），账户与用途须从目标空间的账户中重新选择；两条审计事件互相关联。AI 不会发起或建议移动。
-7. **聊天回复的流式与持久化**（ChatWeave）：AI worker 用 `chatweave-server` 的流生成器产生事件，每个事件**先写 `chat_stream_events` 再广播**给在线订阅者（进程内 `tokio::sync::broadcast`，慢订阅者被断开后自行续传）；`message.end` 时在**同一事务**里写入 `chat_entries` 最终消息（`rev = 1`，分配 `change_seq`）并更新 `ai_jobs` 状态。事件日志在消息结束（或暂停）10 分钟后由清理任务删除；暂停中的回复以 `chat_entries` 里的暂停版本为准，日志清理不影响它继续。进程崩溃后，启动时把租约过期仍为 `streaming` 的消息用库的折叠函数从事件日志恢复，标 `interrupted` 并持久化。块状态变化（追问被回答）= 更新 `chat_entries.message`、`rev + 1`、新的 `change_seq`，经同步下发到会话所属成员的设备。**聊天条目只同步给会话所属成员**：同步接口按 `conversations.created_by_member_id = 请求者` 过滤 `chat_entries`，同一空间的其他成员拿不到别人的对话。
+7. **聊天回复的流式与持久化**（ChatWeave）：AI worker 用 `chatweave-server` 的流生成器产生事件，每个事件**先写 `chat_stream_events` 再广播**给在线订阅者（进程内 `tokio::sync::broadcast`，慢订阅者被断开后自行续传）；`message.end` 时在**同一事务**里写入 `chat_entries` 最终消息（`rev = 1`，分配 `change_seq`）并更新 `agent_runs` 状态。事件日志在消息结束（或暂停）10 分钟后由清理任务删除；暂停中的回复以 `chat_entries` 里的暂停版本为准，日志清理不影响它继续。进程崩溃后，租约过期的运行由清扫器放回队列，在**同一条回复**里接着做（已显示的文字保留，新文字另起一块，最多重试 2 次）；超过上限才用库的折叠函数从事件日志恢复消息、标 `interrupted` 并持久化，用户可以重试。块状态变化（追问被回答）= 更新 `chat_entries.message`、`rev + 1`、新的 `change_seq`，经同步下发到会话所属成员的设备。**聊天条目只同步给会话所属成员**：同步接口按 `conversations.created_by_member_id = 请求者` 过滤 `chat_entries`，同一空间的其他成员拿不到别人的对话。
 
 ### 5.3 原图存储
 
@@ -320,7 +328,7 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
 
 - **一个请求 ID 贯穿全程**：客户端每个用户动作生成 `X-Request-Id`，离线重发沿用（与幂等键一起存在 outbox 里）；服务器优先接收客户端的值并校验格式。
 - **每行日志带上下文**：`tracing` 请求 span 带 `request_id`、内部 `user_id`、`space_id`（如有）、路由、耗时、状态码。输出 JSON，一行一条，便于 `grep` / `jq` 过滤。
-- **跨进 AI 任务**：`ai_jobs` 存 `origin_request_id`；worker 开新 span，带 `job_id`、`origin_request_id`、`provider_id`、模型名、重试次数、降级原因、耗时、token 用量。
+- **跨进 AI 运行**：`agent_runs` 存 `origin_request_id`；worker 开新 span，带 `run_id`、`lease_epoch`、`origin_request_id`、`provider_id`、模型名、重试次数、降级原因、耗时、token 用量（含缓存读取 / 写入 token）。
 - **跨进审计**：`record_events.request_id` 可反查“这笔账是哪次操作改的”。
 - **错误回执带 ID**：错误响应带 `request_id`，App 错误提示和客户端日志也显示 / 记录它；用户截个图就能定位服务器日志。
 - **聊天流**：每个 SSE 连接一个 span，带 `request_id`、`space_id`、`message_id`、续传起点 seq、持续时间、断开原因；不记事件内容。动作请求带 `X-Request-Id`，写入 `chat_actions.request_id`。
@@ -333,6 +341,7 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
 - `cargo nextest run`；集成测试连**真实 PostgreSQL 18**（本地用 testcontainers 0.28，CI 用 service 容器），每个测试使用独立的临时数据库并自动跑迁移。
 - **关键查询必须有集成测试**：幂等（重复提交、哈希不同 422、响应回放）、`ON CONFLICT`、`FOR UPDATE SKIP LOCKED` 并发取任务、change_seq 游标增量与墓碑、空间隔离（非成员对空间的任何请求都得 404；列表、同步、统计不含他人空间；退出后立即不可访问、重新加入复用同一成员行；跨空间移动的事务与审计关联）、嵌套事务（SeaORM 与 SQLx 一样用 SAVEPOINT 实现）。
 - 聊天流与动作：中途断开后带 `Last-Event-ID` 续传的结果与不断开一致；事件日志清理后得到快照；非成员 / 已退出成员对流、动作、取消接口一律 404，同一空间的其他成员访问别人的会话同样 404、同步也拿不到；越权动作（无模块权限、指向其他空间的消息、选项不在块里、重复动作 ID）全部被拒或回放。
+- AI 运行（持久执行）：多个 worker 并发领取不重复；租约过期被别的 worker 接手后，旧 worker 的写入因 `lease_epoch` 不符失败；本地写入工具在事务回滚时不留痕、提交后恢复不重做；两台设备同时回答只有一个成功；回答与过期 / 停止竞态只有一个成功；离线排队的新消息先结束暂停中的回复；`one_active_run_per_conversation` 生效。
 - HTTP 级测试用 `axum-test`；SeaORM 的 `MockDatabase` 只用于快照生成的 SQL，不替代真库测试。
 - AI 适配器：wiremock 回放 + insta 请求体快照，见 [AI 层设计](ai-layer.md#9-测试策略)。
 - 静态检查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo deny check`（许可证 + 漏洞库）、`cargo audit`。

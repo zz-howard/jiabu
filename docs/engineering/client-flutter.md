@@ -228,7 +228,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | `message_json` | ChatWeave 消息 JSON（块列表、状态、`rev`），按原样保存，渲染只读本机 |
 | `fallback_text` | 消息级纯文本，用于通知、搜索和降级显示 |
 | `protocol_version` | 生成该消息的协议版本 |
-| `stream_status` | `streaming` / `complete` / `interrupted` / `error` |
+| `stream_status` | `streaming` / `paused` / `complete` / `interrupted` / `error` |
 | `rev` | 持久化版本号；同步下来的版本 `rev` ≥ 本地时整体替换 |
 | `last_seq` | 已应用的流事件序号，App 被杀后重启也能续传 |
 
@@ -240,8 +240,15 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 
 - `StreamTransport`：用 dio 以 `ResponseType.stream` 打开 `GET /spaces/{space_id}/chat/messages/{message_id}/stream`，复用拦截器（`Authorization`、`X-Request-Id`），加 `Accept: text/event-stream`、`Last-Event-ID` 与 `ChatWeave-Capabilities`（由注册表生成，声明能渲染哪些块）；把字节流交给 ChatWeave 解码。
 - `ActionTransport`：点追问选项、确认、提交表单时，ChatWeave 生成动作请求（其 ID 即幂等键）；家簿把它写进 outbox（`op_type = 'chat_action'`，`id = 动作 ID`），块只显示“提交中”（离线时“已排队，联网后提交”），**不乐观标记“已选择”**；`OutboxProcessor` 上传到 `POST /spaces/{space_id}/chat/actions`。离线时照常排队，联网补发，重发复用同一个动作 ID。结果以服务端返回的补丁或同步下来的新版本为准：对话是一对一的，没有其他成员抢答；但服务端仍可能拒绝（权限、相关记录已变化或删除、校验不通过），自己的另一台手机也可能已经回答过，这时显示服务端记录的结果。
-- **追问 / 确认时回复暂停**（ChatWeave 中断）：流由服务端关闭，客户端不重连；回答的动作结果带 `resume`，ChatWeave 按已收到的序号重新订阅**同一条回复**，回答显示在卡片上（不生成“我的回答”气泡），后续内容接在同一条回复下面。追问卡允许打字回答时，输入框提示“回答上面的问题”，发出的文字作为这张卡的回答进 outbox（`chat_action`），不是一条聊天消息；不接受打字回答时，输入框照常发新消息，服务端先结束暂停中的那条回复。
-- 生成中点“停止”：直接请求 `POST …/messages/{message_id}/cancel`（不进 outbox，离线时按钮不可用）。这是 ChatWeave 的显式停止请求；切后台、断网、离开聊天页都只是断线，不会停止生成。
+- **追问 / 确认时回复暂停**（ChatWeave 中断）：流由服务端关闭，客户端不重连；回答的动作结果带 `resume`，ChatWeave 按已收到的序号重新订阅**同一条回复**，回答显示在卡片上（不生成“我的回答”气泡），后续内容接在同一条回复下面。每张中断卡除了自己的选项，还有 ChatWeave 默认带的“输入其他内容”（家簿不关闭它）。
+- **输入栏联动**（ChatWeave 的输入框契约，`chatweave_core` 的 `InterruptComposerController`，按会话一个）：
+  - `locked`：会话里有一条暂停中的回复、中断还开着、本人可以回答 → 家簿输入栏锁定：占位文字“先回答上面的问题”，文字框、发送和拍照按钮都不可用；已经打的草稿保留不清空。
+  - `answering`：点卡片上的“输入其他内容”（控制器 `beginOtherInput`）→ 输入栏解锁、自动聚焦，上方挂“回答：<问题>”标签（ChatWeave 的 `InterruptAnswerChip` 换成家簿外观，见设计规范 4.18）。发送 = `submitOtherInput(text)`：ChatWeave 生成 `freeText` 动作（动作 ID 即幂等键），家簿写进 outbox（`op_type = 'chat_action'`），**不是**一条聊天消息；卡片只显示“提交中 / 已排队”，服务端结果到达后显示“你的回答：……”。拍照按钮在这个状态下仍不可用（回答只收文字）。
+  - 点标签上的 ✕（`cancelOtherInput`）→ 回到 `locked`，草稿保留，下次点“输入其他内容”时还在。
+  - 中断被关闭（另一台手机已经回答、过期、停止）→ 控制器回到 `free` 并给出原因：输入栏解锁、标签消失，草稿留在输入框里成为普通草稿，提示条说一句“这个问题已在另一台设备上回答 / 已过期 / 已停止”，避免把它误当成回答发出去。
+  - 状态只来自 ChatWeave 的本机消息状态（暂停中的消息、块状态、本地“提交中”），App 重启、列表回收后不丢；离线时也照常锁定和回答（回答排队）。
+  - 最终回答里带着问题（消息已经结束）不锁输入栏，回复照常是新消息。
+- 生成中或暂停中点“停止”：直接请求 `POST …/messages/{message_id}/cancel`（不进 outbox，离线时按钮不可用）。这是 ChatWeave 的显式停止请求；切后台、断网、离开聊天页都只是断线，不会停止生成。
 
 **注册家簿自定义组件**
 
@@ -264,7 +271,7 @@ final chatRegistry = BlockRegistry.withDefaults()
 - 主题：`JiabuChatWeaveTheme`（`app/lib/shared/chatweave/`），见设计规范 7.8。
 - **过程条**（AI 正在做什么，见设计规范 4.17）：能力声明里带 `stream.steps`，服务端据此在同一条流里发步骤事件；步骤由 ChatWeave 折叠进消息的 `steps`（与块分开，随 `message_json` 一起存在 `chat_entries`，不新增列），不进 `fallback_text`。外观用 `processStripBuilder` 换成 `JiabuProcessStrip`（`app/lib/shared/chatweave/`）；展开 / 收起是 ChatWeave 管理的本地显示状态，回答写完时自动收起一次，用户手动操作过就不再自动切换。“等你确认”一行点按后滚动到对应的确认卡 / 选项块。不在任何地方显示工具名、参数或原始数据（协议里本来就没有）。
 
-**测试**：适配器的仓库测试（真 drift 内存库：临时状态 / 同步版本对账、空间过滤、退出清除、带 `steps` 的消息往返无损）；用 ChatWeave 的一致性夹具驱动聊天页的组件测试（含步骤夹具：并行、某步失败、生成中停止、步骤中途断线续传；中断夹具：暂停、回答后同一条回复继续、暂停很久后在另一台手机回答、暂停中停止、过期）；过程条的 golden 与几何断言（设计规范 4.17 / 7.8）；4.16 各组件的 golden（两种空间强调色 × 两种宽度 × 两档字号）与几何断言（宽 332、0°）。
+**测试**：适配器的仓库测试（真 drift 内存库：临时状态 / 同步版本对账、空间过滤、退出清除、带 `steps` 的消息往返无损）；用 ChatWeave 的一致性夹具驱动聊天页的组件测试（含步骤夹具：并行、某步失败、生成中停止、步骤中途断线续传；中断夹具：暂停、回答后同一条回复继续、暂停很久后在另一台手机回答、暂停中停止、过期；输入栏的 `locked` / `answering` / ✕ 返回 / 被另一台设备关闭四种状态，以及草稿保留）；过程条的 golden 与几何断言（设计规范 4.17 / 7.8）；4.16 各组件的 golden（两种空间强调色 × 两种宽度 × 两档字号）与几何断言（宽 332、0°）。
 
 ## 5. 日志与崩溃
 
