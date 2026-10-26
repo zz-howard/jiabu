@@ -1,0 +1,416 @@
+# 家簿 · 设计规范「手账拼贴」
+
+> 适用：家簿 App（Flutter 实现，先做 Android，将来可出 iOS）。本规范是视觉与交互的唯一依据；与任何原型或截图不一致时，以本文为准。Flutter 技术选型见 [客户端规范](../engineering/client-flutter.md)。
+
+## 一句话
+
+像一本温暖的家庭手账：**纸面、胶带、贴纸、印章**负责“有人情味”，**数字和文字永远端正好读**负责“记账靠谱”。装饰可以歪，信息不歪。
+
+三条硬规则：
+
+1. **列表、表格、带数字的卡片一律水平（0°）**，倾斜只给胶带、贴纸、印章、拍立得照片、主卡片等装饰性元素。
+2. **手写字只用于 App 自己写的短文案和日期**（如“原图已保存”“今天 · 10月24日 周六”），**用户输入、金额明细、表单一律用正文字体**。
+3. **家庭 = 暖橙（陶土色），私人 = 靛蓝**，切换范围时整套颜色一起换，让人一眼知道“现在是谁能看到”。
+
+## 1. 颜色
+
+所有颜色用“角色名”引用，不要在组件里写死色值。家庭和私人两套只替换下表中有差异的项，其余共用。
+
+### 1.1 基础色（家庭范围，默认）
+
+| 角色 | 色值 | 用途 |
+|---|---|---|
+| bg | #F6EFE2 | 页面底色（米色纸），上面叠点阵 |
+| paper | #FFFDF7 | 卡片、底部导航、弹层的纸面 |
+| surface-2 | #F4EBDC | 按下态、次级底 |
+| surface-3 | #EADFCC | 未激活的发送按钮、灰色小标签 |
+| line | #EADFCD | 细分隔线 |
+| line-strong | #D5C5AD | 虚线框、点线引导线、描边按钮边框 |
+| rule | rgba(120,160,200,.28) | 横格本的蓝色格线、列表行分隔 |
+| margin | rgba(214,96,86,.45) | 横格本左侧红色装订线 |
+| dot | rgba(150,112,76,.24) | 背景点阵（18px 间距，点半径约 1.1px） |
+| ink | #2B221B | 主文字（对 bg 对比度 13.6） |
+| ink-2 | #5C4F44 | 次要文字（6.9） |
+| ink-3 | #736457 | 辅助文字、时间（对 bg 5.0，对 paper 5.6；**最浅只能到这**） |
+| primary | #B4532D | 主色：选中的范围按钮、主按钮、导航手绘圈 |
+| primary-text | #9C4423 | 主色文字 / 金额（对 paper 6.3） |
+| on-primary | #FFFFFF | 主色上的文字（对 primary 5.0） |
+| primary-soft | #F8DCCB | 选中的筛选 chip、选中的回答选项底 |
+| on-primary-soft | #6B2B12 | primary-soft 上的文字（8.1） |
+| hl | rgba(255,190,110,.55) | 荧光笔高亮（金额、标题下半截） |
+| note / note-ink / note-edge | #FFF0B3 / #3A2E10 / #F2DC86 | 便利贴：我的聊天气泡、原始输入、提示 |
+| pos / pos-soft | #36704B / #DCEBDD | 收入、已记录印章、已上传 |
+| neg | #B0392A | 负余额、超支 |
+| warn / warn-soft | #875100 / #F8E6C2 | 待上传、离线、提醒 |
+| alert 便签底 | #FFE3DA（文字 #5A3F35） | 负余额提醒便签 |
+| scope-bg / scope-ink | #F8DCCB / #7A3517 | “家庭”范围徽章 |
+| snack-bg / snack-ink / snack-action | #2F2620 / #FBF3EA / #FFC79E | 撤销提示条 |
+| scrim | rgba(42,30,20,.42) | 弹层遮罩 |
+| 图表 左眼 / 右眼 | #B4532D / #3E7B8F | 视力对比折线 |
+
+胶带（半透明，叠在纸上）：
+
+| 胶带 | 家庭 | 私人 | 图案 |
+|---|---|---|---|
+| tape-a + tape-b | rgba(226,124,92,.55) + rgba(250,214,190,.72) | rgba(98,136,200,.5) + rgba(196,214,242,.7) | 45° 斜条纹，每条 5px |
+| tape2 | rgba(238,196,86,.66) | rgba(168,146,214,.55) | 底色 + 白色小圆点（7px 间距） |
+| tape3 | rgba(126,186,152,.55) | rgba(120,178,200,.55) | 格子布（10px 方格） |
+
+### 1.2 私人范围（只列替换项）
+
+| 角色 | 色值 | 说明 |
+|---|---|---|
+| bg | #EEEEE9 | 偏冷的灰白纸 |
+| paper / surface | #FDFDFB | |
+| surface-2 / surface-3 | #E9ECEF / #DDE2E8 | |
+| line / line-strong | #DFE3E6 / #C3CBD4 | |
+| dot | rgba(70,100,150,.22) | |
+| primary | #3B5A8C | 靛蓝（白字对比 6.9） |
+| primary-text | #34507D | （对 paper 8.0） |
+| primary-soft / on-primary-soft | #DCE4F2 / #213760 | |
+| hl | rgba(140,185,250,.5) | 蓝色荧光笔 |
+| note / note-edge / note-ink | #DCEAFB / #BCD3F0 / #1D2E48 | 蓝色便利贴 |
+| scope-bg / scope-ink | #DCE4F2 / #25406B | “私人”徽章 |
+| alert 便签底 | #E8E2F5 | |
+| snack-action | #A9C6FF | |
+
+范围切换时：底色、主色、高亮、胶带、便利贴全部一起换（250ms 颜色过渡），**同时**弹一条提示“已切换到私人：仅自己可见”。只靠颜色区分不够，私人范围必须同时出现锁图标和“私人”字样。
+
+### 1.3 对比度（已核对）
+
+所有正文对比度 ≥ 4.5:1：ink-3 是最浅的可读文字色（对 bg 5.0）；状态色 pos 5.8、neg 6.0、warn 5.7（均对纸面）。贴纸里的图标色对贴纸底均 ≥ 5.9。禁止用透明度把正文调淡（已撤销的卡片除外，那是“失效”状态）。
+
+## 2. 字体
+
+### 2.1 四种字
+
+| 角色 | App 方案（Flutter） | 用在哪 |
+|---|---|---|
+| 正文 Sans | 系统字体（不指定 fontFamily，安卓上即系统自带 Noto Sans CJK），不打包 | 所有正文、按钮、表单、列表、用户输入 |
+| 标题 Serif | **打包 Noto Serif SC Bold 子集**（OFL-1.1）：常用字 + App 文案 | 页面大标题（家簿 / 总览 / 历史）、卡片标题、区块标题、AI 追问句 |
+| 手写数字 Caveat | **打包 Caveat SemiBold**（OFL-1.1，完整 Latin 约 100 KB） | 金额、余额、视力数值、时间、少量英文点缀（My Home Diary / Total / Oct. 24 · Sat / Diary Log） |
+| 手写中文 楷 | **打包霞鹜文楷（LXGW WenKai）Medium 子集**（OFL-1.1），内部字体名 “JiabuHand”，见 2.3 | 固定的短文案、日期标签、拍立得说明、空状态 |
+
+### 2.2 字号与字重
+
+px 即 Flutter 的逻辑像素，安卓上等同 dp；字号随系统字体缩放。
+
+| 用途 | 字体 | 字号 / 行高 | 字重 |
+|---|---|---|---|
+| 页面大标题（家簿 / 总览 / 历史） | Serif | 25 / 1.15，字距 .04em，下方手绘波浪线 | 800（Bold 合成可接受） |
+| 页面副标题（家人可见 / 这个月的小账本） | 楷 + Caveat 点缀 | 14 / 1.25（英文 Caveat 16） | 500 |
+| 区块标题（用途账户 / 真实资金账户） | Serif + 下半截荧光笔 | 18 / 1.3 | 800 |
+| 卡片标题（午饭 / 视力检查） | Serif | 19 / 1.3 | 700 |
+| AI 追问句 | Serif + 荧光笔 | 16 / 1.5 | 700 |
+| 正文（聊天、气泡） | Sans | 15 / 1.55–1.7 | 400 |
+| 列表主行 | Sans | 15 | 700 |
+| 列表次行、说明 | Sans | 12–13 | 400 |
+| 小标签 / 徽章 | Sans | 12（**全 App 最小字号 12**） | 600–700 |
+| 主卡金额（总结余） | Caveat | 62 / .95，¥ 与小数缩到 .55em | 600 |
+| 详情页金额 | Caveat | 58，字距 .03em | 600 |
+| 记录卡金额 | Caveat | 40，字距 .02em | 600 |
+| 用途账户格子余额 | Caveat | 34 | 600 |
+| 列表金额 | Caveat | 24（小数 .72em） | 600 |
+| 卡片内余额 | Caveat | 17 | 600 |
+| 时间 / 日期 | Caveat（数字）+ 楷（中文） | 14–15 | 600 / 500 |
+| 胶带上的日期 | Caveat + 楷 | 15–16 / 1.35 | 500 |
+
+### 2.3 手写字规则（重要）
+
+- **中文绝不落在 Caveat 上**。负号一律用 U+2212「−」而不是连字符；千分位用英文逗号。所有“数字 + 中文”混排（如“今天 12:36”）必须用“Caveat 优先、楷体兜底”的字体链：数字走 Caveat，中文走楷。
+- **楷体只给 App 自己写的固定文案**：副标题、日期标签（今天 / 昨天 / X月X日 周X）、“原图已保存”、“没花完的钱会一直留在各自账户里，按月结转。”、私人空间提示、空状态“没有找到符合条件的记录”。用户输入的内容（原始输入、标题、备注）一律用正文 Sans，因为用户可能打出子集里没有的字。
+- **带数据的句子不用手写**：例如“眼轴较 4月12日 左 +0.26、右 +0.26 mm”是数据，用 Sans 13 半粗；手写只做“氛围”。
+- **楷体子集的生成方式**：
+  1. 手写样式的文案统一放在 ARB 文案文件（Flutter 官方的多语言文案格式）里，键名以 `hand` 开头（如 `handOriginalSaved`）。构建时从 ARB 提取这些文案的字符，加上日期需要的字（今天昨天年月日周一二三四五六日）、数字和中文标点，用 fontTools `pyftsubset` 裁剪 LXGW WenKai Medium，输出 `jiabu_design` 包里的 `assets/fonts/jiabu_hand.ttf`。预计几十到几百 KB。
+  2. **CI 检查**：手写样式的文案里出现子集外的字，构建失败。
+  3. 如果以后要让用户内容也用楷体：改为打包 GB2312 一级常用字（约 3755 字）子集，约 2–3 MB，届时再评估。
+- **不在运行时下载字体**：不引入 `google_fonts` 包，也不用 Google Play 的“可下载字体”。许多国内安卓设备没有 Google Play 服务，也访问不了 Google 字体服务。
+- **授权**：Caveat、Noto Serif SC、LXGW WenKai 都是 SIL Open Font License 1.1，允许打包进 App 和裁剪。要求：在 App“关于 / 开源许可”页列出字体名与版权，随包附 OFL 全文（Flutter 用 `LicenseRegistry` 登记）；裁剪后的字体不单独作为字体文件分发。霞鹜文楷有保留字体名（“霞鹜”“LXGW”），子集使用内部名（JiabuHand），在许可页写明“基于 LXGW WenKai”。
+
+## 3. 间距、圆角、阴影、倾斜
+
+### 3.1 间距（4 的倍数为主）
+
+| 位置 | 数值 |
+|---|---|
+| 页面左右边距 | 18（≤380 宽时顶栏左右 14 / 10） |
+| 卡片内边距 | 16（记录卡底部操作区 4） |
+| 主卡（总结余）内边距 | 24 上 / 20 左右 |
+| 卡片之间、格子之间 | 12–14 |
+| 区块标题上方 | 30，下方 12 |
+| 聊天消息之间 | 6；AI 消息上下 6 / 12 |
+| 列表行最小高度 | 66（左右内边距 12–14） |
+| 记录卡键值行 | 最小高 30，左标签右数值，中间点线引导，按基线对齐 |
+
+### 3.2 圆角
+
+纸张感 = 小圆角。卡片 3；拍立得 / 便签 2；输入框、搜索框 10–12；筛选 chip 8；回答选项、徽章、按钮全圆角（胶囊）；底部弹层顶部 20；提示条 4；贴纸圆形。
+
+### 3.3 阴影（“纸片浮在桌面上”）
+
+| 层级 | 阴影 | 用于 |
+|---|---|---|
+| 贴纸级 | 0 1 1.5 rgba(60,40,20,.22) + 0 4 8 -4 rgba(60,40,20,.35) | 贴纸、范围徽章、圆形按钮 |
+| 卡片级 | 0 1 1 rgba(60,40,20,.08) + 0 12 20 -12 rgba(60,40,20,.42) | 记录卡、列表纸、格子 |
+| 主卡级 | 0 1 1 rgba(60,40,20,.08) + 0 16 26 -16 rgba(60,40,20,.5) | 总结余主卡 |
+| 弹层 | 0 -8 30 rgba(0,0,0,.12) | 底部弹层 |
+
+贴纸、范围徽章、选中按钮外圈都有 2–2.5 的**白色描边**（模拟剪下来的贴纸白边）。
+
+### 3.4 倾斜
+
+| 等级 | 角度 | 用在哪 |
+|---|---|---|
+| 不倾斜 | 0° | **所有含文字行、数字、按钮的容器**：记录卡、资料卡及其内部小卡、用途账户格子、横格列表、负余额提醒便签、底部弹层、提示条、输入栏、表格 |
+| 轻微 | ±0.5°–1° | 只含一两句话的“纸片”：我的聊天便利贴（按消息 id 取 −0.72°…+0.72°）、总结余主卡 −0.6°、私人提示便签 −0.8°、原始输入便签 −0.6°、回答选项（奇数 −1°、偶数 +0.8°） |
+| 明显 | ±2°–8° | 纯装饰与小物件：胶带 ±2.5°–5°、贴纸 −6°、Logo 圆章 −8°、印章 −5°、范围徽章 +3°、拍立得 ±2°、家庭资料拍立得卡 ±1.3°、选中的范围按钮 −2°、日期胶带 ±1.5° |
+
+角度必须是**确定性**的：同一条记录每次显示同一个角度（用 id 做哈希），不要每次重绘随机。
+
+## 4. 组件
+
+### 4.1 记录卡（聊天里 AI 记好的一笔）
+
+- 纸面卡片，**水平**，最大宽 332，左上角一条胶带（−5°，压住卡片上沿 10px）。
+- 第一行：贴纸图标（40 圆）+「支出 · 日常餐饮」（12 粗）+ 手写时间「今天 12:36」+ 右侧范围徽章。
+- 第二行（整行可点，打开详情，最小高 56）：标题（Serif 19 粗，超长省略）+ 金额（Caveat 40，主色，下半截荧光笔）。
+- 键值区：真实账户 / 用途余额（余额为负时变红）/ 标签（# 开头，主色），点线引导，按基线对齐。
+- 底部虚线分隔 + 操作：左边「已记录」印章，右边「编辑」「撤销」文字按钮（高 44）。
+- 已撤销：纸面变半透明 + 内描边，标题与金额用**一道手绘铅笔划线**（2px，−2.5°，横穿整个值）而不是逐字删除线；印章变灰「已撤销 · 余额已恢复」，操作只剩「恢复」。
+- 资料卡（视力检查）：同一外壳，内部左右眼两张小纸片（水平），裸眼视力 Caveat 46；下方一句数据说明用 Sans；操作「原图 / 对比 / 编辑 / 撤销」。
+- 调拨卡：标题「备用金 → 教育」，副标题「调拨 · 不动真钱」。
+
+### 4.2 胶带（washi tape）
+
+76×22，两端锯齿（不规则多边形裁切），45° 斜纹 / 圆点 / 格子三种图案，半透明叠加。用途：卡片角、主卡两角、拍立得顶部、日期分隔、底部弹层的拖动把手（74×20 的一小段胶带代替灰色横条）。胶带永远是装饰，不接收点击。
+
+### 4.3 贴纸类别图标
+
+圆形 40（格子里 36），白边 2.5，−6°，底色 + 手绘线条图标（线宽 1.9，圆头，微抖动路径）。
+
+| 类别 | 用途 id | 图标（手绘） | 贴纸底 | 图标色 | 对比 |
+|---|---|---|---|---|---|
+| 日常餐饮 | food | 冒热气的碗 | #FFD9C4 | #8A3A12 | 5.9 |
+| 教育 | edu | 打开的书 | #CFE0F5 | #23466F | 7.2 |
+| 医疗健康 | health | 心形 + 十字 | #F9D0D7 | #8C2337 | 6.2 |
+| 旅行 | travel | 帐篷 | #D3EBCF | #2B5728 | 6.6 |
+| 居家日用 | home | 小房子 | #FBE6A2 | #664B00 | 6.6 |
+| 备用金 | reserve | 存钱罐 / 布袋 + 加号 | #E6DBF3 | #4A3570 | 7.8 |
+| 个人爱好（私人） | hobby | 音符 | #F9D6EE | #7A2462 | 7.0 |
+| 书籍（私人） | books | 书架上的书 | #DDE9C8 | #3D541E | 6.7 |
+| 健身（私人） | fit | 哑铃 | #CDEBEA | #1C5351 | 6.9 |
+| 收入 / 月度拨入 | income / alloc | 向下箭头 / 落入托盘 | #D3EBCF | #2B5728 | 6.6 |
+| 转账 / 调拨 | transfer / move | 双向箭头 | #F8DCCB | #7A3517 | 6.9 |
+| 资料 | doc | 眼睛（视力）/ 文件（通用） | #CFE0F5 | #23466F | 7.2 |
+| 资金账户 | fund | 银行卡 / 趋势线 / 银行 / 钱包 | #FFFFFF | primary-text | ≥6.3 |
+| 待处理 | warn | 断开的云 | #F8E6C2 | #875100 | 5.3 |
+
+新增类别时：从同一套 9 色里选一个尚未用过的组合，图标沿用“手绘微抖动线条”风格，图标色对底色 ≥ 4.5。
+
+### 4.4 印章（stamp）
+
+高 24，1.8 描边、圆角 5，粗体 12，字距 .08em，−5°，透明度 .92。绿色「✓ 已记录」；灰色「已撤销 · 余额已恢复」。只表达状态，不可点。
+
+### 4.5 拍立得照片
+
+白框 9（底部 34 写说明），2 圆角，±2° 倾斜，顶部居中一条圆点胶带；底部手写说明「✓ 原图已保存」（楷 14）。点击查看原图（底部弹层里原图加 8px 白边、−1.5°）。
+
+### 4.6 便利贴提醒（负余额）
+
+#FFE3DA 底（私人 #E8E2F5），**水平**，左上角回形针（−12°，灰）。标题红色粗体「教育 当前为 −¥180.00」，说明 13 号，下面一个整宽主按钮「从备用金调拨 ¥180」（高 46，白色外圈 + 内部白色虚线）。
+
+### 4.7 底部导航 + 手绘圈
+
+纸面底栏高 78，上沿是一排半圆“撕纸边”。三项：聊天 / 总览 / 历史（图标 22 + 文字 12）。选中项：图标外套一个**手绘椭圆圈**（主色，2.4 线宽，故意不闭合），文字主色粗体。点击区域整列，≥ 48 高。
+
+### 4.8 范围切换（家庭 / 私人）
+
+顶栏右侧，虚线框里两颗按钮（高 44）。选中：主色底白字、白色外圈、−2°；未选中：透明底 ink-2。图标：家庭 = 房子，私人 = 锁。切换后整套颜色替换 + 提示条。历史页筛选条第一个 chip 也是范围（主色实心、−2°），点它直接切换。
+
+### 4.9 聊天气泡
+
+- 我：便利贴（note 色），右对齐，左侧留 56 空白，圆角 2/2/14/2，右下角折角三角，轻微倾斜；下方手写时间。
+- AI：不加气泡，直接写在纸上：头像小圆章（主色、星星、−10°）+「家簿助手」，正文 Sans 15/1.7，宽 ≤ 94%。
+- 日期分隔：居中一段胶带，上写「今天 · 10月24日 周六」（Caveat + 楷）。
+
+### 4.10 追问（AI 需要补信息时）
+
+AI 先说一句已识别到的内容（正文），再一句追问（Serif 16 粗 + 荧光笔），下方一排胶囊选项（高 44，白底，1.5 描边，交替 ±1°）。选中后：选中项 primary-soft + ✓，其他项变半透明并禁用；同时右侧出现我的回答气泡，AI 生成记录卡。
+
+### 4.11 离线状态
+
+| 状态 | 我的气泡 | 状态行 | 操作 |
+|---|---|---|---|
+| 待上传（已存在本机） | 半透明纸 + 1.8 虚线框，无阴影 | 断云图标 + 「待上传 · 已存在本机」warn 色 | 「重试」胶囊按钮，高 44 |
+| 待 AI 处理 | 恢复正常便利贴 | 转圈 + 「待 AI 处理」主色 | 无 |
+| 已上传 / 已处理 | 正常 | ✓「已上传」绿色 | AI 随后发出记录卡 |
+| 已撤销 | 正常 | 「已撤销」灰色 | — |
+
+联网恢复时弹提示条「网络已恢复，1 条记录已上传」。总览页有「待处理」区块列出同样的条目。
+
+### 4.12 历史页与筛选
+
+- 顶部吸顶：横格搜索框（高 52）+ 横向滚动的筛选 chip（高 44，虚线框；选中变 primary-soft 实底 + 白圈）。chip 顺序：范围、成员、账户、标签、类型…；点 chip 打开底部单选列表（每项高 52，选中项 primary-soft + ✓）。
+- 有筛选时出现一行「N 条结果 · 清除筛选」。
+- 按天分组：日期写在胶带上（三种胶带轮换，±1.4°），右侧当天支出合计。每组是一张横格纸（左侧红色装订线、蓝色行线），行内：贴纸 + 标题 / 说明 + 右侧金额与手写时间。长标题省略号截断。
+- 空状态：放大镜 + 楷体「没有找到符合条件的记录」。
+
+### 4.13 详情弹层
+
+底部弹层（最高 88% 屏），顶部一段胶带当把手，纸面带点阵。内容：类别 + 范围徽章 → 大金额（Caveat 58，荧光笔）→ 点线分隔的字段表（真实账户、用途账户、记录人、范围、时间、标签）→ 原图缩略（或原始输入便利贴，Sans）→ 变更记录时间线（手绘小圆圈 + 竖线，时间用 Caveat + 楷）。底部固定操作：「撤销」描边 +「编辑」主色，各占一半，高 48。资料类显示提取数值表和「对比历次检查」。
+
+编辑弹层：金额（Caveat 30 输入）、说明、真实账户 / 用途账户 / 范围单选 chip（高 44）、标签；保存后按差额调整余额并写入变更记录（例：「金额由 68.00 改为 72.00 · 用户A」）。
+
+### 4.14 提示条（snackbar）
+
+深色纸条，**水平**，圆角 4，左右 12 边距，聊天页时浮在输入栏上方（底部 150），其他页在导航上方（92）。文字 14 + 右侧操作「撤回」（主色浅调，高 44）。5 秒后自动消失；打开弹层时立刻收起。撤回后再弹一条「已撤回，记录已恢复」。
+
+## 5. 动效
+
+| 场景 | 动效 | 时长 / 曲线 |
+|---|---|---|
+| 底部弹层出入 | 自下而上滑入 + 遮罩淡入 | 260ms，cubic-bezier(.2,.8,.2,1)；遮罩 220ms |
+| 提示条 | 上移 16 + 淡入 | 220ms |
+| 范围切换 | 颜色过渡；选中按钮转到 −2° | 200–250ms |
+| 发送按钮 | 有文字时变主色并转 −8° | 200ms |
+| AI 输入中 | 三个点依次跳动 | 1s 循环 |
+| 处理中 | 转圈 | 0.8s 循环 |
+| 新记录卡出现 | 淡入 + 上移 8 + 胶带从 0 宽“贴上” | 200–250ms，可选 |
+
+规则：动效只解释“东西从哪来、到哪去”，不做弹跳和长动画；任何动效不得延迟用户可以点击的时间。
+
+**减少动态效果**：跟随系统“移除动画”设置（Flutter 中读 `MediaQuery.disableAnimationsOf(context)`）。开启时所有过渡改为直接出现，转圈改为静态“处理中”图标，打字点不动；倾斜角保留（它们是静态装饰）。v1 不在 App 内单独提供开关。
+
+## 6. 无障碍
+
+- 正文对比度 ≥ 4.5:1，大字（≥ 24 或 ≥ 18.7 粗）≥ 3:1；ink-3 是最浅的文字色。
+- 可点击区域 ≥ 44×44（Android 建议 48dp；Flutter 的 Material 组件默认 48×48，自绘控件用 `ConstrainedBox` 保证最小 48）。
+- 最小字号 12；支持系统字体放大到 200%：列表行、卡片必须能长高，金额允许换行而不是被截断。
+- 颜色不单独承载信息：负数有“−”号和「超支」标签，范围有图标和文字，状态有文字。
+- 读屏：金额读作“支出 68 元”而不是“负号 人民币 68.00”；贴纸、胶带、手绘圈、波浪线全部对读屏隐藏；印章读作状态（“已记录”）。图表需提供包含全部数值的文字描述。
+- 倾斜元素的点击区域按未倾斜的矩形计算。
+- 手写字只做装饰性短文案；任何关键信息都能在正文字体里找到。
+
+## 7. Flutter 实现要点
+
+设计系统做成独立的 `jiabu_design` 包：页面代码不许直接写色值、字体和时长，只能从这个包里取。所有颜色、尺寸、角度、时长数值以前文为准。
+
+### 7.1 主题与颜色
+
+用 **ThemeData + ThemeExtension**：ThemeData 是 Flutter 整个 App 的“主题对象”，Material 组件自动从它取颜色和字体；ThemeExtension 是挂在主题上的“自定义令牌包”，用来放 Material 本身没有的手账专用颜色（胶带、便利贴、荧光笔等）。
+
+```dart
+@immutable
+class JiabuColors extends ThemeExtension<JiabuColors> {
+  const JiabuColors({required this.bg, required this.paper, required this.ink, required this.ink2, required this.ink3,
+    required this.primary, required this.primaryText, required this.primarySoft, required this.onPrimarySoft,
+    required this.highlight, required this.note, required this.noteInk, required this.tapeA, required this.tapeB /* … */});
+  final Color bg, paper, ink, ink2, ink3, primary, primaryText, primarySoft, onPrimarySoft, highlight, note, noteInk, tapeA, tapeB;
+  @override JiabuColors copyWith({/* … */});
+  @override JiabuColors lerp(JiabuColors? other, double t) => /* 每个颜色 Color.lerp */;
+}
+const familyColors = JiabuColors(bg: Color(0xFFF6EFE2), paper: Color(0xFFFFFDF7), primary: Color(0xFFB4532D), /* … */);
+final privateColors = familyColors.copyWith(bg: const Color(0xFFEEEEE9), primary: const Color(0xFF3B5A8C), /* … */);
+// 只有 tokens/colors.dart 里允许出现 Color(0x…)；业务代码一律 context.jiabu.colors.primary
+```
+
+两层结构：① Material 3 的 `ColorScheme`（纸色、墨色、主色映射到 surface / onSurface / primary）和 `TextTheme`，让 Material 组件自动带上手账配色；② `JiabuColors`、`JiabuType`、`JiabuDecor`（胶带色、两层阴影参数、倾斜系数）、`JiabuMotion`（时长、曲线）四个 ThemeExtension。
+
+范围切换：`JiabuTheme.of(scope)` 返回整套 ThemeData，外面包一层 `AnimatedTheme(duration: 250ms)`。因为每个 ThemeExtension 都实现了 `lerp`（两组值之间按比例插值），整套颜色会在 250ms 内一起渐变。不要用 Material 的动态取色（Material You），它会冲掉品牌色。
+
+### 7.2 字体
+
+全部打包进 App，绝不运行时下载。在 `jiabu_design` 的 `pubspec.yaml` 里声明，并**显式写字重**（Flutter 不会从文件名推断字重）：
+
+```yaml
+flutter:
+  fonts:
+    - family: Caveat
+      fonts: [{ asset: assets/fonts/jiabu_numerals.ttf, weight: 600 }]   # Caveat SemiBold
+    - family: JiabuHand
+      fonts: [{ asset: assets/fonts/jiabu_hand.ttf, weight: 500 }]       # LXGW WenKai Medium 子集
+    - family: NotoSerifSC
+      fonts: [{ asset: assets/fonts/jiabu_serif.otf, weight: 700 }]      # Noto Serif SC Bold 子集
+```
+
+数字 + 中文混排（“今天 12:36”）：首选 `TextStyle(fontFamily: 'Caveat', fontFamilyFallback: ['JiabuHand'])`，即“字体回退链”，Caveat 没有的字（中文）自动落到楷体；在真机上是否稳定要靠截图测试验证。若不稳定，按字符类别拆成多个 `TextSpan`（一段文字里可单独指定字体的一小段），数字 / 符号段用 Caveat、中文段用 JiabuHand。两种做法都封装在 `HandText(text)` 组件里。金额同理：`¥` 和小数部分用单独的 `TextSpan`，字号按 0.55–0.72 倍缩小，由 `AmountText` 组件统一处理。
+
+金额列对齐：先确认 Caveat 字体含 `tnum`，有则用 `fontFeatures: [FontFeature.tabularFigures()]`；没有则金额列右对齐即可。
+
+### 7.3 纸面与点阵背景
+
+用 `CustomPainter`（Flutter 里“自己拿画笔在画布上画”的方式）画纸面：
+
+```dart
+class DotPaperPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = colors.bg);
+    const step = 18.0, r = 1.1;          // 逻辑像素，与上文一致
+    final dot = Paint()..color = colors.dot;
+    for (/* x */ …) for (/* y */ …) canvas.drawCircle(Offset(x, y), r, dot);
+  }
+}
+```
+
+更省的做法：先画一块小图块，再用 `ImageShader` 平铺，不在每帧循环画几千个圆。横格纸（列表）：`canvas.drawLine` 画行线 + 左侧 30 处红色装订线。主卡的方格纸同理。
+
+### 7.4 胶带
+
+```dart
+Path tapePath(Size s) => Path()            // 两端锯齿
+  ..moveTo(0, 0)..lineTo(s.width, 0)
+  ..lineTo(s.width * .96, s.height * .22)..lineTo(s.width, s.height * .44) /* … 其余锯齿点位 */
+  ..lineTo(0, s.height) /* 左端锯齿 */ ..close();
+
+Transform.rotate(
+  angle: -5 * pi / 180,                    // −5°
+  child: ClipPath(clipper: TapeClipper(), child: SizedBox(width: 76, height: 22, child: CustomPaint(painter: StripePainter()))),
+)
+```
+
+斜条纹：`LinearGradient(colors, stops, tileMode: TileMode.repeated)`；圆点 / 格子用小图块平铺。胶带和卡片放在同一个 `Stack` 里，用 `Positioned(top: -10)` 压住卡片上沿并画在卡片之上，外面包 `ExcludeSemantics` 对读屏隐藏。
+
+### 7.5 倾斜
+
+用 `Transform.rotate`（只旋转绘制，不改变布局占位和点击区域），旋转原点为元素中心。角度用确定性哈希计算：
+
+```dart
+double tiltFor(String id, {double amp = 1}) {
+  var h = 7;
+  for (final c in id.codeUnits) { h = (h * 31 + c) % 997; }   // UTF-16 码元
+  return ((h % 5) - 2) * 0.45 * amp;       // 单位：度
+}
+```
+
+加一个测试：用一组固定 id 和预先导出的期望值（JSON 夹具）断言输出不变。**禁止**给 `ListView` 的行、记录卡、格子、表单加旋转；业务代码只能通过 `jiabu_design` 的 `Tilt` 组件旋转。
+
+### 7.6 阴影与贴纸白边
+
+Material 的 `elevation` 阴影偏灰偏硬，不用。纸片阴影用 `BoxDecoration(boxShadow: [...])` 写成 3.3 的两层阴影（`BoxShadow(offset, blurRadius, spreadRadius, color)` 与 CSS 的 x y blur spread color 一一对应）；形状不规则时在 `CustomPainter` 里用 `canvas.drawShadow` 或带 `MaskFilter.blur` 的画笔自绘。贴纸白边：`Border.all(width: 2.5, color: Colors.white)` + 圆形 + 自绘阴影 + `Transform.rotate`（−6°）。
+
+### 7.7 手绘线条（导航圈、标题波浪线、铅笔划线、贴纸图标）
+
+所有手绘路径（导航圈、波浪线、约 40 个贴纸与界面图标）统一放在中立的 `tool/icons/icons.json`（路径数据 + 线宽 + 视口），由脚本**生成 Dart `Path` 代码**，用 `CustomPainter` 描边（`Paint()..style = PaintingStyle.stroke..strokeCap = StrokeCap.round`）。不用 Material Icons 或第三方图标库替代——要求“形状一样”，不是“长得像”；`flutter_svg` 只留给将来的插画。已撤销的划线：一条 2 宽、旋转 −2.5° 的线横穿金额。
+
+### 7.8 其他
+
+- 底部弹层：`showModalBottomSheet`，拖拽把手为胶带组件，`backgroundColor = paper`，顶部圆角 20。
+- 提示条：`ScaffoldMessenger` + 自定义外观的 `SnackBar`；撤销动作 5 秒。
+- 筛选 chip：`FilterChip` 改外观（虚线边框需在 `CustomPainter` 里按虚线分段描 `RRect`，Flutter 没有内置虚线边框）。
+- 动效时长统一从 `JiabuMotion` 取（`sheet 260ms Cubic(.2,.8,.2,1)`、`scrim 220ms`、`snack 220ms`、`scope 250ms`、`send 200ms`、`cardIn 220ms`），优先用隐式动画（`AnimatedContainer`、`AnimatedRotation`、`AnimatedOpacity` 等：改变目标值，框架自动补帧）；只有“三点跳动”“转圈”这类循环动画用 `AnimationController`。
+- 减少动态效果：`MediaQuery.disableAnimationsOf(context)` 为真时 `JiabuMotion` 把所有时长设为 0，循环动画换成静态图标；倾斜角保留。
+- 可点击区域：Material 组件默认最小 48×48（`MaterialTapTargetSize.padded`）；自绘按钮用 `ConstrainedBox(minWidth: 48, minHeight: 48)` 保证。
+- 横向滚动的 chip 行不能引起整页横向滚动；整页在 360 宽不得横向滚动。
+- 深色模式：v1 不做深色主题（手账纸面是品牌核心）；系统深色时保持浅色纸面，仅状态栏图标反色。
+- 验证方式：每个界面状态生成 **golden 截图测试**（把界面渲染成图片，与已批准的基准图逐像素比对，有变化即报警），只在固定工具链里生成；再加“几何断言”（直接断言关键元素的位置、尺寸、角度等于本规范的数值，如记录卡宽 332、胶带 −5°、上沿 −10、印章 −5°、贴纸 −6°）。详见 [客户端规范 · 测试与质量关卡](../engineering/client-flutter.md#6-测试与质量关卡)。
+
+## 8. 验收清单（给开发和测试）
+
+- 360dp 与 430dp 宽：无横向滚动、无文字被裁一半（允许单行省略号）。
+- 所有可点元素 ≥ 44dp（建议 48）。
+- 每种字体只显示它覆盖的字：手写样式文案中出现子集外的字 → 构建失败。
+- 家庭 ↔ 私人切换：颜色整体变化，数据完全隔离，提示条出现。
+- 记录卡、列表、格子、弹层、提示条 0° 倾斜。
+- 开启“移除动画”后无任何动画。
+- TalkBack（安卓读屏）能完整读出一条记录：类别、标题、金额、账户、状态。

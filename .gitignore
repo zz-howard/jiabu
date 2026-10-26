@@ -1,0 +1,92 @@
+# ---------- Secrets & local config ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+key.properties
+**/android/key.properties
+secrets/
+config/local.toml
+config/*.local.toml
+client/app/env/*.json
+!client/app/env/*.example.json
+# OAuth / provider credential files
+*credentials*.json
+auth.json
+
+# ---------- Rust ----------
+/target/
+server/target/
+**/*.rs.bk
+*.pdb
+# Cargo.lock IS committed (application workspace)
+
+# ---------- Flutter / Dart ----------
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+**/doc/api/
+coverage/
+# FVM: keep .fvmrc, ignore the local SDK symlink
+.fvm/flutter_sdk
+.fvm/versions
+# Golden test failure artefacts
+**/test/**/failures/
+# Obfuscation symbols (archived separately, never committed)
+build/symbols/
+
+# Android
+**/android/.gradle/
+**/android/captures/
+**/android/local.properties
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/gradle/wrapper/gradle-wrapper.jar
+*.apk
+*.aab
+
+# iOS (reserved)
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral/
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/ios/Flutter/flutter_export_environment.sh
+xcuserdata/
+DerivedData/
+
+# ---------- Data & logs ----------
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+pgdata/
+blobs/
+# AI contract-test recordings must be scrubbed before commit; raw captures stay local
+tests/fixtures/**/raw/
+
+# ---------- IDE / OS ----------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
