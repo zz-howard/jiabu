@@ -12,6 +12,8 @@
 6. **Rig 不采用**：框架面太大、近 6 个月 10 个破坏性小版本、普通 OpenAI 配置只收静态 key、没有 namespace 工具，其内置 `chatgpt` provider 走的是非官方的 ChatGPT `backend-api`。
 7. **回复 = 语义块，流式下发（草案）**：模型的文字输出逐步流给客户端；结构化部分（记录草稿、追问、问数）由服务端**确定性地映射**成 [ChatWeave](https://github.com/zz-howard/chatweave) 语义块，数字来自服务端的真实查询而不是模型。v1 没有 UI Agent。见第 13 节。
 8. **过程看得见（运行步骤）**：每个工具声明自己的步骤说明（和可选的一行结果说明），Agent 循环在工具调用和 `ask_user` 前后发出 ChatWeave 的步骤事件，客户端在回复顶部显示“过程”条。不下发工具名、参数和原始结果；模型的推理 / 思考文字从不下发也不保存。见 13.5。
+9. **Agent = ReAct 循环；v1 只有主 Agent**：思考 → 调用工具 → 看结果 → 再思考，直到给出回答。架构上按“主 Agent + 子 Agent”（主从结构）设计，**v1 不用子 Agent**，以后再加（第 12 节）。
+10. **问用户分两种**：运行中途要用户确认或回答（`ask_user`、执行前需要确认的操作）是**中断**——同一条回复暂停，用户的回答是这一步的结果（不是一条新的聊天消息），回答后**同一条回复**接着做完；回答已经写完、最后带一个问题时，用户的回复是新消息、AI 的是新回复。见 13.5。服务端怎么在暂停期间保存和恢复运行状态另见“服务端持久执行设计（待定，另文）”。
 
 ## 1. 设计原则
 
@@ -150,8 +152,8 @@ create table ai_jobs (
   attempt int not null default 0,
   run_after timestamptz not null default now(),
   locked_until timestamptz,
-  conversation jsonb not null default '[]',   -- 本任务的追问来回
-  pending_question jsonb,                      -- 当前追问及选项
+  conversation jsonb not null default '[]',   -- 本任务的追问与回答（回答作为中断结果，不是聊天消息）
+  pending_question jsonb,                      -- 当前等待的中断（追问及选项）；暂停状态的完整存储方式见服务端持久执行设计（待定，另文）
   provider_id text, last_error text,
   origin_request_id uuid,                      -- 用户原始请求的 X-Request-Id
   assistant_message_id uuid,                   -- 本轮回复在 chat_entries 中的 ID（ChatWeave 消息 ID）
@@ -162,8 +164,10 @@ create table ai_jobs (
 
 - 原话 / 图片入库时**同事务**插入 `ai_jobs(status = 'queued')`。
 - worker 用 `SELECT … FOR UPDATE SKIP LOCKED` 取任务，`LISTEN/NOTIFY` 唤醒；处理时设 `locked_until` 租约。
-- `Draft` → 校验后写记录，回复 = 一句文字 + 记录卡块，任务 `done`；`NeedsFollowUp` → 存 `pending_question`，回复 = 已识别内容的文字 + 选项块（`choice`），任务 `waiting_user`；`NotARecord` → 回复为文字（流式），任务 `done`。块的映射见第 13 节。
-- 用户回答追问 = ChatWeave 动作 `clarification.answer`（动作 ID 即 `Idempotency-Key`）：服务端校验回答者就是这段会话的所属成员、所选项确实在该选项块里、追问仍未回答，追加到 `conversation` 并把状态改回 `queued`；选项块状态改为“已回答”并同步到这位用户的所有设备。
+- `Draft` → 校验后写记录，回复 = 一句文字 + 记录卡块，任务 `done`；`NeedsFollowUp` → 这是一次**中断**：存 `pending_question`，回复 = 已识别内容的文字 + 选项块（`choice`），然后回复**暂停**（ChatWeave `message.paused`），任务 `waiting_user`；`NotARecord` → 回复为文字（流式），任务 `done`。块的映射见第 13 节。
+- 用户回答追问 = ChatWeave 动作 `clarification.answer`（动作 ID 即 `Idempotency-Key`；点选项是 `selected`，打字回答是 `freeText`，都走动作通道）：服务端校验回答者就是这段会话的所属成员、所选项确实在该选项块里、追问仍未回答，然后把这个回答**作为这次中断（`ask_user` 工具调用）的结果**记进任务（追加到 `conversation`），状态改回 `queued`；回答**不**作为一条新的聊天消息写进对话。worker 取到任务后在**同一条回复**（同一个 `assistant_message_id`）里继续：选项块改为“已回答”，回复接着往下写（例如生成记录卡），`seq` 接着数，最终版本同步到这位用户的所有设备。暂停期间的运行状态怎么保存、怎么恢复，见服务端持久执行设计（待定，另文）；这里只约定契约：暂停 → 已持久化 → 回答后继续同一条回复。
+- 暂停中用户点“停止”，或没回答、直接发了别的话（而这张卡不接受打字回答）：这次追问作废（卡片显示“已停止”），这条回复以“已停止”结束，任务 `done`（不记账）；新的话照常开始新的一轮。追问的过期时间由服务端配置（具体值待定），过期同样结束这条回复。
+- 回答已经写完、最后问一句（例如“要不要把它设成每月固定支出？”）不是中断：用户的回复是一条新消息，开始新的一轮。
 - 链上全部提供方失败 → `waiting_ai`，按 `run_after` 退避重试；用户也可以手工补录。
 - 每次处理都从库里重建上下文，worker 本身无状态；重建时只读取 `space_id` 对应空间的数据，并确认发起成员仍是活跃成员——已退出则任务置 `failed`（原因“空间不可用”），不写入。
 
@@ -279,13 +283,15 @@ insta = { version = "1.49", features = ["json"] }
 | 5 | genai Ollama 原生适配器不下发 JSON Schema | 用 `extra_body` 发 `format`，或走 `/v1`（未实测） |
 | 6 | DeepSeek / 智谱 json_schema、智谱 / Kimi 图片、千问 VL 结构化输出 | 未核实，靠评测集实测 |
 
-## 12. Agent 运行时分期（待定）
+## 12. Agent 运行时分期
 
-当前接口是“单次解析 + 追问”。后续可能需要“主 Agent 带工具”（例如查余额、查历史、调拨）乃至外部 Agent 接入。**分期尚未确定**，当前提议：
+当前接口是“单次解析 + 追问”。Agent 是一个 **ReAct 循环**：调用模型（思考）→ 有工具调用则执行（行动）→ 回填结果（观察）→ 再循环，直到给出回答。架构按**主 Agent + 子 Agent**（主从结构）设计：主 Agent 可以把一部分工作委派给子 Agent，子 Agent 自己也是同样的循环、有自己的工具。
 
-- **v1**：持久化澄清（第 6 节的 Postgres 状态表）+ 单个主 Agent 带工具。Agent 循环在 genai / async-openai 之上自写（“调用模型 → 有工具调用则执行 → 回填结果 → 循环；遇到 `ask_user` 就挂起”，估 300–600 行），状态放 Postgres，工具执行前同样经过空间成员与业务校验。工具在服务端绑定任务的 `space_id`：工具参数里没有 `space_id`，模型无法指定或切换空间，查余额、查历史等也只能看到当前空间。每个工具还声明自己在“过程”条上的步骤说明，循环在每次工具调用和 `ask_user` 前后发出步骤事件（13.5）。
+- **v1：只有主 Agent，不用子 Agent**（2026-10-26 已定）。单个主 Agent 带工具。Agent 循环在 genai / async-openai 之上自写（“调用模型 → 有工具调用则执行 → 回填结果 → 循环；遇到 `ask_user` 或需要确认的操作就中断”，估 300–600 行），工具执行前同样经过空间成员与业务校验。工具在服务端绑定任务的 `space_id`：工具参数里没有 `space_id`，模型无法指定或切换空间，查余额、查历史等也只能看到当前空间。每个工具还声明自己在“过程”条上的步骤说明，循环在每次工具调用前后、中断时发出步骤事件（13.5）。
+- **以后：子 Agent**。委派给子 Agent 时，主 Agent 这一步是 ChatWeave 的委派步骤（`kind: delegate`），子 Agent 的工具调用作为子步骤挂在它下面（`parentStepId`），过程条里默认收起；子 Agent 里发起的中断让整条回复暂停。ChatWeave 已经支持这种层级步骤，所以以后加子 Agent 不需要改客户端协议。什么时候加、先加哪些子 Agent，到时再定。
 - **v2**：外部 Agent 网关（例如接入 Claude Code 等通用编程 / 助手类 Agent）。
-- 不引入 Rig 的 `AgentRun` 作为持久状态（其 0.44 版本改过序列化格式，旧数据无法加载）；Temporal / Restate 等持久工作流引擎对两人应用过重。
+- **中断与持久执行**：运行中途的中断（13.5 第 3 条）要求运行能暂停很久（几小时甚至几天）后在同一条回复里继续，而服务端线程不会一直等着（B/S 架构下请求结束线程就释放）。暂停时运行状态怎么保存、回答后怎么恢复，见**服务端持久执行设计（待定，另文）**；本文只约定对外的契约（暂停 → 已持久化 → 回答后继续同一条回复）。
+- 不引入 Rig 的 `AgentRun` 作为持久状态（其 0.44 版本改过序列化格式，旧数据无法加载）。是否借鉴或采用 Temporal / Restate 这类持久执行引擎，由上面的持久执行设计评估。
 
 见 [待定问题](../decisions/README.md#待定问题open-questions)。
 
@@ -307,12 +313,12 @@ insta = { version = "1.49", features = ["json"] }
 |---|---|
 | 模型的文字输出（任何一轮） | `markdown`，逐字流式（服务端把 token 合并成约 20 字或 50ms 一批） |
 | `ParseOutcome::Draft` | `markdown`（服务端模板生成的一句话，如“记好了：午饭 68。”）+ `x-jiabu.record_card { recordId }` |
-| `ParseOutcome::NeedsFollowUp` | `markdown`（已识别的内容）+ `choice { prompt: 追问句, options, allowFreeText: true, action: clarification.answer }` |
+| `ParseOutcome::NeedsFollowUp` | `markdown`（已识别的内容）+ `choice { prompt: 追问句, options, allowFreeText: true, action: clarification.answer }`，然后回复暂停（中断，`reason: input_required`）；回答后同一条回复继续，接着出记录卡 |
 | `ParseOutcome::NotARecord` | `markdown` |
 | 家庭资料整理完成 | `markdown` + `x-jiabu.document_card { documentId }` |
 | 问数工具 `query_stats { metric, period, filters }`（v1 单主 Agent 的工具） | 服务端执行真实查询 → 单值用 `metric`，多值用 `metric_group`，明细用 `dataset`，按时间的数值用 `time_series`（例如历次视力） |
 | 首次设置缺多项信息 | `form_intent { action: setup.submit }`；设置完成后账户摘要用 `dataset` |
-| 需要用户确认的不可撤销操作（v1 预留） | 服务端暂存待执行操作 → `confirmation { severity: destructive, action: pending_operation.confirm }` |
+| 需要用户确认的不可撤销操作（v1 预留） | 服务端拦下这次工具调用、暂存待执行操作 → `confirmation { severity: destructive, action: pending_operation.confirm }`，回复暂停（中断，`reason: confirmation`）；确认（或取消）后同一条回复继续 |
 
 记录卡、资料卡只带 ID，卡片内容由客户端从本机已同步的记录读取：编辑 / 撤销后自动更新，聊天记录里也不复制业务数据。
 
@@ -365,11 +371,13 @@ v1 工具与步骤说明（示例；工具清单随 Agent 运行时分期确定�
 
 1. 模型给出完整的工具调用 → 参数校验通过后，`step.started{label: step_label(...)}` → 执行（同样经过 `authorize()`）→ `step.finished{state: succeeded | failed, summary: step_summary(...)}`。模型一次给出多个工具调用时并行执行，各自一个步骤。
 2. **失败只影响这一步**：工具出错、超时或被 `authorize()` 拒绝 → 这一步 `failed`（结果说明用模板，如“暂时查不到”），错误作为工具结果回填给模型，让它在回答里说明哪部分没查到；其他步骤和回答照常。整轮是否失败仍按第 7 节的降级规则判断。
-3. **`ask_user`**：映射出选项 / 确认块（13.2）后，发 `step.finished{state: awaiting_user, blockId: 该块}`，循环挂起（`ai_jobs.status = waiting_user`），回复正常结束。用户回答后继续执行的是新一轮回复（动作结果里的 `followUp`），有自己的步骤。
-4. **停止**：用户点“停止”时，仍在运行的步骤记为 `cancelled`，再结束回复（`interrupted`）。崩溃恢复时仍在运行的步骤记为 `failed`。
-5. **单次解析路径**（`parse_entry`）：图片或较长的输入发一个步骤（如“识别照片里的信息”）；很短的文字记账可以不发步骤，回复里就没有过程条。
-6. **不下发**工具名、参数、原始查询结果和模型的推理文字。步骤说明和结果说明只用当前空间、当前成员有权看到的数据生成；对话是一对一的，过程只有发起者本人看得到。
-7. **持久化**：回复结束时，ChatWeave 把精简的步骤记录（说明、最终状态、耗时、可选的结果说明）随消息存进 `chat_entries.message` 的 `steps` 字段，与内容块分开，不进纯文本兜底；不新增表。
+3. **中断（`ask_user` 与需要确认的操作）**：映射出选项 / 确认块（13.2）后，回复**暂停**（ChatWeave `message.paused`，这一步显示“等你确认 / 等你回答”），循环挂起（`ai_jobs.status = waiting_user`），回复**不结束**。用户的回答是这次工具调用的结果（不是聊天消息）；回答后**同一条回复**继续：这一步回到运行、照常结束（耗时不含等待），回复接着往下写，过程条还是同一条。暂停中停止、改发别的话、过期：这一步记为 `cancelled`，回复以“已停止”结束。暂停与恢复的服务端实现见第 12 节。
+4. **最终回答里带着问题不是中断**：回答已经写完、最后问一句时，回复照常结束；用户的回复是新消息，开始新的一轮，有自己的步骤。
+5. **停止**：用户点“停止”时，仍在运行的步骤记为 `cancelled`，再结束回复（`interrupted`）。崩溃恢复时仍在运行的步骤记为 `failed`；暂停中的回复不受崩溃影响。
+6. **子 Agent（以后）**：v1 没有子 Agent。以后加子 Agent 时，委派是一个 `kind: delegate` 的步骤，子 Agent 的步骤带 `parentStepId` 挂在它下面（ChatWeave 层级步骤）；子 Agent 的内部名字和推理文字同样不下发。
+7. **单次解析路径**（`parse_entry`）：图片或较长的输入发一个步骤（如“识别照片里的信息”）；很短的文字记账可以不发步骤，回复里就没有过程条。
+8. **不下发**工具名、参数、原始查询结果和模型的推理文字。步骤说明和结果说明只用当前空间、当前成员有权看到的数据生成；对话是一对一的，过程只有发起者本人看得到。
+9. **持久化**：回复结束时，ChatWeave 把精简的步骤记录（说明、最终状态、耗时、可选的结果说明）随消息存进 `chat_entries.message` 的 `steps` 字段，与内容块分开，不进纯文本兜底；不新增表。
 
 ## 14. 来源
 

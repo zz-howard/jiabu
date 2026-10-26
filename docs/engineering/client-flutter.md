@@ -240,6 +240,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 
 - `StreamTransport`：用 dio 以 `ResponseType.stream` 打开 `GET /spaces/{space_id}/chat/messages/{message_id}/stream`，复用拦截器（`Authorization`、`X-Request-Id`），加 `Accept: text/event-stream`、`Last-Event-ID` 与 `ChatWeave-Capabilities`（由注册表生成，声明能渲染哪些块）；把字节流交给 ChatWeave 解码。
 - `ActionTransport`：点追问选项、确认、提交表单时，ChatWeave 生成动作请求（其 ID 即幂等键）；家簿把它写进 outbox（`op_type = 'chat_action'`，`id = 动作 ID`），块只显示“提交中”（离线时“已排队，联网后提交”），**不乐观标记“已选择”**；`OutboxProcessor` 上传到 `POST /spaces/{space_id}/chat/actions`。离线时照常排队，联网补发，重发复用同一个动作 ID。结果以服务端返回的补丁或同步下来的新版本为准：对话是一对一的，没有其他成员抢答；但服务端仍可能拒绝（权限、相关记录已变化或删除、校验不通过），自己的另一台手机也可能已经回答过，这时显示服务端记录的结果。
+- **追问 / 确认时回复暂停**（ChatWeave 中断）：流由服务端关闭，客户端不重连；回答的动作结果带 `resume`，ChatWeave 按已收到的序号重新订阅**同一条回复**，回答显示在卡片上（不生成“我的回答”气泡），后续内容接在同一条回复下面。追问卡允许打字回答时，输入框提示“回答上面的问题”，发出的文字作为这张卡的回答进 outbox（`chat_action`），不是一条聊天消息；不接受打字回答时，输入框照常发新消息，服务端先结束暂停中的那条回复。
 - 生成中点“停止”：直接请求 `POST …/messages/{message_id}/cancel`（不进 outbox，离线时按钮不可用）。这是 ChatWeave 的显式停止请求；切后台、断网、离开聊天页都只是断线，不会停止生成。
 
 **注册家簿自定义组件**
@@ -263,7 +264,7 @@ final chatRegistry = BlockRegistry.withDefaults()
 - 主题：`JiabuChatWeaveTheme`（`app/lib/shared/chatweave/`），见设计规范 7.8。
 - **过程条**（AI 正在做什么，见设计规范 4.17）：能力声明里带 `stream.steps`，服务端据此在同一条流里发步骤事件；步骤由 ChatWeave 折叠进消息的 `steps`（与块分开，随 `message_json` 一起存在 `chat_entries`，不新增列），不进 `fallback_text`。外观用 `processStripBuilder` 换成 `JiabuProcessStrip`（`app/lib/shared/chatweave/`）；展开 / 收起是 ChatWeave 管理的本地显示状态，回答写完时自动收起一次，用户手动操作过就不再自动切换。“等你确认”一行点按后滚动到对应的确认卡 / 选项块。不在任何地方显示工具名、参数或原始数据（协议里本来就没有）。
 
-**测试**：适配器的仓库测试（真 drift 内存库：临时状态 / 同步版本对账、空间过滤、退出清除、带 `steps` 的消息往返无损）；用 ChatWeave 的一致性夹具驱动聊天页的组件测试（含步骤夹具：并行、某步失败、等你确认、生成中停止、步骤中途断线续传）；过程条的 golden 与几何断言（设计规范 4.17 / 7.8）；4.16 各组件的 golden（两种空间强调色 × 两种宽度 × 两档字号）与几何断言（宽 332、0°）。
+**测试**：适配器的仓库测试（真 drift 内存库：临时状态 / 同步版本对账、空间过滤、退出清除、带 `steps` 的消息往返无损）；用 ChatWeave 的一致性夹具驱动聊天页的组件测试（含步骤夹具：并行、某步失败、生成中停止、步骤中途断线续传；中断夹具：暂停、回答后同一条回复继续、暂停很久后在另一台手机回答、暂停中停止、过期）；过程条的 golden 与几何断言（设计规范 4.17 / 7.8）；4.16 各组件的 golden（两种空间强调色 × 两种宽度 × 两档字号）与几何断言（宽 332、0°）。
 
 ## 5. 日志与崩溃
 

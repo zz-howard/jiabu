@@ -194,11 +194,13 @@ let app = router
 
 | target | 动作类型 | 做什么 | 破坏性 |
 |---|---|---|---|
-| `clarification.answer` | `choice.select` / `form.submit`（用户直接打字回答时走普通聊天消息，由服务端关联到待回答的追问块并把它标为已回答） | 把回答追加到 `ai_jobs.conversation`，任务改回 `queued`；返回 `accepted` 和下一条回复的 `followUp.messageId` | 否 |
+| `clarification.answer` | `choice.select`（点选项 `selected`，或打字回答 `freeText`）/ `form.submit` | 追问是一次中断：确认追问仍未回答后，把回答作为这次中断的结果记进任务（追加到 `ai_jobs.conversation`，不写成聊天消息），任务改回 `queued`；返回 `accepted` 和 `resume.messageId`（**同一条回复**继续，不是新回复） | 否 |
 | `setup.submit` | `form.submit` | 首次设置补齐账户信息；校验后交给同一 AI 任务继续 | 否 |
-| `pending_operation.confirm` | `confirmation.respond` | 执行服务端暂存的待确认操作（v1 预留，基本不用；日常记账靠撤销而不是确认，P2） | 是 |
+| `pending_operation.confirm` | `confirmation.respond` | 中断的确认：确认则执行服务端暂存的操作，取消则不执行，结果交回 Agent 在同一条回复里继续；返回 `accepted` + `resume.messageId`（v1 预留，基本不用；日常记账靠撤销而不是确认，P2） | 是 |
 
 记录卡上的“编辑 / 撤销”不是 ChatWeave 动作，仍走记录接口。
+
+**中断（回复暂停与继续）**：追问和需要确认的操作让回复暂停（ChatWeave `message.paused`）。服务端对外的契约：暂停时把暂停中的回复（`status = paused`）写进 `chat_entries` 并把任务置 `waiting_user`（同一事务），关闭这条流；回答经上表的动作处理器记录后，worker 在**同一条回复**里继续，事件序号接着往下数；暂停中停止、改发别的话或过期时，结束这条回复（“已停止”）。暂停中的回复也出现在“活动消息”查询里。运行状态在暂停期间如何保存与恢复，见服务端持久执行设计（待定，另文）。
 
 **运行步骤**（回复顶部的“过程”条）：AI worker 在工具调用和 `ask_user` 前后用流生成器发 ChatWeave 的步骤事件（每个工具的步骤说明见 [AI 层 13.5](ai-layer.md#135-运行步骤过程条)）。步骤事件和块事件一样写 `chat_stream_events`、续传重放；回复结束时精简的步骤记录随消息存进 `chat_entries.message` 的 `steps` 字段，不新增表或列。工具名、参数、原始结果和模型的推理文字不进事件、不进 `chat_entries`。
 
@@ -292,12 +294,12 @@ create table chat_actions (id uuid primary key,             -- = 动作 ID = 幂
 ### 5.2 关键模式
 
 1. **幂等写入**：见第 4 节。
-2. **AI 解析任务**：原话 / 图片入库时同事务插入 `ai_jobs(status = 'queued')`；后台 worker `SELECT … FOR UPDATE SKIP LOCKED LIMIT 1` 取任务 → 调 `AiRouter` → 结果经校验后写 `records` → 任务置 `done`；失败指数退避；需要追问则置 `waiting_user`。细节见 [AI 层设计](ai-layer.md#6-任务与追问状态)。
+2. **AI 解析任务**：原话 / 图片入库时同事务插入 `ai_jobs(status = 'queued')`；后台 worker `SELECT … FOR UPDATE SKIP LOCKED LIMIT 1` 取任务 → 调 `AiRouter` → 结果经校验后写 `records` → 任务置 `done`；失败指数退避；需要追问则回复暂停、任务置 `waiting_user`，回答后在同一条回复里继续（中断；暂停与恢复的实现见服务端持久执行设计，待定，另文）。细节见 [AI 层设计](ai-layer.md#6-任务与追问状态)。
 3. **追加式审计 / 撤销**：`record_events(record_id, space_id, actor_member_id, request_id, kind[create|update|void|restore|move_out|move_in], before, after, at)` 与 `space_events` 只 INSERT（应用数据库角色对该表无 UPDATE / DELETE 权限）。撤销 = 追加一条反向事件并更新 `records` 当前态，绝不删除历史。
 4. **余额**：余额由记录推导（开户余额 + 关联记录），一笔支出同时影响真实账户和用途账户、只计一次消费；月度拨入和逻辑调拨是独立记录类型，不算收入或消费。
 5. **空间隔离**：每行带 `space_id`；任何查询、统计、提示都不跨空间，不在一个空间里透露其他空间的数量、合计或线索。聊天记录与 AI 上下文按空间隔离，其他空间的内容绝不进入模型请求。账号级事件（登录、改密）只记 `user_id`，空间内事件记 `actor_member_id`。
 6. **跨空间移动记录**：用户手工把记错空间的记录移走，要求在源空间和目标空间都是活跃成员。同一事务内：源记录作废（`move_out`，写 `moved_to_record_id`）+ 在目标空间新建一条（`move_in`，写 `moved_from_record_id`），账户与用途须从目标空间的账户中重新选择；两条审计事件互相关联。AI 不会发起或建议移动。
-7. **聊天回复的流式与持久化**（ChatWeave）：AI worker 用 `chatweave-server` 的流生成器产生事件，每个事件**先写 `chat_stream_events` 再广播**给在线订阅者（进程内 `tokio::sync::broadcast`，慢订阅者被断开后自行续传）；`message.end` 时在**同一事务**里写入 `chat_entries` 最终消息（`rev = 1`，分配 `change_seq`）并更新 `ai_jobs` 状态。事件日志在消息结束 10 分钟后由清理任务删除。进程崩溃后，启动时把租约过期仍为 `streaming` 的消息用库的折叠函数从事件日志恢复，标 `interrupted` 并持久化。块状态变化（追问被回答）= 更新 `chat_entries.message`、`rev + 1`、新的 `change_seq`，经同步下发到会话所属成员的设备。**聊天条目只同步给会话所属成员**：同步接口按 `conversations.created_by_member_id = 请求者` 过滤 `chat_entries`，同一空间的其他成员拿不到别人的对话。
+7. **聊天回复的流式与持久化**（ChatWeave）：AI worker 用 `chatweave-server` 的流生成器产生事件，每个事件**先写 `chat_stream_events` 再广播**给在线订阅者（进程内 `tokio::sync::broadcast`，慢订阅者被断开后自行续传）；`message.end` 时在**同一事务**里写入 `chat_entries` 最终消息（`rev = 1`，分配 `change_seq`）并更新 `ai_jobs` 状态。事件日志在消息结束（或暂停）10 分钟后由清理任务删除；暂停中的回复以 `chat_entries` 里的暂停版本为准，日志清理不影响它继续。进程崩溃后，启动时把租约过期仍为 `streaming` 的消息用库的折叠函数从事件日志恢复，标 `interrupted` 并持久化。块状态变化（追问被回答）= 更新 `chat_entries.message`、`rev + 1`、新的 `change_seq`，经同步下发到会话所属成员的设备。**聊天条目只同步给会话所属成员**：同步接口按 `conversations.created_by_member_id = 请求者` 过滤 `chat_entries`，同一空间的其他成员拿不到别人的对话。
 
 ### 5.3 原图存储
 
