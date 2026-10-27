@@ -1,6 +1,6 @@
 # 家簿 · 技术方案
 
-> 版本 v0.3（2026-10-27）。v0.3：按 Howard 的决定去掉跨空间移动（P63），第 16 节四件事全部定下（P64）。对应需求 v0.19、决策清单 P1–P64 / C1–C21 / S1–S39 / A1–A20 / G1–G10。v0.2 按第二轮技术评审修订（同步批次与回写、幂等回放与授权的顺序、重试不重复记账、原图引用、跨空间移动、退款不变量、邀请状态、SSE 交接、拉取分页等），需要产品规则的四件事列在第 16 节。
+> 版本 v0.4（2026-10-27）。v0.4：第 13 节已同步进各文档（实施计划 D0）；手动记一笔的种类已定（P65）。v0.3：按 Howard 的决定去掉跨空间移动（P63），第 16 节四件事全部定下（P64）。对应需求 v0.19、决策清单 P1–P65 / C1–C21 / S1–S39 / A1–A20 / G1–G10。v0.2 按第二轮技术评审修订（同步批次与回写、幂等回放与授权的顺序、重试不重复记账、原图引用、跨空间移动、退款不变量、邀请状态、SSE 交接、拉取分页等），需要产品规则的四件事列在第 16 节。
 > 本文回答“系统**怎么**搭起来”：模块边界、数据库表、授权、同步、接口、AI 运行时、资料模板协议、客户端补充、部署运维和安全控制。它**不重抄**已有的工程文档，只引用它们的章节并补上缺的部分；实施计划按本文切片。
 > 第 14 节“可行性验证”里的实验正在进行，本文按各实验的**期望结果**设计，并写明失败时的退路；结果出来后合并进来。
 
@@ -1261,38 +1261,38 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 | 35 | 版本过老与安装失败、两个渠道同装 | `/meta` + `X-Jiabu-Client` + 426；下载续传、校验值与签名证书双重核对；两个渠道不能同装 | 双方各自声明能接受的最低版本，提示明确；同包名同签名最简单 | 6.1、9.6 |
 | 36 | 中英文输入理解 | 预置分类固定 `preset_key` + 中英文名与别名；模板双语；含糊日期一律追问 | 模型输出 ID，不靠名字匹配 | 7.6 |
 
-**仍然待定、不在本文定**：1（子 Agent 时机）、6（降级顺序，看评测集）、7 / 20（SIWC 实测项，见实验 E1，结果合并后更新）、14（范围外功能的时机）、21（长暂停缓存，上线后看数据）、24（AI 用量上限，下一阶段）、26（命令行工具）、27（以后的 key 确认）、~~37（首版最低交付与先后顺序）~~（已在[实施计划](implementation-plan.md)定）、**38（“记一笔”入口位置与覆盖哪些记录类型 → 界面设计）**。第 6.4 节的工具已经覆盖收入、转账、调拨，第 38 条只剩界面问题。
+**仍然待定、不在本文定**：1（子 Agent 时机）、6（降级顺序，看评测集）、7 / 20（SIWC 实测项，见实验 E1，结果合并后更新）、14（范围外功能的时机）、21（长暂停缓存，上线后看数据）、24（AI 用量上限，下一阶段）、26（命令行工具）、27（以后的 key 确认）、~~37（首版最低交付与先后顺序）~~（已在[实施计划](implementation-plan.md)定）、**38（“记一笔”入口位置 → 界面设计；能记的种类已定，P65）**。
 
 ## 13. 与现有工程文档的差异（以本文为准）
 
-实施计划阶段把下列修改同步进对应文档：
+**已同步**（2026-10-27，实施计划 D0）：下列修改已经写进对应文档，每条后面注明落在哪里；以后有出入仍以本文为准。
 
-1. **写入只经工具**（S25）：服务端 4.1 的 `records::create / update / void / move_to_space` 等记录 REST 写接口不做（移动本身也不做，P63）；手机经 `/sync/push` 提交工具调用。服务端 3.3 表里“记录读写”对 key 的含义变为“同步 + 工具”。`exposure` 增加 `ApiOnly`。
-2. **聊天消息不进 `/sync/push`**：发消息是 `POST /spaces/{id}/chat/messages`（服务端 4.2 “提交原话（现有写入接口 / `POST /sync/push`）”一行）；key 照样不能调用（`SessionOnly`）。
-3. **停止的路径**是 `…/messages/{id}/stop`（ChatWeave 的命名），服务端 4.2 写的是 `/cancel`；新增 `…/retry` 和 `/chat/active-messages`。
-4. **`record_events` → `entity_events`**（多一列 `entity_kind`，3.6）；S21、S22、客户端 3.6 里的 `record_events` 指它。
-5. **`spaces.archived_at` → `deleted_at`**；`spaces` 加 `currency`、`timezone`；`space_members` 加 `join_epoch`、`left_reason`、`version`；`sessions` 主键改为 `id`（便于按会话删除）。
-6. **`chat_entries` 去掉 `module` / `visibility`，加 `member_id`、`reply_to_id`**：聊天是本人的记录，不按模块过滤（7.5）；S13 的“内容表带 `module`”不含聊天表。
-7. **运行种类只有 `chat`**（A16）：AI 层第 2 节的 `parse_entry` 单次结构化调用、第 6 节的 `kind = 'parse_entry'`、第 7 节和服务端 9.4 的任务类型 `parse_entry` / `parse_entry_image` / `document_extract` 改为 `chat` / `chat_vision`。评测集照旧，经 Agent 循环跑。
-8. **唯一索引 `one_active_run_per_conversation` 只管 `running` / `paused`**，领取按会话先进先出（A17，7.3）。
-9. **管理 API 新增**：`GET /app-releases`、`POST /app-releases/check`、`POST /app-releases`（上传）、`POST /app-releases/{build}/withdraw`；`GET /meta` 增加 worker 与备份状态（10.7）。`admin` 命令增加 `release list|check|upload|withdraw`。`jiabu_admin` 的授权表加 `app_releases` 读写和 `users` 的新列。
-10. **聊天自定义块**多一个字段 `versionAtReply`（9.3），客户端 4.7 的示例只带 ID。
-11. **`agent` crate**（2.2）：服务端第 2 节的依赖方向里加 `agent`，ChatWeave 依赖放宽到 `chat`、`agent`、`api`。
-12. **`blob_refs` 改为代理主键 + 两条部分唯一索引**（3.7，S35）：加 `module`（`ledger` / `documents` / `chat`）；`chat` 每位成员一条引用（只有本人能读），业务模块每个空间每张图一条；挂到记录或资料上时由工具补一条对应模块的引用。服务端 5.1 的主键 `(sha256, space_id)` 作废。
-13. **`chat_stream_events` 加 `space_id`、`member_id`**（3.8）：4.4 的 RLS 策略要用 `space_id`；服务端 5.1 原表只有 `(message_id, seq, event, created_at)`。
-14. **`agent_runs` 加 `input_entry_id`、`join_epoch`、`retry_of_run_id`，去掉 `parent_run_id` / `parent_call_id`**，唯一索引去掉 `parent_run_id is null` 条件，新增 `one_retry_per_run`；`agent_tool_calls.effect` 只允许 `read` / `local_write`（3.8、7.3、7.8，A20）。改 AI 层 14.2。
-15. **会话归属列是 `conversations.member_id`**（3.8），不是服务端 5.1 / 5.2 第 7 条的 `created_by_member_id`；同步按 `member_id = 本人` 过滤（5.4），`chat_entries` 冗余同一列。
-16. **`setup.submit` 合并进 `clarification.answer`**（7.1）：服务端 4.2 的动作表去掉 `setup.submit` 一行。
-17. **客户端聊天条目的替换规则**（9.1）：客户端 4.7 表里 `rev` 一行的“同步版本 `rev` ≥ 本地时整体替换”改为“`rev ≥ 1` 总是替换；`rev = 0` 的检查点只在 `last_seq ≥ 已应用 seq` 时替换”。
-18. **客户端 outbox**（5.2、5.3、5.5，C21）：客户端 3.2 的“FIFO 逐条上传、成功后回写服务器返回值”改为：同一实体同一时间只有一条在途、`expected_version` 上传时取 `base_version`、整批响应一个本机事务落地、按回写规则更新（`pending` 的行拉取时跳过）；本机业务表加 `base_version`。
-19. **幂等回放在授权之后，成员世代覆盖全部空间写请求**（5.3、5.6，S34）：服务端第 4 节“已存在且有保存的响应则直接回放”前加上“身份、成员、`join_epoch`、授权都通过之后”；AI 层 14.4 A 第 1 步改为先鉴权再查动作幂等键；原图上传和聊天接口带 `X-Jiabu-Join-Epoch`。
+1. **写入只经工具**（S25）：服务端 4.1 的 `records::create / update / void / move_to_space` 等记录 REST 写接口不做（移动本身也不做，P63）；手机经 `/sync/push` 提交工具调用。服务端 3.3 表里“记录读写”对 key 的含义变为“同步 + 工具”。`exposure` 增加 `ApiOnly`。 **已同步：服务端 0、3.3、4、4.1、4.3。**
+2. **聊天消息不进 `/sync/push`**：发消息是 `POST /spaces/{id}/chat/messages`（服务端 4.2 “提交原话（现有写入接口 / `POST /sync/push`）”一行）；key 照样不能调用（`SessionOnly`）。 **已同步：服务端 3.3、4、4.2。**
+3. **停止的路径**是 `…/messages/{id}/stop`（ChatWeave 的命名），服务端 4.2 写的是 `/cancel`；新增 `…/retry` 和 `/chat/active-messages`。 **已同步：服务端 4.1、4.2；客户端 4.7。**
+4. **`record_events` → `entity_events`**（多一列 `entity_kind`，3.6）；S21、S22、客户端 3.6 里的 `record_events` 指它。 **已同步：服务端 3.3、4.3、5.1、5.2、6、7、9.2；AI 层 13.6、14.5；客户端 3.2、3.6；决策 S21 的说明。**
+5. **`spaces.archived_at` → `deleted_at`**；`spaces` 加 `currency`、`timezone`；`space_members` 加 `join_epoch`、`left_reason`、`version`；`sessions` 主键改为 `id`（便于按会话删除）。 **已同步：服务端 3.1、3.2、5.1（改为指向本文 3.2、3.3）、9.2。**
+6. **`chat_entries` 去掉 `module` / `visibility`，加 `member_id`、`reply_to_id`**：聊天是本人的记录，不按模块过滤（7.5）；S13 的“内容表带 `module`”不含聊天表。 **已同步：服务端 5.1；决策 S13 的说明。**
+7. **运行种类只有 `chat`**（A16）：AI 层第 2 节的 `parse_entry` 单次结构化调用、第 6 节的 `kind = 'parse_entry'`、第 7 节和服务端 9.4 的任务类型 `parse_entry` / `parse_entry_image` / `document_extract` 改为 `chat` / `chat_vision`。评测集照旧，经 Agent 循环跑。 **已同步：AI 层 0、2、5、6、7、8、9、12、13.2、13.3、13.5、13.6、15.2；服务端 4.3、5.2、9.4。**
+8. **唯一索引 `one_active_run_per_conversation` 只管 `running` / `paused`**，领取按会话先进先出（A17，7.3）。 **已同步：AI 层 14.2、14.4、14.7、14.12；服务端 5.2、7。**
+9. **管理 API 新增**：`GET /app-releases`、`POST /app-releases/check`、`POST /app-releases`（上传）、`POST /app-releases/{build}/withdraw`；`GET /meta` 增加 worker 与备份状态（10.7）。`admin` 命令增加 `release list|check|upload|withdraw`。`jiabu_admin` 的授权表加 `app_releases` 读写和 `users` 的新列。 **已同步：服务端 9.2、9.4、9.8。**
+10. **聊天自定义块**多一个字段 `versionAtReply`（9.3），客户端 4.7 的示例只带 ID。 **已同步：客户端 4.7；AI 层 13.2。**
+11. **`agent` crate**（2.2）：服务端第 2 节的依赖方向里加 `agent`，ChatWeave 依赖放宽到 `chat`、`agent`、`api`。 **已同步：服务端 2。**
+12. **`blob_refs` 改为代理主键 + 两条部分唯一索引**（3.7，S35）：加 `module`（`ledger` / `documents` / `chat`）；`chat` 每位成员一条引用（只有本人能读），业务模块每个空间每张图一条；挂到记录或资料上时由工具补一条对应模块的引用。服务端 5.1 的主键 `(sha256, space_id)` 作废。 **已同步：服务端 5.1、5.3。**
+13. **`chat_stream_events` 加 `space_id`、`member_id`**（3.8）：4.4 的 RLS 策略要用 `space_id`；服务端 5.1 原表只有 `(message_id, seq, event, created_at)`。 **已同步：服务端 5.1。**
+14. **`agent_runs` 加 `input_entry_id`、`join_epoch`、`retry_of_run_id`，去掉 `parent_run_id` / `parent_call_id`**，唯一索引去掉 `parent_run_id is null` 条件，新增 `one_retry_per_run`；`agent_tool_calls.effect` 只允许 `read` / `local_write`（3.8、7.3、7.8，A20）。改 AI 层 14.2。 **已同步：AI 层 13.5、14.2、14.3、14.4、14.5。**
+15. **会话归属列是 `conversations.member_id`**（3.8），不是服务端 5.1 / 5.2 第 7 条的 `created_by_member_id`；同步按 `member_id = 本人` 过滤（5.4），`chat_entries` 冗余同一列。 **已同步：服务端 4.2、5.1、5.2。**
+16. **`setup.submit` 合并进 `clarification.answer`**（7.1）：服务端 4.2 的动作表去掉 `setup.submit` 一行。 **已同步：服务端 4.2；AI 层 13.2。**
+17. **客户端聊天条目的替换规则**（9.1）：客户端 4.7 表里 `rev` 一行的“同步版本 `rev` ≥ 本地时整体替换”改为“`rev ≥ 1` 总是替换；`rev = 0` 的检查点只在 `last_seq ≥ 已应用 seq` 时替换”。 **已同步：客户端 4.7。**
+18. **客户端 outbox**（5.2、5.3、5.5，C21）：客户端 3.2 的“FIFO 逐条上传、成功后回写服务器返回值”改为：同一实体同一时间只有一条在途、`expected_version` 上传时取 `base_version`、整批响应一个本机事务落地、按回写规则更新（`pending` 的行拉取时跳过）；本机业务表加 `base_version`。 **已同步：客户端 3.2。**
+19. **幂等回放在授权之后，成员世代覆盖全部空间写请求**（5.3、5.6，S34）：服务端第 4 节“已存在且有保存的响应则直接回放”前加上“身份、成员、`join_epoch`、授权都通过之后”；AI 层 14.4 A 第 1 步改为先鉴权再查动作幂等键；原图上传和聊天接口带 `X-Jiabu-Join-Epoch`。 **已同步：服务端 4、4.2；AI 层 14.4。**
 20. **ChatWeave dispatcher 的顺序**（7.1）：ChatWeave `protocol.md` 5.2 的第 5 步（幂等）与第 6 步（宿主 `authorize`）对调，`security.md` 第 7 条同步；作为通用改动进库（G3）。**已同步：ChatWeave 9998524。**
 21. **ChatWeave SSE 交接**（7.4，S37）：`streaming.md` 4.1“先从日志重放、再接实时广播”改为“先订阅、再读日志、按 `seq` 交接、缺号回表补读、接收端落后就断开”，加竞态一致性测试。**文档已同步：ChatWeave 9998524；一致性测试随库实现补。**
-22. **重试的语义**（7.3）：服务端 6.3 / AI 层 14.6 的“用同一个问题开始一次新的运行”改为“新运行接着原运行的 journal 做”；`permission_changed` 不可重试。
-23. **退款不变量；不做跨空间移动**（3.4、3.4.1，S39、P63）：退款不变量在所有相关写入里检查；服务端 5.2 第 6 条（跨空间移动）、3.4 表的 `moved_*` 列、审计的 `related_space_id` 和 `move_out` / `move_in` 全部删除。
-24. **拉取的分页**（5.4，S36）：拉取的行过滤写在查询里、每行一个序号、`has_more` 按 `limit + 1` 判断。
-25. **邀请的状态转换**（3.3，S38）：条件写入 `WHERE status = 'pending'`；接受时校验空间未删除、邀请人仍活跃；删除空间、邀请人离开时关闭待处理的邀请。
-26. **worker 固定 2 个**（7.8）：服务端 5.2 第 2 条、S14 写的“2–4 个”改为 2 个。
+22. **重试的语义**（7.3）：服务端 6.3 / AI 层 14.6 的“用同一个问题开始一次新的运行”改为“新运行接着原运行的 journal 做”；`permission_changed` 不可重试。 **已同步：服务端 4.2；AI 层 14.6。**
+23. **退款不变量；不做跨空间移动**（3.4、3.4.1，S39、P63）：退款不变量在所有相关写入里检查；服务端 5.2 第 6 条（跨空间移动）、3.4 表的 `moved_*` 列、审计的 `related_space_id` 和 `move_out` / `move_in` 全部删除。 **已同步：服务端 5.2、7。**
+24. **拉取的分页**（5.4，S36）：拉取的行过滤写在查询里、每行一个序号、`has_more` 按 `limit + 1` 判断。 **已同步：服务端 4。**
+25. **邀请的状态转换**（3.3，S38）：条件写入 `WHERE status = 'pending'`；接受时校验空间未删除、邀请人仍活跃；删除空间、邀请人离开时关闭待处理的邀请。 **已同步：服务端 3.2。**
+26. **worker 固定 2 个**（7.8）：服务端 5.2 第 2 条、S14 写的“2–4 个”改为 2 个。 **已同步：服务端 5.2；决策 S14 的说明（数量见 A20）。**
 
 ## 14. 可行性验证
 

@@ -1,6 +1,6 @@
 # 家簿 · Flutter 客户端技术与开发规范
 
-> 版本号、发布者与维护状态均于 2026-10-25 从一手来源核实（Flutter 发布清单、pub.dev API、docs.flutter.dev、dart.dev、官方 GitHub 仓库）。视觉规范见 [设计规范](../design/design-spec.md)，产品需求见 [需求](../product/requirements.md)。
+> 文档版本 v0.2（2026-10-27）：按[技术方案](technical-design.md) v0.3 第 13 节同步；本机库、同步协议、冲突、分库与版本握手以技术方案第 5、9 节为准。版本号、发布者与维护状态均于 2026-10-25 从一手来源核实（Flutter 发布清单、pub.dev API、docs.flutter.dev、dart.dev、官方 GitHub 仓库）。视觉规范见 [设计规范](../design/design-spec.md)，产品需求见 [需求](../product/requirements.md)。
 
 ## 0. 结论先行
 
@@ -105,18 +105,22 @@
 
 outbox 即“待发送队列”：所有改动先写进本机，再按顺序发给服务器。
 
-- 表：`records`、`chat_entries`、`accounts`（缓存）、`documents`（缓存）、`outbox(id UUID = 幂等键, space_id, op_type, payload_json, entity_id, request_id, created_at, attempts, state, last_error)`，以及 `spaces`（本人是有效成员的空间：名称、强调色、角色）、`space_members`（成员显示名与状态，用于记录卡上的创建者）、`sync_cursors(space_id, cursor)`。
+- 表：drift 业务表（`spaces`、`space_members`、`accounts`、`allocation_plans`、`tags`、`records`、`entity_events`、`subjects`、`documents`、`conversations`、`chat_entries` 等，完整列表见[技术方案 9.1](technical-design.md#91-本机库drift)）、`outbox`、`sync_cursors(space_id, cursor)`、`entity_conflicts`。会同步的业务行都带 `sync_state` 和 **`base_version`**（服务器最近确认的版本）。
+- **outbox 表**（[技术方案 5.2](technical-design.md#52-outbox-条目)）：`outbox(id = op_id = 幂等键, space_id, join_epoch, kind, payload_json, entity_ids, depends_on, request_id, created_at, attempts, state, last_error, lease_until)`；`kind` 有五种：`tool`（全部空间内容的写入，`{tool, args}`，经 `POST /sync/push` 合批上传）、`blob`（原图）、`chat_send`（发消息）、`chat_action`（回答 / 确认）、`chat_retry`（重试）。
 - **所有业务表都带 `space_id`**，DAO 查询一律按当前空间过滤；没有不带 `space_id` 条件的业务查询（写测试守住）。
-- 写操作在 **drift 的同一个事务**里完成：更新业务表（`sync_state = pending_upload`）+ 插入 outbox 行。
-- `OutboxProcessor.drain()`：FIFO 逐条上传，`Idempotency-Key = outbox.id`，`X-Request-Id = outbox.request_id`（重发沿用同一个）。
-  - 网络错误或超时：停下，稍后退避重试。
-  - 401：停下，等待重新登录。
-  - 其他永久性 4xx：把这一条标记为 failed（保留，让用户重试），继续下一条。
-  - 成功：回写服务器返回值并删除 outbox 行。
+- 写操作在 **drift 的同一个事务**里完成：更新业务表（`sync_state = pending`）+ 插入 outbox 行；`expected_version` **不在排队时填**。
+- `OutboxProcessor.drain()`（[技术方案 5.2、5.3](technical-design.md#53-post-syncpush)）：
+  - **同一实体同一时间只有一条在途**：一条条目只有在它的 `entity_ids`、`depends_on` 都不和更早的、还没确认成功的条目重叠时才能上传；`blob` 确认前，引用这张图的条目不发；互不相关的 `tool` 条目合成一批（≤ 50 条或 2 MB）。一轮同步一直上传到没有可发的条目为止。
+  - 上传时才填 `expected_version` = 本机行的 `base_version`；`Idempotency-Key` / `op_id` = `outbox.id`，`X-Request-Id = outbox.request_id`（重发沿用同一个），带 `join_epoch`（push 每条带，其他接口用 `X-Jiabu-Join-Epoch`）。
+  - **整批响应在一个本机事务里按顺序落地**（删条目、回写、进入冲突、标 `failed`），App 中途被杀也不会只落一半。逐条结果：`ok` → 删条目并按回写规则更新；`conflict` → 进入冲突；`rejected`（永久性 4xx）→ 标 `failed`（保留，让用户重试）；`space_unavailable` / `membership_changed` → 不处理，等成员关系对账后清除；`not_processed` → 下次从这条起重试。
+  - **回写规则**：成功响应 → `base_version = result.version`；outbox 里已没有涉及这个实体的条目就用 `result` 整行替换、`sync_state = synced`，还有就只更新 `base_version`、行内容不动。拉取 → `pending` 的行**跳过**（内容和 `base_version` 都不动），`conflict` 的行照常覆盖。
+  - 网络错误或超时：停下，稍后退避重试。401：停下，等待重新登录。
+  - **迟到的响应**：处理任何异步结果之前先确认当前分区没换、这个空间本机的 `join_epoch` 仍等于请求发出时的值，不等就丢弃。
 - **互斥**：前台触发和后台任务共用一个 drain 锁（串行 `Future` 链或 `package:synchronized`）。workmanager 回调跑在**另一个 isolate**（独立的 Dart 执行线程），内存锁不共享，所以还要用数据库里的租约字段防止两个 isolate 同时上传同一条。服务器端幂等是最后一道兜底。
-- **冲突**：更新带 `expected_version`，服务器返回 409 时客户端标记冲突、拉取最新版本并提示用户。**撤销优先**（P56）：服务器上的版本已被撤销时，只显示“这笔已被撤销”和一个明确的“恢复并改成我的版本”操作（先恢复、再按新版本改，各走一次 outbox 写入），“保留我的版本”不隐式恢复；冲突解决前余额按服务器版本计算。
-- **增量拉取**：每个空间一个游标（`sync_cursors`），按空间用服务器返回的 `change_seq` 拉取变更（含已作废记录的“墓碑”）；当前空间优先，其余空间随后刷新。幂等规则不变。
-- **成员关系刷新**：每次同步先拉取本人的空间成员关系，更新 `spaces` 表。
+- **冲突**（[技术方案 5.5](technical-design.md#55-冲突待定问题-32)）：只有修改会冲突。收到 409 时在同一个本机事务里：把这条记录当前的本机状态存进 `entity_conflicts`（“我的版本”）、删掉 outbox 里涉及它的所有修改条目、把本机行改回服务器版本（`current`）；`depends_on` 含它的条目置 `blocked`，冲突解决后改回 `pending`。**撤销优先**（P56）：服务器上的版本已被撤销时，只显示“这笔已被撤销”和一个明确的“恢复并改成我的版本”操作（先恢复、再按新版本改，各走一次 outbox 写入），“保留我的版本”不隐式恢复；冲突解决前余额按服务器版本计算。
+- **增量拉取**：每个空间一个游标（`sync_cursors`），按空间用服务器返回的 `change_seq` 拉取变更（含已作废记录的“墓碑”），每个空间循环到 `has_more = false`；当前空间优先，其余空间随后刷新。
+- **成员关系刷新**：每次同步先拉取本人的空间成员关系（`GET /spaces`，含每个空间的 `join_epoch`），更新 `spaces` 表。
+  - 空间还在但 `join_epoch` 变大（中间退出过又加回）：先按“被移出”清除，再当作新加入从游标 0 完整同步（[技术方案 5.6](technical-design.md#56-退出被移出离线期间被移出又加回待定问题-30)）。
   - 新加入或重新加入的空间：游标从 0 开始，完整回填该空间数据。
   - 某个空间从成员关系中消失（主动退出或被移除）：在一个事务里删除该空间的全部本地行、outbox 条目和游标，并清理该空间的缓存图片；若它是当前空间，切回默认个人空间。尚未上传的 outbox 条目一并丢弃（P52，主动退出和被移出相同）：
     - **主动退出**：确认弹层里先数一下该空间未上传的 outbox 条目，N > 0 时写“有 N 条还没上传，退出后会丢弃”；退出成功后同上清除。
@@ -164,7 +168,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | 防截屏与剪贴板 | “只显示一次”弹层打开期间设置 `FLAG_SECURE`（与应用锁共用 4.6 的平台通道，弹层关闭后恢复原状）；复制时经平台通道给剪贴板内容加 `ClipDescription.EXTRA_IS_SENSITIVE`（Android 13+ 的系统剪贴板预览不显示内容），低版本照常复制 |
 | 幂等 | 创建请求照常带 `Idempotency-Key`；重放时服务端只说“已创建”、不再给明文，界面提示“这个 key 已创建，但明文已无法再显示，请撤销后重建” |
 | 创建表单 | 名称（必填）；有效期 7 / 30 / 90（默认）/ 365 天 / 永不过期；权限只读 / 可读写。不选空间：key 在本人当前在册的所有空间都能用（P51）。权限卡下方固定一行说明：key 不能和 AI 对话，可读写 key 的写入不经确认直接生效（设计规范 4.19；服务端 3.3） |
-| “通过 API key”标注 | 同步下来的记录变更事件带 `via_api_key_name`，本机 `record_events` 增加同名列；记录卡、详情的记录人和变更记录、历史行按设计规范 4.20 显示。这是普通的同步数据，不需要额外请求 |
+| “通过 API key”标注 | 同步下来的变更记录（`entity_events`）带 `via_api_key_name`，本机同名表照存；记录卡、详情的记录人和变更记录、历史行按设计规范 4.20 显示。这是普通的同步数据，不需要额外请求 |
 | 改密码与临时密码 | 登录响应为“需要改密码”时进入 `ChangePasswordScreen`（只有这一页可用，返回键退出登录）；收到 401（会话被管理员撤销、账号停用、密码被重置）时按现有逻辑停下 outbox、回到登录页，本机数据保留，用同一账号登录后继续同步。登录响应带有“密码被管理员重置的时间”时，登录后显示一次“你的密码在……被管理员重置”（P49） |
 | 测试 | ViewModel 单元测试（创建 → 只显示一次 → 关闭后状态里不再有明文；离线时不可创建；撤销失败回滚显示）；组件测试（永不过期的风险提示、新建表单里没有选空间的项、复制后按钮状态）；golden（列表含有效 / 已撤销 / 已过期、新建弹层、只显示一次弹层、详情、撤销确认）；仓库测试断言 drift 和日志里找不到 `jiabu_pat_` 字样 |
 
@@ -241,12 +245,12 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 
 | 列 | 说明 |
 |---|---|
-| `id`、`space_id`、`role`、`created_at`、`sync_state` | 原有 |
+| `id`、`space_id`、`member_id`、`conversation_id`、`role`、`reply_to_id`、`created_at`、`sync_state` | `reply_to_id`：助手消息回答的是哪条用户消息（重试用） |
 | `message_json` | ChatWeave 消息 JSON（块列表、状态、`rev`），按原样保存，渲染只读本机 |
 | `fallback_text` | 消息级纯文本，用于通知、搜索和降级显示 |
 | `protocol_version` | 生成该消息的协议版本 |
 | `stream_status` | `streaming` / `paused` / `complete` / `interrupted` / `error` |
-| `rev` | 持久化版本号；同步下来的版本 `rev` ≥ 本地时整体替换 |
+| `rev` | 持久化版本号。同步下来的条目：`rev ≥ 1`（持久化版本）总是替换本地；`rev = 0`（生成中 / 暂停中的检查点）只在它的 `last_seq ≥ 本地已应用的 seq` 时替换（ChatWeave `streaming.md` 4.3），不会让已经续传到更后面的内容倒退 |
 | `last_seq` | 已应用的流事件序号，App 被杀后重启也能续传 |
 
 - `watchConversation` = 按当前 `space_id` 查询本人会话的 `chat_entries` 的 drift `watch()`（对话一对一，本机只会同步到自己的会话）；空间切换时关闭上一个空间的所有流。
@@ -256,16 +260,16 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 **网络**
 
 - `StreamTransport`：用 dio 以 `ResponseType.stream` 打开 `GET /spaces/{space_id}/chat/messages/{message_id}/stream`，复用拦截器（`Authorization`、`X-Request-Id`），加 `Accept: text/event-stream`、`Last-Event-ID` 与 `ChatWeave-Capabilities`（由注册表生成，声明能渲染哪些块）；把字节流交给 ChatWeave 解码。
-- `ActionTransport`：点追问选项、确认、提交表单时，ChatWeave 生成动作请求（其 ID 即幂等键）；家簿把它写进 outbox（`op_type = 'chat_action'`，`id = 动作 ID`），块只显示“提交中”（离线时“已排队，联网后提交”），**不乐观标记“已选择”**；`OutboxProcessor` 上传到 `POST /spaces/{space_id}/chat/actions`。离线时照常排队，联网补发，重发复用同一个动作 ID。结果以服务端返回的补丁或同步下来的新版本为准：对话是一对一的，没有其他成员抢答；但服务端仍可能拒绝（权限、相关记录已变化或删除、校验不通过），自己的另一台手机也可能已经回答过，这时显示服务端记录的结果。
+- `ActionTransport`：点追问选项、确认、提交表单时，ChatWeave 生成动作请求（其 ID 即幂等键）；家簿把它写进 outbox（`kind = 'chat_action'`，`id = 动作 ID`），块只显示“提交中”（离线时“已排队，联网后提交”），**不乐观标记“已选择”**；`OutboxProcessor` 上传到 `POST /spaces/{space_id}/chat/actions`。离线时照常排队，联网补发，重发复用同一个动作 ID。结果以服务端返回的补丁或同步下来的新版本为准：对话是一对一的，没有其他成员抢答；但服务端仍可能拒绝（权限、相关记录已变化或删除、校验不通过），自己的另一台手机也可能已经回答过，这时显示服务端记录的结果。
 - **追问 / 确认时回复暂停**（ChatWeave 中断）：流由服务端关闭，客户端不重连；回答的动作结果带 `resume`，ChatWeave 按已收到的序号重新订阅**同一条回复**，回答显示在卡片上（不生成“我的回答”气泡），后续内容接在同一条回复下面。每张中断卡除了自己的选项，还有 ChatWeave 默认带的“输入其他内容”（家簿不关闭它）。
 - **输入栏联动**（ChatWeave 的输入框契约，`chatweave_core` 的 `InterruptComposerController`，按会话一个）：
   - `locked`：会话里有一条暂停中的回复、中断还开着、本人可以回答 → 家簿输入栏锁定：占位文字“先回答上面的问题”，文字框、发送和拍照按钮都不可用；已经打的草稿保留不清空。
-  - `answering`：点卡片上的“输入其他内容”（控制器 `beginOtherInput`）→ 输入栏解锁、自动聚焦，上方挂“回答：<问题>”标签（ChatWeave 的 `InterruptAnswerChip` 换成家簿外观，见设计规范 4.18）。发送 = `submitOtherInput(text)`：ChatWeave 生成 `freeText` 动作（动作 ID 即幂等键），家簿写进 outbox（`op_type = 'chat_action'`），**不是**一条聊天消息；卡片只显示“提交中 / 已排队”，服务端结果到达后显示“你的回答：……”。拍照按钮在这个状态下仍不可用（回答只收文字）。
+  - `answering`：点卡片上的“输入其他内容”（控制器 `beginOtherInput`）→ 输入栏解锁、自动聚焦，上方挂“回答：<问题>”标签（ChatWeave 的 `InterruptAnswerChip` 换成家簿外观，见设计规范 4.18）。发送 = `submitOtherInput(text)`：ChatWeave 生成 `freeText` 动作（动作 ID 即幂等键），家簿写进 outbox（`kind = 'chat_action'`），**不是**一条聊天消息；卡片只显示“提交中 / 已排队”，服务端结果到达后显示“你的回答：……”。拍照按钮在这个状态下仍不可用（回答只收文字）。
   - 点标签上的 ✕（`cancelOtherInput`）→ 回到 `locked`，草稿保留，下次点“输入其他内容”时还在。
   - 中断被关闭（另一台手机已经回答、过期、停止）→ 控制器回到 `free` 并给出原因：输入栏解锁、标签消失，草稿留在输入框里成为普通草稿，提示条说一句“这个问题已在另一台设备上回答 / 已过期 / 已停止”，避免把它误当成回答发出去。
   - 状态只来自 ChatWeave 的本机消息状态（暂停中的消息、块状态、本地“提交中”），App 重启、列表回收后不丢；离线时也照常锁定和回答（回答排队）。
   - 最终回答里带着问题（消息已经结束）不锁输入栏，回复照常是新消息。
-- 生成中或暂停中点“停止”：直接请求 `POST …/messages/{message_id}/cancel`（不进 outbox，离线时按钮不可用）。这是 ChatWeave 的显式停止请求；切后台、断网、离开聊天页都只是断线，不会停止生成。
+- 生成中或暂停中点“停止”：直接请求 `POST …/messages/{message_id}/stop`（不进 outbox，离线时按钮不可用）。发消息经 outbox 的 `chat_send` 上传到 `POST /spaces/{space_id}/chat/messages`；“没有完成”的回复上点“重试”经 `chat_retry` 上传到 `…/retry`（新的一条回复，接着把没做完的做完）；App 被杀后用 `GET /spaces/{space_id}/chat/active-messages` 找回还没结束的回复。这是 ChatWeave 的显式停止请求；切后台、断网、离开聊天页都只是断线，不会停止生成。
 
 **注册家簿自定义组件**
 
@@ -273,17 +277,17 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 final chatRegistry = BlockRegistry.withDefaults()
   ..register<RecordCardRef>(
     type: 'x-jiabu.record_card', maxSchemaVersion: 1,
-    parse: RecordCardRef.fromJson,              // 只有 recordId
-    build: (context, block, ref) => RecordCardBlock(recordId: ref.recordId),
+    parse: RecordCardRef.fromJson,              // recordId + versionAtReply（回复时的版本）
+    build: (context, block, ref) => RecordCardBlock(recordId: ref.recordId, versionAtReply: ref.versionAtReply),
   )
   ..register<DocumentCardRef>(
     type: 'x-jiabu.document_card', maxSchemaVersion: 1,
     parse: DocumentCardRef.fromJson,
-    build: (context, block, ref) => DocumentCardBlock(documentId: ref.documentId),
+    build: (context, block, ref) => DocumentCardBlock(documentId: ref.documentId, versionAtReply: ref.versionAtReply),
   );
 ```
 
-- 记录卡块**只带 `recordId`**，`RecordCardBlock` 通过 Riverpod 从本机 `records` 表 `watch` 内容：编辑 / 撤销后卡片自动更新；记录尚未同步到时显示“记录同步中”骨架。卡上的“编辑 / 撤销”是普通的记录操作（走记录仓库与 outbox），**不是** ChatWeave 动作。
+- 记录卡块**只带 `recordId` 和 `versionAtReply`**，`RecordCardBlock` 通过 Riverpod 从本机 `records` 表 `watch` 内容：编辑 / 撤销后卡片自动更新，当前版本比 `versionAtReply` 新时显示“后来改过”（显示状态见[技术方案 9.3](technical-design.md#93-记录卡资料卡的显示状态待定问题-33)）；记录尚未同步到时显示“记录同步中”骨架。卡上的“编辑 / 撤销”是普通的工具调用（`update_record` / `void_record`，走 outbox 的 `tool` 条目），**不是** ChatWeave 动作。
 - 用户消息不用 ChatWeave 的默认样式：通过 `userMessageBuilder` 画成家簿的便利贴，并显示离线状态（待上传 / 待 AI 处理，见设计规范 4.11）。
 - 主题：`JiabuChatWeaveTheme`（`app/lib/shared/chatweave/`），见设计规范 7.8。
 - **过程条**（AI 正在做什么，见设计规范 4.17）：能力声明里带 `stream.steps`，服务端据此在同一条流里发步骤事件；步骤由 ChatWeave 折叠进消息的 `steps`（与块分开，随 `message_json` 一起存在 `chat_entries`，不新增列），不进 `fallback_text`。外观用 `processStripBuilder` 换成 `JiabuProcessStrip`（`app/lib/shared/chatweave/`）；展开 / 收起是 ChatWeave 管理的本地显示状态，回答写完时自动收起一次，用户手动操作过就不再自动切换。“等你确认”一行点按后滚动到对应的确认卡 / 选项块。不在任何地方显示工具名、参数或原始数据（协议里本来就没有）。
