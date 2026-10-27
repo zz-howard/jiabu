@@ -1,0 +1,11 @@
+[package]
+name = "jiabu-admin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+jiabu-db-admin.workspace = true
+jiabu-domain.workspace = true

@@ -1,0 +1,16 @@
+name: jiabu
+publish_to: none
+version: 0.1.0+1
+resolution: workspace
+environment:
+  sdk: ^3.13.7
+  flutter: 3.47.8
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.4.3
+  jiabu_design:
+    path: ../packages/jiabu_design
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

@@ -55,6 +55,12 @@ docs/
 | [docs/decisions/README.md](docs/decisions/README.md) | 已定决策清单与待定问题 |
 | [docs/research/library-evaluation-2026-10.md](docs/research/library-evaluation-2026-10.md) | ORM / LLM 库 / 持久工作流选型调研摘要 |
 
+## 开发
+
+构建与测试只在 x86_64 Linux 构建机进行，用户目录工具链安装入口为 `server/tool/build-host/setup.sh` 和 `client/tool/build-host/setup.sh`。
+服务端在 `server/` 跑 fmt、clippy、nextest、deny、audit 和 `tool/check-*.sh`；本地数据库用 `tool/dev-db.sh start`。
+客户端在 `client/` 跑 pub get、format、analyze 和规则检查，并在根包、`app/`、设计包分别跑测试；golden 统一用 `tool/golden.sh` 的固定镜像。
+
 ## 许可证
 
 [MIT](LICENSE)

@@ -1,0 +1,13 @@
+name: jiabu_design
+publish_to: none
+version: 0.1.0
+resolution: workspace
+environment:
+  sdk: ^3.13.7
+  flutter: 3.47.8
+dependencies:
+  flutter:
+    sdk: flutter
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

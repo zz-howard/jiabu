@@ -1,0 +1,15 @@
+[package]
+name = "jiabu-db"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+jiabu-domain.workspace = true
+
+[dev-dependencies]
+sea-orm.workspace = true
+tokio.workspace = true
+anyhow.workspace = true

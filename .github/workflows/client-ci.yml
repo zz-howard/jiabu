@@ -1,0 +1,57 @@
+name: Client CI
+'on':
+  push:
+    paths: ['client/**', '.github/workflows/client-ci.yml']
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths: ['client/**', '.github/workflows/client-ci.yml']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/zz-howard/jiabu-flutter-ci:3.47.8-1
+    defaults:
+      run:
+        working-directory: client
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require visual-change label for golden changes
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import subprocess
+          import sys
+          with open(os.environ['GITHUB_EVENT_PATH']) as event_file:
+              pr = json.load(event_file)['pull_request']
+          changed = subprocess.check_output([
+              'git', 'diff', '--name-only', pr['base']['sha'], pr['head']['sha'], '--', 'client/'
+          ], cwd='..', text=True).splitlines()
+          goldens = [path for path in changed if path.endswith('.png') and 'golden' in path]
+          labels = {label['name'] for label in pr['labels']}
+          if goldens and 'visual-change' not in labels:
+              print('Golden changes require the visual-change label:', *goldens, sep='\n', file=sys.stderr)
+              sys.exit(1)
+          PYTHON
+      - name: Resolve workspace
+        run: flutter pub get
+      - name: Format
+        run: dart format --set-exit-if-changed .
+      - name: Analyze
+        run: flutter analyze --fatal-infos
+      - name: Project rules
+        run: dart run tool/check_rules.dart
+      - name: Workspace tool tests
+        run: flutter test
+      - name: App tests including goldens
+        working-directory: client/app
+        run: flutter test
+      - name: Design package tests
+        working-directory: client/packages/jiabu_design
+        run: flutter test

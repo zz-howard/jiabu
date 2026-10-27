@@ -1,0 +1,23 @@
+[package]
+name = "jiabu-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+jiabu-agent.workspace = true
+jiabu-chat.workspace = true
+jiabu-tools.workspace = true
+jiabu-db.workspace = true
+jiabu-storage.workspace = true
+axum.workspace = true
+serde.workspace = true
+utoipa.workspace = true
+utoipa-axum.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio.workspace = true
+tower.workspace = true

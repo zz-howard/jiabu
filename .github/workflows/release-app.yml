@@ -1,0 +1,41 @@
+name: Package app
+'on':
+  push:
+    tags: ['app-v*']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/zz-howard/jiabu-flutter-ci:3.47.8-1
+    defaults:
+      run:
+        working-directory: client
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Android scaffold
+        id: android
+        run: |
+          if [[ -f app/android/settings.gradle.kts || -f app/android/settings.gradle ]]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo 'TODO(luna): Generate app/android with flutter create on the build host.'
+          fi
+      - name: Resolve workspace
+        if: steps.android.outputs.ready == 'true'
+        run: flutter pub get
+      - name: Build debug APK
+        if: steps.android.outputs.ready == 'true'
+        working-directory: client/app
+        run: |
+          flutter build apk --debug --target lib/main_dev.dart
+          # TODO(C7): Add flavors, release signing, metadata, and publication.
+      - uses: actions/upload-artifact@v4
+        if: steps.android.outputs.ready == 'true'
+        with:
+          name: jiabu-app-debug
+          path: client/app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error

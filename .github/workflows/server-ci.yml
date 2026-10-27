@@ -1,0 +1,55 @@
+name: Server CI
+'on':
+  push:
+    paths: ['server/**', '.github/workflows/server-ci.yml']
+  pull_request:
+    paths: ['server/**', '.github/workflows/server-ci.yml']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: server
+        shell: bash
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: jiabu_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jiabu_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://postgres@127.0.0.1:5432/jiabu_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install fixed Rust and check tools
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.99.1
+          cargo install cargo-nextest --version 0.9.149 --locked
+          cargo install cargo-deny --version 0.20.2 --locked
+          cargo install cargo-audit --version 0.22.2 --locked
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests against PostgreSQL 18
+        run: cargo nextest run --workspace
+      - name: Dependency policy
+        run: cargo deny check
+      - name: Security advisories
+        run: cargo audit
+      - name: Management dependency boundary
+        run: tool/check-admin-deps.sh
+      - name: Transaction rules
+        run: tool/check-rules.sh
+      - name: OpenAPI snapshots
+        run: tool/check-openapi.sh
