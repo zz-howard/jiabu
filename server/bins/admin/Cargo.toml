@@ -1,0 +1,20 @@
+[package]
+name = "jiabu-admin-bin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "admin"
+path = "src/main.rs"
+
+[dependencies]
+jiabu-admin.workspace = true
+jiabu-api.workspace = true
+jiabu-admin-api.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true

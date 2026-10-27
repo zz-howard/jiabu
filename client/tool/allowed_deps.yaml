@@ -1,0 +1,21 @@
+# Changes to this file require human review.
+# Match each package, dependency section, and complete source/version declaration.
+packages:
+  jiabu_workspace:
+    dev_dependencies:
+      flutter_test: {sdk: flutter}
+      yaml: ^3.1.3
+      very_good_analysis: ^11.0.0
+      riverpod_lint: ^3.1.9
+  jiabu:
+    dependencies:
+      flutter: {sdk: flutter}
+      flutter_riverpod: ^3.4.3
+      jiabu_design: {path: ../packages/jiabu_design}
+    dev_dependencies:
+      flutter_test: {sdk: flutter}
+  jiabu_design:
+    dependencies:
+      flutter: {sdk: flutter}
+    dev_dependencies:
+      flutter_test: {sdk: flutter}
