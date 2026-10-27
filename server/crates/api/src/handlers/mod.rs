@@ -14,3 +14,7 @@ pub(crate) fn input<T>(value: Result<Json<T>, JsonRejection>) -> Result<T, ApiEr
         }
     })
 }
+
+pub(crate) mod invitations;
+pub(crate) mod space_models;
+pub(crate) mod spaces;

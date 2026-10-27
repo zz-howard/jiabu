@@ -2,8 +2,10 @@
 mod app_db;
 pub mod auth;
 pub mod entity;
+mod idempotency;
 mod member;
 mod space_tx;
+pub mod spaces;
 mod system_tx;
 pub use app_db::AppDb;
 pub use member::{ActiveMember, GrantLevel};

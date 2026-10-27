@@ -20,11 +20,14 @@ pub struct Problem {
     pub request_id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<ValidationIssue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<serde_json::Value>,
 }
 pub struct ApiError {
     pub status: StatusCode,
     pub code: &'static str,
     pub retry_after: Option<u64>,
+    pub current: Option<serde_json::Value>,
 }
 impl ApiError {
     pub fn new(status: StatusCode, code: &'static str) -> Self {
@@ -32,6 +35,7 @@ impl ApiError {
             status,
             code,
             retry_after: None,
+            current: None,
         }
     }
     pub fn bad_request() -> Self {
@@ -58,6 +62,7 @@ impl IntoResponse for ApiError {
             status: self.status.as_u16(),
             code: self.code.into(),
             request_id: crate::middleware::request_id(),
+            current: self.current,
             errors: (self.code == "validation_failed").then(|| {
                 vec![ValidationIssue {
                     pointer: "/".into(),
@@ -104,5 +109,16 @@ impl From<jiabu_db::BeginError> for ApiError {
             jiabu_db::BeginError::InvalidScope => Self::bad_request(),
             jiabu_db::BeginError::Database(e) => e.into(),
         }
+    }
+}
+
+impl From<jiabu_db::spaces::Error> for ApiError {
+    fn from(error: jiabu_db::spaces::Error) -> Self {
+        let mut result = Self::new(
+            StatusCode::from_u16(error.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            error.code,
+        );
+        result.current = error.current;
+        result
     }
 }

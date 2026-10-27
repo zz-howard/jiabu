@@ -66,3 +66,32 @@ impl SystemTx {
         self.tx.commit().await
     }
 }
+
+impl SystemTx {
+    /// Deleted spaces with any purgeable rows. No persistent queue/marker is needed:
+    /// the tombstone and remaining rows are the durable retry state.
+    pub async fn spaces_to_purge(&self) -> Result<Vec<SpaceId>, DbErr> {
+        let rows = self.tx.query_all_raw(Statement::from_string(DbBackend::Postgres,
+            "select s.id from spaces s where s.deleted_at is not null and (
+             exists(select 1 from space_member_grants g join space_members m on m.id=g.member_id where m.space_id=s.id) or
+             exists(select 1 from space_invitations where space_id=s.id) or
+             exists(select 1 from space_events where space_id=s.id) or
+             exists(select 1 from agent_runs where space_id=s.id) or
+             exists(select 1 from conversations where space_id=s.id) or
+             exists(select 1 from chat_entries where space_id=s.id) or
+             exists(select 1 from chat_stream_events where space_id=s.id) or
+             exists(select 1 from chat_actions where space_id=s.id) or
+             exists(select 1 from entity_events where space_id=s.id) or
+             exists(select 1 from blob_refs where space_id=s.id) or
+             exists(select 1 from records where space_id=s.id) or
+             exists(select 1 from allocation_plans where space_id=s.id) or
+             exists(select 1 from accounts where space_id=s.id) or
+             exists(select 1 from tags where space_id=s.id) or
+             exists(select 1 from documents where space_id=s.id) or
+             exists(select 1 from subjects where space_id=s.id) or
+             exists(select 1 from api_key_audit where space_id=s.id)) order by s.id".to_owned())).await?;
+        rows.into_iter()
+            .map(|row| row.try_get("", "id").map(SpaceId))
+            .collect()
+    }
+}

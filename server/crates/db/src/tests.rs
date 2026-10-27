@@ -410,3 +410,6 @@ async fn system_transaction_cannot_allocate_sequence_before_lock() {
         .next_seq(jiabu_domain::SpaceId(uuid::Uuid::now_v7()))
         .await;
 }
+
+#[path = "tests/spaces.rs"]
+mod spaces;

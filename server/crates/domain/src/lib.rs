@@ -3,6 +3,7 @@ pub mod ids;
 pub mod money;
 pub mod presets;
 pub mod space_init;
+pub mod spaces;
 pub use ids::*;
 pub use money::{Currency, Money};
 

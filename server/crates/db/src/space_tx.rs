@@ -93,12 +93,41 @@ impl SpaceTx {
             locked: mode == Mode::Write,
         })
     }
+    /// Private bootstrap context: only the checked creation/invitation services use it.
+    /// No ActiveMember is manufactured for an invitee who has not joined yet.
+    pub(crate) async fn bootstrap(db: &AppDb, space: SpaceId) -> Result<Self, DbErr> {
+        let tx = db.connection.begin().await?;
+        tx.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "select pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+            [space.to_string().into()],
+        ))
+        .await?;
+        Ok(Self {
+            tx,
+            members: Vec::new(),
+            locked: true,
+        })
+    }
+    pub(crate) async fn allow_bootstrap_space(&self, space: SpaceId) -> Result<(), DbErr> {
+        self.tx
+            .execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "select set_config('jiabu.space_ids', $1, true)",
+                [format!("{{{space}}}").into()],
+            ))
+            .await?;
+        Ok(())
+    }
     pub fn member(&self, space: SpaceId) -> &ActiveMember {
         // Programming invariant: callers can only request a space passed to begin.
         match self.members.iter().find(|m| m.space_id() == space) {
             Some(member) => member,
             None => panic!("space must be in transaction scope"),
         }
+    }
+    pub(crate) fn assert_write(&self) {
+        assert!(self.locked, "space mutation requires a write lock");
     }
     pub async fn next_seq(&self) -> Result<i64, DbErr> {
         assert!(self.locked, "change_seq requires a space write lock");
