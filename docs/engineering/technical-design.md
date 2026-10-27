@@ -1,6 +1,6 @@
 # 家簿 · 技术方案
 
-> 版本 v0.2（2026-10-27）。对应需求 v0.18、决策清单 P1–P62 / C1–C21 / S1–S39 / A1–A20 / G1–G10。v0.2 按第二轮技术评审修订（同步批次与回写、幂等回放与授权的顺序、重试不重复记账、原图引用、跨空间移动、退款不变量、邀请状态、SSE 交接、拉取分页等），需要产品规则的四件事列在第 16 节。
+> 版本 v0.3（2026-10-27）。v0.3：按 Howard 的决定去掉跨空间移动（P63），第 16 节四件事全部定下（P64）。对应需求 v0.19、决策清单 P1–P64 / C1–C21 / S1–S39 / A1–A20 / G1–G10。v0.2 按第二轮技术评审修订（同步批次与回写、幂等回放与授权的顺序、重试不重复记账、原图引用、跨空间移动、退款不变量、邀请状态、SSE 交接、拉取分页等），需要产品规则的四件事列在第 16 节。
 > 本文回答“系统**怎么**搭起来”：模块边界、数据库表、授权、同步、接口、AI 运行时、资料模板协议、客户端补充、部署运维和安全控制。它**不重抄**已有的工程文档，只引用它们的章节并补上缺的部分；实施计划按本文切片。
 > 第 14 节“可行性验证”里的实验正在进行，本文按各实验的**期望结果**设计，并写明失败时的退路；结果出来后合并进来。
 
@@ -209,7 +209,7 @@ create index space_invitations_invitee on space_invitations (invitee_user_id) wh
 
 **邀请的流程**（P62）：成员按用户名邀请 → 生成一条 `pending` 邀请，对方**还不是成员**，看不到这个空间的任何内容。被邀请的人在 App 里看到“谁邀请你加入哪个空间”（只有空间名和邀请人的显示名），可以接受或拒绝；邀请人可以在接受之前撤回。接受 = 同一事务里把邀请改为 `accepted`，并新建成员行（`role = 'member'`）或把以前的成员行重新激活（`status = 'active'`、`join_epoch + 1`，P13 的“重新加入”）。拒绝或撤回后邀请人看到对应状态，可以再次邀请。不设过期时间。已是活跃成员、默认个人空间（P11）不能邀请。邀请和接受都只能在线、只能用会话（不进 outbox，API key 不能调用）。
 
-**邀请的状态转换**（S38）：任何一位活跃成员都能邀请（与上文一致，不看 `role`）。接受、拒绝、撤回都在该空间的锁（4.3）里做一次条件写入 `UPDATE space_invitations SET status = … WHERE id = $1 AND status = 'pending'`，影响 0 行就按当前状态返回（例如撤回先到，接受返回 404 `not_found`，界面提示“邀请已失效”），所以接受和撤回并发时只有一个生效。接受还要在同一事务里确认：请求者就是 `invitee_user_id`；空间未删除；**邀请人仍是活跃成员**（否则把邀请改为 `cancelled` 再返回 404）。邀请人退出或被移出时，同一事务里把他发出的 `pending` 邀请改为 `cancelled`（第 16 节第 4 条，待 Howard 确认）；删除空间时把该空间所有 `pending` 邀请改为 `cancelled`（3.10）。
+**邀请的状态转换**（S38）：任何一位活跃成员都能邀请（与上文一致，不看 `role`）。接受、拒绝、撤回都在该空间的锁（4.3）里做一次条件写入 `UPDATE space_invitations SET status = … WHERE id = $1 AND status = 'pending'`，影响 0 行就按当前状态返回（例如撤回先到，接受返回 404 `not_found`，界面提示“邀请已失效”），所以接受和撤回并发时只有一个生效。接受还要在同一事务里确认：请求者就是 `invitee_user_id`；空间未删除；**邀请人仍是活跃成员**（否则把邀请改为 `cancelled` 再返回 404）。邀请人退出或被移出时，同一事务里把他发出的 `pending` 邀请改为 `cancelled`（P64）；删除空间时把该空间所有 `pending` 邀请改为 `cancelled`（3.10）。
 
 “最后一位所有者不能退出”（P18）、“删除只在只剩自己时允许”（P57）在服务层判断（需要计数，放在 4.3 的空间锁里做，没有竞态）。
 
@@ -273,8 +273,7 @@ create table records (
   note text check (char_length(note) <= 500),
   attachments text[] not null default '{}',         -- 原图 SHA-256（十六进制），须在本空间 blob_refs 里
   status text not null default 'active' check (status in ('active','voided')),
-  void_reason text check (void_reason in ('user','move_out')),
-  moved_to_record_id uuid, moved_from_record_id uuid,   -- 跨空间移动的双向关联，只下发给两边都在的人（P60，5.4）
+  void_reason text check (void_reason in ('user')),
   origin text not null check (origin in ('chat','manual','api','allocation')),
   run_id uuid,                                      -- AI 写入时所属的运行
   created_by_member_id uuid references space_members,   -- 系统拨入为空
@@ -317,21 +316,13 @@ create index records_tags on records using gin (tag_ids);
 | `update_record` 改退款的金额 | 同上（把本条旧金额换成新金额再算）；`refund_of_id` 建好后不能改 |
 | `update_record` 改支出的金额 | 新金额 ≥ 它的有效退款之和，否则 422 `refund_exceeds_original` |
 | `restore_record` 恢复退款 | 原支出有效，且恢复后不超额，否则 `parent_voided` / `refund_exceeds_original` |
-| `void_record` 撤销还有有效退款的支出 | 拒绝，422 `has_refunds`：先撤销退款（第 16 节第 3 条，待 Howard 确认）。AI 收到这个错误会问“这笔还有 1 笔退款，要一起撤销吗”，确认后依次撤销 |
-| `move_record` 移动还有有效退款的支出、或移动退款本身 | 拒绝（3.4.1） |
+| `void_record` 撤销还有有效退款的支出 | 拒绝，422 `has_refunds`：先撤销退款（P64）。AI 收到这个错误会问“这笔还有 1 笔退款，要一起撤销吗”，确认后依次撤销 |
 
 撤销退款、恢复支出不会破坏不变量，不用额外检查。
 
-#### 3.4.1 跨空间移动（`move_record`）
+#### 3.4.1 不做跨空间移动
 
-P16 只规定了“原处作废、目标新建、重选账户”。补齐的规则（S39；标“待定”的两条在第 16 节第 2 条）：
-
-- **能移动的记录**：`expense`、`income`、`transfer`、`reallocation`。`allocation`（每月拨入，由计划产生）和 `refund`（跟着原支出走）不能单独移动，返回 422 `move_not_allowed`。
-- **币种不同的空间之间不能移动**（待定，推荐）：422 `currency_mismatch`。金额按“最小单位整数”存，原样搬进另一种币种的空间，金额含义就变了。
-- **有有效退款的支出不能移动**（待定，推荐）：422 `has_refunds`。退款留在原空间会让原空间的余额和退款上限都对不上。
-- **参数**：`{id, target_space_id, target_join_epoch, target_id, account_id, to_account_id?, purpose_id?, to_purpose_id?, tag_ids}`，账户、用途、标签都必须属于目标空间（手机的移动界面按 `preset_key` 和同名预先对好标签，对不上的留空，用户可以改）；`target_id` 由客户端生成，重放幂等。
-- **其余字段**：金额、日期、备注原样；`created_by_member_id` = 移动者在**目标空间**的成员行（原记录的创建者不一定在目标空间）；`origin = 'manual'`（经 key 调用时为 `api`）；附件在同一事务里为目标空间补 `blob_refs(module = 'ledger')`（3.7），原图文件本来就按哈希共用。
-- **同一个事务**：两个空间按 ID 排序加锁（4.3），校验两边的 `join_epoch`（6.1），源记录作废（`void_reason = move_out`，写 `moved_to_record_id`）+ 目标新建（写 `moved_from_record_id`）+ 两条 `entity_events`（`move_out` / `move_in`，`related_space_id` 互指）。
+v1 不做把记录从一个空间移到另一个空间（P63，取代 P16、P60）：记错空间时在原空间撤销、到正确的空间重新记。所以没有 `move_record` 工具、记录上没有移动关联列、`entity_events` 没有 `move_out` / `move_in`，也不需要“另一个空间名字不外泄”的关联过滤。
 
 ### 3.5 资料（module = `documents`）
 
@@ -374,7 +365,6 @@ create index documents_subjects on documents using gin (subject_ids);
 
 - **同名沿用**（P58）：`create_subject` 先按 `(space_id, kind, lower(name))` 查（含已归档）：有已归档的就取消归档并返回它，有在用的就直接返回它；都没有才插入。同一空间锁内完成，唯一索引兜底。
 - **对象只能归档、不能删除**的条件 = 存在 `subject_ids @> {id}` 的资料（含已作废的，因为作废可以恢复）。
-- **资料不能跨空间移动**：P16 / 需求只规定了“记录”的移动，v1 不做资料的移动。
 - **模板快照**：服务端记下每个模板 ID 最近一次成功加载的内容，用来检查模板修改是否兼容（8.6）：
 
 ```sql
@@ -394,19 +384,18 @@ create table entity_events (
   space_id uuid not null references spaces,
   entity_kind text not null check (entity_kind in ('record','account','allocation_plan','tag','document','subject')),
   entity_id uuid not null,
-  kind text not null check (kind in ('create','update','void','restore','archive','unarchive','delete','move_out','move_in')),
+  kind text not null check (kind in ('create','update','void','restore','archive','unarchive','delete')),
   before jsonb, after jsonb,                        -- 实体的完整快照（只含该实体自己的列）
   actor_member_id uuid references space_members,    -- 系统拨入为空
   via_api_key_id uuid references api_keys, via_api_key_name text,   -- 通过 API key（服务端 3.3）
   run_id uuid, request_id uuid,
-  related_space_id uuid,                            -- move_out / move_in 的另一个空间；只下发给两边都在的人（P60）
   at timestamptz not null default now(),
   change_seq bigint not null);
 create index entity_events_entity on entity_events (entity_id, id);
 create index entity_events_sync on entity_events (space_id, change_seq);
 ```
 
-只追加：`jiabu_app` 对它只有 `INSERT` / `SELECT`。撤销 = 追加 `void` 事件并更新实体当前态。`before` / `after` 快照里也有移动关联列，下发时和实体本身一样过滤（5.4 的“移动关联的过滤”）。
+只追加：`jiabu_app` 对它只有 `INSERT` / `SELECT`。撤销 = 追加 `void` 事件并更新实体当前态。
 
 ### 3.7 原图
 
@@ -537,7 +526,7 @@ pub struct SystemTx { /* set_config('jiabu.system', 'on', true) */ }
 ```
 
 - `db` crate 不导出连接池，仓储函数只接收 `&SpaceTx`（或 `&SystemTx`）。业务代码拿不到“裸连接”，也就写不出不带空间的查询。
-- **写入时的空间锁**：`Mode::Write` 先 `SELECT pg_advisory_xact_lock(hashtextextended(space_id::text, 0))`（事务级咨询锁：PostgreSQL 提供的、按一个数字加锁、事务结束自动释放的轻量锁）。同一空间的写事务因此串行，这保证了 5.4 的“同一空间内变更序号的顺序 = 提交顺序”，也让退款上限、最后一位所有者、同名对象这类“先查再写”的规则没有竞态。跨空间移动按空间 ID 排序后依次加锁，避免死锁。
+- **写入时的空间锁**：`Mode::Write` 先 `SELECT pg_advisory_xact_lock(hashtextextended(space_id::text, 0))`（事务级咨询锁：PostgreSQL 提供的、按一个数字加锁、事务结束自动释放的轻量锁）。同一空间的写事务因此串行，这保证了 5.4 的“同一空间内变更序号的顺序 = 提交顺序”，也让退款上限、最后一位所有者、同名对象这类“先查再写”的规则没有竞态。一个写事务只锁一个空间（没有跨空间写入，P63），不会死锁。
 - 每个写事务里分配变更序号统一用 `nextval('change_seq')`，**必须在加锁之后**调用（`SpaceTx` 提供 `next_seq()`，内部断言已加锁）。`SystemTx` 写某个空间的数据（每月拨入、运行收尾）时同样先 `lock_space(space_id)` 再取号。
 
 ### 4.4 RLS：第二道防线（待定问题 12）
@@ -604,7 +593,7 @@ create policy space_scope on records to jiabu_app
 
 服务端按顺序逐条处理，**每条一个事务**：`SpaceTx::begin`（请求者现在是活跃成员，否则 `space_unavailable`；本条的 `join_epoch` 与当前成员行一致，否则 `membership_changed`）→ 该工具的前置授权（`authorize(模块, 动作)`、key 的只读限制，与首次执行完全相同）→ 幂等表（`(user_id, op_id)`，命中就回放）→ `ToolRegistry::invoke(tool, args, ToolCtx{via: App 或 ApiKey})`。
 
-**授权永远在幂等回放之前**（S34）：幂等表只防重复执行，不是授权缓存。退出后、或退出又加回后重放旧的 `op_id`，拿到的是 `space_unavailable` / `membership_changed`，不是当时的结果；回放的工具结果也经过 5.4 的移动关联过滤（按此刻的成员关系）。工具 API、聊天的发消息 / 回答 / 重试也是同一个顺序（6.3、7.1）。
+**授权永远在幂等回放之前**（S34）：幂等表只防重复执行，不是授权缓存。退出后、或退出又加回后重放旧的 `op_id`，拿到的是 `space_unavailable` / `membership_changed`，不是当时的结果。工具 API、聊天的发消息 / 回答 / 重试也是同一个顺序（6.3、7.1）。
 
 返回逐条结果：
 
@@ -636,8 +625,6 @@ API key 也能调 `/sync/push`（读写 key），行为与工具 API 相同。
 - **行过滤写在查询里**（上面的 `<行过滤>`），不在序列化时丢行，所以游标按真正返回的行推进，不会因为“扫到的都被过滤掉”而卡住或提前结束：
   - 模块：成员对某模块是 `none` 时，不查该模块的表；`entity_events` 加 `entity_kind = any($允许的种类)`（记录、账户、计划、标签 → 账本；资料、对象 → 资料）；
   - 聊天：`conversations` / `chat_entries` 加 `member_id = 本人`（S21 以来的规则）。
-- **移动关联的过滤**（P60，字段级，序列化时做）：`moved_to_record_id` / `moved_from_record_id` / `related_space_id`，以及 `entity_events.before` / `after` 快照里的同名字段，只在请求者**此刻同时是两个空间的活跃成员**时保留，否则置空，界面只显示“已移出本空间 / 已移入本空间”。这是**一个**函数，拉取、工具结果（`get_record`、`search_records`、给模型的结果）和幂等回放都经过它（S36）。
-- **本机的旧关联**：成员关系变化不会改源记录的 `change_seq`，所以手机在清除某个空间时（5.6），同一事务里把本机其他空间 `related_space_id` 等于它的、以及 `moved_to_record_id` / `moved_from_record_id` 指向被清除空间里的记录的关联置空（先取出被清除空间的记录 ID 再删行）。
 - **授权变化**：成员的模块级别变了（v1 没有授权界面，实际碰不到），`GET /spaces` 里的 `modules` 会变；手机清掉失去权限的模块数据，并把这个空间的游标归零重拉。
 - 聊天流式中的临时状态不进同步；`chat_entries` 只在暂停、结束和块状态变化时分配新序号（服务端 5.2 第 7 条）。
 
@@ -673,7 +660,7 @@ stateDiagram-v2
 - **手机**：本机 `spaces` 表存每个空间的 `join_epoch`，outbox 条目创建时记下当时的 `join_epoch`。第 2 步对账：
   - 空间从 `GET /spaces` 消失 → 清除（客户端 3.2、P52）；
   - 空间还在但 **`join_epoch` 变大** → 说明中间退出过：**先按“被移出”清除**（本机行、outbox、游标、原图缓存，事后提示），再当作新加入从游标 0 完整同步；旧的排队内容不会提交进去，旧记录随同步重新关联到本人（需求第 10 节的验收场景）。
-- **服务端兜底：所有空间内容的写请求都带成员世代**（S34）：`/sync/push` 每条带 `join_epoch`；其他写接口（原图上传、聊天的发消息 / 回答 / 重试 / 停止、工具 API）带请求头 `X-Jiabu-Join-Epoch`（工具 API 给 key 用时可省略，省略就只查成员身份）；`move_record` 另带目标空间的 `target_join_epoch`。都在 `SpaceTx::begin` 里统一比对（4.3），不一致返回 `membership_changed`，并且在幂等回放之前（5.3）。手机万一在对账前就上传（例如两步之间刚好被移出又加回），也提交不进去。这是一个整数比较，可靠且便宜。
+- **服务端兜底：所有空间内容的写请求都带成员世代**（S34）：`/sync/push` 每条带 `join_epoch`；其他写接口（原图上传、聊天的发消息 / 回答 / 重试 / 停止、工具 API）带请求头 `X-Jiabu-Join-Epoch`（工具 API 给 key 用时可省略，省略就只查成员身份）。都在 `SpaceTx::begin` 里统一比对（4.3），不一致返回 `membership_changed`，并且在幂等回放之前（5.3）。手机万一在对账前就上传（例如两步之间刚好被移出又加回），也提交不进去。这是一个整数比较，可靠且便宜。
 - **迟到的响应**：手机处理任何异步结果（push / 原图上传 / 聊天提交的响应、SSE 事件）之前，先确认当前分区没换、这个空间本机的 `join_epoch` 仍等于请求发出时的值，不等就丢弃。所以清除之后才回来的旧响应不会把数据写回本机。
 - 暂停中的回复：已在服务端随退出取消；手机清除本地聊天数据，重新同步后看到的是“已停止”的版本。
 
@@ -729,7 +716,7 @@ problem+json（RFC 9457）加一个机器可读的 `code`，App 按 `code` 显�
 | 404 | `not_found` | 不存在、不是成员、无模块权限、别人的会话——一律相同 |
 | 409 | `version_conflict`（附 `current`）· `membership_changed` · `space_last_owner` · `space_not_empty` · `interrupt_closed` · `retry_unavailable` | 并发与状态冲突 |
 | 413 / 415 | `payload_too_large` · `unsupported_media_type` | 请求体 / 原图 |
-| 422 | `validation_failed`（附 `errors:[{pointer, rule}]`）· `idempotency_key_reused` · `refund_exceeds_original` · `parent_voided` · `has_refunds` · `currency_mismatch` · `move_not_allowed` · `account_archived` · `balance_not_zero` · `subject_rule_violated` · `template_unknown` · `blob_missing` · `id_taken` · `space_name_mismatch` · `default_space_forbidden` · `api_key_limit_reached` | 业务校验 |
+| 422 | `validation_failed`（附 `errors:[{pointer, rule}]`）· `idempotency_key_reused` · `refund_exceeds_original` · `parent_voided` · `has_refunds` · `account_archived` · `balance_not_zero` · `subject_rule_violated` · `template_unknown` · `blob_missing` · `id_taken` · `space_name_mismatch` · `default_space_forbidden` · `api_key_limit_reached` | 业务校验 |
 | 426 | `client_too_old` | 6.1 |
 | 429 | `rate_limited`（带 `Retry-After`） | 登录、API key 限流 |
 | 500 / 503 | `internal` · `unavailable` | 只记日志，不外泄细节 |
@@ -785,7 +772,6 @@ problem+json（RFC 9457）加一个机器可读的 `code`，App 按 `code` 显�
 | `search_records` · `get_record` | ledger / Read | read | AgentAndApi | — | 文字、账户、标签、成员、日期筛选；分页 |
 | `create_record` | ledger / Write | local_write | AgentAndApi | 否（P2） | `kind` 不含 `allocation`（拨入只由计划产生）；可带客户端 `id` |
 | `update_record` · `void_record` · `restore_record` | ledger / Write | local_write | AgentAndApi | **是**（改已有记录，P27 的 24 小时确认） | 带 `expected_version` |
-| `move_record` | ledger / Write | local_write | **ApiOnly** | — | 跨空间移动（P16），参数里有目标空间和目标空间的账户、标签；规则见 3.4.1；AI 不做（A7） |
 | `create_account` · `update_account` · `archive_account` | ledger / Write | local_write | AgentAndApi | 归档要确认 | 首次设置靠它们（P3、P54） |
 | `set_allocation_plan` | ledger / Write | local_write | AgentAndApi | 否 | 设置 / 修改 / 停用拨入计划 |
 | `create_tag` · `rename_tag` · `delete_tag` | ledger / Write | local_write | AgentAndApi（删除为 ApiOnly） | — | |
@@ -796,7 +782,7 @@ problem+json（RFC 9457）加一个机器可读的 `code`，App 按 `code` 显�
 | `delete_subject` | documents / Write | local_write | ApiOnly | — | 只能删没关联资料的 |
 | `ask_user` | — | — | AgentOnly | — | 中断：选项或小表单（含首次设置） |
 
-- 工具参数里**没有当前空间**（空间来自 `ToolCtx`，A7）；`move_record` 的“目标空间”是唯一例外，它是 `ApiOnly`，模型看不到。
+- 工具参数里**没有当前空间**（空间来自 `ToolCtx`，A7），没有例外：没有跨空间的工具（P63）。
 - 手机的“手动记一笔”、记录卡上的编辑 / 撤销、账户设置，全部是这些工具经 `/sync/push` 的调用；所以“AI 能做的”“key 能做的”“手机能做的”永远是同一套规则。
 - 实施计划可以按切片增减工具，但新工具必须走这张表的分类。
 
@@ -871,7 +857,7 @@ RETURNING *;
 
   所以唯一索引只需要管 `running` / `paused`（3.8）。后一条消息的历史里包含前一轮的 `history_item`，因为它一定在前一轮结束之后才开始。
   - **后一条已经排队、前一条随后暂停**：B 在 A 生成时发出、已经排队，A 接着调用 `ask_user` 暂停 → A 照常暂停，B 继续排在后面，不关闭 A。“先停止再开始”只针对**到达时**已经有暂停中回复的新消息（那种消息只可能来自离线队列或另一台手机，说明用户已经往下说了）；B 发出时用户还没看到 A 的问题，A 的问题仍然要问。用户回答、停止或 A 过期后 A 结束，B 才开始；这期间 B 显示“排队中”，输入框照 13.5 锁定，问题卡可以回答。这个先后有单独的验收测试。
-- **重试不重复记账**（P27；用户看到的效果待 Howard 确认，第 16 节第 1 条）：“重试”开的新运行**接着原运行已经完成的进度做**，不是拿原话从头再来：
+- **重试不重复记账**（P27、P64）：“重试”开的新运行**接着原运行已经完成的进度做**，不是拿原话从头再来：
   - 只对以 `interrupted`（`upstream_failed`）或 `failed`（超出预算、等 AI 太久）结束的运行开放；`permission_changed`（7.5）和 journal 已压缩（结束 30 天后）的不开放，返回 409 `retry_unavailable`，界面提示“请重新说一遍”。
   - `RunService::retry()`：新运行 `retry_of_run_id = 原运行`、`input_entry_id` 相同、`join_epoch` 取当前值、新的一条助手消息（`reply_to_id` 同一条用户消息）。唯一索引 `one_retry_per_run on agent_runs (retry_of_run_id)` 保证一次运行只能被重试一次，两台手机同时点重试拿到的是同一条新回复。
   - 新运行第一次领取时，在同一事务里把原运行的 journal 条目（`context`、`input`、已提交的 `model_turn`、`tool_result`、`interrupt` / `interrupt_answer`、`note`）和 `agent_tool_calls`（**连同原来的 `idempotency_key`**）原样复制过来，沿用原运行的提示词快照（版本变化照 AI 层 14.10），末尾追加一条 `note`：“上一次回复没有完成；上面已有结果的操作都已生效，不要重复，接着把没做完的做完”。之后照常 `next_action()`：已有结果的工具调用直接复用、**不会再执行**；还没结果的才执行（本地写入没有结果就说明当时的事务没提交）。
@@ -1118,7 +1104,6 @@ AI 层第 14 节按“以后有子 Agent、外部副作用、多进程”设计�
 | 本人对该模块的级别是 `none` | “此内容你已无权查看”（P40） |
 | 本机没有这一行 | “记录同步中”骨架（客户端 4.7） |
 | `sync_state = conflict` | 正常卡片 + “有冲突”印章，点开进冲突处理（5.5） |
-| 已作废，`void_reason = move_out` | “已移出本空间”；两边都在的人看到“已移到「空间名」”（P60） |
 | 已作废，`void_reason = user` | 卡片置灰 + “已撤销”印章 |
 | `sync_state = pending` | 正常卡片 + “待上传”小字 |
 | 当前 `version > versionAtReply` | 正常卡片 + “后来改过”小字 |
@@ -1235,7 +1220,6 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 | 产品承诺 | 技术控制 | 验证 |
 |---|---|---|
 | 不是成员的空间完全不存在（P10、P20） | `SpaceTx` 唯一入口 + RLS（4.3、4.4）；一律 404；`GET /spaces` 只返回本人在册的 | 隔离矩阵集成测试：每个接口 × {非成员、已退出、别的空间的 ID、不存在的 ID}，响应完全相同 |
-| 另一个空间的名字不泄露（P60） | 拉取、审计快照、工具结果、幂等回放共用一个移动关联过滤（5.4）；手机清除空间时清掉指向它的旧关联；工具错误不提别的空间 | 移动后用只在一边的成员同步、调 `get_record`、读 `entity_events`、重放移动请求，断言拿不到对方空间 ID / 记录 ID；两边都在的人被移出一边后，本机不再有关联 |
 | 原图不泄露“别的空间也有这张图” | 上传总是要完整内容，响应相同（5.8）；下载按本空间引用鉴权；聊天图每位成员各有引用（3.7） | 集成测试：两个空间传同一张图，两次响应逐字节相同；同空间两位成员在聊天里发同一张图，两人都能下载、响应相同 |
 | 对话一对一（P23） | 聊天查询都带 `member_id = 本人`；同步按会话所属过滤 | 同空间另一成员访问流、动作、停止、同步全部 404 / 拿不到 |
 | 退出即失去访问、本机清除（P19、P52） | 成员状态即时生效；所有空间写请求带 `join_epoch`、授权先于幂等回放（5.3、5.6）；运行随退出取消；迟到的响应丢弃 | 需求第 10 节的三个场景；退出后、退出又加回后重放旧的 `op_id` / 动作 ID，拿不到当时的结果 |
@@ -1283,7 +1267,7 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 
 实施计划阶段把下列修改同步进对应文档：
 
-1. **写入只经工具**（S25）：服务端 4.1 的 `records::create / update / void / move_to_space` 等记录 REST 写接口不做；手机经 `/sync/push` 提交工具调用。服务端 3.3 表里“记录读写、移动记录”对 key 的含义变为“同步 + 工具”。`exposure` 增加 `ApiOnly`。
+1. **写入只经工具**（S25）：服务端 4.1 的 `records::create / update / void / move_to_space` 等记录 REST 写接口不做（移动本身也不做，P63）；手机经 `/sync/push` 提交工具调用。服务端 3.3 表里“记录读写”对 key 的含义变为“同步 + 工具”。`exposure` 增加 `ApiOnly`。
 2. **聊天消息不进 `/sync/push`**：发消息是 `POST /spaces/{id}/chat/messages`（服务端 4.2 “提交原话（现有写入接口 / `POST /sync/push`）”一行）；key 照样不能调用（`SessionOnly`）。
 3. **停止的路径**是 `…/messages/{id}/stop`（ChatWeave 的命名），服务端 4.2 写的是 `/cancel`；新增 `…/retry` 和 `/chat/active-messages`。
 4. **`record_events` → `entity_events`**（多一列 `entity_kind`，3.6）；S21、S22、客户端 3.6 里的 `record_events` 指它。
@@ -1305,8 +1289,8 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 20. **ChatWeave dispatcher 的顺序**（7.1）：ChatWeave `protocol.md` 5.2 的第 5 步（幂等）与第 6 步（宿主 `authorize`）对调，`security.md` 第 7 条同步；作为通用改动进库（G3）。**已同步：ChatWeave 9998524。**
 21. **ChatWeave SSE 交接**（7.4，S37）：`streaming.md` 4.1“先从日志重放、再接实时广播”改为“先订阅、再读日志、按 `seq` 交接、缺号回表补读、接收端落后就断开”，加竞态一致性测试。**文档已同步：ChatWeave 9998524；一致性测试随库实现补。**
 22. **重试的语义**（7.3）：服务端 6.3 / AI 层 14.6 的“用同一个问题开始一次新的运行”改为“新运行接着原运行的 journal 做”；`permission_changed` 不可重试。
-23. **跨空间移动、退款不变量**（3.4、3.4.1，S39）：服务端 5.2 第 6 条补上可移动的种类、币种、退款、标签、附件、创建者的规则；`move_record` 参数带 `target_join_epoch`、`target_id`、`tag_ids`。
-24. **移动关联的过滤是一个函数**（5.4，S36）：服务端 5.2 第 6 条的“同步、变更记录和审计查询都按这条过滤”具体化为：拉取、`entity_events` 的 `before` / `after` 快照、工具结果、幂等回放共用同一个过滤；拉取的行过滤写在查询里、每行一个序号、`has_more` 按 `limit + 1` 判断。
+23. **退款不变量；不做跨空间移动**（3.4、3.4.1，S39、P63）：退款不变量在所有相关写入里检查；服务端 5.2 第 6 条（跨空间移动）、3.4 表的 `moved_*` 列、审计的 `related_space_id` 和 `move_out` / `move_in` 全部删除。
+24. **拉取的分页**（5.4，S36）：拉取的行过滤写在查询里、每行一个序号、`has_more` 按 `limit + 1` 判断。
 25. **邀请的状态转换**（3.3，S38）：条件写入 `WHERE status = 'pending'`；接受时校验空间未删除、邀请人仍活跃；删除空间、邀请人离开时关闭待处理的邀请。
 26. **worker 固定 2 个**（7.8）：服务端 5.2 第 2 条、S14 写的“2–4 个”改为 2 个。
 
@@ -1341,49 +1325,13 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 
 ## 16. 需要 Howard 定的事
 
-已定：~~邀请成员是否需要对方同意~~（P62）；~~SIWC 不能做工具调用时怎么办~~（E1 证明能调用，不需要了）。
+已全部定下（2026-10-27）：
 
-第二轮技术评审发现下面四件事需要产品规则。本文**先按推荐的选项写**，你改了选项再改文档。
+- ~~邀请成员是否需要对方同意~~：需要（P62）。
+- ~~SIWC 不能做工具调用时怎么办~~：E1 证明能调用，不需要了。
+- ~~点“重试”之后已经记好的那几笔~~：接着做完没做完的，已执行的步骤不再执行（P64，7.3）。需求第 4 节已同步。
+- ~~跨空间移动记录的限制~~：v1 不做跨空间移动（P63，3.4.1）。
+- ~~撤销一笔已经有退款的支出~~：不能直接撤销；对话里 AI 问是否连退款一起撤，手动先撤退款再撤支出（P64，3.4）。
+- ~~邀请人在对方接受前离开空间~~：他发出的未接受邀请自动作废（P64，3.3）。
 
-**1. 点“重试”之后，已经记好的那几笔怎么办？**（7.3）
-
-场景：你说“午饭 50，停车 10”。午饭已经记好，记停车时 AI 服务连续出错，这条回复显示“没有完成”，你点“重试”。
-
-- **A（推荐，本文按此写）接着做完没做完的**：新的一条回复只处理停车，说“午饭那笔上一条已经记好了，停车 10 也记好了”。午饭不会因为重试再记一笔：已经执行过的那一步不会再执行，AI 接着的是自己上次的完整过程（里面有“午饭已记好”的结果），和一次正常回复做到一半时完全一样，而不是重新读一遍原话。
-- B 整句话从头再处理一遍，同时告诉 AI 哪些已经记过、请它别重复：多数时候不会重复，但不能保证，万一重复了要你自己撤销。
-- C 不提供“重试”：回复写清“已记 1 笔（午饭），停车没有记”，你自己再说一遍停车（和“停止”之后的做法一样，P50）。
-
-选 A 的话，需求第 4 节“点了用同一个问题重新回答一次”改成“点了接着把没做完的做完（新的一条回复）”。
-
-**2. 跨空间移动记录的两条限制**（3.4.1）
-
-- **2a 两个空间币种不同时**。场景：家庭空间用人民币，你另建了一个用日元的“日本旅行”空间，想把一笔 100 元的支出移过去。
-  - **A（推荐）不允许**，提示“两个空间币种不同，不能移动”，你在旅行空间里重新记。
-  - B 数字原样搬过去：100 元变成 100 日元，金额就错了，不推荐。
-  - C 移动时让你填目标币种的金额：多一步输入和换算，v1 不建议。
-- **2b 有退款的支出**。场景：买衣服 300 记在家庭空间，后来退了 100（记了一笔退款），现在发现应该记在个人空间。
-  - **A（推荐）不允许**，提示“这笔有退款，先撤销退款再移动”；移过去之后在个人空间重新记那笔退款。
-  - B 支出和它的退款一起移过去：最省事，但一次移动要动四条记录，规则和审计都更复杂，v1 不建议。
-
-另外几条按技术规则定了，告诉你一声：每月拨入和退款本身不能单独移动；标签按名字对到目标空间（对不上的留空，移动时可以改）；照片跟着记录一起过去；目标空间里这笔的“记录人”显示为做移动的人（原空间的变更记录里仍能看到原来是谁记的）。
-
-**3. 撤销一笔已经有退款的支出**（3.4）
-
-场景：买衣服 300、退了 100。后来发现 300 这笔整个记错了（比如记重了），想撤销它。
-
-- **A（推荐，本文按此写）不能直接撤销**，提示“这笔还有 1 笔退款”。在对话里 AI 会问“要连退款一起撤销吗”，你确认后两笔都撤销；在记录页手动操作时，先撤销退款、再撤销支出。
-- B 撤销支出时自动连退款一起撤销（一步完成）；那么“恢复支出时退款要不要跟着恢复”也要再定一条。
-- C 允许只撤销支出、退款留着：退款就挂在一笔不存在的支出上，余额会凭空多出 100，不推荐。
-
-（把支出金额改得比已退的钱还少，例如退了 100 再把 300 改成 80，会被拒绝——这是 P53“累计退款不超过原金额”的直接要求，不用另定。）
-
-**4. 邀请人还没等对方接受就离开了空间**（3.3）
-
-场景：你邀请妈妈加入“家庭”空间，她还没点接受，你就退出了这个空间（或被移出）。
-
-- **A（推荐，本文按此写）你发出的、还没被接受的邀请自动作废**：她打开 App 看到“邀请已失效”；要邀请就由空间里还在的人重新发。
-- B 邀请照样有效，她接受后照常加入，尽管邀请她的人已经不在了。
-
-（删除空间时，所有还没接受的邀请一律作废，这一条不用定。）
-
-除此之外，本文没有发现与已定产品规则冲突的地方；产品层面的两个界面问题（第 38 条入口位置、9.3 “后来改过 / 截至”的外观）交给界面设计。
+产品层面的两个界面问题（第 38 条入口位置、9.3 “后来改过 / 截至”的外观）交给界面设计。

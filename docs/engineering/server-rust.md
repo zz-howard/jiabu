@@ -174,7 +174,7 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 
 | 接口类别 | 会话 | API key |
 |---|---|---|
-| 空间列表、同步、记录读写、移动记录、资料、原图上传下载 | ✅ | ✅（列表返回本人在册的全部空间；写入需要读写 key；不能提交需要 AI 整理的内容，见下文） |
+| 空间列表、同步、记录读写、资料、原图上传下载 | ✅ | ✅（列表返回本人在册的全部空间；写入需要读写 key；不能提交需要 AI 整理的内容，见下文） |
 | 工具 API：`GET /spaces/{space_id}/tools`、`POST /spaces/{space_id}/tools/{tool_name}`（4.3） | ✅ | ✅（只读 key 只能调用只读工具；写入类工具直接执行，不弹确认） |
 | 聊天与一切 AI：提交消息、SSE 流、动作（回答追问 / 确认）、停止；会让 AI 运行的提交 | ✅ | ❌ `api_key_ai_not_allowed` |
 | `/me/api-keys` 的增、改、撤销；改密码；会话管理 | ✅ | ❌ |
@@ -228,7 +228,7 @@ let api = OpenApiRouter::new()
     .routes(routes!(spaces::list, spaces::create, spaces::rename))
     .routes(routes!(members::invite, members::remove, members::leave))
     .routes(routes!(records::create, records::list))
-    .routes(routes!(records::update, records::void, records::move_to_space))
+    .routes(routes!(records::update, records::void))
     .routes(routes!(sync::pull, sync::push))
     .routes(routes!(chat::stream, chat::actions, chat::cancel))   // 4.2；stream 路由不套 TimeoutLayer
     .routes(routes!(blobs::upload, blobs::get))
@@ -357,7 +357,6 @@ create table records (id uuid primary key, space_id uuid not null references spa
   amount_minor bigint, account_id uuid, purpose_id uuid, tags text[] not null default '{}',
   content jsonb not null default '{}', status text not null, version int not null default 1,
   change_seq bigint not null, voided boolean not null default false,
-  moved_to_record_id uuid, moved_from_record_id uuid,   -- 跨空间移动的双向关联
   created_at timestamptz not null, updated_at timestamptz not null);
 create sequence change_seq;
 create table record_events (id bigint generated always as identity primary key, record_id uuid not null,
@@ -435,10 +434,10 @@ create table api_key_audit (id bigint generated always as identity primary key,
    - **清扫器**：每 30 秒把租约过期的运行放回队列（崩溃重试最多 2 次，超过则以“没有完成、可重试”结束）；每分钟把过期的中断关闭（改记录类确认 24 小时、澄清 7 天）。
    - **优雅停机**：停止领取，进行中的调用最多等约 20 秒，否则把运行放回队列，重启后马上接上。
    - 细节（表结构、状态机、恢复算法、恰好一次、崩溃处理、预算）见 [AI 层第 14 节](ai-layer.md#14-持久执行暂停恢复与崩溃)。
-3. **追加式审计 / 撤销**：`record_events(record_id, space_id, actor_member_id, request_id, kind[create|update|void|restore|move_out|move_in], before, after, at)` 与 `space_events` 只 INSERT（应用数据库角色对该表无 UPDATE / DELETE 权限）。撤销 = 追加一条反向事件并更新 `records` 当前态，绝不删除历史。
+3. **追加式审计 / 撤销**：`record_events(record_id, space_id, actor_member_id, request_id, kind[create|update|void|restore], before, after, at)` 与 `space_events` 只 INSERT（应用数据库角色对该表无 UPDATE / DELETE 权限）。撤销 = 追加一条反向事件并更新 `records` 当前态，绝不删除历史。
 4. **余额**：余额由记录推导（开户余额 + 关联记录），一笔支出同时影响真实账户和用途账户、只计一次消费；月度拨入和逻辑调拨是独立记录类型，不算收入或消费。
 5. **空间隔离**：每行带 `space_id`；任何查询、统计、提示都不跨空间，不在一个空间里透露其他空间的数量、合计或线索。聊天记录与 AI 上下文按空间隔离，其他空间的内容绝不进入模型请求。账号级事件（登录、改密）只记 `user_id`，空间内事件记 `actor_member_id`。
-6. **跨空间移动记录**：用户手工把记错空间的记录移走，要求在源空间和目标空间都是活跃成员。同一事务内：源记录作废（`move_out`，写 `moved_to_record_id`）+ 在目标空间新建一条（`move_in`，写 `moved_from_record_id`），账户与用途须从目标空间的账户中重新选择；两条审计事件互相关联。可移动的种类、币种、退款、标签、附件和创建者的规则见[技术方案 3.4.1](technical-design.md#341-跨空间移动move_record)。**关联只给同时在两边的人看**（P60）：`moved_to_record_id` / `moved_from_record_id` 及另一个空间的任何信息，只下发给在源空间和目标空间都是活跃成员的人；其他人在源空间只看到“已移出本空间”（作废原因 `move_out`），在目标空间只看到“已移入本空间”。同步、变更记录和审计查询都按这条过滤。AI 不会发起或建议移动。
+6. ~~跨空间移动记录~~：v1 不做（[决策 P63](../decisions/README.md)）；记错空间时在原空间撤销、到正确的空间重新记。
 7. **聊天回复的流式与持久化**（ChatWeave）：AI worker 用 `chatweave-server` 的流生成器产生事件，每个事件**先写 `chat_stream_events` 再广播**给在线订阅者（进程内 `tokio::sync::broadcast`，慢订阅者被断开后自行续传）；`message.end` 时在**同一事务**里写入 `chat_entries` 最终消息（`rev = 1`，分配 `change_seq`）并更新 `agent_runs` 状态。事件日志在消息结束（或暂停）10 分钟后由清理任务删除；暂停中的回复以 `chat_entries` 里的暂停版本为准，日志清理不影响它继续。进程崩溃后，租约过期的运行由清扫器放回队列，在**同一条回复**里接着做（已显示的文字保留，新文字另起一块，最多重试 2 次）；超过上限才用库的折叠函数从事件日志恢复消息、标 `interrupted` 并持久化，用户可以重试。块状态变化（追问被回答）= 更新 `chat_entries.message`、`rev + 1`、新的 `change_seq`，经同步下发到会话所属成员的设备。**聊天条目只同步给会话所属成员**：同步接口按 `conversations.created_by_member_id = 请求者` 过滤 `chat_entries`，同一空间的其他成员拿不到别人的对话。
 
 ### 5.3 原图存储
