@@ -23,6 +23,9 @@ jobs:
       - name: Require visual-change label for golden changes
         if: github.event_name == 'pull_request'
         run: |
+          # The job container runs as root while the checkout belongs to the runner
+          # user, so git would treat the workspace as untrusted (dubious ownership).
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           python3 - <<'PYTHON'
           import json
           import os
