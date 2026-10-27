@@ -1,4 +1,6 @@
 //! Public persistence boundary. Pools and raw transactions are never exported.
+pub mod api_key_audit;
+pub mod api_keys;
 mod app_db;
 pub mod auth;
 pub mod entity;

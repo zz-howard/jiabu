@@ -1,6 +1,6 @@
 use crate::{
     AppState,
-    handlers::{auth, client_logs, invitations, me, meta, spaces, status, tools},
+    handlers::{api_keys, auth, client_logs, invitations, me, meta, spaces, status, tools},
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,6 +39,10 @@ fn build() -> (
     mount!("POST", "/v1/auth/login", auth::login);
     mount!("POST", "/v1/auth/logout", auth::logout);
     mount!("GET", "/v1/me", me::get);
+    mount!("GET", "/v1/me/api-keys", api_keys::list);
+    mount!("POST", "/v1/me/api-keys", api_keys::create);
+    mount!("PATCH", "/v1/me/api-keys/{id}", api_keys::rename);
+    mount!("POST", "/v1/me/api-keys/{id}/revoke", api_keys::revoke);
     mount!("PATCH", "/v1/me", me::patch);
     mount!("POST", "/v1/me/password", me::password);
     mount!("POST", "/v1/client-logs", client_logs::upload);
@@ -86,6 +90,11 @@ fn build() -> (
     );
     #[cfg(test)]
     {
+        mount!(
+            "POST",
+            "/v1/test-ai-session",
+            crate::tests::api_keys::ai_probe
+        );
         mount!(
             "GET",
             "/v1/spaces/{space_id}/authorization-probe",

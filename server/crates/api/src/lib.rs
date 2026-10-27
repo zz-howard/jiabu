@@ -1,4 +1,5 @@
 //! Public HTTP surface; routes and their catalog have one mounting entry point.
+mod api_key_token;
 #[path = "../../../support/credentials.rs"]
 mod credentials;
 mod error;
@@ -11,7 +12,8 @@ mod state;
 mod tool_openapi;
 use axum::Router;
 pub use error::{ApiError, Problem};
-pub use principal::{Principal, SessionOnly, Via};
+pub use middleware::api_key_audit::{PushItemAudit, RequestAudit};
+pub use principal::{AccountSession, Principal, SessionOnly, Via};
 pub use route_catalog::{RouteSpec, route_catalog};
 pub use state::AppState;
 pub fn router(state: AppState) -> Router {
@@ -27,6 +29,7 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
             utoipa::openapi::security::SecurityScheme::Http(
                 utoipa::openapi::security::HttpBuilder::new()
                     .scheme(utoipa::openapi::security::HttpAuthScheme::Bearer)
+                    .description(Some("Bearer session token or personal API key (jiabu_pat_). Account administration requires a session; API keys cannot use AI."))
                     .build(),
             ),
         );

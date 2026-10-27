@@ -13,6 +13,7 @@ pub struct Error {
     pub code: &'static str,
     pub current: Option<Value>,
     pub errors: Option<Vec<ValidationIssue>>,
+    pub retry_after: Option<u64>,
 }
 impl Error {
     pub fn new(status: u16, code: &'static str) -> Self {
@@ -21,6 +22,7 @@ impl Error {
             code,
             current: None,
             errors: None,
+            retry_after: None,
         }
     }
     pub fn not_found() -> Self {
@@ -38,6 +40,7 @@ impl Error {
             code: "conflict",
             current: Some(current),
             errors: None,
+            retry_after: None,
         }
     }
 }

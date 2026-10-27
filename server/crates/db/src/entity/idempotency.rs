@@ -16,6 +16,7 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub response_body: Option<Json>,
     pub created_at: DateTimeWithTimeZone,
+    pub join_epoch: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

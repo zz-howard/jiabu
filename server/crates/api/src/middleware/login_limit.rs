@@ -78,7 +78,7 @@ impl LoginLimiter {
     }
 }
 /// One IPv6 client normally controls a whole /64, so it is one bucket.
-fn ip_key(ip: IpAddr) -> String {
+pub(crate) fn ip_key(ip: IpAddr) -> String {
     match ip.to_canonical() {
         IpAddr::V4(v4) => format!("ip:{v4}"),
         IpAddr::V6(v6) => {

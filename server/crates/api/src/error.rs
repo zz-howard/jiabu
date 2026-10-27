@@ -75,6 +75,9 @@ impl IntoResponse for ApiError {
             }),
         };
         let mut response = (self.status, Json(problem)).into_response();
+        response
+            .extensions_mut()
+            .insert(crate::middleware::api_key_audit::ErrorCode(self.code));
         response.headers_mut().insert(
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("application/problem+json"),
@@ -123,6 +126,7 @@ impl From<jiabu_db::spaces::Error> for ApiError {
             error.code,
         );
         result.current = error.current;
+        result.retry_after = error.retry_after;
         result.errors = error.errors.map(|issues| {
             issues
                 .into_iter()

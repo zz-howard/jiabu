@@ -57,6 +57,7 @@ mod tests {
     }
 }
 
+pub mod api_key;
 mod ask_user;
 mod context;
 mod ledger;

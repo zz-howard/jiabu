@@ -411,6 +411,7 @@ async fn system_transaction_cannot_allocate_sequence_before_lock() {
         .await;
 }
 
+mod api_keys;
 #[path = "tests/ledger.rs"]
 mod ledger;
 #[path = "tests/spaces.rs"]

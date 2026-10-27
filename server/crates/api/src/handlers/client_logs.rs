@@ -1,4 +1,4 @@
-use crate::{ApiError, AppState, SessionOnly};
+use crate::{AccountSession, ApiError, AppState};
 use axum::{
     Json,
     extract::{State, rejection::JsonRejection},
@@ -32,7 +32,7 @@ pub(crate) struct ClientLogs {
 #[utoipa::path(post,path="/v1/client-logs",security(("bearer"=[])),request_body(content=ClientLogs,example=json!({"entries":[{"ts":"2026-01-01T00:00:00Z","level":"ERROR","logger":"example","message":"example crash","error_type":"ExampleError","stack":"example frame"}],"app_version":"0.1.0","build":1,"device_model":"example-device","os_version":"example-os"})),responses((status=204,description="Logs accepted"),(status=413,body=crate::Problem,description="Batch too large"),(status=422,body=crate::Problem,description="Entry too large"),(status=429,body=crate::Problem,description="Upload quota exceeded")))]
 pub(crate) async fn upload(
     State(state): State<AppState>,
-    SessionOnly(principal): SessionOnly,
+    AccountSession(principal): AccountSession,
     body: Result<Json<ClientLogs>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     // Quota first: every authenticated upload counts, valid or not.

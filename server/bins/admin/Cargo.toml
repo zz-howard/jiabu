@@ -21,3 +21,4 @@ serde.workspace = true
 tokio.workspace = true
 secrecy.workspace = true
 jiabu-db-admin.workspace = true
+uuid.workspace = true

@@ -145,6 +145,7 @@ impl SpaceTx {
                 code: "version_conflict",
                 current: Some(current.clone()),
                 errors: None,
+                retry_after: None,
             });
         }
         Ok(())

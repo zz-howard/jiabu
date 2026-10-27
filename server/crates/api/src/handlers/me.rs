@@ -1,4 +1,4 @@
-use crate::{ApiError, AppState, Principal, SessionOnly, Via, credentials, middleware};
+use crate::{AccountSession, ApiError, AppState, Principal, Via, credentials, middleware};
 use axum::{
     Json,
     extract::{ConnectInfo, State, rejection::JsonRejection},
@@ -40,7 +40,7 @@ pub(crate) async fn get(principal: Principal) -> Json<UserResponse> {
 #[utoipa::path(patch,path="/v1/me",security(("bearer"=[])),request_body(content=PatchMe,example=json!({"locale":"en"})),responses((status=200,body=UserResponse,description="Locale saved",example=json!({"id":"019a0000-0000-7000-8000-000000000001","username":"sample","locale":"zh-Hans"}))))]
 pub(crate) async fn patch(
     State(state): State<AppState>,
-    SessionOnly(principal): SessionOnly,
+    AccountSession(principal): AccountSession,
     body: Result<Json<PatchMe>, JsonRejection>,
 ) -> Result<Json<UserResponse>, ApiError> {
     let request = super::input(body)?;
@@ -60,7 +60,7 @@ pub(crate) async fn password(
     State(state): State<AppState>,
     peer: ConnectInfo<std::net::SocketAddr>,
     headers: HeaderMap,
-    SessionOnly(principal): SessionOnly,
+    AccountSession(principal): AccountSession,
     body: Result<Json<ChangePassword>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let request = super::input(body)?;

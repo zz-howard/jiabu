@@ -138,6 +138,12 @@ impl SpaceTx {
     pub(crate) fn assert_write(&self) {
         assert!(self.locked, "space mutation requires a write lock");
     }
+    pub(crate) fn replay_epoch(&self) -> Option<i32> {
+        self.assert_write();
+        // Normal write transactions bind exactly one active member; bootstrap
+        // account/space administration has no member yet and remains unbound.
+        self.members.first().map(|member| member.join_epoch().0)
+    }
     pub async fn next_seq(&self) -> Result<i64, DbErr> {
         assert!(self.locked, "change_seq requires a space write lock");
         let row = self

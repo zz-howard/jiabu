@@ -41,6 +41,11 @@ enum DbCommand {
 }
 #[derive(Subcommand)]
 enum UserCommand {
+    ApiKeys {
+        username: String,
+        #[arg(long)]
+        revoke: Option<uuid::Uuid>,
+    },
     Create {
         username: String,
         #[arg(long, default_value = "个人空间")]
@@ -104,6 +109,26 @@ async fn main() -> Result<()> {
             .await?;
             let actor = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
             match command {
+                UserCommand::ApiKeys { username, revoke } => {
+                    let value = jiabu_admin::api_keys(&db, &username, revoke, &actor).await?;
+                    emitted = true;
+                    if cli.json {
+                        println!("{value}");
+                    } else if let Some(keys) = value["api_keys"].as_array() {
+                        for key in keys {
+                            println!(
+                                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                                key["id"],
+                                key["name"],
+                                key["display_prefix"],
+                                key["scope"],
+                                key["expires_at"],
+                                key["last_used_at"],
+                                key["status"]
+                            );
+                        }
+                    }
+                }
                 UserCommand::Create {
                     username,
                     space_name,
@@ -175,4 +200,44 @@ fn write_document(path: &std::path::Path, document: impl serde::Serialize) -> Re
     let mut bytes = serde_json::to_vec_pretty(&value)?;
     bytes.push(b'\n');
     std::fs::write(path, bytes).with_context(|| format!("Failed to write {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn api_key_command_parses_and_rejects_invalid_ids() {
+        let cli = Cli::try_parse_from([
+            "admin",
+            "user",
+            "api-keys",
+            "example-user",
+            "--revoke",
+            "00000000-0000-7000-8000-000000000001",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::User {
+                command: UserCommand::ApiKeys {
+                    revoke: Some(_),
+                    ..
+                }
+            }
+        ));
+        assert!(
+            Cli::try_parse_from([
+                "admin",
+                "user",
+                "api-keys",
+                "example-user",
+                "--revoke",
+                "invalid"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from(["admin", "--json", "user", "api-keys", "example-user"]).is_ok()
+        );
+    }
 }

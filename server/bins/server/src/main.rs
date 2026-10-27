@@ -31,6 +31,11 @@ async fn main() -> Result<()> {
     let state = jiabu_api::AppState::new(db)
         .await
         .map_err(anyhow::Error::msg)?;
+    let state = state
+        .with_api_key_limiter(std::sync::Arc::new(
+            jiabu_tools::api_key::ApiKeyLimiter::configured(settings.api_keys),
+        ))
+        .map_err(anyhow::Error::msg)?;
     // First pass runs immediately, including tombstones left by a previous process.
     let purge_task = tokio::spawn(tasks::purge_spaces::run(
         state.db.clone(),
