@@ -17,6 +17,7 @@
 | [engineering/server-rust.md](engineering/server-rust.md) | Rust 服务端：技术栈与版本、工程结构、认证与授权（含个人 API key）、API 原则（含工具 API）、数据模型草案、日志追踪、测试、CI / 发布 / 部署、管理 API、风险 |
 | [engineering/ai-layer.md](engineering/ai-layer.md) | AI 层：领域接口、AiRouter 路由与降级、默认提供方（ChatGPT 订阅）与备选、结构化输出、追问与任务状态、可观测、测试与评测集、回复的语义块映射与流式、工具定义（同时开放为 API）、持久执行、提示词缓存、用量计量 |
 | [engineering/technical-design.md](engineering/technical-design.md) | **技术方案**：系统总览与模块边界、完整建表草案、授权与 RLS、同步协议（outbox、变更序号、冲突、退出与重新加入、按服务端 + 账号分库）、接口清单与工具清单、AI 运行时的实现、资料模板协议（含体检示例）、客户端补充、部署运维、安全控制、可行性验证、与上面三份文档的差异（以它为准） |
+| [engineering/implementation-plan.md](engineering/implementation-plan.md) | **实施计划**：切片顺序与依赖（服务端、ChatWeave、客户端三条线）、首版每项能力的最低交付标准、每个切片的范围与验收测试、文档同步、真机实验、评审方式、两台手机终验 |
 | [ChatWeave](https://github.com/zz-howard/chatweave)（外部仓库） | 聊天交互开源库：Markdown 优先的生成 UI 协议、流式与续传、组件注册表、动作协议；家簿怎么用它见客户端 4.7、服务端 4.2、AI 层第 13 节、设计规范 4.16 |
 
 ## 决策与调研
@@ -31,7 +32,8 @@
 1. 先读产品需求，了解要做什么、不做什么。
 2. 做界面的读设计规范 + 客户端规范；做后端的读服务端规范 + AI 层设计。
 3. 动手实现前读技术方案：它把上面几份文档落到表、接口和状态机上，并列出与它们的差异。
-4. 想知道“为什么这么选”，看决策清单和调研摘要。
+4. 按实施计划的切片顺序开工，每个切片只做它写明的范围。
+5. 想知道“为什么这么选”，看决策清单和调研摘要。
 
 ## 文档约定
 
