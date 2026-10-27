@@ -1,7 +1,7 @@
 use crate::{
     AgentTool, Effect, Exposure, ToolCtx, ToolError, TypedTool, authorize, tool::TypedAdapter,
 };
-use jiabu_db::{Idempotency, OperationReply, Via};
+use jiabu_db::{Idempotency, Mode, OperationReply, SpaceTx, Via};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -59,6 +59,20 @@ impl ToolRegistry {
         if ctx.space_id != ctx.bound_space || tool.effect() != ctx.bound_effect {
             return Err(ToolError::new(400, "bad_request"));
         }
+        let tx = if tool.effect() == Effect::LocalWrite {
+            // No parameter validation occurs under the space write lock. Do not
+            // reuse the preflight membership/grants for authorization or replay.
+            tx.rollback().await?;
+            SpaceTx::begin(
+                &ctx.db,
+                ctx.principal.user_id,
+                &[(ctx.bound_space, ctx.epoch)],
+                Mode::Write,
+            )
+            .await?
+        } else {
+            tx
+        };
         let member = tx.member(ctx.space_id);
         if member.user_id() != ctx.principal.user_id
             || member.id() != ctx.member.id()

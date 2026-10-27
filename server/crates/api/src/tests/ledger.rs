@@ -828,7 +828,7 @@ async fn stats_tags_filters_pagination_localized_tags_and_immutable_types() -> R
     let h = LedgerApp::new().await?;
     let tag = h.call("create_tag", json!({"name":"示例第二标签"})).await?;
     let expense=h.call("create_record",json!({"kind":"expense","amount_minor":90,"occurred_on":"2026-02-01","account_id":id(1),"purpose_id":id(2),"tag_ids":[id(3),tag["id"]],"note":"示例午饭"})).await?;
-    h.call("create_record",json!({"kind":"refund","amount_minor":30,"occurred_on":"2026-02-02","refund_of_id":expense["id"],"tag_ids":[id(3),tag["id"]]})).await?;
+    h.call("create_record",json!({"kind":"refund","amount_minor":30,"occurred_on":"2026-02-02","refund_of_id":expense["id"]})).await?;
     for kind in ["transfer", "reallocation"] {
         let mut args = json!({"kind":kind,"amount_minor":500,"occurred_on":"2026-02-01"});
         if kind == "transfer" {
@@ -1034,6 +1034,318 @@ async fn foreign_entity_references_match_nonexistent_and_audit_rolls_back() -> R
     assert!(event["via_api_key_name"].is_null());
     assert_ne!(event["change_seq"], row["change_seq"]);
     owner.close().await;
+    h.db.close().await?;
+    Ok(())
+}
+
+fn over_limit_arguments() -> Vec<(&'static str, Value)> {
+    let cap = 1_000_000_000_000_i64;
+    let record = json!({"kind":"expense","amount_minor":1,"occurred_on":"2026-01-01","account_id":id(1),"purpose_id":id(2)});
+    let patch = json!({"id":id(4),"expected_version":1,"changes":{"amount_minor":1}});
+    let account = json!({"kind":"real","name":"示例上限账户","opening_on":"2026-01-01"});
+    let mut cases = Vec::new();
+    for amount in [0, cap + 1, -(cap + 1)] {
+        let mut args = record.clone();
+        args["amount_minor"] = json!(amount);
+        cases.push(("create_record", args));
+        let mut args = patch.clone();
+        args["changes"]["amount_minor"] = json!(amount);
+        cases.push(("update_record", args));
+        cases.push((
+            "set_allocation_plan",
+            json!({"account_id":id(2),"amount_minor":amount,"day_of_month":15,"enabled":true}),
+        ));
+    }
+    for amount in [cap + 1, -(cap + 1)] {
+        let mut args = account.clone();
+        args["opening_balance_minor"] = json!(amount);
+        cases.push(("create_account", args));
+        cases.push((
+            "update_account",
+            json!({"id":id(1),"expected_version":1,"opening_balance_minor":amount}),
+        ));
+    }
+    for field in ["tag_ids", "attachments"] {
+        let values = if field == "tag_ids" {
+            json!((100..121).map(id).collect::<Vec<_>>())
+        } else {
+            json!(vec!["ab".repeat(32); 21])
+        };
+        let mut args = record.clone();
+        args[field] = values.clone();
+        cases.push(("create_record", args));
+        let mut args = patch.clone();
+        args["changes"][field] = values;
+        cases.push(("update_record", args));
+    }
+    cases
+}
+
+#[test]
+fn monetary_and_collection_limits_are_in_schema_and_accept_boundaries() -> Result<()> {
+    let registry = jiabu_tools::ToolRegistry::ledger()?;
+    for (name, args) in over_limit_arguments() {
+        let tool = registry.get(name)?;
+        let schema = jsonschema::validator_for(tool.parameters())
+            .map_err(|_| anyhow::anyhow!("invalid schema"))?;
+        assert!(!schema.is_valid(&args), "{name} schema accepted {args}");
+        assert!(
+            tool.validate(args).is_err(),
+            "{name} accepted out-of-range arguments"
+        );
+    }
+    let cap = 1_000_000_000_000_i64;
+    let tags = (100..120).map(id).collect::<Vec<_>>();
+    let attachments = vec!["ab".repeat(32); 20];
+    registry.get("create_record")?.validate(json!({"kind":"expense","amount_minor":cap,"occurred_on":"2026-01-01","account_id":id(1),"purpose_id":id(2),"tag_ids":tags,"attachments":attachments}))?;
+    registry.get("update_record")?.validate(json!({"id":id(4),"expected_version":1,"changes":{"amount_minor":cap,"tag_ids":tags,"attachments":attachments}}))?;
+    registry.get("set_allocation_plan")?.validate(
+        json!({"account_id":id(2),"amount_minor":cap,"day_of_month":15,"enabled":true}),
+    )?;
+    for amount in [-cap, cap] {
+        registry.get("create_account")?.validate(json!({"kind":"real","name":"示例边界","opening_on":"2026-01-01","opening_balance_minor":amount}))?;
+        registry
+            .get("update_account")?
+            .validate(json!({"id":id(1),"expected_version":1,"opening_balance_minor":amount}))?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn invalid_limits_fail_before_space_write_lock_for_api_and_direct_invoke() -> Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        let h = LedgerApp::new().await?;
+        let owner = h.app.fixture.owner().await?;
+        let before = persisted(&owner).await?;
+        let blocker = SpaceTx::begin(
+            &h.db,
+            h.app.plan.user_id,
+            &[(h.app.plan.space_id, Some(JoinEpoch(1)))],
+            Mode::Write,
+        )
+        .await?;
+        // A write lock is already held. Each invalid call must finish rather than
+        // wait for it, proving validation is before lock acquisition in both entrances.
+        for (name, args) in over_limit_arguments() {
+            let reply = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                h.api(name, args.clone(), Some("invalid-limit"), 1, Uuid::now_v7()),
+            )
+            .await??;
+            assert_eq!(
+                reply.status,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{name}: {}",
+                reply.json()
+            );
+            assert_eq!(reply.json()["code"], "validation_failed");
+            let error = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                h.direct(name, args, "invalid-direct", Uuid::now_v7()),
+            )
+            .await?
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("direct validation accepted {name}"))?;
+            assert_eq!(error.status, 422);
+            assert_eq!(error.code, "validation_failed");
+        }
+        assert_eq!(persisted(&owner).await?, before);
+        blocker.rollback().await?;
+        owner.close().await;
+        h.db.close().await?;
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn write_rechecks_grants_and_join_epoch_after_read_preflight() -> Result<()> {
+    let h = LedgerApp::new().await?;
+    let owner = h.app.fixture.owner().await?;
+    let make = || Invocation {
+        idempotency_key: Some(Uuid::now_v7()),
+        replay_key: None,
+        run_id: None,
+        request_id: Uuid::now_v7(),
+        now: instant(),
+    };
+    let args =
+        json!({"kind":"income","amount_minor":1,"occurred_on":"2026-01-01","account_id":id(1)});
+    let ctx = ToolCtx::begin(
+        &h.db,
+        h.principal().await?,
+        h.app.plan.space_id,
+        Some(JoinEpoch(1)),
+        Effect::LocalWrite,
+        make(),
+    )
+    .await?;
+    sqlx::query(
+        "update space_member_grants set level='none' where member_id=$1 and module='ledger'",
+    )
+    .bind(h.member().await?.0)
+    .execute(&owner)
+    .await?;
+    assert_eq!(
+        h.registry
+            .invoke("create_record", args.clone(), &ctx)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        "not_found"
+    );
+    sqlx::query(
+        "update space_member_grants set level='manage' where member_id=$1 and module='ledger'",
+    )
+    .bind(h.member().await?.0)
+    .execute(&owner)
+    .await?;
+    let ctx = ToolCtx::begin(
+        &h.db,
+        h.principal().await?,
+        h.app.plan.space_id,
+        Some(JoinEpoch(1)),
+        Effect::LocalWrite,
+        make(),
+    )
+    .await?;
+    sqlx::query("update space_members set join_epoch=join_epoch+1 where id=$1")
+        .bind(h.member().await?.0)
+        .execute(&owner)
+        .await?;
+    let before = persisted(&owner).await?;
+    assert_eq!(
+        h.registry
+            .invoke("create_record", args, &ctx)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        "membership_changed"
+    );
+    assert_eq!(persisted(&owner).await?, before);
+    owner.close().await;
+    h.db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn refund_stats_use_parent_tags_for_grouping_and_filtering_without_copying() -> Result<()> {
+    let h = LedgerApp::new().await?;
+    let expense = h.call("create_record",json!({"kind":"expense","amount_minor":100,"occurred_on":"2026-02-01","account_id":id(1),"purpose_id":id(2),"tag_ids":[id(3)]})).await?;
+    let refund = h.call("create_record",json!({"kind":"refund","amount_minor":40,"occurred_on":"2026-02-02","refund_of_id":expense["id"]})).await?;
+    assert_eq!(refund["tag_ids"], json!([]));
+    let mut args = json!({"measure":"sum","period":{"from":"2026-02-01","through":"2026-02-28"},"filters":{"tag_id":id(3)}});
+    assert_eq!(h.call("query_stats", args.clone()).await?["total"], 60);
+    args["group_by"] = json!("tag");
+    let grouped = h.call("query_stats", args.clone()).await?;
+    assert_eq!(
+        grouped["groups"],
+        json!([{"key":id(3).to_string(),"value":60}])
+    );
+    args["kinds"] = json!(["refund"]);
+    assert_eq!(h.call("query_stats", args.clone()).await?["total"], 40);
+    args["kinds"] = json!([]);
+    args["period"]["from"] = json!("2026-02-02");
+    assert_eq!(h.call("query_stats", args.clone()).await?["total"], -40);
+    // Parent tags are read at query time, rather than snapshotted onto refunds.
+    let other = h
+        .call("create_tag", json!({"name":"示例新用途标签"}))
+        .await?;
+    h.call(
+        "update_record",
+        json!({"id":expense["id"],"expected_version":1,"changes":{"tag_ids":[other["id"]]}}),
+    )
+    .await?;
+    args["period"]["from"] = json!("2026-02-01");
+    assert_eq!(h.call("query_stats", args.clone()).await?["total"], 0);
+    args["filters"]["tag_id"] = other["id"].clone();
+    assert_eq!(h.call("query_stats", args).await?["total"], 60);
+    let current_refund = h.call("get_record", json!({"id":refund["id"]})).await?;
+    assert_eq!(current_refund["tag_ids"], json!([]));
+    h.db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_record_rejects_new_inactive_references_but_retains_existing_ones() -> Result<()> {
+    let h = LedgerApp::new().await?;
+    let expense = h.call("create_record",json!({"kind":"expense","amount_minor":20,"occurred_on":"2026-02-01","account_id":id(1),"purpose_id":id(2),"tag_ids":[id(3)]})).await?;
+    let transfer = h.call("create_record",json!({"kind":"transfer","amount_minor":10,"occurred_on":"2026-02-01","account_id":id(1),"to_account_id":id(7)})).await?;
+    let reallocation = h.call("create_record",json!({"kind":"reallocation","amount_minor":10,"occurred_on":"2026-02-01","purpose_id":id(2),"to_purpose_id":id(8)})).await?;
+    for (n, kind) in [(11, "real"), (12, "purpose")] {
+        h.call(
+            "create_account",
+            json!({"id":id(n),"kind":kind,"name":"示例停用目标","opening_on":"2026-01-01"}),
+        )
+        .await?;
+        h.call("archive_account", json!({"id":id(n),"expected_version":1}))
+            .await?;
+    }
+    let deleted = h
+        .call("create_tag", json!({"name":"示例已删目标标签"}))
+        .await?;
+    for tag in [json!(id(3)), deleted["id"].clone()] {
+        h.call("delete_tag", json!({"id":tag,"expected_version":1}))
+            .await?;
+    }
+    for (record, field, target) in [
+        (&expense, "account_id", id(11)),
+        (&expense, "purpose_id", id(12)),
+        (&transfer, "account_id", id(11)),
+        (&transfer, "to_account_id", id(11)),
+        (&reallocation, "purpose_id", id(12)),
+        (&reallocation, "to_purpose_id", id(12)),
+    ] {
+        let mut changes = json!({});
+        changes[field] = json!(target);
+        h.fail(
+            "update_record",
+            json!({"id":record["id"],"expected_version":1,"changes":changes}),
+            "account_archived",
+        )
+        .await?;
+    }
+    h.fail("update_record",json!({"id":expense["id"],"expected_version":1,"changes":{"tag_ids":[id(3),deleted["id"]]}}),"not_found").await?;
+    // Bring all four original accounts to zero and archive through the real tools.
+    for n in [1, 7, 2, 8] {
+        let balance = h.call("query_balance", json!({"account_id":id(n)})).await?;
+        let opening = -balance["balances"][0]["balance_minor"].as_i64().unwrap();
+        h.call(
+            "update_account",
+            json!({"id":id(n),"expected_version":1,"opening_balance_minor":opening}),
+        )
+        .await?;
+        h.call("archive_account", json!({"id":id(n),"expected_version":2}))
+            .await?;
+    }
+    for (record, changes) in [
+        (
+            &expense,
+            json!({"account_id":id(1),"purpose_id":id(2),"tag_ids":[id(3)],"note":"示例历史修订"}),
+        ),
+        (
+            &transfer,
+            json!({"account_id":id(1),"to_account_id":id(7),"note":"示例历史修订"}),
+        ),
+        (
+            &reallocation,
+            json!({"purpose_id":id(2),"to_purpose_id":id(8),"note":"示例历史修订"}),
+        ),
+    ] {
+        let updated = h
+            .call(
+                "update_record",
+                json!({"id":record["id"],"expected_version":1,"changes":changes}),
+            )
+            .await?;
+        assert_eq!(updated["version"], 2);
+        assert_eq!(updated["note"], "示例历史修订");
+    }
+    let current = h.call("get_record", json!({"id":expense["id"]})).await?;
+    assert_eq!(current["tag_ids"], json!([id(3)]));
     h.db.close().await?;
     Ok(())
 }

@@ -12,13 +12,16 @@ pub struct Invocation {
     pub request_id: Uuid,
     pub now: DateTime<Utc>,
 }
-/// One transaction per invocation. Construction checks live membership and epoch;
-/// invoke consumes the transaction exactly once. No arbitrary member can be supplied.
+/// Construction checks membership/epoch in a read transaction without a write lock.
+/// After parameter validation, invoke opens the write transaction and rechecks the
+/// live member/epoch under its space lock. No arbitrary member can be supplied.
 pub struct ToolCtx {
     pub space_id: SpaceId,
     pub member: ActiveMember,
     pub(crate) bound_space: SpaceId,
     pub(crate) bound_effect: Effect,
+    pub(crate) db: AppDb,
+    pub(crate) epoch: Option<JoinEpoch>,
     pub principal: Principal,
     pub idempotency_key: Option<Uuid>,
     pub run_id: Option<Uuid>,
@@ -41,23 +44,15 @@ impl ToolCtx {
         if effect == Effect::LocalWrite && epoch.is_none() {
             return Err(ToolError::new(400, "bad_request"));
         }
-        let tx = SpaceTx::begin(
-            db,
-            principal.user_id,
-            &[(space_id, epoch)],
-            if effect == Effect::Read {
-                Mode::Read
-            } else {
-                Mode::Write
-            },
-        )
-        .await?;
+        let tx = SpaceTx::begin(db, principal.user_id, &[(space_id, epoch)], Mode::Read).await?;
         let member = tx.member(space_id).clone();
         Ok(Self {
             space_id,
             member,
             bound_space: space_id,
             bound_effect: effect,
+            db: db.clone(),
+            epoch,
             principal,
             idempotency_key: invocation.idempotency_key,
             run_id: invocation.run_id,

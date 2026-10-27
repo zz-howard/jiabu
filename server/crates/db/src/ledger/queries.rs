@@ -11,7 +11,7 @@ const BALANCE_SQL: &str = "select to_jsonb(x) data from (
  when a.kind='purpose' and r.purpose_id=a.id and r.kind in ('expense','reallocation') then -r.amount_minor::numeric
  when a.kind='purpose' and r.to_purpose_id=a.id and r.kind='reallocation' then r.amount_minor::numeric
  else 0 end) from records r where r.space_id=$1 and r.status='active'
- and (r.account_id=a.id or r.to_account_id=a.id or r.purpose_id=a.id or r.to_purpose_id=a.id)),0))::bigint balance_minor
+ and (r.account_id=a.id or r.to_account_id=a.id or r.purpose_id=a.id or r.to_purpose_id=a.id)),0))::text balance_minor
  from accounts a where a.space_id=$1 and ($2::uuid is null or a.id=$2) order by a.sort_key,a.id) x";
 
 // All filter references are checked separately, including member IDs and foreign IDs
@@ -93,7 +93,11 @@ impl SpaceTx {
             .await?;
         let balances = rows
             .into_iter()
-            .map(|r| decode(r.try_get("", "data")?))
+            .map(|r| {
+                let mut value: Value = r.try_get("", "data")?;
+                value["balance_minor"] = json!(aggregate_minor(&value["balance_minor"])?);
+                decode(value)
+            })
             .collect::<Result<Vec<Balance>, Error>>()?;
         Ok(BalanceResult {
             currency: self.ledger_currency(space).await?,
@@ -124,7 +128,7 @@ impl SpaceTx {
         self.check_filters(space, &args.filters).await?;
         let sql = format!("select to_jsonb(r) data from records r where r.space_id=$1 and {} and
             (jsonb_array_length($2::jsonb->'kinds')=0 or r.kind in (select jsonb_array_elements_text($2::jsonb->'kinds')))
-            order by r.occurred_on desc,r.id desc limit $3 offset $4", filter_sql());
+            order by r.occurred_on desc,r.id desc limit $3 offset $4", filter_sql("r.tag_ids"));
         let rows = self
             .tx
             .query_all_raw(Statement::from_sql_and_values(
@@ -185,17 +189,21 @@ impl SpaceTx {
             None => "null::text",
         };
         let join = if matches!(args.group_by, Some(GroupBy::Tag)) {
-            "left join lateral unnest(tag_ids) tag on true"
+            "left join lateral unnest(stats_tag_ids) tag on true"
         } else {
             ""
         };
-        let sql = format!("with selected as (
-            select r.*, {value} metric from records r where r.space_id=$1 and {} and r.status='active'
+        let sql = format!("with source as (
+            select r.*,case when r.kind='refund' then coalesce(parent.tag_ids,'{{}}'::uuid[]) else r.tag_ids end stats_tag_ids
+            from records r left join records parent on parent.space_id=r.space_id and parent.id=r.refund_of_id and parent.kind='expense'
+            where r.space_id=$1
+            ), selected as (
+            select r.*, {value} metric from source r where r.space_id=$1 and {} and r.status='active'
             and ($3::jsonb ? r.kind or (r.kind='refund' and $3::jsonb ? 'expense' and not ($3::jsonb ? 'refund')))
-            ), grouped as (select {key} key,sum(metric)::bigint value from selected {join} group by 1)
-            select jsonb_build_object('total',coalesce((select sum(metric)::bigint from selected),0),
-            'groups',coalesce((select jsonb_agg(to_jsonb(g) order by key nulls first) from grouped g),'[]'::jsonb)) data", filter_sql());
-        let value = one(
+            ), grouped as (select {key} key,sum(metric)::text value from selected {join} group by 1)
+            select jsonb_build_object('total',coalesce((select sum(metric) from selected),0)::text,
+            'groups',coalesce((select jsonb_agg(to_jsonb(g) order by key nulls first) from grouped g),'[]'::jsonb)) data", filter_sql("r.stats_tag_ids"));
+        let mut value = one(
             &self.tx,
             &sql,
             vec![
@@ -205,21 +213,64 @@ impl SpaceTx {
             ],
         )
         .await?;
+        let total = aggregate_minor(&value["total"])?;
+        for group in value["groups"].as_array_mut().ok_or_else(Error::internal)? {
+            group["value"] = json!(aggregate_minor(&group["value"])?);
+        }
         Ok(StatsResult {
             currency: self.ledger_currency(space).await?,
-            total: value["total"].as_i64().ok_or_else(Error::internal)?,
+            total,
             groups: decode(value["groups"].clone())?,
             tag_groups_may_overlap: matches!(args.group_by, Some(GroupBy::Tag)),
         })
     }
 }
-fn filter_sql() -> &'static str {
-    "(($2::jsonb->>'text') is null or strpos(lower(coalesce(r.note,'')),lower($2::jsonb->>'text'))>0)
+fn filter_sql(tag_column: &str) -> String {
+    // Only fixed SQL expressions from this module are supplied here.
+    format!("(($2::jsonb->>'text') is null or strpos(lower(coalesce(r.note,'')),lower($2::jsonb->>'text'))>0)
     and (($2::jsonb->>'account_id') is null or r.account_id=($2::jsonb->>'account_id')::uuid or r.to_account_id=($2::jsonb->>'account_id')::uuid)
     and (($2::jsonb->>'purpose_id') is null or r.purpose_id=($2::jsonb->>'purpose_id')::uuid or r.to_purpose_id=($2::jsonb->>'purpose_id')::uuid)
-    and (($2::jsonb->>'tag_id') is null or ($2::jsonb->>'tag_id')::uuid=any(r.tag_ids))
+    and (($2::jsonb->>'tag_id') is null or ($2::jsonb->>'tag_id')::uuid=any({tag_column}))
     and (($2::jsonb->>'member_id') is null or r.created_by_member_id=($2::jsonb->>'member_id')::uuid)
     and (($2::jsonb->>'from') is null or r.occurred_on>=($2::jsonb->>'from')::date)
     and (($2::jsonb->>'through') is null or r.occurred_on<=($2::jsonb->>'through')::date)
-    and (($2::jsonb->>'status') is null or r.status=$2::jsonb->>'status')"
+    and (($2::jsonb->>'status') is null or r.status=$2::jsonb->>'status')")
+}
+
+// A per-record cap cannot bound an unbounded ledger's sum. Keep PostgreSQL's
+// numeric intermediate through transport (text), then reject both i64 overflow
+// and integers which JavaScript could not represent exactly. Never cast the sum
+// to bigint in SQL: that would abort the transaction before a structured error.
+fn aggregate_minor(value: &Value) -> Result<i64, Error> {
+    const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+    let amount = value
+        .as_str()
+        .ok_or_else(Error::internal)?
+        .parse::<i64>()
+        .map_err(|_| Error::new(422, "aggregate_out_of_range"))?;
+    if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&amount) {
+        return Err(Error::new(422, "aggregate_out_of_range"));
+    }
+    Ok(amount)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn aggregate_guard_preserves_exact_js_integers_and_rejects_bigint_overflow() {
+        for text in ["0", "9007199254740991", "-9007199254740991"] {
+            assert!(aggregate_minor(&json!(text)).is_ok());
+        }
+        for text in [
+            "9007199254740992",
+            "-9007199254740992",
+            "9223372036854775808",
+            "-9223372036854775809",
+        ] {
+            let error = aggregate_minor(&json!(text)).err().unwrap();
+            assert_eq!(error.status, 422);
+            assert_eq!(error.code, "aggregate_out_of_range");
+        }
+    }
 }

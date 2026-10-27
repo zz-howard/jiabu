@@ -759,6 +759,8 @@
           "opening_balance_minor": {
             "default": 0,
             "format": "int64",
+            "maximum": 1000000000000,
+            "minimum": -1000000000000,
             "type": "integer"
           },
           "opening_on": {
@@ -798,6 +800,7 @@
           },
           "amount_minor": {
             "format": "int64",
+            "maximum": 1000000000000,
             "minimum": 1,
             "type": "integer"
           },
@@ -806,6 +809,7 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 20,
             "type": "array"
           },
           "id": {
@@ -849,6 +853,7 @@
               "format": "uuid",
               "type": "string"
             },
+            "maxItems": 20,
             "type": "array"
           },
           "to_account_id": {
@@ -1393,6 +1398,7 @@
           },
           "amount_minor": {
             "format": "int64",
+            "maximum": 1000000000000,
             "minimum": 1,
             "type": "integer"
           },
@@ -1451,6 +1457,8 @@
           },
           "opening_balance_minor": {
             "format": "int64",
+            "maximum": 1000000000000,
+            "minimum": -1000000000000,
             "type": [
               "integer",
               "null"
@@ -1514,6 +1522,7 @@
           },
           "amount_minor": {
             "format": "int64",
+            "maximum": 1000000000000,
             "minimum": 1,
             "type": [
               "integer",
@@ -1524,6 +1533,7 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 20,
             "type": [
               "array",
               "null"
@@ -1554,6 +1564,7 @@
               "format": "uuid",
               "type": "string"
             },
+            "maxItems": 20,
             "type": [
               "array",
               "null"
@@ -7155,7 +7166,7 @@
     },
     "/v1/spaces/{space_id}/tools/query_stats": {
       "post": {
-        "description": "按期间与条件统计；消费金额按支出减退款，退款按退款日期计入；标签各组合计可能超过总额",
+        "description": "按期间与条件统计；消费金额按支出减退款，退款按退款日期计入并使用父支出当前标签；标签各组合计可能超过总额",
         "operationId": "tool_query_stats",
         "parameters": [
           {
@@ -7794,7 +7805,7 @@
     },
     "/v1/spaces/{space_id}/tools/set_allocation_plan": {
       "post": {
-        "description": "设置、修改或停用每月拨入；启用或修改先补旧计划已到期月份，停用不补拨",
+        "description": "设置、修改或停用每月拨入；持续启用时先补旧设置到期月份，停用不补，重新启用从下次开始",
         "operationId": "tool_set_allocation_plan",
         "parameters": [
           {

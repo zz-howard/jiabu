@@ -284,13 +284,23 @@ async fn plan_changes_catch_old_due_months_before_new_settings_disable_does_not_
             Some(disabled.version),
         )
         .await?;
-    assert_eq!(enabled.next_run_on.to_string(), "2026-10-25"); // September was caught under the old day/amount.
+    assert_eq!(enabled.next_run_on.to_string(), "2026-09-25");
+    assert_eq!(enabled.last_run_month.as_deref(), Some("2026-05"));
     let catchup: Vec<i64> = sqlx::query_scalar(
         "select amount_minor from records where occurred_on>='2026-08-01' order by occurred_on",
     )
     .fetch_all(&owner)
     .await?;
-    assert_eq!(catchup, vec![300, 300]);
+    assert!(
+        catchup.is_empty(),
+        "disabled months must never be allocated"
+    );
+    assert_eq!(h.run("2026-09-25T00:00:00Z").await?, 1);
+    let resumed_amount: i64 =
+        sqlx::query_scalar("select amount_minor from records where occurred_on='2026-09-25'")
+            .fetch_one(&owner)
+            .await?;
+    assert_eq!(resumed_amount, 400);
     let system_actor:bool=sqlx::query_scalar("select bool_and(actor_member_id is null and via_api_key_id is null and via_api_key_name is null and run_id is null) from entity_events where entity_kind='record' and kind='create'").fetch_one(&owner).await?;
     assert!(system_actor);
     owner.close().await;
@@ -447,5 +457,171 @@ async fn allocation_conflict_is_noop_archive_disables_plan_and_rollback_leaves_n
     tx.rollback().await?;
     owner.close().await;
     h.db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn reenable_skips_disabled_months_and_past_or_same_day_in_resume_month() -> Result<()> {
+    let h = LedgerDb::new().await?;
+    let owner = h.fixture.owner().await?;
+    for day in [15, 20] {
+        sqlx::query("delete from records").execute(&owner).await?;
+        sqlx::query("delete from allocation_plans")
+            .execute(&owner)
+            .await?;
+        h.plan("2026-09-01T00:00:00Z", 25, 100, true, None).await?;
+        assert_eq!(h.run("2026-09-25T00:00:00Z").await?, 1);
+        let version: i32 = sqlx::query_scalar("select version from allocation_plans")
+            .fetch_one(&owner)
+            .await?;
+        let disabled = h
+            .plan("2026-09-26T00:00:00Z", 25, 300, false, Some(version))
+            .await?;
+        assert_eq!(h.run("2026-12-01T00:00:00Z").await?, 0);
+        let resumed = h
+            .plan(
+                "2027-01-20T00:00:00Z",
+                day,
+                400,
+                true,
+                Some(disabled.version),
+            )
+            .await?;
+        assert_eq!(resumed.next_run_on.to_string(), format!("2027-02-{day:02}"));
+        assert_eq!(resumed.last_run_month.as_deref(), Some("2026-09"));
+        let count: i64 = sqlx::query_scalar("select count(*) from records")
+            .fetch_one(&owner)
+            .await?;
+        assert_eq!(count, 1);
+        assert_eq!(h.run("2027-01-21T00:00:00Z").await?, 0);
+        let due = format!("2027-02-{day:02}T00:00:00Z");
+        assert_eq!(h.run(&due).await?, 1);
+        let amounts: Vec<i64> =
+            sqlx::query_scalar("select amount_minor from records order by occurred_on")
+                .fetch_all(&owner)
+                .await?;
+        assert_eq!(amounts, vec![100, 400]);
+    }
+    owner.close().await;
+    h.db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn enabled_day_changes_allocate_unpaid_month_once_using_due_settings() -> Result<()> {
+    let h = LedgerDb::new().await?;
+    let owner = h.fixture.owner().await?;
+    for (old_day, new_day, next, immediate_amount) in [
+        (25, 15, "2026-11-15", Some(200_i64)),
+        (25, 20, "2026-11-20", Some(200)),
+        (25, 22, "2026-10-22", None),
+        (15, 10, "2026-11-10", Some(100)),
+    ] {
+        sqlx::query("delete from records").execute(&owner).await?;
+        sqlx::query("delete from allocation_plans")
+            .execute(&owner)
+            .await?;
+        h.plan("2026-09-01T00:00:00Z", old_day, 100, true, None)
+            .await?;
+        let september = format!("2026-09-{old_day:02}T00:00:00Z");
+        assert_eq!(h.run(&september).await?, 1);
+        let version: i32 = sqlx::query_scalar("select version from allocation_plans")
+            .fetch_one(&owner)
+            .await?;
+        let changed = h
+            .plan("2026-10-20T00:00:00Z", new_day, 200, true, Some(version))
+            .await?;
+        assert_eq!(changed.next_run_on.to_string(), next);
+        let amounts: Vec<i64> = sqlx::query_scalar("select amount_minor from records where occurred_on between '2026-10-01' and '2026-10-31'")
+            .fetch_all(&owner).await?;
+        assert_eq!(amounts, immediate_amount.into_iter().collect::<Vec<_>>());
+        assert_eq!(h.run("2026-10-20T00:00:00Z").await?, 0);
+        if immediate_amount.is_none() {
+            let due = format!("2026-10-{new_day:02}T00:00:00Z");
+            assert_eq!(h.run(&due).await?, 1);
+        }
+        let version: i32 = sqlx::query_scalar("select version from allocation_plans")
+            .fetch_one(&owner)
+            .await?;
+        let edited_again = h
+            .plan("2026-10-28T00:00:00Z", 5, 300, true, Some(version))
+            .await?;
+        assert_eq!(edited_again.next_run_on.to_string(), "2026-11-05");
+        assert_eq!(h.run("2026-10-31T00:00:00Z").await?, 0);
+        let rows = sqlx::query("select id,amount_minor,created_by_member_id from records where occurred_on between '2026-10-01' and '2026-10-31'")
+            .fetch_all(&owner).await?;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].try_get::<Uuid, _>("id")?,
+            Uuid::new_v5(&h.purpose, b"2026-10")
+        );
+        assert_eq!(
+            rows[0].try_get::<i64, _>("amount_minor")?,
+            immediate_amount.unwrap_or(200)
+        );
+        assert!(
+            rows[0]
+                .try_get::<Option<Uuid>, _>("created_by_member_id")?
+                .is_none()
+        );
+        let actor: Option<Uuid> = sqlx::query_scalar("select actor_member_id from entity_events where entity_id=$1 and kind='create' order by id desc limit 1")
+            .bind(Uuid::new_v5(&h.purpose, b"2026-10")).fetch_one(&owner).await?;
+        assert!(actor.is_none());
+    }
+    owner.close().await;
+    h.db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn aggregate_limits_guard_balance_total_and_groups_without_bigint_exceptions() -> Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(25), async {
+        let h = LedgerDb::new().await?;
+        let owner = h.fixture.owner().await?;
+        let member: Uuid = sqlx::query_scalar("select id from space_members where space_id=$1 and user_id=$2")
+            .bind(h.space.0).bind(h.user.0).fetch_one(&owner).await?;
+        let tags: Vec<Uuid> = sqlx::query_scalar("select id from tags where space_id=$1 order by id limit 2")
+            .bind(h.space.0).fetch_all(&owner).await?;
+        // All these rows satisfy the new single-record cap. An unbounded number
+        // of otherwise valid rows can still exceed JavaScript's exact range.
+        sqlx::query("insert into records(id,space_id,kind,amount_minor,occurred_on,account_id,tag_ids,origin,created_by_member_id,change_seq,created_at,updated_at) select uuidv7(),$1,'income',1000000000000,'2026-01-01',$2,array[$3::uuid],'api',$4,nextval('change_seq'),now(),now() from generate_series(1,9007)")
+            .bind(h.space.0).bind(h.real).bind(tags[0]).bind(member).execute(&owner).await?;
+        let last = Uuid::now_v7();
+        sqlx::query("insert into records(id,space_id,kind,amount_minor,occurred_on,account_id,tag_ids,origin,created_by_member_id,change_seq,created_at,updated_at) values($1,$2,'income',199254740991,'2026-01-01',$3,array[$4::uuid],'api',$5,nextval('change_seq'),now(),now())")
+            .bind(last).bind(h.space.0).bind(h.real).bind(tags[0]).bind(member).execute(&owner).await?;
+        let tx = h.tx().await?;
+        let args: QueryStats = parse(json!({"measure":"sum","kinds":["income"],"period":{"from":"2026-01-01","through":"2026-01-31"},"group_by":"tag"}))?;
+        let safe = 9_007_199_254_740_991_i64;
+        assert_eq!(tx.ledger_balance(h.space, QueryBalance {account_id:Some(h.real)}).await?.balances[0].balance_minor, safe);
+        let stats = tx.ledger_stats(h.space,args.clone()).await?;
+        assert_eq!(stats.total,safe);
+        assert_eq!(stats.groups[0].value,safe);
+        sqlx::query("insert into records(id,space_id,kind,amount_minor,occurred_on,account_id,tag_ids,origin,created_by_member_id,change_seq,created_at,updated_at) values(uuidv7(),$1,'income',1,'2026-01-01',$2,array[$3::uuid],'api',$4,nextval('change_seq'),now(),now())")
+            .bind(h.space.0).bind(h.real).bind(tags[0]).bind(member).execute(&owner).await?;
+        assert_eq!(tx.ledger_balance(h.space, QueryBalance {account_id:Some(h.real)}).await.err().unwrap().code,"aggregate_out_of_range");
+        assert_eq!(tx.ledger_stats(h.space,args.clone()).await.err().unwrap().code,"aggregate_out_of_range");
+        // Refunds of previous-period expenses cancel the income total, but put
+        // the negative amount in a different tag group. Each group still needs
+        // its own guard even though the grand total is exactly zero.
+        sqlx::query("with parents as (insert into records(id,space_id,kind,amount_minor,occurred_on,account_id,purpose_id,tag_ids,origin,created_by_member_id,change_seq,created_at,updated_at) select uuidv7(),space_id,'expense',amount_minor,'2025-12-01',account_id,$2,array[$3::uuid],'api',$4,nextval('change_seq'),now(),now() from records where space_id=$1 and kind='income' returning id,space_id,amount_minor,account_id,purpose_id) insert into records(id,space_id,kind,amount_minor,occurred_on,account_id,purpose_id,refund_of_id,origin,created_by_member_id,change_seq,created_at,updated_at) select uuidv7(),space_id,'refund',amount_minor,'2026-01-01',account_id,purpose_id,id,'api',$4,nextval('change_seq'),now(),now() from parents")
+            .bind(h.space.0).bind(h.purpose).bind(tags[1]).bind(member).execute(&owner).await?;
+        let mut net = args.clone(); net.kinds = vec![RecordKind::Income,RecordKind::Expense]; net.group_by = None;
+        assert_eq!(tx.ledger_stats(h.space,net.clone()).await?.total,0);
+        net.group_by = Some(GroupBy::Tag);
+        assert_eq!(tx.ledger_stats(h.space,net).await.err().unwrap().code,"aggregate_out_of_range");
+        // Legacy/fixture data can exceed the input cap. Sum above bigint's max
+        // must still return the same structured error, leaving the tx usable.
+        sqlx::query("update records set amount_minor=$2 where id=$1")
+            .bind(last).bind(i64::MAX).execute(&owner).await?;
+        let error = tx.ledger_balance(h.space,QueryBalance {account_id:Some(h.real)}).await.err().unwrap();
+        assert_eq!(error.status,422);
+        assert_eq!(error.code,"aggregate_out_of_range");
+        assert_eq!(tx.ledger_stats(h.space,args).await.err().unwrap().code,"aggregate_out_of_range");
+        assert!(!tx.ledger_accounts(h.space,parse(json!({}))?).await?.accounts.is_empty());
+        tx.rollback().await?;
+        owner.close().await;
+        h.db.close().await?;
+        Ok::<_,anyhow::Error>(())
+    }).await??;
     Ok(())
 }

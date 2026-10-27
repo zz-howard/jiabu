@@ -45,18 +45,10 @@ impl SpaceTx {
         space: SpaceId,
         account: Uuid,
         now: DateTime<Utc>,
-        include_disabled: bool,
     ) -> Result<u64, Error> {
         self.assert_write();
         self.member(space);
-        catch_up(
-            &LockedLedger::User(self),
-            space,
-            account,
-            now,
-            include_disabled,
-        )
-        .await
+        catch_up(&LockedLedger::User(self), space, account, now).await
     }
 }
 async fn catch_up(
@@ -64,7 +56,6 @@ async fn catch_up(
     space: SpaceId,
     account: Uuid,
     now: DateTime<Utc>,
-    include_disabled: bool,
 ) -> Result<u64, Error> {
     let tx = locked.tx();
     let Some(mut before) = snapshot(tx, space, Entity::Plan, account).await? else {
@@ -73,7 +64,7 @@ async fn catch_up(
     let account_row = snapshot(tx, space, Entity::Account, account)
         .await?
         .ok_or_else(Error::not_found)?;
-    if !account_row["archived_at"].is_null() || (!include_disabled && before["enabled"] != true) {
+    if !account_row["archived_at"].is_null() || before["enabled"] != true {
         return Ok(0);
     }
     let today = local_today(tx, space, now).await?;
@@ -168,7 +159,6 @@ async fn run_space(db: &AppDb, space: SpaceId, now: DateTime<Utc>) -> Result<u64
             space,
             row.try_get("", "account_id")?,
             now,
-            false,
         )
         .await?;
     }

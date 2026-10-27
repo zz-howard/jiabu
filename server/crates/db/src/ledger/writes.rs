@@ -335,7 +335,7 @@ impl SpaceTx {
             }
             return Err(Error::new(422, "id_taken"));
         }
-        self.check_record(space, &value, true).await?;
+        self.check_record(space, &value, None).await?;
         self.check_refund_invariant(space, &value, None).await?;
         decode(
             self.save(space, Entity::Record, id, "create", None, value, audit)
@@ -346,7 +346,7 @@ impl SpaceTx {
         &self,
         space: SpaceId,
         value: &Value,
-        creating: bool,
+        original: Option<&Value>,
     ) -> Result<(), Error> {
         let record: Record = decode(value_with_seq(value.clone()))?;
         if record.amount_minor <= 0
@@ -364,25 +364,28 @@ impl SpaceTx {
         if record.tag_ids.iter().any(|id| !tags.insert(*id)) {
             return Err(Error::invalid());
         }
-        for (id, kind) in [
-            (record.account_id, "real"),
-            (record.to_account_id, "real"),
-            (record.purpose_id, "purpose"),
-            (record.to_purpose_id, "purpose"),
+        for (field, id, kind) in [
+            ("account_id", record.account_id, "real"),
+            ("to_account_id", record.to_account_id, "real"),
+            ("purpose_id", record.purpose_id, "purpose"),
+            ("to_purpose_id", record.to_purpose_id, "purpose"),
         ] {
             if let Some(id) = id {
                 let account = self.ledger_snapshot(space, Entity::Account, id).await?;
                 if account["kind"] != kind {
                     return Err(Error::invalid());
                 }
-                if creating {
+                if original.is_none_or(|before| before[field] != value[field]) {
                     active(&account, "archived_at")?;
                 }
             }
         }
         for id in record.tag_ids {
             let tag = self.ledger_snapshot(space, Entity::Tag, id).await?;
-            if creating && !tag["deleted_at"].is_null() {
+            let retained = original
+                .and_then(|before| before["tag_ids"].as_array())
+                .is_some_and(|tags| tags.contains(&json!(id)));
+            if !retained && !tag["deleted_at"].is_null() {
                 return Err(Error::not_found());
             }
         }
@@ -485,7 +488,7 @@ impl SpaceTx {
             after["note"] = json!(note);
         }
         after["updated_by_member_id"] = json!(audit.actor_member_id);
-        self.check_record(space, &after, false).await?;
+        self.check_record(space, &after, Some(&before)).await?;
         self.check_refund_invariant(space, &after, Some(args.id))
             .await?;
         decode(
@@ -570,23 +573,25 @@ impl SpaceTx {
             }
             (None, Some(_)) => return Err(Error::not_found()),
         }
-        // Disable never catches up. Enable/modify catches up the OLD schedule first,
-        // even if it was disabled; its persisted next_run_on is the owed boundary.
-        if args.enabled && old.is_some() {
-            self.ledger_catch_up(space, args.account_id, audit.now, true)
+        // Only a continuously enabled plan owes allocations under the old settings.
+        // Re-enabling starts afresh, and disabling never catches up.
+        let continuing = args.enabled && old.as_ref().is_some_and(|plan| plan["enabled"] == true);
+        if continuing {
+            self.ledger_catch_up(space, args.account_id, audit.now)
                 .await?;
         }
         let before = snapshot(&self.tx, space, Entity::Plan, args.account_id).await?;
         let last = before.as_ref().and_then(|v| v["last_run_month"].as_str());
-        let next = jiabu_domain::allocation::first_run(
-            self.ledger_today(space, audit.now).await?,
-            args.day_of_month as u32,
-            last,
-        )
+        let today = self.ledger_today(space, audit.now).await?;
+        let next = if continuing {
+            jiabu_domain::allocation::continued_run(today, args.day_of_month as u32, last)
+        } else {
+            jiabu_domain::allocation::first_run(today, args.day_of_month as u32, last)
+        }
         .ok_or_else(Error::invalid)?;
         let after = json!({"account_id":args.account_id,"space_id":space.0,"amount_minor":args.amount_minor,"day_of_month":args.day_of_month,"enabled":args.enabled,"next_run_on":next,"last_run_month":last,"version":1,"updated_at":audit.now});
-        decode(
-            self.save(
+        let saved = self
+            .save(
                 space,
                 Entity::Plan,
                 args.account_id,
@@ -595,8 +600,19 @@ impl SpaceTx {
                 after,
                 audit,
             )
-            .await?,
-        )
+            .await?;
+        if continuing && next <= today {
+            // The old due day was still in the future, but the new day is due.
+            // The same locked implementation inserts this month's new allocation
+            // and advances next_run_on, atomically with the user's edit and audit.
+            self.ledger_catch_up(space, args.account_id, audit.now)
+                .await?;
+            return decode(
+                self.ledger_snapshot(space, Entity::Plan, args.account_id)
+                    .await?,
+            );
+        }
+        decode(saved)
     }
 }
 fn value_with_seq(mut value: Value) -> Value {

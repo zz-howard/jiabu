@@ -156,7 +156,7 @@ pub struct QueryStats {
 pub struct CreateRecord {
     pub id: Option<Uuid>,
     pub kind: CreateKind,
-    #[validate(range(min = 1))]
+    #[validate(range(min = 1, max = 1_000_000_000_000_i64))]
     pub amount_minor: i64,
     pub occurred_on: NaiveDate,
     pub account_id: Option<Uuid>,
@@ -165,22 +165,25 @@ pub struct CreateRecord {
     pub to_purpose_id: Option<Uuid>,
     pub refund_of_id: Option<Uuid>,
     #[serde(default)]
+    #[validate(length(max = 20))]
     pub tag_ids: Vec<Uuid>,
     #[validate(length(max = 500))]
     pub note: Option<String>,
     #[serde(default)]
+    #[validate(length(max = 20))]
     pub attachments: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Validate)]
 #[serde(deny_unknown_fields)]
 pub struct RecordPatch {
-    #[validate(range(min = 1))]
+    #[validate(range(min = 1, max = 1_000_000_000_000_i64))]
     pub amount_minor: Option<i64>,
     pub occurred_on: Option<NaiveDate>,
     pub account_id: Option<Uuid>,
     pub to_account_id: Option<Uuid>,
     pub purpose_id: Option<Uuid>,
     pub to_purpose_id: Option<Uuid>,
+    #[validate(length(max = 20))]
     pub tag_ids: Option<Vec<Uuid>>,
     #[serde(
         default,
@@ -188,6 +191,7 @@ pub struct RecordPatch {
         skip_serializing_if = "Option::is_none"
     )]
     pub note: Option<Option<String>>,
+    #[validate(length(max = 20))]
     pub attachments: Option<Vec<String>>,
 }
 fn nullable<'de, D: serde::Deserializer<'de>>(
@@ -221,6 +225,7 @@ pub struct CreateAccount {
     #[serde(default)]
     pub is_reserve: bool,
     #[serde(default)]
+    #[validate(range(min = -1_000_000_000_000_i64, max = 1_000_000_000_000_i64))]
     pub opening_balance_minor: i64,
     pub opening_on: NaiveDate,
     #[serde(default)]
@@ -235,6 +240,7 @@ pub struct UpdateAccount {
     #[validate(length(min = 1, max = 30))]
     pub name: Option<String>,
     pub is_reserve: Option<bool>,
+    #[validate(range(min = -1_000_000_000_000_i64, max = 1_000_000_000_000_i64))]
     pub opening_balance_minor: Option<i64>,
     pub opening_on: Option<NaiveDate>,
     pub sort_key: Option<i32>,
@@ -252,7 +258,7 @@ pub struct SetAllocationPlan {
     pub account_id: Uuid,
     #[validate(range(min = 1))]
     pub expected_version: Option<i32>,
-    #[validate(range(min = 1))]
+    #[validate(range(min = 1, max = 1_000_000_000_000_i64))]
     pub amount_minor: i64,
     #[validate(range(min = 1, max = 31))]
     pub day_of_month: i16,

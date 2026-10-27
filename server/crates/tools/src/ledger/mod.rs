@@ -71,7 +71,7 @@ ledger_tools! {
     QueryStatsTool: QueryStats => StatsResult {
         name: "query_stats", effect: Read, exposure: AgentAndApi,
         confirm: false, kind: QueryStats,
-        description: "按期间与条件统计；消费金额按支出减退款，退款按退款日期计入；标签各组合计可能超过总额", label: "按期间与条件统计",
+        description: "按期间与条件统计；消费金额按支出减退款，退款按退款日期计入并使用父支出当前标签；标签各组合计可能超过总额", label: "按期间与条件统计",
         example_args: json!({"measure":"sum","period":{"from":"2026-01-01","through":"2026-01-31"}}),
         example_output: json!({"currency":"CNY","total":0,"groups":[],"tag_groups_may_overlap":false}),
         execute: |args,ctx,tx| tx.ledger_stats(ctx.space_id,args).await
@@ -151,7 +151,7 @@ ledger_tools! {
     SetAllocationPlanTool: SetAllocationPlan => AllocationPlan {
         name: "set_allocation_plan", effect: LocalWrite, exposure: AgentAndApi,
         confirm: false, kind: SetAllocationPlan,
-        description: "设置、修改或停用每月拨入；启用或修改先补旧计划已到期月份，停用不补拨", label: "设置、修改或停用每月拨入",
+        description: "设置、修改或停用每月拨入；持续启用时先补旧设置到期月份，停用不补，重新启用从下次开始", label: "设置、修改或停用每月拨入",
         example_args: json!({"account_id":"00000000-0000-7000-8000-000000000002","amount_minor":1000,"day_of_month":15,"enabled":true}),
         example_output: json!({"account_id":"00000000-0000-7000-8000-000000000002","space_id":"00000000-0000-7000-8000-000000000006","amount_minor":1000,"day_of_month":15,"enabled":true,"next_run_on":"2026-01-15","last_run_month":null,"version":1,"change_seq":4,"updated_at":"2026-01-01T00:00:00Z"}),
         execute: |args,ctx,tx| tx.ledger_set_plan(ctx.space_id,args,&ctx.audit(tx.member(ctx.space_id))).await
