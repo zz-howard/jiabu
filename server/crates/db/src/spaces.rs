@@ -130,10 +130,22 @@ impl SpaceTx {
             vec![space.0.into(), actor.0.into(), subject.map(|id| id.0).into(), kind.into(), request.into()]).await?;
         Ok(())
     }
+    /// Public space metadata, also used as the version-conflict payload.
     async fn space(&self, space: SpaceId) -> Result<Value, Error> {
         self.one(
-            "select to_jsonb(s) value from spaces s where id=$1 and deleted_at is null",
+            "select jsonb_build_object('id',s.id,'name',s.name,'accent_color',s.accent_color,'currency',s.currency,'timezone',s.timezone,'is_default',s.is_default,'version',s.version,'change_seq',s.change_seq) value from spaces s where id=$1 and deleted_at is null",
             vec![space.0.into()],
+        )
+        .await?
+        .ok_or_else(Error::not_found)?
+        .try_get("", "value")
+        .map_err(Into::into)
+    }
+    /// The public member projection is shared by successful edits and conflicts.
+    async fn member_view(&self, space: SpaceId, member: MemberId) -> Result<Value, Error> {
+        self.one(
+            "select jsonb_build_object('id',m.id,'display_name',m.display_name,'role',m.role,'status',m.status,'join_epoch',m.join_epoch,'joined_at',m.joined_at,'left_at',m.left_at,'left_reason',m.left_reason,'version',m.version,'change_seq',m.change_seq) value from space_members m where space_id=$1 and id=$2",
+            vec![space.0.into(), member.0.into()],
         )
         .await?
         .ok_or_else(Error::not_found)?
@@ -227,22 +239,15 @@ impl SpaceTx {
                 display_name,
                 expected_version,
             } => {
-                let member: Value = self
-                    .one(
-                        "select to_jsonb(m) value from space_members m where space_id=$1 and id=$2",
-                        vec![space.0.into(), actor.0.into()],
-                    )
-                    .await?
-                    .ok_or_else(Error::not_found)?
-                    .try_get("", "value")?;
+                let member = self.member_view(space, actor).await?;
                 self.version(&member, expected_version)?;
                 if !valid_name(&display_name, 20) {
                     return Err(Error::invalid());
                 }
                 let seq = self.next_seq().await?;
-                let row = self.one("update space_members set display_name=$3,version=version+1,change_seq=$4 where space_id=$1 and id=$2 returning to_jsonb(space_members) value",
-                    vec![space.0.into(), actor.0.into(), display_name.into(), seq.into()]).await?.ok_or_else(Error::not_found)?;
-                Ok(Reply::ok(row.try_get("", "value")?))
+                self.execute("update space_members set display_name=$3,version=version+1,change_seq=$4 where space_id=$1 and id=$2",
+                    vec![space.0.into(), actor.0.into(), display_name.into(), seq.into()]).await?;
+                Ok(Reply::ok(self.member_view(space, actor).await?))
             }
             Change::Invite { username } => {
                 if current["is_default"] == true {
@@ -477,9 +482,11 @@ impl AppDb {
         let tx = SpaceTx::bootstrap(self, space).await?;
         let row = tx.one("select i.status,i.invited_by_member_id,s.deleted_at is not null deleted,m.status='active' inviter_active from space_invitations i join spaces s on s.id=i.space_id join space_members m on m.id=i.invited_by_member_id and m.space_id=i.space_id where i.space_id=$1 and i.id=$2 and i.invitee_user_id=$3", vec![space.0.into(), invitation.into(), user.0.into()]).await?.ok_or_else(Error::not_found)?;
         let current: String = row.try_get("", "status")?;
-        let unavailable =
-            row.try_get::<bool>("", "deleted")? || !row.try_get::<bool>("", "inviter_active")?;
-        if (decision == Decision::Accept || current == "pending") && unavailable {
+        // The inviter authorizes a pending join, not retries of a completed join.
+        // Space deletion always invalidates access, including accepted replays.
+        let space_deleted = row.try_get::<bool>("", "deleted")?;
+        let inviter_left = current == "pending" && !row.try_get::<bool>("", "inviter_active")?;
+        if space_deleted || inviter_left {
             tx.execute("update space_invitations set status='cancelled',decided_at=now() where space_id=$1 and id=$2 and status='pending'", vec![space.0.into(), invitation.into()]).await?;
             tx.commit().await?; // Preserve invalidation even though the HTTP response is an error.
             return Err(Error::not_found());
@@ -572,7 +579,7 @@ impl SpaceTx {
     pub async fn invitations(&self, space: SpaceId) -> Result<Value, Error> {
         self.member(space);
         let rows = self.tx.query_all_raw(Statement::from_sql_and_values(DbBackend::Postgres,
-            "select to_jsonb(i) value from space_invitations i where space_id=$1 order by created_at,id", [space.0.into()])).await?;
+            "select jsonb_build_object('id',i.id,'status',i.status,'invitee_username',u.username,'invited_by_member_id',i.invited_by_member_id,'created_at',i.created_at,'decided_at',i.decided_at) value from space_invitations i join users u on u.id=i.invitee_user_id where i.space_id=$1 order by i.created_at,i.id", [space.0.into()])).await?;
         let mut invitations = Vec::new();
         for row in rows {
             invitations.push(row.try_get::<Value>("", "value")?);

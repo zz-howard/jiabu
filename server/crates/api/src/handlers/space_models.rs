@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct Space {
+pub(crate) struct SpaceMetadata {
     pub id: Uuid,
     pub name: String,
     pub accent_color: String,
@@ -16,12 +16,12 @@ pub(crate) struct Space {
     pub change_seq: i64,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct Modules {
+pub(crate) struct SpaceModules {
     pub ledger: String,
     pub documents: String,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct MemberSummary {
+pub(crate) struct SpaceMemberSummary {
     pub id: Uuid,
     pub display_name: String,
     pub role: String,
@@ -40,15 +40,15 @@ pub(crate) struct SpaceSummary {
     pub role: String,
     pub join_epoch: i32,
     pub member_id: Uuid,
-    pub modules: Modules,
-    pub members: Vec<MemberSummary>,
+    pub modules: SpaceModules,
+    pub members: Vec<SpaceMemberSummary>,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct Spaces {
+pub(crate) struct SpacesResponse {
     pub spaces: Vec<SpaceSummary>,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct Member {
+pub(crate) struct SpaceMember {
     pub id: Uuid,
     pub display_name: String,
     pub role: String,
@@ -61,7 +61,7 @@ pub(crate) struct Member {
     pub change_seq: i64,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct Invitation {
+pub(crate) struct SpaceInvitationResponse {
     pub id: Uuid,
     pub space_id: Uuid,
     pub invitee_user_id: Uuid,
@@ -71,21 +71,30 @@ pub(crate) struct Invitation {
     pub decided_at: Option<DateTime<Utc>>,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct Invitations {
-    pub invitations: Vec<Invitation>,
+pub(crate) struct SpaceInvitation {
+    pub id: Uuid,
+    pub status: String,
+    pub invitee_username: String,
+    pub invited_by_member_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub decided_at: Option<DateTime<Utc>>,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct ReceivedInvitation {
+pub(crate) struct SpaceInvitationsResponse {
+    pub invitations: Vec<SpaceInvitation>,
+}
+#[derive(Deserialize, Serialize, ToSchema)]
+pub(crate) struct ReceivedSpaceInvitation {
     pub id: Uuid,
     pub space_name: String,
     pub inviter_display_name: String,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct ReceivedInvitations {
-    pub invitations: Vec<ReceivedInvitation>,
+pub(crate) struct ReceivedSpaceInvitationsResponse {
+    pub invitations: Vec<ReceivedSpaceInvitation>,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct StateResponse {
+pub(crate) struct SpaceActionResponse {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_id: Option<Uuid>,
@@ -93,6 +102,6 @@ pub(crate) struct StateResponse {
     pub join_epoch: Option<i32>,
 }
 #[derive(Deserialize, Serialize, ToSchema)]
-pub(crate) struct Ownership {
+pub(crate) struct TransferOwnershipResponse {
     pub owner_member_id: Uuid,
 }

@@ -78,6 +78,14 @@ fn build() -> (OpenApiRouter<AppState>, Vec<RouteSpec>) {
         "/v1/me/invitations/{inv_id}/decline",
         invitations::decline
     );
+    #[cfg(test)]
+    {
+        mount!(
+            "GET",
+            "/v1/spaces/{space_id}/authorization-probe",
+            crate::tests::authorization_probe
+        );
+    }
     (router, catalog)
 }
 pub(crate) fn documented_router() -> OpenApiRouter<AppState> {

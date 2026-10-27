@@ -49,7 +49,7 @@
         ],
         "type": "object"
       },
-      "Create": {
+      "CreateSpaceRequest": {
         "additionalProperties": false,
         "properties": {
           "accent_color": {
@@ -77,7 +77,7 @@
         ],
         "type": "object"
       },
-      "Delete": {
+      "DeleteSpaceRequest": {
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -86,23 +86,6 @@
         },
         "required": [
           "name"
-        ],
-        "type": "object"
-      },
-      "DisplayName": {
-        "additionalProperties": false,
-        "properties": {
-          "display_name": {
-            "type": "string"
-          },
-          "expected_version": {
-            "format": "int32",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "display_name",
-          "expected_version"
         ],
         "type": "object"
       },
@@ -150,64 +133,7 @@
         ],
         "type": "object"
       },
-      "Invitation": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "decided_at": {
-            "format": "date-time",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "invited_by_member_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "invitee_user_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "space_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "space_id",
-          "invitee_user_id",
-          "invited_by_member_id",
-          "status",
-          "created_at"
-        ],
-        "type": "object"
-      },
-      "Invitations": {
-        "properties": {
-          "invitations": {
-            "items": {
-              "$ref": "#/components/schemas/Invitation"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "invitations"
-        ],
-        "type": "object"
-      },
-      "Invite": {
+      "InviteRequest": {
         "additionalProperties": false,
         "properties": {
           "username": {
@@ -267,7 +193,284 @@
         ],
         "type": "object"
       },
-      "Member": {
+      "MetaResponse": {
+        "properties": {
+          "api_versions": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "min_client_build": {
+            "$ref": "#/components/schemas/MinimumBuild"
+          },
+          "server_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_version",
+          "api_versions",
+          "min_client_build",
+          "features"
+        ],
+        "type": "object"
+      },
+      "MinimumBuild": {
+        "properties": {
+          "beta": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "stable": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stable",
+          "beta"
+        ],
+        "type": "object"
+      },
+      "PatchMe": {
+        "additionalProperties": false,
+        "properties": {
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "locale"
+        ],
+        "type": "object"
+      },
+      "Problem": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "current": {},
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "ReceivedSpaceInvitation": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inviter_display_name": {
+            "type": "string"
+          },
+          "space_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "space_name",
+          "inviter_display_name"
+        ],
+        "type": "object"
+      },
+      "ReceivedSpaceInvitationsResponse": {
+        "properties": {
+          "invitations": {
+            "items": {
+              "$ref": "#/components/schemas/ReceivedSpaceInvitation"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "invitations"
+        ],
+        "type": "object"
+      },
+      "RenameSpaceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "accent_color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "type": "object"
+      },
+      "SpaceActionResponse": {
+        "properties": {
+          "join_epoch": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "SpaceInvitation": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invited_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invitee_username": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "invitee_username",
+          "invited_by_member_id",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SpaceInvitationResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invited_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invitee_user_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "invitee_user_id",
+          "invited_by_member_id",
+          "status",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SpaceInvitationsResponse": {
+        "properties": {
+          "invitations": {
+            "items": {
+              "$ref": "#/components/schemas/SpaceInvitation"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "invitations"
+        ],
+        "type": "object"
+      },
+      "SpaceMember": {
         "properties": {
           "change_seq": {
             "format": "int64",
@@ -324,7 +527,7 @@
         ],
         "type": "object"
       },
-      "MemberSummary": {
+      "SpaceMemberSummary": {
         "properties": {
           "display_name": {
             "type": "string"
@@ -353,192 +556,7 @@
         ],
         "type": "object"
       },
-      "MetaResponse": {
-        "properties": {
-          "api_versions": {
-            "items": {
-              "format": "int32",
-              "type": "integer"
-            },
-            "type": "array"
-          },
-          "features": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "min_client_build": {
-            "$ref": "#/components/schemas/MinimumBuild"
-          },
-          "server_version": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "server_version",
-          "api_versions",
-          "min_client_build",
-          "features"
-        ],
-        "type": "object"
-      },
-      "MinimumBuild": {
-        "properties": {
-          "beta": {
-            "format": "int32",
-            "type": "integer"
-          },
-          "stable": {
-            "format": "int32",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "stable",
-          "beta"
-        ],
-        "type": "object"
-      },
-      "Modules": {
-        "properties": {
-          "documents": {
-            "type": "string"
-          },
-          "ledger": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "ledger",
-          "documents"
-        ],
-        "type": "object"
-      },
-      "Ownership": {
-        "properties": {
-          "owner_member_id": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "required": [
-          "owner_member_id"
-        ],
-        "type": "object"
-      },
-      "PatchMe": {
-        "additionalProperties": false,
-        "properties": {
-          "locale": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "locale"
-        ],
-        "type": "object"
-      },
-      "Problem": {
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "current": {},
-          "errors": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationIssue"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          },
-          "request_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "status": {
-            "format": "int32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "title": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "request_id"
-        ],
-        "type": "object"
-      },
-      "ReceivedInvitation": {
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "inviter_display_name": {
-            "type": "string"
-          },
-          "space_name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "space_name",
-          "inviter_display_name"
-        ],
-        "type": "object"
-      },
-      "ReceivedInvitations": {
-        "properties": {
-          "invitations": {
-            "items": {
-              "$ref": "#/components/schemas/ReceivedInvitation"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "invitations"
-        ],
-        "type": "object"
-      },
-      "Rename": {
-        "additionalProperties": false,
-        "properties": {
-          "accent_color": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "expected_version": {
-            "format": "int32",
-            "type": "integer"
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "expected_version"
-        ],
-        "type": "object"
-      },
-      "Space": {
+      "SpaceMetadata": {
         "properties": {
           "accent_color": {
             "type": "string"
@@ -580,6 +598,21 @@
         ],
         "type": "object"
       },
+      "SpaceModules": {
+        "properties": {
+          "documents": {
+            "type": "string"
+          },
+          "ledger": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger",
+          "documents"
+        ],
+        "type": "object"
+      },
       "SpaceSummary": {
         "properties": {
           "accent_color": {
@@ -605,12 +638,12 @@
           },
           "members": {
             "items": {
-              "$ref": "#/components/schemas/MemberSummary"
+              "$ref": "#/components/schemas/SpaceMemberSummary"
             },
             "type": "array"
           },
           "modules": {
-            "$ref": "#/components/schemas/Modules"
+            "$ref": "#/components/schemas/SpaceModules"
           },
           "name": {
             "type": "string"
@@ -642,7 +675,7 @@
         ],
         "type": "object"
       },
-      "Spaces": {
+      "SpacesResponse": {
         "properties": {
           "spaces": {
             "items": {
@@ -656,32 +689,7 @@
         ],
         "type": "object"
       },
-      "StateResponse": {
-        "properties": {
-          "join_epoch": {
-            "format": "int32",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "member_id": {
-            "format": "uuid",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "Transfer": {
+      "TransferOwnershipRequest": {
         "additionalProperties": false,
         "properties": {
           "member_id": {
@@ -691,6 +699,35 @@
         },
         "required": [
           "member_id"
+        ],
+        "type": "object"
+      },
+      "TransferOwnershipResponse": {
+        "properties": {
+          "owner_member_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner_member_id"
+        ],
+        "type": "object"
+      },
+      "UpdateDisplayNameRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "expected_version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "display_name",
+          "expected_version"
         ],
         "type": "object"
       },
@@ -986,7 +1023,7 @@
                   "invitations": []
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/ReceivedInvitations"
+                  "$ref": "#/components/schemas/ReceivedSpaceInvitationsResponse"
                 }
               }
             },
@@ -1042,7 +1079,7 @@
                   "status": "accepted"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/StateResponse"
+                  "$ref": "#/components/schemas/SpaceActionResponse"
                 }
               }
             },
@@ -1136,7 +1173,7 @@
                   "status": "declined"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/StateResponse"
+                  "$ref": "#/components/schemas/SpaceActionResponse"
                 }
               }
             },
@@ -1288,7 +1325,7 @@
                   "spaces": []
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Spaces"
+                  "$ref": "#/components/schemas/SpacesResponse"
                 }
               }
             },
@@ -1334,7 +1371,7 @@
                 "timezone": "Asia/Shanghai"
               },
               "schema": {
-                "$ref": "#/components/schemas/Create"
+                "$ref": "#/components/schemas/CreateSpaceRequest"
               }
             }
           },
@@ -1355,7 +1392,7 @@
                   "version": 1
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Space"
+                  "$ref": "#/components/schemas/SpaceMetadata"
                 }
               }
             },
@@ -1457,7 +1494,7 @@
                 "name": "示例空间"
               },
               "schema": {
-                "$ref": "#/components/schemas/Delete"
+                "$ref": "#/components/schemas/DeleteSpaceRequest"
               }
             }
           },
@@ -1471,7 +1508,7 @@
                   "status": "deleted"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/StateResponse"
+                  "$ref": "#/components/schemas/SpaceActionResponse"
                 }
               }
             },
@@ -1572,7 +1609,7 @@
                 "name": "示例新名"
               },
               "schema": {
-                "$ref": "#/components/schemas/Rename"
+                "$ref": "#/components/schemas/RenameSpaceRequest"
               }
             }
           },
@@ -1593,7 +1630,7 @@
                   "version": 2
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Space"
+                  "$ref": "#/components/schemas/SpaceMetadata"
                 }
               }
             },
@@ -1676,10 +1713,19 @@
             "content": {
               "application/json": {
                 "example": {
-                  "invitations": []
+                  "invitations": [
+                    {
+                      "created_at": "2026-01-01T00:00:00Z",
+                      "decided_at": "2026-01-02T00:00:00Z",
+                      "id": "019a0000-0000-7000-8000-000000000002",
+                      "invited_by_member_id": "019a0000-0000-7000-8000-000000000004",
+                      "invitee_username": "sample-guest",
+                      "status": "declined"
+                    }
+                  ]
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Invitations"
+                  "$ref": "#/components/schemas/SpaceInvitationsResponse"
                 }
               }
             },
@@ -1749,7 +1795,7 @@
                 "username": "sample-guest"
               },
               "schema": {
-                "$ref": "#/components/schemas/Invite"
+                "$ref": "#/components/schemas/InviteRequest"
               }
             }
           },
@@ -1769,7 +1815,7 @@
                   "status": "pending"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Invitation"
+                  "$ref": "#/components/schemas/SpaceInvitationResponse"
                 }
               }
             },
@@ -1788,7 +1834,7 @@
                   "status": "pending"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Invitation"
+                  "$ref": "#/components/schemas/SpaceInvitationResponse"
                 }
               }
             },
@@ -1900,7 +1946,7 @@
                   "status": "cancelled"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/StateResponse"
+                  "$ref": "#/components/schemas/SpaceActionResponse"
                 }
               }
             },
@@ -2003,7 +2049,7 @@
                   "status": "left"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/StateResponse"
+                  "$ref": "#/components/schemas/SpaceActionResponse"
                 }
               }
             },
@@ -2106,7 +2152,7 @@
                 "expected_version": 1
               },
               "schema": {
-                "$ref": "#/components/schemas/DisplayName"
+                "$ref": "#/components/schemas/UpdateDisplayNameRequest"
               }
             }
           },
@@ -2129,7 +2175,7 @@
                   "version": 2
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Member"
+                  "$ref": "#/components/schemas/SpaceMember"
                 }
               }
             },
@@ -2241,7 +2287,7 @@
                   "status": "left"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/StateResponse"
+                  "$ref": "#/components/schemas/SpaceActionResponse"
                 }
               }
             },
@@ -2343,7 +2389,7 @@
                 "member_id": "019a0000-0000-7000-8000-000000000002"
               },
               "schema": {
-                "$ref": "#/components/schemas/Transfer"
+                "$ref": "#/components/schemas/TransferOwnershipRequest"
               }
             }
           },
@@ -2357,7 +2403,7 @@
                   "owner_member_id": "019a0000-0000-7000-8000-000000000002"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Ownership"
+                  "$ref": "#/components/schemas/TransferOwnershipResponse"
                 }
               }
             },

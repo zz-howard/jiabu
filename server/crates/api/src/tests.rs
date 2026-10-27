@@ -3,15 +3,41 @@ mod support;
 use crate::AppState;
 use anyhow::{Result, ensure};
 use axum::{
-    Router,
+    Json, Router,
     body::{Body, to_bytes},
-    extract::ConnectInfo,
+    extract::{ConnectInfo, Path, State},
     http::{HeaderMap, Request, StatusCode},
 };
 use jiabu_db::{AppDb, Mode, SpaceTx};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
+
+const AUTHORIZATION_PROBE_PATH: &str = "/v1/spaces/{space_id}/authorization-probe";
+
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct AuthorizationProbeResponse {
+    ok: bool,
+}
+
+// This whole module and its catalog mount exist only under cfg(test).
+#[utoipa::path(get,path="/v1/spaces/{space_id}/authorization-probe",security(("bearer"=[])),params(("space_id"=Uuid,Path)),responses((status=200,body=AuthorizationProbeResponse,description="Test-only ledger authorization check",example=json!({"ok":true})),(status=404,body=crate::Problem,description="Not found")))]
+pub(crate) async fn authorization_probe(
+    State(state): State<AppState>,
+    crate::SessionOnly(principal): crate::SessionOnly,
+    Path(space_id): Path<Uuid>,
+) -> Result<Json<AuthorizationProbeResponse>, crate::ApiError> {
+    let space = jiabu_domain::SpaceId(space_id);
+    let tx = SpaceTx::begin(&state.db, principal.user_id, &[(space, None)], Mode::Read).await?;
+    jiabu_tools::authorize(
+        tx.member(space),
+        jiabu_tools::Module::Ledger,
+        jiabu_tools::Action::Read,
+    )
+    .map_err(|_| crate::ApiError::not_found())?;
+    tx.commit().await?;
+    Ok(Json(AuthorizationProbeResponse { ok: true }))
+}
 
 struct TestApp {
     fixture: support::TestDb,
@@ -121,6 +147,7 @@ impl TestApp {
 }
 // The matrix is separate from mounting so forgetting a registration actually fails.
 const ISOLATION_MATRIX: &[(&str, &str)] = &[
+    ("GET", AUTHORIZATION_PROBE_PATH),
     ("PATCH", "/v1/spaces/{space_id}"),
     ("DELETE", "/v1/spaces/{space_id}"),
     ("POST", "/v1/spaces/{space_id}/invitations"),
@@ -175,7 +202,18 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
     let nonmember = app.fixture.seed("nonmember", "unused").await?;
     let exited = app.fixture.seed("exited", "unused").await?;
     let other = app.fixture.seed("other", "unused").await?;
+    let no_grants = app.plan.space_id;
     let owner = app.fixture.owner().await?;
+    // Use an active owner: role must not bypass a module grant of none.
+    let restricted_member: Uuid = sqlx::query_scalar(
+        "select id from space_members where space_id=$1 and user_id=$2 and status='active'",
+    )
+    .bind(no_grants.0)
+    .bind(app.plan.user_id.0)
+    .fetch_one(&owner)
+    .await?;
+    sqlx::query("update space_member_grants set level='none',change_seq=nextval('change_seq') where member_id=$1 and module='ledger'")
+        .bind(restricted_member).execute(&owner).await?;
     let former: Uuid = sqlx::query_scalar("insert into space_members(space_id,user_id,display_name,role,status,left_reason,joined_at,left_at,change_seq) values($1,$2,'former','member','left','left',now(),now(),nextval('change_seq')) returning id")
         .bind(exited.space_id.0).bind(app.plan.user_id.0).fetch_one(&owner).await?;
     sqlx::query("insert into space_member_grants(member_id,module,level,change_seq) values($1,'ledger','write',nextval('change_seq')),($1,'documents','write',nextval('change_seq'))")
@@ -189,12 +227,18 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
     owner.close().await;
     for (method, pattern) in ISOLATION_MATRIX {
         let mut previous = None;
-        for id in [
+        let mut ids = vec![
             nonmember.space_id.0,
             exited.space_id.0,
             other.space_id.0,
             Uuid::now_v7(),
-        ] {
+        ];
+        // Management routes deliberately depend on role, not module grants.
+        // The fifth case applies to the route that actually calls authorize().
+        if *pattern == AUTHORIZATION_PROBE_PATH {
+            ids.push(no_grants.0);
+        }
+        for id in ids {
             let path = pattern
                 .replace("{space_id}", &id.to_string())
                 .replace("{inv_id}", &foreign_invitation.to_string())
@@ -219,6 +263,18 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
             previous = Some(normalized);
         }
     }
+    // The restricted identity must succeed when only its ledger grant changes.
+    let owner = app.fixture.owner().await?;
+    sqlx::query("update space_member_grants set level='read',change_seq=nextval('change_seq') where member_id=$1 and module='ledger'")
+        .bind(restricted_member).execute(&owner).await?;
+    owner.close().await;
+    let probe = AUTHORIZATION_PROBE_PATH.replace("{space_id}", &no_grants.to_string());
+    assert_eq!(
+        app.request("GET", &probe, Value::Null, Some(&token), &[])
+            .await?
+            .status,
+        StatusCode::OK
+    );
     // A real route must also admit an active member, so an always-404 handler cannot pass.
     let path = format!("/v1/spaces/{}/invitations", app.plan.space_id);
     assert_eq!(

@@ -344,3 +344,86 @@ async fn failed_audit_rolls_back_initialization_and_acceptance() -> Result<()> {
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn accepted_replay_checks_space_deletion_even_with_an_active_member() -> Result<()> {
+    let fixture = support::TestDb::new().await?;
+    let inviter = fixture.seed("inviter", "unused").await?;
+    let invitee = fixture.seed("invitee", "unused").await?;
+    let db = AppDb::connect(&fixture.app_url).await?;
+    let space = SpaceId(Uuid::now_v7());
+    db.create_space(
+        inviter.user_id,
+        "inviter",
+        CreateSpace {
+            id: space.0,
+            name: "示例重试空间".into(),
+            accent_color: "pine".into(),
+            currency: "CNY".into(),
+            timezone: "UTC".into(),
+        },
+        &operation(),
+        Uuid::now_v7(),
+    )
+    .await?;
+    let invitation = invitation(&db, inviter.user_id, space, "invitee").await?;
+    let key = operation();
+    let first = db
+        .decide_invitation(
+            invitee.user_id,
+            invitation,
+            Decision::Accept,
+            &key,
+            Uuid::now_v7(),
+        )
+        .await?;
+    let member = Uuid::parse_str(
+        first.body["member_id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing member"))?,
+    )?;
+    change(&db, inviter.user_id, space, Change::Transfer { member }).await?;
+    change(&db, inviter.user_id, space, Change::Leave).await?;
+    let retry = db
+        .decide_invitation(
+            invitee.user_id,
+            invitation,
+            Decision::Accept,
+            &key,
+            Uuid::now_v7(),
+        )
+        .await?;
+    assert_eq!(retry.status, first.status);
+    assert_eq!(retry.body, first.body);
+
+    let owner = fixture.owner().await?;
+    // Preserve an active member deliberately: deletion must be checked independently
+    // of membership status and of whether the invitation is still pending.
+    sqlx::query("update spaces set deleted_at=now() where id=$1")
+        .bind(space.0)
+        .execute(&owner)
+        .await?;
+    let active: bool =
+        sqlx::query_scalar("select status='active' from space_members where space_id=$1 and id=$2")
+            .bind(space.0)
+            .bind(member)
+            .fetch_one(&owner)
+            .await?;
+    assert!(active);
+    let retry = db
+        .decide_invitation(
+            invitee.user_id,
+            invitation,
+            Decision::Accept,
+            &key,
+            Uuid::now_v7(),
+        )
+        .await;
+    let error = retry
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("replayed a deleted space"))?;
+    assert_eq!((error.status, error.code), (404, "not_found"));
+    owner.close().await;
+    db.close().await?;
+    Ok(())
+}
