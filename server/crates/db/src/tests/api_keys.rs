@@ -44,3 +44,46 @@ async fn concurrent_key_creation_serializes_before_counting() -> Result<()> {
     }).await??;
     Ok(())
 }
+
+#[tokio::test]
+async fn replay_stores_epoch_and_rejects_legacy_unbound_content_rows() -> Result<()> {
+    let fixture = support::TestDb::new().await?;
+    let plan = fixture.seed("epoch-owner", "unused").await?;
+    let db = AppDb::connect(&fixture.app_url).await?;
+    let owner = fixture.owner().await?;
+    let operation = Idempotency {
+        key: "epoch-storage".into(),
+        hash: vec![1; 32],
+    };
+    let tx = SpaceTx::begin(&db, plan.user_id, &[(plan.space_id, None)], Mode::Write).await?;
+    assert!(tx.replay(plan.user_id, &operation).await?.is_none());
+    let body = serde_json::json!({"example":"unchanged-response"});
+    tx.remember(
+        plan.user_id,
+        &operation,
+        &crate::OperationReply::ok(body.clone()),
+    )
+    .await?;
+    tx.commit().await?;
+    let epoch: Option<i32> =
+        sqlx::query_scalar("select join_epoch from idempotency where key='epoch-storage'")
+            .fetch_one(&owner)
+            .await?;
+    assert_eq!(epoch, Some(1));
+    let tx = SpaceTx::begin(&db, plan.user_id, &[(plan.space_id, None)], Mode::Write).await?;
+    assert_eq!(
+        tx.replay(plan.user_id, &operation).await?.unwrap().body,
+        body
+    );
+    tx.commit().await?;
+    sqlx::query("update idempotency set join_epoch=null where key='epoch-storage'")
+        .execute(&owner)
+        .await?;
+    let tx = SpaceTx::begin(&db, plan.user_id, &[(plan.space_id, None)], Mode::Write).await?;
+    let error = tx.replay(plan.user_id, &operation).await.unwrap_err();
+    assert_eq!(error.code, "membership_changed");
+    tx.rollback().await?;
+    owner.close().await;
+    db.close().await?;
+    Ok(())
+}

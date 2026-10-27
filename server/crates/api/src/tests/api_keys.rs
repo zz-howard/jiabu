@@ -40,6 +40,34 @@ pub(super) async fn issue(app: &TestApp, session: &str, scope: &str) -> Result<(
             .to_owned(),
     ))
 }
+async fn configure_limits(
+    app: &mut TestApp,
+    limits: jiabu_tools::api_key::ApiKeyLimits,
+    clock: Arc<Clock>,
+) -> Result<AppState> {
+    let state = AppState::new(AppDb::connect(&app.fixture.app_url).await?)
+        .await
+        .map_err(anyhow::Error::msg)?
+        .with_api_key_limiter(Arc::new(jiabu_tools::api_key::ApiKeyLimiter::new(
+            limits, clock,
+        )))
+        .map_err(anyhow::Error::msg)?;
+    app.router = crate::router(state.clone());
+    Ok(state)
+}
+pub(super) async fn high_limits(app: &mut TestApp) -> Result<()> {
+    configure_limits(
+        app,
+        jiabu_tools::api_key::ApiKeyLimits {
+            read_per_minute: 1000,
+            write_per_minute: 1000,
+            unknown_per_minute: 60,
+        },
+        Arc::new(Clock::default()),
+    )
+    .await?;
+    Ok(())
+}
 async fn tool(
     app: &TestApp,
     token: &str,
@@ -467,7 +495,8 @@ async fn explicit_expiry_and_rename_validation() -> Result<()> {
 
 #[tokio::test]
 async fn keys_cannot_manage_account_keys_spaces_or_members() -> Result<()> {
-    let app = TestApp::new(false).await?;
+    let mut app = TestApp::new(false).await?;
+    high_limits(&mut app).await?;
     let session = app.token().await?;
     for scope in ["read", "read_write"] {
         let (id, key) = issue(&app, &session, scope).await?;
@@ -527,7 +556,8 @@ async fn keys_cannot_manage_account_keys_spaces_or_members() -> Result<()> {
 
 #[tokio::test]
 async fn readonly_scope_filter_and_authorization_order() -> Result<()> {
-    let app = TestApp::new(false).await?;
+    let mut app = TestApp::new(false).await?;
+    high_limits(&mut app).await?;
     let session = app.token().await?;
     let (id, key) = issue(&app, &session, "read").await?;
     let registry = jiabu_tools::builtin_registry();
@@ -882,7 +912,7 @@ impl jiabu_tools::api_key::RateClock for Clock {
     }
 }
 #[tokio::test]
-async fn read_write_limits_retry_after_audit_and_membership_order() -> Result<()> {
+async fn read_write_limits_retry_after_and_admission_order() -> Result<()> {
     let mut app = TestApp::new(false).await?;
     let clock = Arc::new(Clock::default());
     let limiter = Arc::new(jiabu_tools::api_key::ApiKeyLimiter::new(
@@ -937,7 +967,7 @@ async fn read_write_limits_retry_after_audit_and_membership_order() -> Result<()
         tool(&app, &key, Uuid::now_v7(), "list_tags", json!({}), None)
             .await?
             .status,
-        StatusCode::NOT_FOUND
+        StatusCode::TOO_MANY_REQUESTS
     );
     let first = write_tag(&app, &key, "rate-write").await?;
     assert_eq!(first.status, StatusCode::OK);
@@ -967,8 +997,8 @@ async fn read_write_limits_retry_after_audit_and_membership_order() -> Result<()
     .bind(id)
     .fetch_one(&owner)
     .await?;
-    assert_eq!(limited, 2);
-    assert_eq!(audit_count(&owner, id).await?, 7);
+    assert_eq!(limited, 0);
+    assert_eq!(audit_count(&owner, id).await?, 4);
     owner.close().await;
     Ok(())
 }
@@ -1031,9 +1061,22 @@ async fn malformed_tokens_do_not_query_identity_tables_and_unknown_tokens_are_li
             StatusCode::UNAUTHORIZED
         );
     }
-    let limited = app
-        .request("GET", "/v1/me", Value::Null, Some(&good), &[])
+    let mut blocked = owner.begin().await?;
+    sqlx::query("lock table users,sessions,api_keys,app_releases in access exclusive mode")
+        .execute(&mut *blocked)
         .await?;
+    let limited = tokio::time::timeout(
+        Duration::from_millis(500),
+        app.request(
+            "GET",
+            "/v1/me",
+            Value::Null,
+            Some(&good),
+            &[("x-jiabu-client", "android/0.1.0+1; channel=stable".into())],
+        ),
+    )
+    .await??;
+    blocked.rollback().await?;
     assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(limited.headers["retry-after"], "30");
     assert_eq!(
@@ -1458,5 +1501,386 @@ async fn concurrent_creation_replay_returns_plaintext_to_only_one_request() -> R
         anyhow::Ok(())
     })
     .await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn admission_limits_early_denials_without_transactions_updates_or_audit() -> Result<()> {
+    let mut app = TestApp::new(false).await?;
+    configure_limits(
+        &mut app,
+        jiabu_tools::api_key::ApiKeyLimits {
+            read_per_minute: 2,
+            write_per_minute: 2,
+            unknown_per_minute: 2,
+        },
+        Arc::new(Clock::default()),
+    )
+    .await?;
+    let session = app.token().await?;
+    let (id, key) = issue(&app, &session, "read").await?;
+    for _ in 0..2 {
+        let denied = app
+            .request("POST", "/v1/me/password", Value::Null, Some(&key), &[])
+            .await?;
+        assert_eq!(denied.json()["code"], "api_key_not_allowed");
+    }
+    for (method, path) in [("GET", "/v1/me"), ("HEAD", "/v1/status")] {
+        assert_eq!(
+            app.request(method, path, Value::Null, Some(&key), &[])
+                .await?
+                .status,
+            StatusCode::OK
+        );
+    }
+    let owner = app.fixture.owner().await?;
+    assert_eq!(audit_count(&owner, id).await?, 2);
+    sqlx::query("update api_keys set last_used_at=now()-interval '61 seconds' where id=$1")
+        .bind(id)
+        .execute(&owner)
+        .await?;
+    let last_used: DateTime<Utc> =
+        sqlx::query_scalar("select last_used_at from api_keys where id=$1")
+            .bind(id)
+            .fetch_one(&owner)
+            .await?;
+    let member_write = format!("/v1/spaces/{}/tools/create_tag", app.plan.space_id);
+    let foreign_read = format!("/v1/spaces/{}/tools/list_tags", Uuid::now_v7());
+    let invalid_read = format!("/v1/spaces/{}/tools/list_tags", app.plan.space_id);
+    // Any business lookup/transaction or error audit now blocks; a genuine
+    // admission rejection must finish without touching these tables.
+    let mut blocked = owner.begin().await?;
+    sqlx::query("lock table spaces,space_members,api_key_audit,idempotency,app_releases in access exclusive mode").execute(&mut *blocked).await?;
+    for (method, path) in [
+        ("POST", "/v1/me/password"),
+        ("POST", "/v1/spaces"),
+        ("POST", foreign_read.as_str()),
+        ("POST", member_write.as_str()),
+        ("POST", invalid_read.as_str()),
+        ("HEAD", "/v1/me"),
+        ("GET", "/v1/spaces"),
+    ] {
+        let reply = tokio::time::timeout(
+            Duration::from_millis(500),
+            app.request(
+                method,
+                path,
+                Value::Null,
+                Some(&key),
+                &[("x-jiabu-client", "android/0.1.0+1; channel=stable".into())],
+            ),
+        )
+        .await??;
+        assert_eq!(
+            reply.status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "{method} {path}"
+        );
+        assert_eq!(reply.headers["retry-after"], "30");
+    }
+    blocked.rollback().await?;
+    assert_eq!(audit_count(&owner, id).await?, 2);
+    let unchanged: DateTime<Utc> =
+        sqlx::query_scalar("select last_used_at from api_keys where id=$1")
+            .bind(id)
+            .fetch_one(&owner)
+            .await?;
+    assert_eq!(last_used, unchanged);
+    owner.close().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn key_and_session_replays_cannot_cross_membership_generations() -> Result<()> {
+    let app = TestApp::new(false).await?;
+    let session = app.token().await?;
+    let (_, key) = issue(&app, &session, "read_write").await?;
+    let owner = app.fixture.owner().await?;
+    let space = app
+        .fixture
+        .seed("epoch-space-owner", "unused")
+        .await?
+        .space_id
+        .0;
+    sqlx::query("update spaces set is_default=false where id=$1")
+        .bind(space)
+        .execute(&owner)
+        .await?;
+    let member: Uuid = sqlx::query_scalar("insert into space_members(space_id,user_id,display_name,role,status,joined_at,change_seq) values($1,$2,'示例成员','member','active',now(),nextval('change_seq')) returning id")
+        .bind(space).bind(app.plan.user_id.0).fetch_one(&owner).await?;
+    sqlx::query("insert into space_member_grants(member_id,module,level,change_seq) values($1,'ledger','write',nextval('change_seq'))").bind(member).execute(&owner).await?;
+    let path = format!("/v1/spaces/{space}/tools/create_tag");
+    for (index, token, is_key) in [(0, &key, true), (1, &session, false)] {
+        let epoch: i32 = sqlx::query_scalar("select join_epoch from space_members where id=$1")
+            .bind(member)
+            .fetch_one(&owner)
+            .await?;
+        let operation = format!("generation-{index}");
+        let args = json!({"name":format!("示例世代-{index}")});
+        let mut headers = Vec::from(idem(&operation));
+        if !is_key {
+            headers.push(("x-jiabu-join-epoch", epoch.to_string()));
+        }
+        let first = app
+            .request("POST", &path, args.clone(), Some(token), &headers)
+            .await?;
+        assert_eq!(first.status, StatusCode::OK);
+        let _: jiabu_domain::ledger::Tag = serde_json::from_value(first.json())?;
+        assert_eq!(
+            app.request("POST", &path, args.clone(), Some(token), &headers)
+                .await?
+                .json(),
+            first.json()
+        );
+        let stored = sqlx::query(
+            "select join_epoch,response_body from idempotency where user_id=$1 and key=$2",
+        )
+        .bind(app.plan.user_id.0)
+        .bind(&operation)
+        .fetch_one(&owner)
+        .await?;
+        assert_eq!(stored.try_get::<Option<i32>, _>("join_epoch")?, Some(epoch));
+        assert_eq!(stored.try_get::<Value, _>("response_body")?, first.json());
+        let leave = app
+            .request(
+                "POST",
+                &format!("/v1/spaces/{space}/leave"),
+                Value::Null,
+                Some(&session),
+                &[
+                    ("idempotency-key", format!("leave-generation-{index}")),
+                    ("x-jiabu-join-epoch", epoch.to_string()),
+                ],
+            )
+            .await?;
+        assert_eq!(leave.status, StatusCode::OK);
+        assert_eq!(
+            app.request("POST", &path, args.clone(), Some(token), &headers)
+                .await?
+                .status,
+            StatusCode::NOT_FOUND
+        );
+        sqlx::query("update space_members set status='active',join_epoch=join_epoch+1,left_at=null,left_reason=null,joined_at=now() where id=$1").bind(member).execute(&owner).await?;
+        if !is_key {
+            // Use the NEW header, so only the stored replay generation can reject it.
+            headers = vec![
+                ("idempotency-key", operation.clone()),
+                ("x-jiabu-join-epoch", (epoch + 1).to_string()),
+            ];
+        }
+        // API keys still omit the header here; they cannot recover the old result.
+        let replay = app
+            .request("POST", &path, args, Some(token), &headers)
+            .await?;
+        assert_eq!(replay.status, StatusCode::CONFLICT);
+        assert_eq!(replay.json()["code"], "membership_changed");
+        assert_ne!(replay.json(), first.json());
+        let events: i64 =
+            sqlx::query_scalar("select count(*) from entity_events where entity_id=$1")
+                .bind(Uuid::parse_str(first.json()["id"].as_str().unwrap())?)
+                .fetch_one(&owner)
+                .await?;
+        assert_eq!(events, 1);
+    }
+    owner.close().await;
+    Ok(())
+}
+
+// Exercise the real S4 integration primitives without adding any S4 HTTP route.
+async fn admitted_batch(
+    state: &AppState,
+    key: &str,
+) -> Result<(crate::Principal, crate::RequestAudit)> {
+    use axum::extract::FromRequestParts;
+    let audit = crate::RequestAudit::default();
+    let (mut parts, _) = Request::builder()
+        .method("POST")
+        .uri("/v1/test-batch-admission")
+        .header("authorization", format!("Bearer {key}"))
+        .body(Body::empty())?
+        .into_parts();
+    parts.extensions.insert(audit.clone());
+    let principal = crate::Principal::from_request_parts(&mut parts, state)
+        .await
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    Ok((principal, audit))
+}
+
+#[tokio::test]
+async fn push_helpers_charge_each_item_once_and_audit_only_admitted_items() -> Result<()> {
+    let mut app = TestApp::new(false).await?;
+    let state = configure_limits(
+        &mut app,
+        jiabu_tools::api_key::ApiKeyLimits {
+            read_per_minute: 3,
+            write_per_minute: 3,
+            unknown_per_minute: 3,
+        },
+        Arc::new(Clock::default()),
+    )
+    .await?;
+    let session = app.token().await?;
+    let (id, key) = issue(&app, &session, "read_write").await?;
+    let (principal, request) = admitted_batch(&state, &key).await?;
+    let op_id = Uuid::now_v7();
+    let ticket = request
+        .begin_push_item(
+            &state,
+            &principal,
+            Some(app.plan.space_id.0),
+            Some("create_tag"),
+            Some(op_id),
+        )
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    let mut ctx = jiabu_tools::ToolCtx::begin(
+        &state.db,
+        principal.clone(),
+        app.plan.space_id,
+        None,
+        Effect::LocalWrite,
+        jiabu_tools::Invocation {
+            idempotency_key: Some(Uuid::new_v5(
+                &principal.user_id.0,
+                op_id.to_string().as_bytes(),
+            )),
+            replay_key: Some(op_id.to_string()),
+            run_id: None,
+            request_id: Uuid::now_v7(),
+            now: Utc::now(),
+        },
+    )
+    .await?;
+    ticket
+        .attach(&mut ctx)
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    state
+        .tools
+        .invoke("create_tag", json!({"name":"示例批次标签"}), &ctx)
+        .await?;
+    ticket
+        .finish(&state, "ok")
+        .await
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+
+    let absent = Uuid::now_v7();
+    let ticket = request
+        .begin_push_item(
+            &state,
+            &principal,
+            Some(absent),
+            Some("list_tags"),
+            Some(Uuid::now_v7()),
+        )
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    let result = jiabu_tools::ToolCtx::begin(
+        &state.db,
+        principal.clone(),
+        jiabu_domain::SpaceId(absent),
+        None,
+        Effect::Read,
+        jiabu_tools::Invocation {
+            idempotency_key: None,
+            replay_key: None,
+            run_id: None,
+            request_id: Uuid::now_v7(),
+            now: Utc::now(),
+        },
+    )
+    .await;
+    let error = result
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("nonmember admitted"))?;
+    assert_eq!(error.code, "not_found");
+    ticket
+        .finish(&state, error.code)
+        .await
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+
+    // Missing/invalid metadata must still cost an item and receive safe audit.
+    let ticket = request
+        .begin_push_item(&state, &principal, None, None, None)
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    ticket
+        .finish(&state, "validation_failed")
+        .await
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    let error = request
+        .begin_push_item(&state, &principal, None, None, None)
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("fourth item bypassed quota"))?;
+    assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(error.retry_after, Some(20));
+    // A 200 batch containing per-item errors must not append a generic batch row.
+    request
+        .finish(&state, "ok")
+        .await
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    let owner = app.fixture.owner().await?;
+    let operations: Vec<String> =
+        sqlx::query_scalar("select operation from api_key_audit where api_key_id=$1 order by id")
+            .bind(id)
+            .fetch_all(&owner)
+            .await?;
+    assert_eq!(
+        operations,
+        vec!["push:create_tag", "push:list_tags", "push:unknown"]
+    );
+    let outcomes: Vec<String> =
+        sqlx::query_scalar("select outcome from api_key_audit where api_key_id=$1 order by id")
+            .bind(id)
+            .fetch_all(&owner)
+            .await?;
+    assert_eq!(outcomes, vec!["ok", "not_found", "validation_failed"]);
+    let request_ids: i64 = sqlx::query_scalar(
+        "select count(distinct request_id) from api_key_audit where api_key_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&owner)
+    .await?;
+    assert_eq!(request_ids, 1);
+
+    // Push must require read_write even when the chosen tool is read-only.
+    let (readonly_id, readonly_key) = issue(&app, &session, "read").await?;
+    let (readonly, request) = admitted_batch(&state, &readonly_key).await?;
+    let ticket = request
+        .begin_push_item(
+            &state,
+            &readonly,
+            Some(app.plan.space_id.0),
+            Some("list_tags"),
+            Some(Uuid::now_v7()),
+        )
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    let mut ctx = jiabu_tools::ToolCtx::begin(
+        &state.db,
+        readonly,
+        app.plan.space_id,
+        None,
+        Effect::Read,
+        jiabu_tools::Invocation {
+            idempotency_key: None,
+            replay_key: None,
+            run_id: None,
+            request_id: Uuid::now_v7(),
+            now: Utc::now(),
+        },
+    )
+    .await?;
+    let error = ticket
+        .attach(&mut ctx)
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("readonly key admitted into push"))?;
+    assert_eq!(error.code, "api_key_read_only");
+    drop(ctx); // Release the preflight transaction before independent error audit.
+    ticket
+        .finish(&state, error.code)
+        .await
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    request
+        .finish(&state, error.code)
+        .await
+        .map_err(|error| anyhow::anyhow!(error.code))?;
+    assert_eq!(audit_count(&owner, readonly_id).await?, 1);
+    owner.close().await;
     Ok(())
 }

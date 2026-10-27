@@ -68,14 +68,17 @@ async fn context(State(state): State<AppState>, mut request: Request, next: Next
             id,
             async move {
                 let start = std::time::Instant::now();
-                let handshake_result = handshake(
-                    &state,
-                    request.headers().clone(),
-                    request.uri().path().to_owned(),
-                )
-                .await;
+                let (mut parts, body) = request.into_parts();
+                let handshake_result = match crate::principal::prepare_api_key(&mut parts, &state)
+                    .await
+                {
+                    Ok(()) => {
+                        handshake(&state, parts.headers.clone(), parts.uri.path().to_owned()).await
+                    }
+                    Err(error) => Err(error),
+                };
                 let mut response = match handshake_result {
-                    Ok(()) => next.run(request).await,
+                    Ok(()) => next.run(Request::from_parts(parts, body)).await,
                     Err(error) => error.into_response(),
                 };
                 // Turn framework-level body limit rejections into the same error contract.
@@ -87,19 +90,23 @@ async fn context(State(state): State<AppState>, mut request: Request, next: Next
                     response = ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "unavailable")
                         .into_response();
                 }
-                let outcome = response
-                    .extensions()
-                    .get::<api_key_audit::ErrorCode>()
-                    .map_or_else(
-                        || {
-                            if response.status().is_success() {
-                                "ok"
-                            } else {
-                                "invalid"
-                            }
-                        },
-                        |code| code.0,
-                    );
+                let outcome = if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                    "rate_limited"
+                } else {
+                    response
+                        .extensions()
+                        .get::<api_key_audit::ErrorCode>()
+                        .map_or_else(
+                            || {
+                                if response.status().is_success() {
+                                    "ok"
+                                } else {
+                                    "invalid"
+                                }
+                            },
+                            |code| code.0,
+                        )
+                };
                 if let Err(error) = audit.finish(&state, outcome).await {
                     response = error.into_response();
                 }

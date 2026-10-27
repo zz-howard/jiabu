@@ -28,8 +28,6 @@ impl AppDb {
             "select k.id key_id,k.name,k.scope,u.id,u.username,u.locale from api_keys k join users u on u.id=k.user_id where k.token_hash=$1 and k.revoked_at is null and (k.expires_at is null or k.expires_at>now()) and u.disabled_at is null",
             [digest.into()])).await?.ok_or(AuthError::Unauthenticated)?;
         let id: Uuid = row.try_get("", "key_id")?;
-        self.connection.execute_raw(Statement::from_sql_and_values(DbBackend::Postgres,
-            "update api_keys set last_used_at=now() where id=$1 and (last_used_at is null or last_used_at<=now()-interval '60 seconds')", [id.into()])).await?;
         let user = User {
             id: row.try_get("", "id")?,
             username: row.try_get("", "username")?,
@@ -44,6 +42,12 @@ impl AppDb {
                 scope: row.try_get("", "scope")?,
             },
         })
+    }
+    /// Only after request admission: throttled requests must not perform writes.
+    pub async fn touch_api_key(&self, id: Uuid) -> Result<(), Error> {
+        self.connection.execute_raw(Statement::from_sql_and_values(DbBackend::Postgres,
+            "update api_keys set last_used_at=now() where id=$1 and (last_used_at is null or last_used_at<=now()-interval '60 seconds')", [id.into()])).await?;
+        Ok(())
     }
     pub async fn api_keys(&self, user: UserId) -> Result<Value, Error> {
         let rows = self

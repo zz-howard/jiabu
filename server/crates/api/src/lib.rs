@@ -12,6 +12,7 @@ mod state;
 mod tool_openapi;
 use axum::Router;
 pub use error::{ApiError, Problem};
+pub use middleware::api_key_audit::{PushItemAudit, RequestAudit};
 pub use principal::{AccountSession, Principal, SessionOnly, Via};
 pub use route_catalog::{RouteSpec, route_catalog};
 pub use state::AppState;

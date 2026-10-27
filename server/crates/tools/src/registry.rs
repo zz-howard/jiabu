@@ -56,6 +56,7 @@ impl ToolRegistry {
             "unknown"
         };
         if let Err(error) = &result
+            && error.status != 429
             && let Some(audit) = ctx.key_audit(operation, error.code)
         {
             ctx.db.append_api_key_audit(&audit).await?;
@@ -126,9 +127,8 @@ impl ToolRegistry {
         }
         // 4. Authorization always precedes replay. No handler repeats this decision.
         authorize(member, tool.module(), tool.action()).map_err(|_| ToolError::not_found())?;
-        if let Some(id) = key_id {
-            self.api_keys.check(id, tool.effect() != Effect::Read)?;
-        }
+        // HTTP admission already charged once, before entering any tool transaction.
+        // Batch callers must use the shared request budget for each item.
         // 5. Replay, business validation, write + append-only audit, response, commit.
         let operation = if tool.effect() == Effect::LocalWrite {
             let id = ctx
@@ -181,9 +181,6 @@ impl ToolRegistry {
         let member = tx.member(ctx.bound_space);
         if ctx.space_id != ctx.bound_space || member.user_id() != ctx.principal.user_id {
             return Err(ToolError::not_found());
-        }
-        if let Via::ApiKey { id, .. } = &ctx.principal.via {
-            self.api_keys.check(*id, false)?;
         }
         let tools:Vec<Value>=self.tools().filter(|tool|tool.exposure()!=Exposure::AgentOnly && (tool.effect()==Effect::Read || ctx.principal.require_read_write().is_ok()) && authorize(member,tool.module(),tool.action()).is_ok()).map(|tool|json!({"name":tool.name(),"description":tool.description(),"effect":tool.effect(),"parameters":tool.parameters(),"output_schema":tool.output_schema(),"schema_version":tool.schema_version()})).collect();
         tx.commit().await?;

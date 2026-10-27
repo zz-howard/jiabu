@@ -36,6 +36,8 @@ pub struct ToolCtx {
     pub(crate) replay_key: Option<String>,
     pub(crate) tx: Mutex<Option<SpaceTx>>,
     pub audit_completed: Arc<AtomicBool>,
+    /// Trusted entry-point operation (e.g. push:create_tag), never tool arguments.
+    pub api_key_operation: Option<String>,
 }
 impl ToolCtx {
     pub async fn begin(
@@ -75,6 +77,7 @@ impl ToolCtx {
             replay_key: invocation.replay_key,
             tx: Mutex::new(Some(tx)),
             audit_completed: Arc::new(AtomicBool::new(false)),
+            api_key_operation: None,
         })
     }
     pub(crate) fn key_audit(
@@ -89,7 +92,10 @@ impl ToolCtx {
             key_id: *id,
             user_id: self.principal.user_id.0,
             space_id: Some(self.bound_space.0),
-            operation: format!("tool:{name}"),
+            operation: self
+                .api_key_operation
+                .clone()
+                .unwrap_or_else(|| format!("tool:{name}")),
             effect: if self.bound_effect == Effect::Read {
                 "read"
             } else {

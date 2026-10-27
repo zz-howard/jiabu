@@ -215,7 +215,8 @@ fn every_space_route_is_registered_and_catalog_matches_router_document() -> Resu
 }
 #[tokio::test]
 async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
-    let app = TestApp::new(false).await?;
+    let mut app = TestApp::new(false).await?;
+    api_keys::high_limits(&mut app).await?;
     let token = app.token().await?;
     let nonmember = app.fixture.seed("nonmember", "unused").await?;
     let exited = app.fixture.seed("exited", "unused").await?;
