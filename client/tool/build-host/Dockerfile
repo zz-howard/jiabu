@@ -17,7 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libstdc++6 python3 unzip xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-ENV JIABU_TOOLS_DIR=/opt/jiabu/dev-tools
+ENV JIABU_TOOLS_DIR=/opt/jiabu/dev-tools \
+    GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0=safe.directory \
+    GIT_CONFIG_VALUE_0=/opt/jiabu/dev-tools/flutter/3.47.8
 COPY client/tool/build-host/setup.sh /opt/jiabu/setup.sh
 RUN bash /opt/jiabu/setup.sh \
     && . /opt/jiabu/dev-tools/jiabu-client-env.sh \
