@@ -1,0 +1,89 @@
+{
+  "@@locale": "zh",
+  "catalogTitle": "组件目录",
+  "catalogCategory": "{category}",
+  "@catalogCategory": {
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  "catalogCaseLabel": "{component} · {state}",
+  "@catalogCaseLabel": {
+    "placeholders": {
+      "component": {
+        "type": "String"
+      },
+      "state": {
+        "type": "String"
+      }
+    }
+  },
+  "catalogSampleTitle": "午饭",
+  "catalogSampleBody": "这是一条虚构的记账示例。",
+  "catalogLongBody": "周末去超市买了一些水果和日用品，还买了新书。所有金额与记录均为虚构示例。",
+  "catalogAction": "撤回",
+  "catalogOpenSheet": "打开纸面弹层",
+  "catalogSnackMessage": "已撤销",
+  "catalogRecorded": "✓ 已记录",
+  "catalogRevoked": "已撤销 · 余额已恢复",
+  "catalogAmountLabel": "支出 1842 元 60 分",
+  "catalogNavigationLabel": "总览",
+  "handSubtitle": "这个月的小账本",
+  "handOriginalSaved": "原图已保存",
+  "handCarryOver": "没花完的钱会一直留在各自账户里，按月结转。",
+  "handPersonalSpaceOnly": "这里只有你能看到",
+  "handNoResults": "没有找到符合条件的记录",
+  "handToday": "今天",
+  "handYesterday": "昨天",
+  "handTodayTime": "今天 {time}",
+  "@handTodayTime": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "handCalendarDate": "{month}月{day}日 周{weekday}",
+  "@handCalendarDate": {
+    "placeholders": {
+      "month": {
+        "type": "int"
+      },
+      "day": {
+        "type": "int"
+      },
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "handEnglish": "My Home Diary · Oct. 24 · Sat",
+  "handVision": "视力 4.9",
+  "handWeekdaySaturday": "六",
+  "catalogAmountDescription": "金额 {yuan} 元 {fen} 分",
+  "@catalogAmountDescription": {
+    "placeholders": {
+      "yuan": {
+        "type": "int"
+      },
+      "fen": {
+        "type": "int"
+      }
+    }
+  },
+  "catalogExpenseDescription": "支出 {yuan} 元 {fen} 分",
+  "@catalogExpenseDescription": {
+    "placeholders": {
+      "yuan": {
+        "type": "int"
+      },
+      "fen": {
+        "type": "int"
+      }
+    }
+  },
+  "handE4Amount": "¥1,842.60",
+  "handE4Negative": "−¥180.00"
+}

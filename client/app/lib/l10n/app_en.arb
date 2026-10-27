@@ -1,0 +1,89 @@
+{
+  "@@locale": "en",
+  "catalogTitle": "Component catalog",
+  "catalogCategory": "{category}",
+  "@catalogCategory": {
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  "catalogCaseLabel": "{component} · {state}",
+  "@catalogCaseLabel": {
+    "placeholders": {
+      "component": {
+        "type": "String"
+      },
+      "state": {
+        "type": "String"
+      }
+    }
+  },
+  "catalogSampleTitle": "Lunch",
+  "catalogSampleBody": "This is a fictional diary entry.",
+  "catalogLongBody": "We bought fruit, household supplies and a new book. All amounts and entries are fictional examples.",
+  "catalogAction": "Undo",
+  "catalogOpenSheet": "Open paper sheet",
+  "catalogSnackMessage": "Entry undone",
+  "catalogRecorded": "✓ Recorded",
+  "catalogRevoked": "Undone · Balance restored",
+  "catalogAmountLabel": "Expense: 1842 yuan and 60 fen",
+  "catalogNavigationLabel": "Overview",
+  "handSubtitle": "This month’s diary",
+  "handOriginalSaved": "Original saved",
+  "handCarryOver": "Unspent money stays in each account and rolls over each month.",
+  "handPersonalSpaceOnly": "Only you can see this space",
+  "handNoResults": "No matching entries",
+  "handToday": "Today",
+  "handYesterday": "Yesterday",
+  "handTodayTime": "Today {time}",
+  "@handTodayTime": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "handCalendarDate": "{month}/{day} · {weekday}",
+  "@handCalendarDate": {
+    "placeholders": {
+      "month": {
+        "type": "int"
+      },
+      "day": {
+        "type": "int"
+      },
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "handEnglish": "My Home Diary · Oct. 24 · Sat",
+  "handVision": "Vision 4.9",
+  "handWeekdaySaturday": "Sat",
+  "catalogAmountDescription": "Amount: {yuan} yuan and {fen} fen",
+  "@catalogAmountDescription": {
+    "placeholders": {
+      "yuan": {
+        "type": "int"
+      },
+      "fen": {
+        "type": "int"
+      }
+    }
+  },
+  "catalogExpenseDescription": "Expense: {yuan} yuan and {fen} fen",
+  "@catalogExpenseDescription": {
+    "placeholders": {
+      "yuan": {
+        "type": "int"
+      },
+      "fen": {
+        "type": "int"
+      }
+    }
+  },
+  "handE4Amount": "¥1,842.60",
+  "handE4Negative": "−¥180.00"
+}

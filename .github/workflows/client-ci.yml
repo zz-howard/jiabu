@@ -50,6 +50,8 @@ jobs:
         run: flutter analyze --fatal-infos
       - name: Project rules
         run: dart run tool/check_rules.dart
+      - name: Generated icon consistency
+        run: dart run tool/icons/gen_icons.dart --check
       - name: Workspace tool tests
         run: flutter test
       - name: App tests including goldens
@@ -58,3 +60,10 @@ jobs:
       - name: Design package tests
         working-directory: client/packages/jiabu_design
         run: flutter test
+      - name: Upload golden differences on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-golden-failures
+          path: client/**/failures/**
+          if-no-files-found: ignore

@@ -1,0 +1,69 @@
+{
+  "sources": [
+    {
+      "id": "zh-hand",
+      "file": "app/lib/l10n/app_zh.arb",
+      "format": "json",
+      "keyPrefix": "hand",
+      "targets": [
+        "hand",
+        "serif"
+      ]
+    },
+    {
+      "id": "zh-all",
+      "file": "app/lib/l10n/app_zh.arb",
+      "format": "json",
+      "keyPrefix": "",
+      "targets": [
+        "serif"
+      ]
+    },
+    {
+      "id": "en-hand",
+      "file": "app/lib/l10n/app_en.arb",
+      "format": "json",
+      "keyPrefix": "hand",
+      "targets": [
+        "hand",
+        "serif"
+      ]
+    },
+    {
+      "id": "en-all",
+      "file": "app/lib/l10n/app_en.arb",
+      "format": "json",
+      "keyPrefix": "",
+      "targets": [
+        "serif"
+      ]
+    },
+    {
+      "id": "common_words",
+      "file": "tool/fonts/common_words.txt",
+      "format": "text",
+      "targets": [
+        "hand",
+        "serif"
+      ]
+    },
+    {
+      "id": "date_chars",
+      "file": "tool/fonts/date_chars.txt",
+      "format": "text",
+      "targets": [
+        "hand",
+        "serif"
+      ]
+    },
+    {
+      "id": "punctuation",
+      "file": "tool/fonts/punctuation.txt",
+      "format": "text",
+      "targets": [
+        "hand",
+        "serif"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "",
+    "amp": 1,
+    "degrees": 0.0
+  },
+  {
+    "id": "0",
+    "amp": 1,
+    "degrees": -0.9
+  },
+  {
+    "id": "1",
+    "amp": 1,
+    "degrees": -0.45
+  },
+  {
+    "id": "record-001",
+    "amp": 1,
+    "degrees": 0.45
+  },
+  {
+    "id": "record-002",
+    "amp": 1,
+    "degrees": 0.9
+  },
+  {
+    "id": "家簿",
+    "amp": 1,
+    "degrees": -0.45
+  },
+  {
+    "id": "消息📝",
+    "amp": 0.8,
+    "degrees": 0.0
+  },
+  {
+    "id": "😀",
+    "amp": 1,
+    "degrees": 0.45
+  },
+  {
+    "id": "same",
+    "amp": 0.8,
+    "degrees": -0.7200000000000001
+  },
+  {
+    "id": "same",
+    "amp": 0,
+    "degrees": -0.0
+  },
+  {
+    "id": "same",
+    "amp": 2,
+    "degrees": -1.8
+  }
+]

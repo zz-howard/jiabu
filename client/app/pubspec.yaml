@@ -8,9 +8,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   flutter_riverpod: ^3.4.3
+  intl: any
   jiabu_design:
     path: ../packages/jiabu_design
 dev_dependencies:
+  crypto: ^3.0.8
   flutter_test:
     sdk: flutter
+flutter:
+  generate: true
