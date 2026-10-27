@@ -28,6 +28,7 @@ pub struct ApiError {
     pub code: &'static str,
     pub retry_after: Option<u64>,
     pub current: Option<serde_json::Value>,
+    pub errors: Option<Vec<ValidationIssue>>,
 }
 impl ApiError {
     pub fn new(status: StatusCode, code: &'static str) -> Self {
@@ -36,6 +37,7 @@ impl ApiError {
             code,
             retry_after: None,
             current: None,
+            errors: None,
         }
     }
     pub fn bad_request() -> Self {
@@ -63,11 +65,13 @@ impl IntoResponse for ApiError {
             code: self.code.into(),
             request_id: crate::middleware::request_id(),
             current: self.current,
-            errors: (self.code == "validation_failed").then(|| {
-                vec![ValidationIssue {
-                    pointer: "/".into(),
-                    rule: "invalid".into(),
-                }]
+            errors: self.errors.or_else(|| {
+                (self.code == "validation_failed").then(|| {
+                    vec![ValidationIssue {
+                        pointer: "/".into(),
+                        rule: "invalid".into(),
+                    }]
+                })
             }),
         };
         let mut response = (self.status, Json(problem)).into_response();
@@ -119,6 +123,15 @@ impl From<jiabu_db::spaces::Error> for ApiError {
             error.code,
         );
         result.current = error.current;
+        result.errors = error.errors.map(|issues| {
+            issues
+                .into_iter()
+                .map(|issue| ValidationIssue {
+                    pointer: issue.pointer,
+                    rule: issue.rule,
+                })
+                .collect()
+        });
         result
     }
 }

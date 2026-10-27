@@ -17,6 +17,8 @@ allow = [
     "Zlib",
     "OpenSSL",
     "CC0-1.0",
+    # borrow-or-share (via jsonschema -> referencing -> fluent-uri); MIT without the attribution clause.
+    "MIT-0",
     # webpki-roots (Mozilla CA bundle data), pulled in by sqlx/sea-orm rustls.
     "CDLA-Permissive-2.0",
 ]

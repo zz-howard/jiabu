@@ -71,9 +71,9 @@ for path in sorted((root / "crates/api/src").rglob("*.rs")):
         continue
     text = path.read_text()
     for match in route_mount.finditer(text):
-        if path.name == "route_catalog.rs" and re.match(
-                r"\.routes\s*\(\s*routes!\s*\(\s*\$handler\s*\)\s*\)",
-                text[match.start():]):
+        if path.name == "route_catalog.rs" and (
+                re.match(r"\.routes\s*\(\s*routes!\s*\(\s*\$handler\s*\)\s*\)", text[match.start():])
+                or re.match(r"\.route\s*\(\s*&path,\s*axum::routing::post\(tools::invoke\)", text[match.start():])):
             continue
         violations.append((path, text.count("\n", 0, match.start()) + 1,
                            "Mount routes only in route_catalog.rs"))

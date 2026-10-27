@@ -1,7 +1,7 @@
 //! Transactional response replay. Call only after the operation's current authorization.
 use crate::{
     SpaceTx,
-    spaces::{Error, Reply},
+    operation::{Error, Reply},
 };
 use jiabu_domain::UserId;
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
