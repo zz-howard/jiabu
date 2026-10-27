@@ -15,6 +15,7 @@ dependencies:
   jiabu_design:
     path: ../packages/jiabu_design
 dev_dependencies:
+  crypto: ^3.0.8
   flutter_test:
     sdk: flutter
 flutter:

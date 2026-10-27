@@ -16,6 +16,7 @@ void main() {
         testWidgets(name, (tester) async {
           await pumpCatalogCase(tester, sample, width: width, scale: scale);
           expect(tester.takeException(), isNull);
+          expectCatalogFits(tester, name);
           await expectLater(
             find.byKey(catalogBoundary),
             matchesGoldenFile('goldens/catalog/$name.png'),

@@ -22,6 +22,10 @@ void main() {
             );
             expect(tester.takeException(), isNull);
             _expectRegisteredFonts(tester, sample.id);
+            expectCatalogFits(
+              tester,
+              '${locale.languageCode} ${sample.id} $width $scale',
+            );
           });
         }
       }

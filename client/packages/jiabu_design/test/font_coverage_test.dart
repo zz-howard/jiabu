@@ -1,12 +1,34 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/font_sources.dart';
 import 'support/sfnt_cmap.dart';
 
 void main() {
+  test('committed fonts match subset_manifest.json byte for byte', () {
+    final manifest = jsonDecode(
+      File('assets/fonts/subset_manifest.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final fonts = manifest['fonts'] as Map<String, dynamic>;
+    expect(fonts.keys.toSet(), {
+      'jiabu_hand.ttf',
+      'jiabu_numerals.ttf',
+      'jiabu_serif.otf',
+    });
+    for (final entry in fonts.entries) {
+      final expected = entry.value as Map<String, dynamic>;
+      final bytes = File('assets/fonts/${entry.key}').readAsBytesSync();
+      expect(bytes.length, expected['bytes'], reason: entry.key);
+      expect(
+        sha256.convert(bytes).toString(),
+        expected['sha256'],
+        reason: '${entry.key} differs from the manifest; rerun subset.py',
+      );
+    }
+  });
   test('every declared source is covered; Caveat never contains Han', () {
     final root = Directory('../..');
     final sources = readFontSources(root);
