@@ -24,6 +24,11 @@ pub struct SpaceTx {
     members: Vec<ActiveMember>,
     locked: bool,
     #[cfg(test)]
+    pub(crate) sync_gate: Option<(
+        std::sync::Arc<tokio::sync::Notify>,
+        std::sync::Arc<tokio::sync::Notify>,
+    )>,
+    #[cfg(test)]
     pub(crate) refund_gate: Option<(
         std::sync::Arc<tokio::sync::Notify>,
         std::sync::Arc<tokio::sync::Notify>,
@@ -36,6 +41,23 @@ impl SpaceTx {
         spaces: &[(SpaceId, Option<JoinEpoch>)],
         mode: Mode,
     ) -> Result<Self, BeginError> {
+        Self::begin_inner(db, user, spaces, mode, false).await
+    }
+    /// Membership, grants and every table query share this read-only snapshot.
+    pub async fn begin_snapshot(
+        db: &AppDb,
+        user: UserId,
+        space: SpaceId,
+    ) -> Result<Self, BeginError> {
+        Self::begin_inner(db, user, &[(space, None)], Mode::Read, true).await
+    }
+    async fn begin_inner(
+        db: &AppDb,
+        user: UserId,
+        spaces: &[(SpaceId, Option<JoinEpoch>)],
+        mode: Mode,
+        snapshot: bool,
+    ) -> Result<Self, BeginError> {
         if spaces.is_empty() || (mode == Mode::Write && spaces.len() != 1) {
             return Err(BeginError::InvalidScope);
         }
@@ -44,6 +66,14 @@ impl SpaceTx {
             return Err(BeginError::InvalidScope);
         }
         let tx = db.connection.begin().await?;
+        if snapshot {
+            // Must be the first statement, before membership establishes a snapshot.
+            tx.execute_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "set transaction isolation level repeatable read, read only".to_owned(),
+            ))
+            .await?;
+        }
         if mode == Mode::Write {
             tx.execute_raw(Statement::from_sql_and_values(
                 DbBackend::Postgres,
@@ -98,6 +128,8 @@ impl SpaceTx {
             locked: mode == Mode::Write,
             #[cfg(test)]
             refund_gate: None,
+            #[cfg(test)]
+            sync_gate: None,
         })
     }
     /// Private bootstrap context: only the checked creation/invitation services use it.
@@ -116,6 +148,8 @@ impl SpaceTx {
             locked: true,
             #[cfg(test)]
             refund_gate: None,
+            #[cfg(test)]
+            sync_gate: None,
         })
     }
     pub(crate) async fn allow_bootstrap_space(&self, space: SpaceId) -> Result<(), DbErr> {

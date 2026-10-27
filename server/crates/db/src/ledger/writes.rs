@@ -397,11 +397,7 @@ impl SpaceTx {
             {
                 return Err(Error::invalid());
             }
-            let exists = optional(&self.tx, "select to_jsonb(b) data from blob_refs b where space_id=$1 and sha256=decode($2,'hex') and (module='ledger' or (module='chat' and uploaded_by_member_id=$3)) limit 1",
-                vec![space.0.into(), sha.into(), self.member(space).id().0.into()]).await?;
-            if exists.is_none() {
-                return Err(Error::new(422, "blob_missing"));
-            }
+            self.ledger_blob_ref(space, &sha).await?;
         }
         Ok(())
     }
@@ -570,6 +566,7 @@ impl SpaceTx {
                     current: Some(value.clone()),
                     errors: None,
                     retry_after: None,
+                    space_unavailable: false,
                 });
             }
             (None, Some(_)) => return Err(Error::not_found()),

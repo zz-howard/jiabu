@@ -101,7 +101,13 @@ impl FromRequestParts<AppState> for Principal {
             if let Via::ApiKey { id, .. } = &principal.via {
                 tracing::Span::current().record("api_key_id", id.to_string());
             }
+            let pull = parts.method == Method::POST
+                && parts
+                    .extensions
+                    .get::<axum::extract::MatchedPath>()
+                    .is_some_and(|path| path.as_str() == "/v1/sync/pull");
             let writing = !matches!(parts.method, Method::GET | Method::HEAD)
+                && !pull
                 && !(parts.method == Method::POST
                     && request_tool(parts, state)
                         .is_some_and(|tool| tool.effect() == jiabu_tools::Effect::Read));

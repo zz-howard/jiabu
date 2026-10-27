@@ -87,6 +87,9 @@ impl TestDb {
         jiabu_db_admin::migrations::migrate(&fixture.owner_url).await?;
         Ok(fixture)
     }
+    pub fn data_dir(&self) -> std::path::PathBuf {
+        std::env::temp_dir().join(&self.name)
+    }
     pub async fn owner(&self) -> Result<PgPool> {
         Ok(PgPool::connect(&self.owner_url).await?)
     }
@@ -123,6 +126,7 @@ pub fn plan(username: &str) -> SpaceInit {
 }
 impl Drop for TestDb {
     fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(self.data_dir());
         let url = self.root_url.clone();
         let name = self.name.clone();
         // A separate runtime makes cleanup work even while the test runtime unwinds.

@@ -21,3 +21,4 @@ tokio.workspace = true
 anyhow.workspace = true
 sqlx.workspace = true
 jiabu-db-admin.workspace = true
+schemars.workspace = true

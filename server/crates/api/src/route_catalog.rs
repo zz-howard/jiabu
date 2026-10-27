@@ -1,6 +1,8 @@
 use crate::{
     AppState,
-    handlers::{api_keys, auth, client_logs, invitations, me, meta, spaces, status, tools},
+    handlers::{
+        api_keys, auth, blobs, client_logs, invitations, me, meta, spaces, status, sync, tools,
+    },
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,6 +33,10 @@ fn build() -> (
             router = router.routes(routes!($handler));
         }};
     }
+    mount!("POST", "/v1/sync/push", sync::push);
+    mount!("POST", "/v1/sync/pull", sync::pull);
+    mount!("PUT", "/v1/spaces/{space_id}/blobs/{sha256}", blobs::upload);
+    mount!("GET", "/v1/spaces/{space_id}/blobs/{sha256}", blobs::get);
     mount!("GET", "/v1/status", status::get);
     mount!("GET", "/v1/spaces/{space_id}/tools", tools::list);
     mount!("GET", "/v1/meta", meta::meta);
@@ -129,4 +135,16 @@ pub(crate) fn documented_router() -> (axum::Router<AppState>, utoipa::openapi::O
 }
 pub fn route_catalog() -> Vec<RouteSpec> {
     build().2
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn documented_router_openapi_round_trips() -> Result<(), serde_json::Error> {
+        let (_, document) = super::documented_router();
+        let encoded = serde_json::to_value(&document)?;
+        let decoded: utoipa::openapi::OpenApi = serde_json::from_value(encoded.clone())?;
+        assert_eq!(serde_json::to_value(decoded)?, encoded);
+        Ok(())
+    }
 }

@@ -4,6 +4,13 @@ use tokio::sync::Notify;
 
 /// Direct test entry point, also used by startup recovery and the notification loop.
 pub(crate) async fn purge_deleted_spaces_once(db: &AppDb) -> Result<(), DbErr> {
+    purge_deleted_spaces_with_clock(db, &jiabu_db::ledger::SystemClock).await
+}
+pub(crate) async fn purge_deleted_spaces_with_clock(
+    db: &AppDb,
+    clock: &dyn jiabu_db::ledger::Clock,
+) -> Result<(), DbErr> {
+    let now = clock.now();
     let scan = SystemTx::begin(db).await?;
     let spaces = scan.spaces_to_purge().await?;
     scan.commit().await?;
@@ -11,6 +18,7 @@ pub(crate) async fn purge_deleted_spaces_once(db: &AppDb) -> Result<(), DbErr> {
     for space in spaces {
         let result = async {
             let mut tx = SystemTx::begin(db).await?;
+            tx.set_now(now).await?;
             tx.purge_space(space).await?;
             tx.commit().await
         }

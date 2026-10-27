@@ -29,6 +29,16 @@ pub enum Entity {
     Record,
 }
 impl Entity {
+    /// Use the same domain serialization as successful tool results and reads.
+    pub(crate) fn serialize(self, value: Value) -> Result<Value, Error> {
+        use jiabu_domain::ledger::{Account, AllocationPlan, Record, Tag};
+        match self {
+            Self::Account => encode(decode::<Account>(value)?),
+            Self::Plan => encode(decode::<AllocationPlan>(value)?),
+            Self::Tag => encode(decode::<Tag>(value)?),
+            Self::Record => encode(decode::<Record>(value)?),
+        }
+    }
     fn table(self) -> &'static str {
         match self {
             Self::Account => "accounts",
@@ -94,7 +104,9 @@ async fn snapshot(
         ),
         vec![space.0.into(), id.into()],
     )
-    .await
+    .await?
+    .map(|value| entity.serialize(value))
+    .transpose()
 }
 fn version(value: &Value, expected: i32) -> Result<(), Error> {
     if value["version"].as_i64() != Some(i64::from(expected)) {
@@ -104,6 +116,7 @@ fn version(value: &Value, expected: i32) -> Result<(), Error> {
             current: Some(value.clone()),
             errors: None,
             retry_after: None,
+            space_unavailable: false,
         });
     }
     Ok(())

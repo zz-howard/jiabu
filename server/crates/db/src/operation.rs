@@ -14,6 +14,8 @@ pub struct Error {
     pub current: Option<Value>,
     pub errors: Option<Vec<ValidationIssue>>,
     pub retry_after: Option<u64>,
+    /// Internal provenance only; never serialized into an HTTP problem.
+    pub space_unavailable: bool,
 }
 impl Error {
     pub fn new(status: u16, code: &'static str) -> Self {
@@ -23,6 +25,7 @@ impl Error {
             current: None,
             errors: None,
             retry_after: None,
+            space_unavailable: false,
         }
     }
     pub fn not_found() -> Self {
@@ -41,6 +44,7 @@ impl Error {
             current: Some(current),
             errors: None,
             retry_after: None,
+            space_unavailable: false,
         }
     }
 }
@@ -52,7 +56,11 @@ impl From<DbErr> for Error {
 impl From<BeginError> for Error {
     fn from(error: BeginError) -> Self {
         match error {
-            BeginError::NotFound => Self::not_found(),
+            BeginError::NotFound => {
+                let mut error = Self::not_found();
+                error.space_unavailable = true;
+                error
+            }
             BeginError::MembershipChanged => Self::new(409, "membership_changed"),
             BeginError::InvalidScope => Self::new(400, "bad_request"),
             BeginError::Database(_) => Self::internal(),

@@ -1,6 +1,16 @@
 listen_addr = "127.0.0.1:8080"
 migrate_on_start = false
 # Database credentials come only from JIABU_DATABASE_URL / JIABU_OWNER_DATABASE_URL.
+data_dir = "data"
+
+[blobs]
+max_upload_bytes = 20971520
+max_pixels = 24000000
+max_dimension = 12000
+max_decode_bytes = 134217728
+concurrency = 2
+max_in_flight_uploads = 8
+transfer_timeout_secs = 600
 
 [api_keys]
 read_per_minute = 60
