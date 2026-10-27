@@ -6,6 +6,7 @@ mod handlers;
 mod middleware;
 mod principal;
 mod route_catalog;
+mod services;
 mod state;
 use axum::Router;
 pub use error::{ApiError, Problem};

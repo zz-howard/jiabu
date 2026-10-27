@@ -1,55 +1,23 @@
 #[path = "../../../tests/support/mod.rs"]
 mod support;
-use crate::{ApiError, AppState, Principal};
+use crate::AppState;
 use anyhow::{Result, ensure};
 use axum::{
-    Json, Router,
+    Router,
     body::{Body, to_bytes},
-    extract::{ConnectInfo, Path, State},
+    extract::ConnectInfo,
     http::{HeaderMap, Request, StatusCode},
 };
 use jiabu_db::{AppDb, Mode, SpaceTx};
-use jiabu_domain::{JoinEpoch, SpaceId};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-#[utoipa::path(get,path="/v1/spaces/{space_id}/probe",params(("space_id"=Uuid,Path)),responses((status=200,description="Test-only scope probe")))]
-pub(crate) async fn probe(
-    State(state): State<AppState>,
-    principal: Principal,
-    Path(id): Path<Uuid>,
-    headers: HeaderMap,
-) -> Result<Json<Value>, ApiError> {
-    let epoch = headers
-        .get("x-jiabu-join-epoch")
-        .map(|h| {
-            h.to_str()
-                .ok()
-                .and_then(|s| s.parse::<i32>().ok())
-                .map(JoinEpoch)
-                .ok_or_else(ApiError::bad_request)
-        })
-        .transpose()?;
-    let tx = SpaceTx::begin(
-        &state.db,
-        principal.user_id,
-        &[(SpaceId(id), epoch)],
-        Mode::Read,
-    )
-    .await?;
-    jiabu_tools::authorize(
-        tx.member(SpaceId(id)),
-        jiabu_tools::Module::Ledger,
-        jiabu_tools::Action::Read,
-    )
-    .map_err(|_| ApiError::not_found())?;
-    Ok(Json(json!({"ok":true})))
-}
 struct TestApp {
     fixture: support::TestDb,
     router: Router,
     plan: jiabu_domain::space_init::SpaceInit,
+    purge: std::sync::Arc<tokio::sync::Notify>,
 }
 struct Reply {
     status: StatusCode,
@@ -89,8 +57,10 @@ impl TestApp {
         let state = AppState::new(AppDb::connect(&fixture.app_url).await?)
             .await
             .map_err(anyhow::Error::msg)?;
+        let purge = state.purge_signal();
         Ok(Self {
             fixture,
+            purge,
             router: crate::router(state),
             plan,
         })
@@ -150,7 +120,17 @@ impl TestApp {
     }
 }
 // The matrix is separate from mounting so forgetting a registration actually fails.
-const ISOLATION_MATRIX: &[(&str, &str)] = &[("GET", "/v1/spaces/{space_id}/probe")];
+const ISOLATION_MATRIX: &[(&str, &str)] = &[
+    ("PATCH", "/v1/spaces/{space_id}"),
+    ("DELETE", "/v1/spaces/{space_id}"),
+    ("POST", "/v1/spaces/{space_id}/invitations"),
+    ("GET", "/v1/spaces/{space_id}/invitations"),
+    ("POST", "/v1/spaces/{space_id}/invitations/{inv_id}/cancel"),
+    ("DELETE", "/v1/spaces/{space_id}/members/{member_id}"),
+    ("POST", "/v1/spaces/{space_id}/leave"),
+    ("POST", "/v1/spaces/{space_id}/transfer-ownership"),
+    ("PATCH", "/v1/spaces/{space_id}/members/me"),
+];
 fn missing_routes(catalog: &[crate::RouteSpec], matrix: &[(&str, &str)]) -> Vec<String> {
     catalog
         .iter()
@@ -196,12 +176,16 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
     let exited = app.fixture.seed("exited", "unused").await?;
     let other = app.fixture.seed("other", "unused").await?;
     let owner = app.fixture.owner().await?;
-    // A realistic former member keeps its row and module grants (only status changes),
-    // so this case exercises the membership-status check rather than the grant check.
     let former: Uuid = sqlx::query_scalar("insert into space_members(space_id,user_id,display_name,role,status,left_reason,joined_at,left_at,change_seq) values($1,$2,'former','member','left','left',now(),now(),nextval('change_seq')) returning id")
         .bind(exited.space_id.0).bind(app.plan.user_id.0).fetch_one(&owner).await?;
     sqlx::query("insert into space_member_grants(member_id,module,level,change_seq) values($1,'ledger','write',nextval('change_seq')),($1,'documents','write',nextval('change_seq'))")
         .bind(former).execute(&owner).await?;
+    let foreign_member: Uuid = sqlx::query_scalar("select id from space_members where space_id=$1")
+        .bind(other.space_id.0)
+        .fetch_one(&owner)
+        .await?;
+    let foreign_invitation: Uuid = sqlx::query_scalar("insert into space_invitations(space_id,invitee_user_id,invited_by_member_id,status) values($1,$2,$3,'pending') returning id")
+        .bind(other.space_id.0).bind(app.plan.user_id.0).bind(foreign_member).fetch_one(&owner).await?;
     owner.close().await;
     for (method, pattern) in ISOLATION_MATRIX {
         let mut previous = None;
@@ -211,69 +195,42 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
             other.space_id.0,
             Uuid::now_v7(),
         ] {
+            let path = pattern
+                .replace("{space_id}", &id.to_string())
+                .replace("{inv_id}", &foreign_invitation.to_string())
+                .replace("{member_id}", &foreign_member.to_string());
             let reply = app
                 .request(
                     method,
-                    &pattern.replace("{space_id}", &id.to_string()),
-                    Value::Null,
+                    &path,
+                    spaces::matrix_body(method, pattern, foreign_member),
                     Some(&token),
-                    &[],
+                    &[
+                        ("idempotency-key", Uuid::now_v7().to_string()),
+                        ("x-jiabu-join-epoch", "1".into()),
+                    ],
                 )
                 .await?;
-            assert_eq!(reply.status, StatusCode::NOT_FOUND);
+            assert_eq!(reply.status, StatusCode::NOT_FOUND, "{method} {pattern}");
             let normalized = normalize_request_id(&reply)?;
             if let Some(expected) = &previous {
-                assert_eq!(expected, &normalized);
+                assert_eq!(expected, &normalized, "{method} {pattern}");
             }
             previous = Some(normalized);
         }
     }
-    // The same mounted route must admit a real member, and reject stale epochs.
-    let path = format!("/v1/spaces/{}/probe", app.plan.space_id);
+    // A real route must also admit an active member, so an always-404 handler cannot pass.
+    let path = format!("/v1/spaces/{}/invitations", app.plan.space_id);
     assert_eq!(
         app.request("GET", &path, Value::Null, Some(&token), &[])
             .await?
             .status,
         StatusCode::OK
     );
-    let stale = app
-        .request(
-            "GET",
-            &path,
-            Value::Null,
-            Some(&token),
-            &[("x-jiabu-join-epoch", "2".into())],
-        )
-        .await?;
-    assert_eq!(stale.status, StatusCode::CONFLICT);
-    assert_eq!(stale.json()["code"], "membership_changed");
-    let owner = app.fixture.owner().await?;
-    sqlx::query("update space_members set join_epoch=2 where space_id=$1")
-        .bind(app.plan.space_id.0)
-        .execute(&owner)
-        .await?;
-    let stale = app
-        .request(
-            "GET",
-            &path,
-            Value::Null,
-            Some(&token),
-            &[("x-jiabu-join-epoch", "1".into())],
-        )
-        .await?;
-    assert_eq!(stale.status, StatusCode::CONFLICT);
-    sqlx::query("update space_member_grants set level='none'")
-        .execute(&owner)
-        .await?;
-    assert_eq!(
-        app.request("GET", &path, Value::Null, Some(&token), &[])
-            .await?
-            .status,
-        StatusCode::NOT_FOUND
-    );
-    owner.close().await;
     Ok(())
 }
+#[path = "tests/spaces.rs"]
+mod spaces;
 #[tokio::test]
 async fn tokens_are_hashes_logout_and_expiry_are_immediate() -> Result<()> {
     let app = TestApp::new(false).await?;

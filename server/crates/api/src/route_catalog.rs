@@ -1,6 +1,6 @@
 use crate::{
     AppState,
-    handlers::{auth, client_logs, me, meta},
+    handlers::{auth, client_logs, invitations, me, meta, spaces},
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,10 +36,48 @@ fn build() -> (OpenApiRouter<AppState>, Vec<RouteSpec>) {
     mount!("PATCH", "/v1/me", me::patch);
     mount!("POST", "/v1/me/password", me::password);
     mount!("POST", "/v1/client-logs", client_logs::upload);
-    #[cfg(test)]
-    {
-        mount!("GET", "/v1/spaces/{space_id}/probe", crate::tests::probe);
-    }
+    mount!("GET", "/v1/spaces", spaces::list);
+    mount!("POST", "/v1/spaces", spaces::create);
+    mount!("PATCH", "/v1/spaces/{space_id}", spaces::rename);
+    mount!("DELETE", "/v1/spaces/{space_id}", spaces::delete);
+    mount!("POST", "/v1/spaces/{space_id}/invitations", spaces::invite);
+    mount!(
+        "POST",
+        "/v1/spaces/{space_id}/invitations/{inv_id}/cancel",
+        spaces::cancel
+    );
+    mount!(
+        "DELETE",
+        "/v1/spaces/{space_id}/members/{member_id}",
+        spaces::remove
+    );
+    mount!("POST", "/v1/spaces/{space_id}/leave", spaces::leave);
+    mount!(
+        "POST",
+        "/v1/spaces/{space_id}/transfer-ownership",
+        spaces::transfer
+    );
+    mount!(
+        "PATCH",
+        "/v1/spaces/{space_id}/members/me",
+        spaces::display_name
+    );
+    mount!(
+        "GET",
+        "/v1/spaces/{space_id}/invitations",
+        spaces::invitations
+    );
+    mount!("GET", "/v1/me/invitations", invitations::list);
+    mount!(
+        "POST",
+        "/v1/me/invitations/{inv_id}/accept",
+        invitations::accept
+    );
+    mount!(
+        "POST",
+        "/v1/me/invitations/{inv_id}/decline",
+        invitations::decline
+    );
     (router, catalog)
 }
 pub(crate) fn documented_router() -> OpenApiRouter<AppState> {

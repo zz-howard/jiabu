@@ -1,4 +1,5 @@
 mod config;
+mod tasks;
 use anyhow::{Context, Result};
 use secrecy::{ExposeSecret, SecretString};
 use tracing_subscriber::EnvFilter;
@@ -30,14 +31,21 @@ async fn main() -> Result<()> {
     let state = jiabu_api::AppState::new(db)
         .await
         .map_err(anyhow::Error::msg)?;
+    // First pass runs immediately, including tombstones left by a previous process.
+    let purge_task = tokio::spawn(tasks::purge_spaces::run(
+        state.db.clone(),
+        state.purge_signal(),
+    ));
     let listener = tokio::net::TcpListener::bind(&settings.listen_addr)
         .await
         .context("Failed to bind HTTP listener")?;
     tracing::info!(address=%listener.local_addr()?,"Public HTTP listener ready");
-    axum::serve(
+    let result = axum::serve(
         listener,
         jiabu_api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .await
-    .context("HTTP server failed")
+    .context("HTTP server failed");
+    purge_task.abort();
+    result
 }

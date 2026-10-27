@@ -1,7 +1,7 @@
 use crate::middleware::{LoginLimiter, WindowLimiter};
 use jiabu_db::AppDb;
 use std::{sync::Arc, time::Duration};
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore};
 /// Client log batches accepted per user per minute.
 pub(crate) const CLIENT_LOG_BATCHES_PER_MINUTE: usize = 10;
 #[derive(Clone)]
@@ -12,6 +12,7 @@ pub struct AppState {
     pub(crate) dummy_hash: Arc<String>,
     /// Bounds concurrent Argon2 work so a burst of logins cannot exhaust CPU and memory.
     password_work: Arc<Semaphore>,
+    purge: Arc<Notify>,
 }
 impl AppState {
     pub async fn new(db: AppDb) -> Result<Self, String> {
@@ -30,7 +31,11 @@ impl AppState {
             )),
             dummy_hash: Arc::new(dummy_hash),
             password_work: Arc::new(Semaphore::new(permits)),
+            purge: Arc::new(Notify::new()),
         })
+    }
+    pub fn purge_signal(&self) -> Arc<Notify> {
+        self.purge.clone()
     }
     /// Runs password hashing or verification on the blocking pool, at most one job per CPU.
     pub(crate) async fn password_work<T: Send + 'static>(

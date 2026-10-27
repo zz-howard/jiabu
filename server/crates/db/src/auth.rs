@@ -218,34 +218,14 @@ impl AppDb {
             .ok_or_else(|| DbErr::Custom("missing aggregate".into()))?;
         Ok((r.try_get("", "stable")?, r.try_get("", "beta")?))
     }
-    /// Used by S2 creation; this is the same primitive used by account creation.
+    /// S1-compatible adapter. S2 uses the same initializer inside its larger transaction.
     pub async fn initialize_space(
         &self,
         plan: &jiabu_domain::space_init::SpaceInit,
     ) -> Result<jiabu_domain::MemberId, DbErr> {
-        let tx = self.connection.begin().await?;
-        let seeds =
-            serde_json::to_value(&plan.presets).map_err(|e| DbErr::Custom(e.to_string()))?;
-        let r = tx
-            .query_one_raw(Statement::from_sql_and_values(
-                DbBackend::Postgres,
-                "select initialize_space($1,$2,$3,$4,$5,$6,$7,$8,$9) as id",
-                [
-                    plan.space_id.0.into(),
-                    plan.user_id.0.into(),
-                    plan.name.clone().into(),
-                    plan.accent.clone().into(),
-                    plan.currency.clone().into(),
-                    plan.timezone.clone().into(),
-                    plan.is_default.into(),
-                    plan.display_name.clone().into(),
-                    seeds.into(),
-                ],
-            ))
-            .await?
-            .ok_or_else(|| DbErr::Custom("missing initialized member".into()))?;
-        let id = jiabu_domain::MemberId(r.try_get("", "id")?);
+        let tx = crate::SpaceTx::bootstrap(self, plan.space_id).await?;
+        let member = tx.initialize_space(plan).await?;
         tx.commit().await?;
-        Ok(id)
+        Ok(member)
     }
 }
