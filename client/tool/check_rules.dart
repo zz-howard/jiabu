@@ -226,6 +226,20 @@ String _canonical(Object? value) {
   return jsonEncode(value);
 }
 
+final _colorLiteral = RegExp(
+  r'\bColor\s*\(\s*(?:0[xX]|\d)|'
+  r'\bColor\s*\.\s*(?:fromARGB|fromRGBO|from)\s*\(|'
+  r'\bColors\s*\.',
+);
+final _appLiteral = RegExp(
+  r'\bColor\s*[.(]|\bColors\s*\.|\bfontFamily\s*:|\bDuration\s*\(',
+);
+final _rotation = RegExp(
+  r'\bTransform\s*\.\s*rotate\b|\bRotationTransition\b|'
+  r'\bMatrix4\s*\.\s*rotationZ\b|\bRotatedBox\b|'
+  r'\bcanvas\s*(?:\.|\.\.)\s*rotate\s*\(|\.\.\s*rotate\s*\(',
+);
+
 void _checkSource(
   String file,
   String source,
@@ -239,14 +253,9 @@ void _checkSource(
 
   final isDesign = file.startsWith('packages/jiabu_design/lib/');
   final feature = _feature(file);
-  if ((isDesign || !RegExp('/lib/(?:features|data)/').hasMatch(file)) &&
-      file != 'packages/jiabu_design/lib/src/tokens/colors.dart') {
-    for (final match in RegExp(r'\bColor\s*\(\s*0x').allMatches(source)) {
-      report(
-        1,
-        match.start,
-        'Color hex literals belong in tokens/colors.dart.',
-      );
+  if (isDesign && file != 'packages/jiabu_design/lib/src/tokens/colors.dart') {
+    for (final match in _colorLiteral.allMatches(source)) {
+      report(1, match.start, 'Color literals belong in tokens/colors.dart.');
     }
   }
   if (file != 'packages/jiabu_design/lib/src/tokens/type.dart' &&
@@ -256,19 +265,16 @@ void _checkSource(
     }
   }
 
-  if (!isDesign && RegExp('/lib/(?:features|data)/').hasMatch(file)) {
-    final literals = RegExp(
-      r'\bColor\s*\(|\bColors\s*\.|\bfontFamily\s*:|'
-      r'\bDuration\s*\(\s*milliseconds\s*:',
-    );
-    for (final match in literals.allMatches(source)) {
+  if (!isDesign) {
+    // Everything outside jiabu_design (features, data, app, shared, …) uses
+    // tokens: AGENTS.md forbids Color/Colors/fontFamily/Duration literals.
+    for (final match in _appLiteral.allMatches(source)) {
       report(1, match.start, 'Use design tokens instead of UI literals.');
     }
   }
-  if (file != 'packages/jiabu_design/lib/src/components/tilt.dart') {
-    for (final match in RegExp(
-      r'\bTransform\s*\.\s*rotate\b|\bRotationTransition\b',
-    ).allMatches(source)) {
+  if (file != 'packages/jiabu_design/lib/src/components/tilt.dart' &&
+      !file.startsWith('packages/jiabu_design/lib/src/geometry/')) {
+    for (final match in _rotation.allMatches(source)) {
       report(2, match.start, 'Use jiabu_design Tilt for decoration rotation.');
     }
   }

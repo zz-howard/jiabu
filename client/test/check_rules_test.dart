@@ -230,6 +230,81 @@ final color = context.jiabu.accent;
     expect(violationsFor(2), hasLength(1));
   });
 
+  group('design package color literals outside tokens/colors.dart', () {
+    const path = 'packages/jiabu_design/lib/src/components/example.dart';
+    for (final source in [
+      'final c = Color(0XFF000000);',
+      'final c = Color(4278190080);',
+      'final c = Color.fromARGB(255, 0, 0, 0);',
+      'final c = Color.fromRGBO(0, 0, 0, 1);',
+      'final c = Color.from(alpha: 1, red: 0, green: 0, blue: 0);',
+      'final c = Colors.black;',
+    ]) {
+      test(source, () {
+        write(path, '$source\n');
+        expect(violationsFor(1), hasLength(1));
+      });
+    }
+    test('the color token file may use every form', () {
+      write(
+        'packages/jiabu_design/lib/src/tokens/colors.dart',
+        'final a = Color(0XFF000000); final b = Colors.black; '
+            'final c = Color.fromARGB(255, 0, 0, 0);',
+      );
+      expect(violationsFor(1), isEmpty);
+    });
+    test('token references are not literals', () {
+      write(path, 'final c = JiabuColors.defaultTapeA;\n');
+      expect(violationsFor(1), isEmpty);
+    });
+  });
+
+  group('rotation outside Tilt and geometry', () {
+    for (final source in [
+      'final m = Matrix4.rotationZ(0.1);',
+      'final w = RotatedBox(quarterTurns: 1);',
+      'void f(Canvas canvas) => canvas.rotate(0.1);',
+      'void f(Canvas canvas) => canvas..save()..rotate(0.1);',
+    ]) {
+      test(source, () {
+        write('app/lib/shared/example.dart', '$source\n');
+        expect(violationsFor(2), hasLength(1));
+        write('packages/jiabu_design/lib/src/components/x.dart', '$source\n');
+        expect(violationsFor(2), hasLength(2));
+      });
+    }
+    test('geometry may rotate', () {
+      write(
+        'packages/jiabu_design/lib/src/geometry/tape_path.dart',
+        'void f(Canvas canvas) => canvas.rotate(0.1);\n',
+      );
+      expect(violationsFor(2), isEmpty);
+    });
+  });
+
+  group('app/lib/app and app/lib/shared use tokens too', () {
+    for (final dir in ['app/lib/app', 'app/lib/shared']) {
+      for (final source in [
+        "final s = TextStyle(fontFamily: 'Example');",
+        'final d = Duration(seconds: 1);',
+        'final c = Color.fromRGBO(0, 0, 0, 1);',
+        'final c = Colors.red;',
+      ]) {
+        test('$dir: $source', () {
+          write('$dir/example.dart', '$source\n');
+          expect(violationsFor(1), hasLength(1));
+        });
+      }
+    }
+    test('Duration.zero and token durations are allowed', () {
+      write(
+        'app/lib/app/example.dart',
+        'final a = Duration.zero; final b = context.jiabu.motion.sheet;\n',
+      );
+      expect(violationsFor(1), isEmpty);
+    });
+  });
+
   test('reports invalid dependency YAML as a rule failure', () {
     write('tool/allowed_deps.yaml', 'packages: [\n');
     expect(violationsFor(7), isNotEmpty);
