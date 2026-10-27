@@ -50,7 +50,8 @@ impl FromRequestParts<AppState> for Principal {
         tracing::Span::current().record("user_id", auth.user.id.to_string());
         tracing::Span::current().record("auth_kind", "session");
         if auth.kind == SessionKind::PasswordChange
-            && !(parts.method == Method::POST && parts.uri.path() == "/v1/me/password")
+            && !(parts.method == Method::POST
+                && matches!(parts.uri.path(), "/v1/me/password" | "/v1/auth/logout"))
         {
             return Err(ApiError::new(
                 StatusCode::FORBIDDEN,

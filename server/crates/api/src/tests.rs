@@ -329,10 +329,10 @@ async fn restricted_session_upgrade_removes_other_sessions() -> Result<()> {
     let app = TestApp::new(true).await?;
     let token = app.token().await?;
     let other = app.token().await?;
+    let leaving = app.token().await?;
     for (method, path) in [
         ("GET", "/v1/me"),
         ("PATCH", "/v1/me"),
-        ("POST", "/v1/auth/logout"),
         ("POST", "/v1/client-logs"),
     ] {
         let reply = app
@@ -341,6 +341,19 @@ async fn restricted_session_upgrade_removes_other_sessions() -> Result<()> {
         assert_eq!(reply.status, StatusCode::FORBIDDEN);
         assert_eq!(reply.json()["code"], "password_change_required");
     }
+    // A restricted session can still end itself.
+    assert_eq!(
+        app.request("POST", "/v1/auth/logout", Value::Null, Some(&leaving), &[])
+            .await?
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        app.request("POST", "/v1/me/password", json!({}), Some(&leaving), &[])
+            .await?
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
     let owner = app.fixture.owner().await?;
     let short: bool = sqlx::query_scalar(
         "select bool_and(expires_at<=created_at+interval '15 minutes') from sessions",
@@ -855,6 +868,25 @@ async fn client_crash_logs_keep_upload_context_and_no_authorization() -> Result<
         }
     }
     assert_eq!(client_count, 1);
+    let batches: Vec<Value> = text
+        .lines()
+        .map(serde_json::from_str::<Value>)
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter(|v| v["target"] == "client_batch")
+        .collect();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0]["request_id"], id.to_string());
+    assert_eq!(batches[0]["device_model"], "example-device");
+    assert_eq!(batches[0]["entries"], 1);
+    // Entry lines join the batch by request_id instead of repeating device context.
+    for line in text.lines() {
+        let value: Value = serde_json::from_str(line)?;
+        if value["target"] == "client" {
+            assert!(value.get("device_model").is_none());
+            assert!(value.get("app_version").is_none());
+        }
+    }
     Ok(())
 }
 #[tokio::test]
@@ -905,5 +937,89 @@ fn openapi_body_operations_have_examples() -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+fn client_log_body() -> Value {
+    json!({"entries":[{"ts":"2026-01-01T00:00:00Z","level":"ERROR","logger":"example","message":"example crash","error_type":"ExampleError","stack":"example frame"}],"app_version":"0.1.0","build":1,"device_model":"example-device","os_version":"example-os"})
+}
+#[tokio::test]
+async fn client_log_metadata_fields_are_capped() -> Result<()> {
+    let app = TestApp::new(false).await?;
+    let token = app.token().await?;
+    let cases: [(&[&str], Value); 7] = [
+        (&["app_version"], json!("a".repeat(65))),
+        (&["device_model"], json!("a".repeat(129))),
+        (&["os_version"], json!("a".repeat(129))),
+        (&["entries", "logger"], json!("a".repeat(129))),
+        (&["entries", "level"], json!("A".repeat(17))),
+        (&["entries", "level"], json!("ERROR\nforged")),
+        (&["entries", "error_type"], json!("a".repeat(257))),
+    ];
+    for (path, value) in cases {
+        let mut body = client_log_body();
+        match path {
+            [field] => body[*field] = value,
+            [_, field] => body["entries"][0][*field] = value,
+            _ => unreachable!(),
+        }
+        let reply = app
+            .request("POST", "/v1/client-logs", body, Some(&token), &[])
+            .await?;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{path:?}");
+    }
+    Ok(())
+}
+#[tokio::test]
+async fn client_log_uploads_have_a_per_user_quota() -> Result<()> {
+    let app = TestApp::new(false).await?;
+    let token = app.token().await?;
+    for _ in 0..crate::state::CLIENT_LOG_BATCHES_PER_MINUTE {
+        let reply = app
+            .request(
+                "POST",
+                "/v1/client-logs",
+                client_log_body(),
+                Some(&token),
+                &[],
+            )
+            .await?;
+        assert_eq!(reply.status, StatusCode::NO_CONTENT);
+    }
+    let reply = app
+        .request(
+            "POST",
+            "/v1/client-logs",
+            client_log_body(),
+            Some(&token),
+            &[],
+        )
+        .await?;
+    assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(reply.headers.contains_key("retry-after"));
+    Ok(())
+}
+#[tokio::test]
+async fn password_change_attempts_share_the_login_limit() -> Result<()> {
+    let app = TestApp::new(false).await?;
+    // The login that created this session already used one of the user's five attempts.
+    let token = app.token().await?;
+    let wrong = json!({"current_password":"wrong-password","new_password":"sample-new-password"});
+    for _ in 0..4 {
+        let reply = app
+            .request("POST", "/v1/me/password", wrong.clone(), Some(&token), &[])
+            .await?;
+        assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    }
+    let reply = app
+        .request("POST", "/v1/me/password", wrong, Some(&token), &[])
+        .await?;
+    assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(reply.headers.contains_key("retry-after"));
+    // The same bucket now also blocks login for this username.
+    assert_eq!(
+        app.login("sample-old-password").await?.status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
     Ok(())
 }

@@ -51,10 +51,9 @@ pub(crate) async fn login(
         .as_ref()
         .map(|c| c.password_hash.clone())
         .unwrap_or_else(|| state.dummy_hash.as_ref().clone());
-    let valid =
-        tokio::task::spawn_blocking(move || credentials::verify_password(&request.password, &hash))
-            .await
-            .map_err(|_| ApiError::internal())?;
+    let valid = state
+        .password_work(move || credentials::verify_password(&request.password, &hash))
+        .await?;
     if !valid {
         return Err(ApiError::unauthorized());
     }

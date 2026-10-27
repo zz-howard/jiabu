@@ -7,7 +7,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
-pub(crate) use login_limit::{LoginLimiter, source_ip};
+pub(crate) use login_limit::{LoginLimiter, WindowLimiter, source_ip};
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
     sensitive_headers::SetSensitiveHeadersLayer, timeout::TimeoutLayer,

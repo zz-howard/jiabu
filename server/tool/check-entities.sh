@@ -13,6 +13,12 @@ cleanup() {
   rm -rf "$task_tmp"
 }
 trap cleanup EXIT
+# Refuse anything but a disposable test cluster: the role password below is public.
+disposable=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atq -f tests/support/disposable_cluster.sql)
+[[ "$disposable" == t ]] || {
+  printf 'Refusing to touch cluster-wide jiabu_* roles: DATABASE_URL is not a disposable test cluster (see tests/support/disposable_cluster.sql).\n' >&2
+  exit 1
+}
 JIABU_PROVISION_DATABASE_URL="$DATABASE_URL" cargo run --quiet --bin admin -- db init-roles
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "ALTER ROLE jiabu_owner PASSWORD '$role_password'" >/dev/null
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$entity_db\" OWNER jiabu_owner" >/dev/null

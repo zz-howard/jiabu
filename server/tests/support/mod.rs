@@ -8,6 +8,8 @@ use jiabu_domain::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+/// Shared with tool/check-entities.sh; see the file for the rule.
+pub const DISPOSABLE_CLUSTER_SQL: &str = include_str!("disposable_cluster.sql");
 /// Fake, test-only password for the three database roles; never used outside tests.
 pub const TEST_ROLE_PASSWORD: &str = "jiabu-test-only";
 
@@ -23,6 +25,15 @@ impl TestDb {
         let root_url = std::env::var("DATABASE_URL")
             .context("DATABASE_URL must be a PostgreSQL 18 superuser URL")?;
         let root = PgPool::connect(&root_url).await?;
+        let disposable: bool = sqlx::query_scalar(DISPOSABLE_CLUSTER_SQL)
+            .fetch_one(&root)
+            .await?;
+        anyhow::ensure!(
+            disposable,
+            "Refusing to touch cluster-wide jiabu_* roles: DATABASE_URL is not a disposable test \
+             cluster (needs the jiabu_disposable_test_cluster marker database and no non-test \
+             database owned by a jiabu_* role; tool/dev-db.sh start creates the marker)"
+        );
         // Tests run in parallel processes; role DDL on the shared cluster must not race
         // ("tuple concurrently updated"). Serialize it with a session-level advisory lock.
         let mut guard = root.acquire().await?;

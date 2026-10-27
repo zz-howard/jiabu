@@ -426,6 +426,16 @@
               }
             },
             "description": "Entry too large"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Upload quota exceeded"
           }
         },
         "security": [
@@ -540,6 +550,16 @@
               }
             },
             "description": "Current password invalid"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Rate limited"
           }
         },
         "security": [
