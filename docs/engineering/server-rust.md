@@ -13,7 +13,7 @@
 7. **聊天回复用 ChatWeave 协议（草案）**：服务端把 AI 结果确定性地映射成语义块（文字、记录卡、指标、表格、选项……），经 SSE 流式下发、`chat_entries` 持久化并同步；UI 动作经 ChatWeave 的 Action Registry，再由统一的 `authorize()` 把关。ChatWeave 是独立开源库，不含任何家簿概念（见 4.2）。
 8. **AI 运行可以暂停几天**：持久执行自写在 PostgreSQL 里（运行行 + 只追加的步骤日志），不引入 Temporal 等引擎；暂停时没有线程在等，崩溃后从日志接着做，会改数据的工具与日志同一事务、恰好一次（见 [AI 层第 14 节](ai-layer.md#14-持久执行暂停恢复与崩溃)）。
 9. **管理能力单独一个入口，碰不到内容**：带版本号的管理 API（`/admin/v1`）只在本机 Unix 套接字上监听，用 `admin` 命令创建的管理服务令牌访问；只管账号、AI 提供方 / 模型 / 价格和用量计量。能看到空间名称（用来把用量和空间对上号），但**没有任何返回账本、资料、聊天或运行日志内容的接口**，由 crate 依赖边界、独立的数据库角色（列级授权）和测试三层保证。自己部署的人用 `admin` 命令完成同样的事（同一套服务层）。图形化的管理控制台是单独的服务，不在本仓库，本仓库也不依赖它（第 9 节）。
-10. **个人 API key**：用户在 App 里创建，以本人身份调用公开 API；权限 = 本人权限 ∩ key 的范围（只读 / 读写、勾选的空间）。只存 SHA-256，固定前缀 `jiabu_pat_` 便于密钥扫描，按 key 限流，所有操作标注“通过 API key”（3.3）。**key 不能使用 AI 对话**，也不能触发任何 AI 运行；key 进不了管理 API。
+10. **个人 API key**：用户在 App 里创建，以本人身份调用公开 API；权限 = 本人权限 ∩ key 的范围（只读 / 读写）；key 不单独选空间，本人当前在册的空间它都能用（P51）。只存 SHA-256，固定前缀 `jiabu_pat_` 便于密钥扫描，按 key 限流，所有操作标注“通过 API key”（3.3）。**key 不能使用 AI 对话**，也不能触发任何 AI 运行；key 进不了管理 API。
 11. **AI 的工具同时是公开 API**：每个工具只定义一次（`crates/tools`），同一份定义既注册进 Agent 循环，也由注册表自动生成 `POST /spaces/{space_id}/tools/{tool_name}` 路由和 OpenAPI；参数校验、空间绑定、权限检查、业务校验和执行走同一个函数。AI 要做需要确认的写入时先弹确认卡，key 调用写入类工具则直接执行（4.3）。
 
 ## 1. 技术栈总表
@@ -133,7 +133,7 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 - **会话**：登录成功 → 生成 32 字节随机令牌 → 返回给 App（客户端用 flutter_secure_storage 保存，底层是 Android Keystore 加密）→ 数据库只存 `sha256(token)`、`user_id`、`device`、`expires_at`、`last_seen_at`。请求带 `Authorization: Bearer <token>`。登出 / 改密 = 删行。这是“有状态会话”的标准实现，所用加密原语都来自成熟 crate。
 - **为什么不用 JWT**：吊销要另建黑名单；两人规模没有横向扩展需求。
 - 首版预建两个账号，由 `admin` 命令或管理 API 创建（9.4）；无公开注册。创建账号时在同一事务内为其建好**默认个人空间**（`is_default = true`，本人为 owner）。
-- **停用与临时密码**：`users.disabled_at` 非空的账号登录被拒，令牌和 API key 鉴权时一并检查（停用时同一事务删除全部会话）。管理员重置密码 = 生成一次性临时密码（只显示一次）+ `must_change_password = true` + 删除全部会话；带此标记登录时只返回受限令牌，只能调用改密码接口，改完才是正常会话。
+- **停用与临时密码**：`users.disabled_at` 非空的账号登录被拒，令牌和 API key 鉴权时一并检查（停用时同一事务删除全部会话）。管理员重置密码 = 生成一次性临时密码（只显示一次）+ `must_change_password = true` + 删除全部会话；带此标记登录时只返回受限令牌，只能调用改密码接口，改完才是正常会话。服务端记下最近一次管理员重置密码的时间，本人下次登录时随登录响应返回，App 显示一次“你的密码在……被管理员重置”（P49）。
 - 登录接口用 tower_governor 限流。
 - 令牌（会话令牌、个人 API key、管理令牌）都只存 SHA-256，按哈希的唯一索引查找；三者在不同的表、不同的前缀（会话令牌无前缀，`jiabu_pat_`，`jiabu_adm_`），公开 API 不接受管理令牌，管理 API 只接受管理令牌。
 
@@ -144,7 +144,7 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 - 所有业务查询必须带 `space_id`，并与活跃成员关系联查；仓储层只提供“带空间成员校验的查询”入口，禁止绕过。`GET /spaces` 只返回当前用户为活跃成员的空间，不返回其他空间的名称、数量或任何动态。
 - 写入前服务端**再次校验**成员身份，并校验引用的账户、标签、资料都属于同一空间；不信任客户端状态。
 - 同步接口同样只返回活跃成员所在空间的数据（见第 4 节）。
-- **成员管理**：创建空间（创建者成为 owner）、改名、邀请已有账号（v1 没有公开注册，只能邀请预建账号）、owner 移除成员、成员自行退出。默认个人空间拒绝邀请他人。最后一位 owner 不能直接退出，须先转让 owner 或删除空间。
+- **成员管理**：创建空间（创建者成为 owner）、改名、邀请已有账号（v1 没有公开注册，只能邀请预建账号）、owner 移除成员、成员自行退出、转让 owner、删除空间。默认个人空间拒绝邀请他人，也不能退出和删除。最后一位 owner 不能直接退出，须先转让 owner 或删除空间（P18）。**转让**：owner 可以转给任何一位活跃成员（P57）。**删除**：只在空间里只剩请求者一人时允许，请求须带上空间名作确认，删除不可恢复（P57）；删除后的数据清理方式在技术方案中定。
 - **退出 / 被移除**：该行 `status = 'left'`、写 `left_at`；之后对该空间的所有请求立即 404（会话本身不失效，只是空间校验不通过）。其创建的记录保留，界面仍显示其显示名并标注“已退出”。
 - **重新加入**：复用同一行 `space_members`（改回 `active`、更新 `joined_at`、清空 `left_at`），旧记录自动重新关联；每次加入 / 退出都追加一条审计事件。
 - **模块与按模块授权（扩展预留）**：空间内容分模块（v1：`ledger` 账本、`documents` 资料；以后加 `memories` 等）。所有内容表带 `module` 列；`space_member_grants (member_id, module, level)` 记录每位成员对每个模块的级别（`none` / `read` / `write` / `manage`）。v1 加入空间时为每个模块写入 `manage`（owner）或 `write`（member），不提供授权界面。
@@ -161,25 +161,24 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 
 **创建与保存**：`POST /me/api-keys` 只接受**会话令牌**（key 不能创建 key）。服务端生成 key、在响应里返回一次明文，库里只存 `sha256(key)`；明文不进日志、不进幂等响应缓存（该接口的幂等记录只存 key 的 ID，重放时返回“已创建，明文不再显示”）。每个账号最多 20 个有效 key。
 
-**鉴权**：`Authorization: Bearer jiabu_pat_…`。提取器先看前缀和校验位（格式不对直接 401，不查库），再按哈希查 `api_keys`：未撤销、未过期、账号未停用。得到 `Principal { user_id, via: Session(session_id) | ApiKey { id, name, scope, spaces } }`，后面的提取器和仓储层都拿它。
+**鉴权**：`Authorization: Bearer jiabu_pat_…`。提取器先看前缀和校验位（格式不对直接 401，不查库），再按哈希查 `api_keys`：未撤销、未过期、账号未停用。得到 `Principal { user_id, via: Session(session_id) | ApiKey { id, name, scope } }`，后面的提取器和仓储层都拿它。key 没有自己的空间范围（P51、S24）：能访问哪些空间，完全由本人**当前**的活跃成员身份决定，包括以后新加入的空间；退出后立即 404，重新加入后自动恢复。
 
 **授权 = 本人权限 ∩ key 的范围**，都在统一的授权入口里判断，不在 handler 里写：
 
 | 检查 | 不满足时 |
 |---|---|
 | 空间成员身份（与会话相同，3.2） | 404 |
-| 空间在 key 勾选的范围内（`api_key_spaces`） | 404，与非成员一样：没勾选的空间对 key 不存在 |
 | `authorize(member, module, action)`（与会话相同） | 404 |
 | 只读 key 只允许读类动作、只能调用 `effect = read` 的工具 | 403 `api_key_read_only`（空间对它是存在的，不泄露信息） |
 | 接口不在 key 的允许范围（下表） | 403 `api_key_not_allowed`；AI 相关的为 403 `api_key_ai_not_allowed` |
 
 | 接口类别 | 会话 | API key |
 |---|---|---|
-| 空间列表、同步、记录读写、移动记录、资料、原图上传下载 | ✅ | ✅（列表只返回勾选的空间；写入需要读写 key；不能提交需要 AI 整理的内容，见下文） |
+| 空间列表、同步、记录读写、移动记录、资料、原图上传下载 | ✅ | ✅（列表返回本人在册的全部空间；写入需要读写 key；不能提交需要 AI 整理的内容，见下文） |
 | 工具 API：`GET /spaces/{space_id}/tools`、`POST /spaces/{space_id}/tools/{tool_name}`（4.3） | ✅ | ✅（只读 key 只能调用只读工具；写入类工具直接执行，不弹确认） |
 | 聊天与一切 AI：提交消息、SSE 流、动作（回答追问 / 确认）、停止；会让 AI 运行的提交 | ✅ | ❌ `api_key_ai_not_allowed` |
 | `/me/api-keys` 的增、改、撤销；改密码；会话管理 | ✅ | ❌ |
-| 空间成员管理：邀请、移除、退出、删除空间、转让所有权；新建空间（**暂定**，P31） | ✅ | ❌ |
+| 新建空间；空间成员管理：邀请、移除、退出、删除空间、转让所有权（P41、P61） | ✅ | ❌ |
 | 管理 API | ❌ | ❌（不同的监听器，第 9 节） |
 
 **key 不能使用 AI**（P31）：key 发起不了任何 AI 运行，判断只放在两处、都不靠 handler 自觉：
@@ -199,7 +198,7 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 
 **标注与审计**：`record_events` 带 `via_api_key_id` 和 `via_api_key_name`（操作当时的名称快照），随同步下发，客户端在记录卡、变更记录和历史里显示“通过 API key：名称”，同一空间的其他成员也能看到。另外每次 key 的工具调用和写入请求追加一行只追加的 `api_key_audit`（时间、key、用户、空间、操作名如 `tool:query_stats` / `records.update`、`effect`、结果或错误类别、请求 ID、幂等键），**不记参数和结果**（它们是内容），保留 180 天，供排查和以后在 App 里显示“这个 key 最近做了什么”。
 
-**接口**：`GET /me/api-keys`（列表：名称、`display_prefix`、权限、空间、到期、最近使用、状态）· `POST /me/api-keys`（创建，返回一次明文）· `PATCH /me/api-keys/{id}`（只能改名称）· `POST /me/api-keys/{id}/revoke`。撤销立即生效（鉴权每次查库，v1 不加缓存）。key 行永不物理删除，撤销或过期的保留，以便历史标注和审计能找到名字。
+**接口**：`GET /me/api-keys`（列表：名称、`display_prefix`、权限、到期、最近使用、状态）· `POST /me/api-keys`（创建，返回一次明文）· `PATCH /me/api-keys/{id}`（只能改名称）· `POST /me/api-keys/{id}/revoke`。撤销立即生效（鉴权每次查库，v1 不加缓存）。key 行永不物理删除，撤销或过期的保留，以便历史标注和审计能找到名字。
 
 ### 3.4 管理身份
 
@@ -210,7 +209,7 @@ feature 组合以首次编译为准。SeaORM 升级是独立的 PR，必须跑�
 > **API 契约尚未定稿，将在服务端开工时重新编写**，由 utoipa 从代码生成 `openapi.json` 并提交进仓库。以下是契约必须遵守的原则。
 
 - **幂等写入**：客户端为每条记录生成 UUIDv7 作 `id`，每个改动请求带 `Idempotency-Key` 头（与 IETF httpapi 草案同名），幂等键仍按用户维度存储。服务端在同一事务内：`INSERT INTO idempotency (user_id, key, request_hash) … ON CONFLICT DO NOTHING`；已存在且有保存的响应则直接回放；请求体哈希不同则返回 422。`records` 用 `INSERT … ON CONFLICT (id) DO NOTHING`。
-- **outbox 同步**：客户端把离线期间的改动按顺序推送；`POST /sync/push` 批量提交（每条带幂等键和 `space_id`），逐条返回结果；目标空间已不可用（例如已退出）的条目返回“空间不可用”，客户端保留原文供用户处理。
+- **outbox 同步**：客户端把离线期间的改动按顺序推送；`POST /sync/push` 批量提交（每条带幂等键和 `space_id`），逐条返回结果；目标空间已不可用（例如已退出）的条目返回“空间不可用”；客户端按 P52 处理：退出或被移出的空间，本机内容（含未上传的条目）一律清除，不保留。
 - **change_seq 游标（按空间分别维护）**：每次改动写入全局递增的 `change_seq`（PostgreSQL sequence），每行带 `space_id`。客户端**每个空间保存一个游标**；`POST /sync/pull` 提交 `{space_id: cursor}` 映射，服务端只返回当前用户为活跃成员的空间中 seq 大于对应游标的行（含已作废的“墓碑”）和各空间的新游标；不可用或不存在的空间统一标为“不可用”，不区分两种情况。
   - 客户端靠 `GET /spaces`（成员关系列表）知道有哪些空间：某空间从列表消失（退出 / 被移除）→ 清除本机该空间的数据和游标；新加入或重新加入 → 游标从 0 开始，完整回填该空间。
   - **为什么不用单一的全局游标再按成员关系过滤**：新加入空间的历史行 seq 都小于全局游标，会被跳过，需要另写回填逻辑和边界处理，容易出错；按空间分游标时“新加入 = 游标 0”自然完成回填，退出时也只需丢掉一个游标。两种方式都不泄露其他空间的信息，按空间分游标更简单。
@@ -408,8 +407,7 @@ create table api_keys (id uuid primary key default uuidv7(), user_id uuid not nu
   expires_at timestamptz,                                 -- 空 = 永不过期
   created_at timestamptz not null default now(), last_used_at timestamptz,
   revoked_at timestamptz, revoked_by text check (revoked_by in ('user','admin')));   -- 行不物理删除
-create table api_key_spaces (api_key_id uuid not null references api_keys,
-  space_id uuid not null references spaces, primary key (api_key_id, space_id));
+-- 不再有 api_key_spaces：key 不单独选空间，可访问的空间 = 本人当前的活跃成员关系（P51、S24）
 -- key 的工具调用与写入请求的审计（3.3）：只追加，不记参数和结果
 create table api_key_audit (id bigint generated always as identity primary key,
   at timestamptz not null default now(), api_key_id uuid not null references api_keys,
@@ -440,7 +438,7 @@ create table api_key_audit (id bigint generated always as identity primary key,
 3. **追加式审计 / 撤销**：`record_events(record_id, space_id, actor_member_id, request_id, kind[create|update|void|restore|move_out|move_in], before, after, at)` 与 `space_events` 只 INSERT（应用数据库角色对该表无 UPDATE / DELETE 权限）。撤销 = 追加一条反向事件并更新 `records` 当前态，绝不删除历史。
 4. **余额**：余额由记录推导（开户余额 + 关联记录），一笔支出同时影响真实账户和用途账户、只计一次消费；月度拨入和逻辑调拨是独立记录类型，不算收入或消费。
 5. **空间隔离**：每行带 `space_id`；任何查询、统计、提示都不跨空间，不在一个空间里透露其他空间的数量、合计或线索。聊天记录与 AI 上下文按空间隔离，其他空间的内容绝不进入模型请求。账号级事件（登录、改密）只记 `user_id`，空间内事件记 `actor_member_id`。
-6. **跨空间移动记录**：用户手工把记错空间的记录移走，要求在源空间和目标空间都是活跃成员。同一事务内：源记录作废（`move_out`，写 `moved_to_record_id`）+ 在目标空间新建一条（`move_in`，写 `moved_from_record_id`），账户与用途须从目标空间的账户中重新选择；两条审计事件互相关联。AI 不会发起或建议移动。
+6. **跨空间移动记录**：用户手工把记错空间的记录移走，要求在源空间和目标空间都是活跃成员。同一事务内：源记录作废（`move_out`，写 `moved_to_record_id`）+ 在目标空间新建一条（`move_in`，写 `moved_from_record_id`），账户与用途须从目标空间的账户中重新选择；两条审计事件互相关联。**关联只给同时在两边的人看**（P60）：`moved_to_record_id` / `moved_from_record_id` 及另一个空间的任何信息，只下发给在源空间和目标空间都是活跃成员的人；其他人在源空间只看到“已移出本空间”（作废原因 `move_out`），在目标空间只看到“已移入本空间”。同步、变更记录和审计查询都按这条过滤。AI 不会发起或建议移动。
 7. **聊天回复的流式与持久化**（ChatWeave）：AI worker 用 `chatweave-server` 的流生成器产生事件，每个事件**先写 `chat_stream_events` 再广播**给在线订阅者（进程内 `tokio::sync::broadcast`，慢订阅者被断开后自行续传）；`message.end` 时在**同一事务**里写入 `chat_entries` 最终消息（`rev = 1`，分配 `change_seq`）并更新 `agent_runs` 状态。事件日志在消息结束（或暂停）10 分钟后由清理任务删除；暂停中的回复以 `chat_entries` 里的暂停版本为准，日志清理不影响它继续。进程崩溃后，租约过期的运行由清扫器放回队列，在**同一条回复**里接着做（已显示的文字保留，新文字另起一块，最多重试 2 次）；超过上限才用库的折叠函数从事件日志恢复消息、标 `interrupted` 并持久化，用户可以重试。块状态变化（追问被回答）= 更新 `chat_entries.message`、`rev + 1`、新的 `change_seq`，经同步下发到会话所属成员的设备。**聊天条目只同步给会话所属成员**：同步接口按 `conversations.created_by_member_id = 请求者` 过滤 `chat_entries`，同一空间的其他成员拿不到别人的对话。
 
 ### 5.3 原图存储
@@ -477,7 +475,7 @@ create table api_key_audit (id bigint generated always as identity primary key,
 - **关键查询必须有集成测试**：幂等（重复提交、哈希不同 422、响应回放）、`ON CONFLICT`、`FOR UPDATE SKIP LOCKED` 并发取任务、change_seq 游标增量与墓碑、空间隔离（非成员对空间的任何请求都得 404；列表、同步、统计不含他人空间；退出后立即不可访问、重新加入复用同一成员行；跨空间移动的事务与审计关联）、嵌套事务（SeaORM 与 SQLx 一样用 SAVEPOINT 实现）。
 - 聊天流与动作：中途断开后带 `Last-Event-ID` 续传的结果与不断开一致；事件日志清理后得到快照；非成员 / 已退出成员对流、动作、取消接口一律 404，同一空间的其他成员访问别人的会话同样 404、同步也拿不到；越权动作（无模块权限、指向其他空间的消息、选项不在块里、重复动作 ID）全部被拒或回放。
 - AI 运行（持久执行）：多个 worker 并发领取不重复；租约过期被别的 worker 接手后，旧 worker 的写入因 `lease_epoch` 不符失败；本地写入工具在事务回滚时不留痕、提交后恢复不重做；两台设备同时回答只有一个成功；回答与过期 / 停止竞态只有一个成功；离线排队的新消息先结束暂停中的回复；`one_active_run_per_conversation` 生效。
-- 个人 API key：key 不能创建 / 撤销 key、不能改密码和管理成员；只读 key 的任何写入被拒；没勾选的空间与不存在的空间返回完全相同的 404；退出空间、账号停用、撤销、过期后立即失效；限流返回 429；`record_events` 的标注随同步下发。key 调用聊天的四个接口、经 `/sync/push` 提交需要 AI 整理的条目一律 403 `api_key_ai_not_allowed`，并断言没有创建任何 `agent_runs`、没有写任何 `ai_calls`。
+- 个人 API key：key 不能创建 / 撤销 key、不能改密码和管理成员；只读 key 的任何写入被拒；非成员空间与不存在的空间返回完全相同的 404；退出空间、账号停用、撤销、过期后立即失效，重新加入后同一个 key 自动恢复、新加入的空间无需新建 key；key 不能新建空间；限流返回 429；`record_events` 的标注随同步下发。key 调用聊天的四个接口、经 `/sync/push` 提交需要 AI 整理的条目一律 403 `api_key_ai_not_allowed`，并断言没有创建任何 `agent_runs`、没有写任何 `ai_calls`。
 - 工具 API（4.3）：同一工具经 Agent 循环和经工具 API 调用的结果、权限拒绝、`record_events` 一致；只读 key 调写入类工具 403；写入缺 `Idempotency-Key` 400、重放返回第一次的结果；`AgentOnly` 工具（`ask_user`）没有路由、不在 `openapi.json` 里。
 - 管理 API（9.2 的三层）：① `cargo tree` 依赖检查；② 用 `jiabu_admin` 数据库角色连接后，对 `records`、`documents`、`chat_entries`、`agent_run_items`、`agent_tool_calls`、`blobs` 等表的 `SELECT` 必须报权限错误（`spaces` 只能读 9.2 表里列出的列，`spaces.name` 可读）；③ 导出的 `openapi-admin.json` 做字段快照（每个 schema 的字段名与类型），任何新增字段都会让快照变化，必须在评审里说明它不是内容。管理令牌访问公开 API、会话令牌和 API key 访问管理 API 一律 401。
 - HTTP 级测试用 `axum-test`；SeaORM 的 `MockDatabase` 只用于快照生成的 SQL，不替代真库测试。
@@ -549,7 +547,7 @@ GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 servi
 
 ### 9.2 管理侧看不到内容：三层保证
 
-“管理员看不到账本和聊天内容”不是靠约定，而是管理侧代码根本拿不到这些数据：
+“管理功能里看不到账本和聊天内容”不是靠约定，而是管理侧代码根本拿不到这些数据。边界要说清楚（P49）：这三层保证的是**管理功能**；能直接登录服务器、读数据库凭据或原图目录的人在技术上能读到数据，软件防不住（首版不做端到端加密）；管理员重置密码会被本人察觉（3.1）。
 
 1. **接口层**：管理 API 没有任何返回记录、账户、余额、标签、资料、原图、聊天消息、AI 的输入输出、运行日志（journal）或工具参数的接口。运行明细（9.4）只返回：每次模型调用的提供方、模型、token、成本、耗时、结果，以及每一步的**操作类别**（来自固定目录，例如“查询统计”“查询余额”“搜索记录”“询问用户”），**不**返回过程条上渲染好的步骤说明（那里面可能带账户名、标签名）。空间返回 ID、**名称**、类型（默认个人 / 共享）、创建者用户名、成员数和创建时间：没有名称，管理员无法把用量、账号和具体的空间对上号（P30）；名称以外的空间内容（账户、记录、资料、聊天、空间的点缀色等界面设置）一律不返回。
 2. **代码层**：`admin` / `admin-api` 只依赖 `db-admin`，后者只定义允许管理侧访问的表和列的实体；CI 检查依赖图（第 2 节）。
@@ -562,7 +560,7 @@ GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 servi
 | `spaces` | `SELECT (id, name, is_default, created_by_user_id, created_at, archived_at)`；`INSERT`（建账号时建默认个人空间） |
 | `space_members` | `SELECT (id, space_id, user_id, role, status, joined_at, left_at)`；`INSERT` |
 | `space_member_grants` | `INSERT` |
-| `api_keys` / `api_key_spaces` | `SELECT`（除 `token_hash`）；`UPDATE (revoked_at, revoked_by)` |
+| `api_keys` | `SELECT`（除 `token_hash`）；`UPDATE (revoked_at, revoked_by)` |
 | `agent_runs` | `SELECT (id, space_id, member_id, kind, status, provider_id, model, model_turns, active_ms, attempt, created_at, ended_at)` |
 | `ai_calls`、`ai_step_meters` | `SELECT` |
 | `ai_providers`、`ai_models`、`ai_routes`、`ai_settings`、`ai_prices`、`secrets`、`admin_tokens`、`admin_audit` | 读写（`admin_audit` 只有 `INSERT` / `SELECT`） |
@@ -617,7 +615,7 @@ GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 servi
 | | `POST /users/{id}/reset-password` | write | 生成一次性临时密码（只在响应里出现一次）、要求下次登录改密、删除全部会话 |
 | | `GET /users/{id}/memberships` | read | 所在空间：空间 ID、名称、类型、角色、状态、加入 / 退出时间 |
 | | `GET /users/{id}/sessions`、`DELETE /users/{id}/sessions` | read / write | 设备名、到期、最近活跃；“在所有设备上退出” |
-| | `GET /users/{id}/api-keys`、`POST /users/{id}/api-keys/{key_id}/revoke` | read / write | key 的名称、`display_prefix`、权限、空间数、到期、最近使用、状态；撤销（`revoked_by = 'admin'`）。不能创建 |
+| | `GET /users/{id}/api-keys`、`POST /users/{id}/api-keys/{key_id}/revoke` | read / write | key 的名称、`display_prefix`、权限、到期、最近使用、状态；撤销（`revoked_by = 'admin'`）。不能创建 |
 | 审计 | `GET /audit` | read | 管理审计（9.5），按时间、令牌、对象过滤 |
 
 不提供：删除账号（数据归属复杂，首版不做）、修改空间或成员关系、任何读取内容的接口、创建管理令牌。
