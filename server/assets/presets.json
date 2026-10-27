@@ -1,0 +1,190 @@
+[
+  {
+    "preset_key": "dining",
+    "zh": "餐饮",
+    "en": "Dining",
+    "aliases_zh": [
+      "吃饭",
+      "午饭",
+      "晚饭",
+      "早饭",
+      "外卖"
+    ],
+    "aliases_en": [
+      "lunch",
+      "dinner",
+      "breakfast",
+      "food"
+    ]
+  },
+  {
+    "preset_key": "groceries",
+    "zh": "买菜",
+    "en": "Groceries",
+    "aliases_zh": [
+      "买菜",
+      "蔬菜",
+      "水果",
+      "菜市场"
+    ],
+    "aliases_en": [
+      "groceries",
+      "vegetables",
+      "fruit",
+      "market"
+    ]
+  },
+  {
+    "preset_key": "transport",
+    "zh": "交通",
+    "en": "Transport",
+    "aliases_zh": [
+      "打车",
+      "地铁",
+      "公交",
+      "加油",
+      "停车"
+    ],
+    "aliases_en": [
+      "taxi",
+      "subway",
+      "bus",
+      "fuel",
+      "parking"
+    ]
+  },
+  {
+    "preset_key": "shopping",
+    "zh": "购物",
+    "en": "Shopping",
+    "aliases_zh": [
+      "买衣服",
+      "鞋子",
+      "网购",
+      "商场"
+    ],
+    "aliases_en": [
+      "clothes",
+      "shoes",
+      "online shopping",
+      "mall"
+    ]
+  },
+  {
+    "preset_key": "housing",
+    "zh": "居住",
+    "en": "Housing",
+    "aliases_zh": [
+      "房租",
+      "房贷",
+      "物业",
+      "水电"
+    ],
+    "aliases_en": [
+      "rent",
+      "mortgage",
+      "maintenance",
+      "utilities"
+    ]
+  },
+  {
+    "preset_key": "daily",
+    "zh": "日用",
+    "en": "Daily necessities",
+    "aliases_zh": [
+      "纸巾",
+      "洗衣液",
+      "清洁",
+      "生活用品"
+    ],
+    "aliases_en": [
+      "tissues",
+      "detergent",
+      "cleaning",
+      "household"
+    ]
+  },
+  {
+    "preset_key": "medical",
+    "zh": "医疗",
+    "en": "Medical",
+    "aliases_zh": [
+      "看病",
+      "药品",
+      "挂号",
+      "牙医"
+    ],
+    "aliases_en": [
+      "doctor",
+      "medicine",
+      "clinic",
+      "dentist"
+    ]
+  },
+  {
+    "preset_key": "education",
+    "zh": "教育",
+    "en": "Education",
+    "aliases_zh": [
+      "学费",
+      "书本",
+      "课程",
+      "培训"
+    ],
+    "aliases_en": [
+      "tuition",
+      "books",
+      "course",
+      "training"
+    ]
+  },
+  {
+    "preset_key": "entertainment",
+    "zh": "娱乐",
+    "en": "Entertainment",
+    "aliases_zh": [
+      "电影",
+      "游戏",
+      "旅游",
+      "演出"
+    ],
+    "aliases_en": [
+      "cinema",
+      "games",
+      "travel",
+      "show"
+    ]
+  },
+  {
+    "preset_key": "social",
+    "zh": "人情",
+    "en": "Gifts & social",
+    "aliases_zh": [
+      "礼物",
+      "红包",
+      "请客",
+      "随礼"
+    ],
+    "aliases_en": [
+      "gifts",
+      "red envelope",
+      "treat",
+      "wedding gift"
+    ]
+  },
+  {
+    "preset_key": "other",
+    "zh": "其他",
+    "en": "Other",
+    "aliases_zh": [
+      "杂项",
+      "其他支出",
+      "零星花费"
+    ],
+    "aliases_en": [
+      "miscellaneous",
+      "other spending",
+      "incidentals"
+    ]
+  }
+]

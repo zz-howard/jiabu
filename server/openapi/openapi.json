@@ -1,6 +1,146 @@
 {
   "components": {
     "schemas": {
+      "ChangePassword": {
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "type": "object"
+      },
+      "ClientLogs": {
+        "additionalProperties": false,
+        "properties": {
+          "app_version": {
+            "type": "string"
+          },
+          "build": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "device_model": {
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/Entry"
+            },
+            "type": "array"
+          },
+          "os_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entries",
+          "app_version",
+          "build",
+          "device_model",
+          "os_version"
+        ],
+        "type": "object"
+      },
+      "Entry": {
+        "additionalProperties": false,
+        "properties": {
+          "error_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "level": {
+            "type": "string"
+          },
+          "logger": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stack": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "level",
+          "logger",
+          "message"
+        ],
+        "type": "object"
+      },
+      "LoginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "device_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "type": "object"
+      },
+      "LoginResponse": {
+        "properties": {
+          "admin_reset_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_kind": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserResponse"
+          }
+        },
+        "required": [
+          "token",
+          "session_kind",
+          "user"
+        ],
+        "type": "object"
+      },
       "MetaResponse": {
         "properties": {
           "api_versions": {
@@ -10,15 +150,135 @@
             },
             "type": "array"
           },
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "min_client_build": {
+            "$ref": "#/components/schemas/MinimumBuild"
+          },
           "server_version": {
             "type": "string"
           }
         },
         "required": [
           "server_version",
-          "api_versions"
+          "api_versions",
+          "min_client_build",
+          "features"
         ],
         "type": "object"
+      },
+      "MinimumBuild": {
+        "properties": {
+          "beta": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "stable": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stable",
+          "beta"
+        ],
+        "type": "object"
+      },
+      "PatchMe": {
+        "additionalProperties": false,
+        "properties": {
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "locale"
+        ],
+        "type": "object"
+      },
+      "Problem": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "UserResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "locale"
+        ],
+        "type": "object"
+      },
+      "ValidationIssue": {
+        "properties": {
+          "pointer": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pointer",
+          "rule"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -33,14 +293,265 @@
         "operationId": "healthz",
         "responses": {
           "200": {
-            "description": "Service is healthy"
+            "description": "Healthy"
           }
         }
       }
     },
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "device_name": "example-device",
+                "password": "example-password",
+                "username": "sample"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "session_kind": "password_change",
+                  "token": "<opaque-session-token>",
+                  "user": {
+                    "id": "019a0000-0000-7000-8000-000000000001",
+                    "locale": "system",
+                    "username": "sample"
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Session created"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid credentials"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Rate limited"
+          }
+        }
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "Current session removed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/client-logs": {
+      "post": {
+        "operationId": "upload",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "app_version": "0.1.0",
+                "build": 1,
+                "device_model": "example-device",
+                "entries": [
+                  {
+                    "error_type": "ExampleError",
+                    "level": "ERROR",
+                    "logger": "example",
+                    "message": "example crash",
+                    "stack": "example frame",
+                    "ts": "2026-01-01T00:00:00Z"
+                  }
+                ],
+                "os_version": "example-os"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ClientLogs"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Logs accepted"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Batch too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Entry too large"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/healthz": {
+      "get": {
+        "operationId": "versioned_healthz",
+        "responses": {
+          "200": {
+            "description": "Healthy"
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": "019a0000-0000-7000-8000-000000000001",
+                  "locale": "en",
+                  "username": "sample"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Current user"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "locale": "en"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PatchMe"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": "019a0000-0000-7000-8000-000000000001",
+                  "locale": "zh-Hans",
+                  "username": "sample"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Locale saved"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/me/password": {
+      "post": {
+        "operationId": "password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "current_password": "example-old-password",
+                "new_password": "example-new-password"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ChangePassword"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Password changed; current session is full"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Current password invalid"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/v1/meta": {
       "get": {
-        "operationId": "get_public_meta",
+        "operationId": "meta",
         "responses": {
           "200": {
             "content": {
@@ -49,6 +560,11 @@
                   "api_versions": [
                     1
                   ],
+                  "features": [],
+                  "min_client_build": {
+                    "beta": 0,
+                    "stable": 0
+                  },
                   "server_version": "0.1.0"
                 },
                 "schema": {
@@ -56,7 +572,7 @@
                 }
               }
             },
-            "description": "Server and API versions"
+            "description": "Version handshake"
           }
         }
       }

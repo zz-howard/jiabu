@@ -1,10 +1,12 @@
+#[path = "../../../tests/support/mod.rs"]
+mod support;
 use anyhow::{Context, Result, ensure};
 use sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
 
 #[tokio::test]
 async fn postgres_is_at_least_18() -> Result<()> {
-    let url = std::env::var("DATABASE_URL")
-        .context("DATABASE_URL is required: run server/tool/dev-db.sh start and use its URL")?;
+    let fixture = support::TestDb::new().await?;
+    let url = &fixture.app_url;
     let db = Database::connect(url)
         .await
         .context("Could not connect to PostgreSQL from DATABASE_URL")?;

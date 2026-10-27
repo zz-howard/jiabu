@@ -1,11 +1,14 @@
-//! Space-scoped persistence boundary. Database implementation follows in S1.
-
-/// Placeholder for an authorized, space-scoped transaction.
-///
-/// S1 will set transaction-local space scope and keep the connection private.
-pub struct SpaceTx;
-
-/// Placeholder for a background-only transaction used by workers and cleanup.
-///
-/// Public API code must never name this type. Settings must be transaction-local.
-pub struct SystemTx;
+//! Public persistence boundary. Pools and raw transactions are never exported.
+mod app_db;
+pub mod auth;
+pub mod entity;
+mod member;
+mod space_tx;
+mod system_tx;
+pub use app_db::AppDb;
+pub use member::{ActiveMember, GrantLevel};
+pub use sea_orm::DbErr;
+pub use space_tx::{BeginError, Mode, SpaceTx};
+pub use system_tx::SystemTx;
+#[cfg(test)]
+mod tests;

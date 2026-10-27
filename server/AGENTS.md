@@ -24,3 +24,15 @@ x86_64 Linux build host; release CI also uses a native ARM runner.
   and api dependencies. SQL migrations are the only schema source; append new
   migrations and never edit released ones. Entity generation starts in S1.
 - ChatWeave Rust dependencies start after CW1, pinned to a reviewed commit.
+
+S1 clarifications (approved for this slice):
+- Login creates a new session on retry and never caches its token. PATCH /me sets
+  locale idempotently; POST /me/password validates the current password. These
+  identity writes and logout do not require Idempotency-Key in S1. Space content
+  idempotency is implemented in S3/S4.
+- Mount public routes only through crates/api/src/route_catalog.rs. Every route
+  with a space path parameter must be present in the isolation matrix.
+- Run tool/check-entities.sh in addition to the original three check scripts.
+  Never handwrite generated entities or fabricate lockfile checksums.
+- Client log upload deliberately accepts client crash message/stack text; never
+  log the upload Authorization header or a complete HTTP request body.
