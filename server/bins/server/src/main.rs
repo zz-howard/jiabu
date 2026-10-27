@@ -1,19 +1,43 @@
+mod config;
 use anyhow::{Context, Result};
+use secrecy::{ExposeSecret, SecretString};
 use tracing_subscriber::EnvFilter;
-
 #[tokio::main]
 async fn main() -> Result<()> {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
-        .with_env_filter(filter)
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .json()
+        .flatten_event(true)
+        .with_current_span(true)
+        .with_span_list(false)
         .init();
-    let address = std::env::var("JIABU_LISTEN_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
-    let listener = tokio::net::TcpListener::bind(&address)
+    let settings = config::Settings::load()?;
+    let app_url: SecretString = std::env::var("JIABU_DATABASE_URL")
+        .context("JIABU_DATABASE_URL is required")?
+        .into();
+    if settings.migrate_on_start {
+        let owner_url: SecretString = std::env::var("JIABU_OWNER_DATABASE_URL")
+            .context("JIABU_OWNER_DATABASE_URL is required for automatic migrations")?
+            .into();
+        jiabu_db_admin::migrations::migrate(owner_url.expose_secret()).await?;
+    }
+    jiabu_db_admin::migrations::validate_startup(app_url.expose_secret()).await?;
+    let db = jiabu_db::AppDb::connect(app_url.expose_secret())
         .await
-        .context("Failed to bind public HTTP listener")?;
-    tracing::info!(address = %listener.local_addr()?, "Public HTTP listener ready");
-    axum::serve(listener, jiabu_api::router())
+        .context("Could not connect to application database")?;
+    let state = jiabu_api::AppState::new(db)
         .await
-        .context("HTTP server failed")
+        .map_err(anyhow::Error::msg)?;
+    let listener = tokio::net::TcpListener::bind(&settings.listen_addr)
+        .await
+        .context("Failed to bind HTTP listener")?;
+    tracing::info!(address=%listener.local_addr()?,"Public HTTP listener ready");
+    axum::serve(
+        listener,
+        jiabu_api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .context("HTTP server failed")
 }

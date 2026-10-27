@@ -94,6 +94,13 @@ case "${1:-}" in
     if [[ "$db_exists" != 1 ]]; then
       PGPASSWORD="$password" "$PG_BIN/createdb" -h 127.0.0.1 -p "$DB_PORT" -U jiabu jiabu_dev >&2
     fi
+    # Marks this cluster as disposable so test tooling may set fake jiabu_* role passwords.
+    marker_exists=$(PGPASSWORD="$password" "$PG_BIN/psql" -h 127.0.0.1 -p "$DB_PORT" -U jiabu \
+      -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname = 'jiabu_disposable_test_cluster'")
+    if [[ "$marker_exists" != 1 ]]; then
+      PGPASSWORD="$password" "$PG_BIN/createdb" -h 127.0.0.1 -p "$DB_PORT" -U jiabu \
+        jiabu_disposable_test_cluster >&2
+    fi
     database_url
     ;;
   stop)

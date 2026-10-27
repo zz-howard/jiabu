@@ -5,6 +5,7 @@ readonly RUST_VERSION=1.99.1
 readonly PG_VERSION=18.6
 readonly NEXTEST_VERSION=0.9.149
 readonly DENY_VERSION=0.20.2
+readonly SEA_ORM_CLI_VERSION=2.0.4
 readonly AUDIT_VERSION=0.22.2
 readonly AUDIT_SHA256=7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
 readonly TOOLS_DIR="${JIABU_TOOLS_DIR:-$HOME/dev-tools}"
@@ -44,14 +45,18 @@ rustup toolchain install "$RUST_VERSION" --profile minimal \
 
 install_cargo_tool() {
   local package=$1 binary=$2 version=$3
+  shift 3
   if ! "$CARGO_HOME/bin/$binary" --version 2>/dev/null | \
     awk -v wanted="$version" '$2 == wanted { found = 1 } END { exit !found }'; then
     cargo "+$RUST_VERSION" install --locked --force --version "=$version" \
-      --root "$CARGO_HOME" "$package"
+      --root "$CARGO_HOME" "$@" "$package"
   fi
 }
 install_cargo_tool cargo-nextest cargo-nextest "$NEXTEST_VERSION"
 install_cargo_tool cargo-deny cargo-deny "$DENY_VERSION"
+# Default features pull async-std/native-tls; entity generation only needs PostgreSQL.
+install_cargo_tool sea-orm-cli sea-orm-cli "$SEA_ORM_CLI_VERSION" \
+  --no-default-features --features cli,codegen,runtime-tokio-rustls,sqlx-postgres
 if ! "$CARGO_HOME/bin/cargo-audit" --version 2>/dev/null | \
   awk -v wanted="$AUDIT_VERSION" '$2 == wanted { found = 1 } END { exit !found }'; then
   audit_url="https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv$AUDIT_VERSION/cargo-audit-x86_64-unknown-linux-musl-v$AUDIT_VERSION.tgz"

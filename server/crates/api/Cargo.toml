@@ -13,11 +13,27 @@ jiabu-tools.workspace = true
 jiabu-db.workspace = true
 jiabu-storage.workspace = true
 axum.workspace = true
+tower-http.workspace = true
 serde.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
 
+jiabu-domain.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+argon2.workspace = true
+rand.workspace = true
+sha2.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 tokio.workspace = true
 tower.workspace = true
+sqlx.workspace = true
+jiabu-db-admin.workspace = true
+jiabu-admin.workspace = true
+anyhow.workspace = true
+tracing-subscriber.workspace = true

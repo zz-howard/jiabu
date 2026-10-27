@@ -17,17 +17,18 @@ jobs:
       postgres:
         image: postgres:18
         env:
-          POSTGRES_DB: jiabu_test
+          # Disposable service container; the marker database lets test tooling run.
+          POSTGRES_DB: jiabu_disposable_test_cluster
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d jiabu_test"
+          --health-cmd "pg_isready -U postgres -d jiabu_disposable_test_cluster"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
     env:
-      DATABASE_URL: postgres://postgres@127.0.0.1:5432/jiabu_test
+      DATABASE_URL: postgres://postgres@127.0.0.1:5432/jiabu_disposable_test_cluster
     steps:
       - uses: actions/checkout@v4
       - name: Install fixed Rust and check tools
@@ -37,6 +38,7 @@ jobs:
           cargo install cargo-nextest --version 0.9.149 --locked
           cargo install cargo-deny --version 0.20.2 --locked
           cargo install cargo-audit --version 0.22.2 --locked
+          cargo install sea-orm-cli --version 2.0.4 --locked --no-default-features --features cli,codegen,runtime-tokio-rustls,sqlx-postgres
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -51,5 +53,7 @@ jobs:
         run: tool/check-admin-deps.sh
       - name: Transaction rules
         run: tool/check-rules.sh
+      - name: Generated entities
+        run: tool/check-entities.sh
       - name: OpenAPI snapshots
         run: tool/check-openapi.sh

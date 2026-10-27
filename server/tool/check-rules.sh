@@ -63,6 +63,23 @@ for path in sorted(root.rglob("*")):
                    for match in session_config_calls(text))
     for match, message in matches:
         violations.append((path, text.count("\n", 0, match.start()) + 1, message))
+# The route catalog is the only production mounting entry point. Test-only
+# handlers live in src/tests.rs and are mounted by cfg(test) in that catalog.
+route_mount = re.compile(r"\.(?:route|routes|nest|nest_service|route_service|merge)\s*\(|\b(?:OpenApiRouter|Router)::(?:<[^>]*>)?new\s*\(")
+for path in sorted((root / "crates/api/src").rglob("*.rs")):
+    if path == root / "crates/api/src/tests.rs":
+        continue
+    text = path.read_text()
+    for match in route_mount.finditer(text):
+        if path.name == "route_catalog.rs" and re.match(
+                r"\.routes\s*\(\s*routes!\s*\(\s*\$handler\s*\)\s*\)",
+                text[match.start():]):
+            continue
+        violations.append((path, text.count("\n", 0, match.start()) + 1,
+                           "Mount routes only in route_catalog.rs"))
+api_lib = root / "crates/api/src/lib.rs"
+if not re.search(r"#\[cfg\(test\)\]\s*mod\s+tests\s*;", api_lib.read_text()):
+    violations.append((api_lib, 1, "The isolation probe module must remain cfg(test)"))
 for path, line, message in violations:
     print(f"{path.relative_to(root)}:{line}: {message}", file=sys.stderr)
 sys.exit(bool(violations))
