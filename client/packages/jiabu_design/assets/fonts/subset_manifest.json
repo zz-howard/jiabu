@@ -1,0 +1,29 @@
+{
+  "fonts": {
+    "jiabu_hand.ttf": {
+      "bytes": 221216,
+      "codepoint_count": 482,
+      "sha256": "c9fbcfb765de5c5f4ae61215d0ec01ca31cdc31241b2f56268742b6ec89a222f",
+      "source_sha256": "f4b8a34d1f838fe411540cb7c97b1c384ac9738a876c4104500bc42508b2312a",
+      "source_url": "https://github.com/lxgw/LxgwWenKai/releases/download/v1.530/LXGWWenKai-Medium.ttf",
+      "weight": 500
+    },
+    "jiabu_numerals.ttf": {
+      "bytes": 114220,
+      "codepoint_count": 202,
+      "sha256": "57ca5aeb2558ab9314d855830c7766e9e3c9c6fa64e6507d9360ca6d5be7120d",
+      "source_sha256": "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/a85fc09e44c70c7159761adfdc9d5dd007792c15/ofl/caveat/Caveat%5Bwght%5D.ttf",
+      "weight": 600
+    },
+    "jiabu_serif.otf": {
+      "bytes": 1229860,
+      "codepoint_count": 3883,
+      "sha256": "5a378baa27bc797e764a48776e0e5df3cf3fd6e1773e9e7668bc7c9c68bcf56c",
+      "source_sha256": "24693d48bdb9152f0a06b02af625638a1097abd6de4010ebba027f6e82710527",
+      "source_url": "https://raw.githubusercontent.com/notofonts/noto-cjk/9b0f1436e455d902de067a2501422e5dc71ad16b/Serif/SubsetOTF/SC/NotoSerifSC-Bold.otf",
+      "weight": 700
+    }
+  },
+  "fonttools": "4.55.8"
+}

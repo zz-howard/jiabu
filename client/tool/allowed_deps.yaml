@@ -10,6 +10,8 @@ packages:
   jiabu:
     dependencies:
       flutter: {sdk: flutter}
+      flutter_localizations: {sdk: flutter}
+      intl: any
       flutter_riverpod: ^3.4.3
       jiabu_design: {path: ../packages/jiabu_design}
     dev_dependencies:
@@ -19,3 +21,4 @@ packages:
       flutter: {sdk: flutter}
     dev_dependencies:
       flutter_test: {sdk: flutter}
+      yaml: ^3.1.3

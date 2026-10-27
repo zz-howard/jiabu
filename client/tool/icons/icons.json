@@ -1,0 +1,1389 @@
+{
+  "source": "style-d-prototype.html: ICON, DOOD, SQUIG, CIRC; Lucide ISC + Feather MIT in assets/licenses/LUCIDE-LICENSE.txt",
+  "icons": {
+    "uiChat": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+        }
+      ]
+    },
+    "uiChatFill": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": true,
+          "d": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+        }
+      ]
+    },
+    "uiDash": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "rect",
+          "fill": false,
+          "x": 3.0,
+          "y": 3.0,
+          "width": 7.0,
+          "height": 9.0,
+          "rx": 1.5
+        },
+        {
+          "type": "rect",
+          "fill": false,
+          "x": 14.0,
+          "y": 3.0,
+          "width": 7.0,
+          "height": 5.0,
+          "rx": 1.5
+        },
+        {
+          "type": "rect",
+          "fill": false,
+          "x": 14.0,
+          "y": 12.0,
+          "width": 7.0,
+          "height": 9.0,
+          "rx": 1.5
+        },
+        {
+          "type": "rect",
+          "fill": false,
+          "x": 3.0,
+          "y": 16.0,
+          "width": 7.0,
+          "height": 5.0,
+          "rx": 1.5
+        }
+      ]
+    },
+    "uiDashFill": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "rect",
+          "fill": true,
+          "x": 3.0,
+          "y": 3.0,
+          "width": 7.0,
+          "height": 9.0,
+          "rx": 1.5
+        },
+        {
+          "type": "rect",
+          "fill": true,
+          "x": 14.0,
+          "y": 3.0,
+          "width": 7.0,
+          "height": 5.0,
+          "rx": 1.5
+        },
+        {
+          "type": "rect",
+          "fill": true,
+          "x": 14.0,
+          "y": 12.0,
+          "width": 7.0,
+          "height": 9.0,
+          "rx": 1.5
+        },
+        {
+          "type": "rect",
+          "fill": true,
+          "x": 3.0,
+          "y": 16.0,
+          "width": 7.0,
+          "height": 5.0,
+          "rx": 1.5
+        }
+      ]
+    },
+    "uiHistory": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3 3v5h5"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 7v5l4 2"
+        }
+      ]
+    },
+    "uiCamera": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"
+        },
+        {
+          "type": "circle",
+          "fill": false,
+          "cx": 12.0,
+          "cy": 13.0,
+          "r": 3.2
+        }
+      ]
+    },
+    "uiImage": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "rect",
+          "fill": false,
+          "x": 3.0,
+          "y": 3.0,
+          "width": 18.0,
+          "height": 18.0,
+          "rx": 2.5
+        },
+        {
+          "type": "circle",
+          "fill": false,
+          "cx": 9.0,
+          "cy": 9.0,
+          "r": 2.0
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"
+        }
+      ]
+    },
+    "uiSend": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m5 12 7-7 7 7"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 19V5"
+        }
+      ]
+    },
+    "uiSendPlane": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3.4 20.4 21 12 3.4 3.6 3.4 10.1 15 12 3.4 13.9z"
+        }
+      ]
+    },
+    "uiSearch": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "circle",
+          "fill": false,
+          "cx": 11.0,
+          "cy": 11.0,
+          "r": 7.0
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m20 20-3.5-3.5"
+        }
+      ]
+    },
+    "uiEdit": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"
+        }
+      ]
+    },
+    "uiUndo": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M9 14 4 9l5-5"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M4 9h10.5a5.5 5.5 0 0 1 0 11H11"
+        }
+      ]
+    },
+    "uiFamily": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3 10.5 12 3l9 7.5"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M9.5 21v-6h5v6"
+        }
+      ]
+    },
+    "uiLock": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "rect",
+          "fill": false,
+          "x": 4.0,
+          "y": 11.0,
+          "width": 16.0,
+          "height": 10.0,
+          "rx": 2.0
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M8 11V7a4 4 0 0 1 8 0v4"
+        }
+      ]
+    },
+    "uiCloudOff": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m2 2 20 20"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"
+        }
+      ]
+    },
+    "uiUpload": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 12v9"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m16 16-4-4-4 4"
+        }
+      ]
+    },
+    "uiSparkle": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 3v3M12 18v3M3 12h3M18 12h3"
+        },
+        {
+          "type": "path",
+          "fill": true,
+          "d": "M12 7.5 13.3 10.7 16.5 12 13.3 13.3 12 16.5 10.7 13.3 7.5 12 10.7 10.7Z"
+        }
+      ]
+    },
+    "uiEye": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"
+        },
+        {
+          "type": "circle",
+          "fill": false,
+          "cx": 12.0,
+          "cy": 12.0,
+          "r": 3.0
+        }
+      ]
+    },
+    "uiWallet": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M21 10h-5a2 2 0 0 0 0 4h5z"
+        }
+      ]
+    },
+    "uiCard": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "rect",
+          "fill": false,
+          "width": 20.0,
+          "height": 14.0,
+          "x": 2.0,
+          "y": 5.0,
+          "rx": 2.5
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M2 10h20"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M6 15h4"
+        }
+      ]
+    },
+    "uiBank": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3 21h18"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M5 18v-7M9.5 18v-7M14.5 18v-7M19 18v-7"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 3 21 8H3z"
+        }
+      ]
+    },
+    "uiTrend": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m22 7-8.5 8.5-5-5L2 17"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M16 7h6v6"
+        }
+      ]
+    },
+    "uiMove": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m16 3 4 4-4 4"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M20 7H4"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m8 21-4-4 4-4"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M4 17h16"
+        }
+      ]
+    },
+    "uiRight": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m9 18 6-6-6-6"
+        }
+      ]
+    },
+    "uiDown": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m6 9 6 6 6-6"
+        }
+      ]
+    },
+    "uiClose": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M18 6 6 18"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m6 6 12 12"
+        }
+      ]
+    },
+    "uiPlus": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M5 12h14"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 5v14"
+        }
+      ]
+    },
+    "uiTag": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"
+        },
+        {
+          "type": "circle",
+          "fill": true,
+          "cx": 7.5,
+          "cy": 7.5,
+          "r": 1.2
+        }
+      ]
+    },
+    "uiClock": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "circle",
+          "fill": false,
+          "cx": 12.0,
+          "cy": 12.0,
+          "r": 9.0
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 7v5l3 2"
+        }
+      ]
+    },
+    "uiCheck": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M20 6 9 17l-5-5"
+        }
+      ]
+    },
+    "uiRetry": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M21 3v5h-5"
+        }
+      ]
+    },
+    "uiDoc": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M14 2v4a2 2 0 0 0 2 2h4"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M9 13h6M9 17h4"
+        }
+      ]
+    },
+    "uiMic": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "rect",
+          "fill": false,
+          "x": 9.0,
+          "y": 2.0,
+          "width": 6.0,
+          "height": 12.0,
+          "rx": 3.0
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M19 10v1a7 7 0 0 1-14 0v-1"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 18v4"
+        }
+      ]
+    },
+    "uiFilter": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3 6h18M7 12h10M10 18h4"
+        }
+      ]
+    },
+    "uiIncome": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 5v14"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m19 12-7 7-7-7"
+        }
+      ]
+    },
+    "uiOutgo": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M7 17 17 7"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M7 7h10v10"
+        }
+      ]
+    },
+    "uiAlloc": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 3v12"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m7 10 5 5 5-5"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M5 21h14"
+        }
+      ]
+    },
+    "uiMore": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "circle",
+          "fill": true,
+          "cx": 12.0,
+          "cy": 5.0,
+          "r": 1.4
+        },
+        {
+          "type": "circle",
+          "fill": true,
+          "cx": 12.0,
+          "cy": 12.0,
+          "r": 1.4
+        },
+        {
+          "type": "circle",
+          "fill": true,
+          "cx": 12.0,
+          "cy": 19.0,
+          "r": 1.4
+        }
+      ]
+    },
+    "uiUser": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "circle",
+          "fill": false,
+          "cx": 12.0,
+          "cy": 8.0,
+          "r": 4.0
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M4 21a8 8 0 0 1 16 0"
+        }
+      ]
+    },
+    "uiCompare": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3 3v18h18"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m7 15 4-4 3 3 5-6"
+        }
+      ]
+    },
+    "uiInfo": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "circle",
+          "fill": false,
+          "cx": 12.0,
+          "cy": 12.0,
+          "r": 9.0
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 16v-4M12 8h.01"
+        }
+      ]
+    },
+    "uiOffline": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 20h.01"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M8.5 16.43a5 5 0 0 1 7 0"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M5 12.86a10 10 0 0 1 5.17-2.69"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M19 12.86a10 10 0 0 0-2-1.52"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M2 8.82a15 15 0 0 1 4.18-2.64"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M22 8.82a15 15 0 0 0-11.29-3.76"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m2 2 20 20"
+        }
+      ]
+    },
+    "uiGlasses": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "circle",
+          "fill": false,
+          "cx": 6.0,
+          "cy": 15.0,
+          "r": 3.5
+        },
+        {
+          "type": "circle",
+          "fill": false,
+          "cx": 18.0,
+          "cy": 15.0,
+          "r": 3.5
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M9.5 15h5"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M2.5 14 5 7.5c.6-1.3 1.4-2 2.8-2"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M21.5 14 19 7.5c-.6-1.3-1.4-2-2.8-2"
+        }
+      ]
+    },
+    "uiRuler": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.85,
+      "category": "ui",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m14.5 12.5 2-2M11.5 9.5l2-2M8.5 6.5l2-2M17.5 15.5l2-2"
+        }
+      ]
+    },
+    "doodleFood": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3.8 12.6c.4 4.3 3.7 7 8.2 6.9 4.4-.1 7.5-2.8 8.1-7.1"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3 12.4c6-.5 12.1-.2 18.1-.4"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M8.6 9.3c-.9-1.3.7-2.1-.1-3.6M12.2 9.1c-.8-1.4.8-2.2 0-3.8M15.8 9.2c-.7-1.1.6-1.9-.1-3.2"
+        }
+      ]
+    },
+    "doodleEdu": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3 5.6c3.1-1 6.1-.7 9 1.3 2.9-2 6-2.3 9-1.3l-.1 13.1c-3-.8-6-.5-8.9 1.3-3-1.8-6-2.1-9-1.2z"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 6.9c.1 4.3 0 8.6 0 12.9"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M5.8 9.4c1.4-.2 2.6 0 3.8.5M5.8 12.6c1.4-.2 2.6 0 3.8.5"
+        }
+      ]
+    },
+    "doodleHealth": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 19.8s-7.6-4.2-8.7-9.1C2.6 7.5 4.7 4.9 7.6 5.1c1.9.2 3.3 1.3 4.4 3 1.1-1.7 2.5-2.8 4.4-3 2.9-.2 5 2.4 4.3 5.6-1.1 4.9-8.7 9.1-8.7 9.1z"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 10.6v4.6M9.8 12.9h4.5"
+        }
+      ]
+    },
+    "doodleTravel": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M2.6 19.6c6.3-.3 12.5-.2 18.8 0"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3.9 19.4 11.9 5.2l8.3 14.3"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M11.9 5.4c-.9 4.6-1.7 9.3-2.4 14M12 5.4c.9 4.6 1.9 9.2 2.8 13.9"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M10.2 3.9 11.9 5.2l1.8-1.4"
+        }
+      ]
+    },
+    "doodleHome": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3.4 11.1 12 4.1l8.7 7.1"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M5.6 9.7c-.1 3.2 0 6.4 0 9.6 4.3.3 8.6.3 12.9-.1-.1-3.2 0-6.4-.1-9.6"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M10 19.3c0-1.8-.1-3.5.1-5.2h3.9c.1 1.7 0 3.4 0 5.2"
+        }
+      ]
+    },
+    "doodleReserve": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M8 3.8c2.7-.2 5.3-.1 8 0"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M8.7 4.1v2.3C6 7.6 5 9.8 5.2 13c.2 4.4 2.5 6.9 6.8 6.9 4.4 0 6.6-2.6 6.8-6.9.2-3.4-.9-5.5-3.5-6.7l.1-2.2"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M8.9 12.6c2-.2 4.1-.2 6.2 0"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 10.4v4.6"
+        }
+      ]
+    },
+    "doodleHobby": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M9.1 17.4c-.1-3.8-.1-7.5 0-11.2l9.9-2.3c.1 3.6.1 7.3 0 11"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M4.1 17.7c0-1.4 1.1-2.5 2.5-2.5s2.5 1.1 2.5 2.5-1.1 2.4-2.5 2.4-2.5-1-2.5-2.4z"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M14.1 15.2c0-1.4 1.1-2.5 2.5-2.5s2.4 1.1 2.4 2.5-1.1 2.4-2.5 2.4-2.4-1-2.4-2.4z"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M9.2 9.3c3.3-.8 6.6-1.5 9.8-2.2"
+        }
+      ]
+    },
+    "doodleBooks": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3.8 19c5.5-.2 10.9-.2 16.4.1"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M5 18.9c-.1-4.1 0-8.2 0-12.3h4c.1 4.1 0 8.2.1 12.3M9.1 18.9c0-3.4-.1-6.8 0-10.2h4.1c.1 3.4 0 6.8 0 10.2"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "m13.8 9.6 3.6-1.1c1.1 3.3 2 6.7 3 10.1l-3.6 1"
+        }
+      ]
+    },
+    "doodleFit": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M6.5 7.9c.1 2.7.1 5.4 0 8.2M17.5 7.9c-.1 2.7-.1 5.4 0 8.2M3.5 10c.1 1.3.1 2.7 0 4M20.5 10c-.1 1.3-.1 2.7 0 4"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M6.6 12.1c3.6-.2 7.2-.2 10.8 0"
+        }
+      ]
+    },
+    "doodleStar": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 3.2c.9 2.5 1.7 4.6 2.6 5.9 2 .3 4.2.4 6.3.7-1.6 1.5-3.4 2.9-4.9 4.3.4 2.3 1 4.5 1.4 6.8-2-1.1-3.7-2.3-5.5-3.3-1.9 1.1-3.8 2.3-5.6 3.4.5-2.3.9-4.6 1.4-6.8C6.3 12.7 4.6 11.3 3 9.9c2.2-.3 4.3-.5 6.4-.8.9-2 1.7-3.9 2.6-5.9z"
+        }
+      ]
+    },
+    "doodleHeart": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M12 19.5s-7.4-4.3-8.4-9C3 7.4 5 5 7.7 5.2c1.9.1 3.3 1.3 4.3 2.9 1-1.6 2.4-2.8 4.3-2.9 2.7-.2 4.7 2.2 4.1 5.3-1 4.7-8.4 9-8.4 9z"
+        }
+      ]
+    },
+    "doodleClip": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M8.5 7.5v8.8a3.5 3.5 0 0 0 7 0V5.8a2.3 2.3 0 0 0-4.6 0v10.1a1.1 1.1 0 0 0 2.3 0V8"
+        }
+      ]
+    },
+    "doodleArrow": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M3.5 15.5c3.8-.4 7.8-2.3 11-6.6"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M11.2 8.2c1.3.1 2.6.2 3.6.4-.1 1.2-.1 2.4-.4 3.6"
+        }
+      ]
+    },
+    "doodlePencil": {
+      "viewport": [
+        24,
+        24
+      ],
+      "strokeWidth": 1.9,
+      "category": "doodle",
+      "shapes": [
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M4.2 19.8c.4-1.6.7-3.1 1.2-4.6L15.6 4.9c.9-.9 2.4-.9 3.4.1.9 1 .9 2.4 0 3.3L8.9 18.5c-1.5.5-3.1.9-4.7 1.3z"
+        },
+        {
+          "type": "path",
+          "fill": false,
+          "d": "M13.9 6.7l3.4 3.4"
+        }
+      ]
+    },
+    "squig": {
+      "viewport": [
+        120,
+        10
+      ],
+      "strokeWidth": 2,
+      "category": "stroke-decor",
+      "shapes": [
+        {
+          "type": "path",
+          "d": "M2 6c9-4 15 2 24-1s15-3 24 0 15 3 24 0 15-3 24-.5 11 2 20 0",
+          "fill": false
+        }
+      ]
+    },
+    "circle": {
+      "viewport": [
+        80,
+        44
+      ],
+      "strokeWidth": 2.4,
+      "category": "stroke-decor",
+      "shapes": [
+        {
+          "type": "path",
+          "d": "M44 4.5C24 2.6 5.5 9 5 21.5 4.6 33.6 22 40 41 39.4c18.7-.6 33.6-7.8 33.4-19C74.2 9.4 58.6 3.4 36.4 5.6",
+          "fill": false
+        }
+      ]
+    }
+  }
+}

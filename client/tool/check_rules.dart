@@ -239,6 +239,23 @@ void _checkSource(
 
   final isDesign = file.startsWith('packages/jiabu_design/lib/');
   final feature = _feature(file);
+  if ((isDesign || !RegExp('/lib/(?:features|data)/').hasMatch(file)) &&
+      file != 'packages/jiabu_design/lib/src/tokens/colors.dart') {
+    for (final match in RegExp(r'\bColor\s*\(\s*0x').allMatches(source)) {
+      report(
+        1,
+        match.start,
+        'Color hex literals belong in tokens/colors.dart.',
+      );
+    }
+  }
+  if (file != 'packages/jiabu_design/lib/src/tokens/type.dart' &&
+      !file.contains('/lib/features/settings/')) {
+    for (final match in RegExp(r'\.\s*mono\b').allMatches(source)) {
+      report(8, match.start, 'JiabuType.mono is only for settings API keys.');
+    }
+  }
+
   if (!isDesign && RegExp('/lib/(?:features|data)/').hasMatch(file)) {
     final literals = RegExp(
       r'\bColor\s*\(|\bColors\s*\.|\bfontFamily\s*:|'
@@ -248,7 +265,7 @@ void _checkSource(
       report(1, match.start, 'Use design tokens instead of UI literals.');
     }
   }
-  if (!isDesign) {
+  if (file != 'packages/jiabu_design/lib/src/components/tilt.dart') {
     for (final match in RegExp(
       r'\bTransform\s*\.\s*rotate\b|\bRotationTransition\b',
     ).allMatches(source)) {

@@ -77,7 +77,9 @@ final delay = Duration(
     write('app/lib/shared/example.dart', '''
 import 'package:http/http.dart';
 export 'example.dart'
-  if (dart.library.io) 'package:firebase_core/firebase_core.dart';
+  if (dart.library.io) {
+    'package:firebase_core/firebase_core.dart';
+  }
 ''');
     expect(violationsFor(3), hasLength(2));
   });
@@ -183,10 +185,14 @@ dependencies:
   });
 
   test('allows tokens, design implementation and same-feature imports', () {
-    write('packages/jiabu_design/lib/src/theme.dart', '''
-final color = Color(0xff000000);
-final decoration = Transform.rotate(angle: 0);
-''');
+    write(
+      'packages/jiabu_design/lib/src/tokens/colors.dart',
+      'final color = Color(0xff000000);',
+    );
+    write(
+      'packages/jiabu_design/lib/src/components/tilt.dart',
+      'final decoration = Transform.rotate(angle: 0);',
+    );
     write('app/lib/features/home/view/home_screen.dart', '''
 // Colors.red and StateProvider must not match in comments.
 /* Transform.rotate must not match in comments either. */
@@ -199,6 +205,29 @@ final color = context.jiabu.accent;
       "import '../../data/home_repository.dart';\n",
     );
     expect(scanProject(workspace), isEmpty);
+  });
+
+  test('mono is restricted to settings, including context token access', () {
+    write(
+      'app/lib/features/home/view/home_screen.dart',
+      'final a = JiabuType.mono; final b = context.jiabu.type.mono;',
+    );
+    expect(violationsFor(8), hasLength(2));
+    write(
+      'app/lib/features/settings/view/key_screen.dart',
+      'final a = context.jiabu.type.mono;',
+    );
+    expect(violationsFor(8), hasLength(2));
+  });
+
+  test('only the color token and Tilt may implement literals and rotation', () {
+    write(
+      'packages/jiabu_design/lib/src/components/example.dart',
+      'final a = Color(0xff000000); '
+          'final b = Transform.rotate(angle: 0);',
+    );
+    expect(violationsFor(1), hasLength(1));
+    expect(violationsFor(2), hasLength(1));
   });
 
   test('reports invalid dependency YAML as a rule failure', () {

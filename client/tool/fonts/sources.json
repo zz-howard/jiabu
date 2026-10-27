@@ -1,0 +1,37 @@
+{
+  "fonts": {
+    "numerals": {
+      "url": "https://raw.githubusercontent.com/google/fonts/a85fc09e44c70c7159761adfdc9d5dd007792c15/ofl/caveat/Caveat%5Bwght%5D.ttf",
+      "sha256": "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988",
+      "output": "jiabu_numerals.ttf",
+      "weight": 600,
+      "license": {
+        "url": "https://raw.githubusercontent.com/google/fonts/a85fc09e44c70c7159761adfdc9d5dd007792c15/ofl/caveat/OFL.txt",
+        "sha256": "1f9d81d094273d82f3898a1ee8b598a717d050ecbf5ff7bede105b704880157b",
+        "output": "OFL-Caveat.txt"
+      }
+    },
+    "hand": {
+      "url": "https://github.com/lxgw/LxgwWenKai/releases/download/v1.530/LXGWWenKai-Medium.ttf",
+      "sha256": "f4b8a34d1f838fe411540cb7c97b1c384ac9738a876c4104500bc42508b2312a",
+      "output": "jiabu_hand.ttf",
+      "weight": 500,
+      "license": {
+        "url": "https://raw.githubusercontent.com/lxgw/LxgwWenKai/v1.530/OFL.txt",
+        "sha256": "1a25e35da1031c6c3436fde545bb9cb5aca954e9873afe510c834b8b79bd21a0",
+        "output": "OFL-LXGWWenKai.txt"
+      }
+    },
+    "serif": {
+      "url": "https://raw.githubusercontent.com/notofonts/noto-cjk/9b0f1436e455d902de067a2501422e5dc71ad16b/Serif/SubsetOTF/SC/NotoSerifSC-Bold.otf",
+      "sha256": "24693d48bdb9152f0a06b02af625638a1097abd6de4010ebba027f6e82710527",
+      "output": "jiabu_serif.otf",
+      "weight": 700,
+      "license": {
+        "url": "https://raw.githubusercontent.com/notofonts/noto-cjk/9b0f1436e455d902de067a2501422e5dc71ad16b/Serif/LICENSE",
+        "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+        "output": "OFL-NotoSerifSC.txt"
+      }
+    }
+  }
+}

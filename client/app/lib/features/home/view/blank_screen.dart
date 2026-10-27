@@ -5,13 +5,13 @@ class BlankScreen extends StatelessWidget {
   const new({super.key});
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
+  Widget build(BuildContext context) => Scaffold(
     body: Center(
       child: SizedBox(
-        key: Key('blank-accent'),
+        key: const Key('blank-accent'),
         width: 96,
         height: 96,
-        child: ColoredBox(color: JiabuColors.accent),
+        child: ColoredBox(color: context.jiabu.colors.primary),
       ),
     ),
   );
