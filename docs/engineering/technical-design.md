@@ -1,6 +1,6 @@
 # 家簿 · 技术方案
 
-> 版本 v0.1（2026-10-27）。对应需求 v0.17、决策清单 P1–P61 / C1–C14 / S1–S24 / A1–A15 / G1–G9。
+> 版本 v0.2（2026-10-27）。对应需求 v0.18、决策清单 P1–P62 / C1–C21 / S1–S39 / A1–A20 / G1–G10。v0.2 按第二轮技术评审修订（同步批次与回写、幂等回放与授权的顺序、重试不重复记账、原图引用、跨空间移动、退款不变量、邀请状态、SSE 交接、拉取分页等），需要产品规则的四件事列在第 16 节。
 > 本文回答“系统**怎么**搭起来”：模块边界、数据库表、授权、同步、接口、AI 运行时、资料模板协议、客户端补充、部署运维和安全控制。它**不重抄**已有的工程文档，只引用它们的章节并补上缺的部分；实施计划按本文切片。
 > 第 14 节“可行性验证”里的实验正在进行，本文按各实验的**期望结果**设计，并写明失败时的退路；结果出来后合并进来。
 
@@ -8,7 +8,7 @@
 
 - 已有工程文档仍然有效：[客户端](client-flutter.md)（下称“客户端 x.y”）、[服务端](server-rust.md)（“服务端 x.y”）、[AI 层](ai-layer.md)（“AI 层 x.y”）、[设计规范](../design/design-spec.md)、[ChatWeave](https://github.com/zz-howard/chatweave)。
 - 本文和它们**有出入的地方**集中列在第 13 节，以本文为准；文档的同步修改放进实施计划。
-- 新定下的技术决策已追加进[决策清单](../decisions/README.md)（S25–S33、A16–A18、C15–C20、G10），本文写“为什么”和“怎么做”。
+- 新定下的技术决策已追加进[决策清单](../decisions/README.md)（S25–S39、A16–A20、C15–C21、G10），本文写“为什么”和“怎么做”。
 - 第 12 节是“本文定下的待定问题”；第 16 节是需要 Howard 拍板的事。
 - 术语第一次出现时附解释；SQL 是建表草案（列名、约束、索引都按实现要求写），以首次迁移为准。
 
@@ -54,7 +54,7 @@ flowchart LR
 
 要点：
 
-1. **一个服务端进程**：公开 API、管理 API（另一个监听器）、Agent worker（2–4 个 tokio 任务）和后台任务都在 `server` 二进制里；v1 不做多实例（SSE 广播、事件日志清理都按单进程设计，见 7.4）。
+1. **一个服务端进程**：公开 API、管理 API（另一个监听器）、Agent worker（2 个 tokio 任务，7.8）和后台任务都在 `server` 二进制里；v1 不做多实例（SSE 广播、事件日志清理都按单进程设计，见 7.4）。
 2. **手机以本机库为准**：所有写入先进 drift 和 outbox，再经三个通道上传：`/sync/push`（全部空间内容的写入）、`/chat/*`（发消息、回答、停止）、`/blobs`（原图）。读取靠 `/sync/pull` 增量同步，聊天流式靠 SSE。
 3. **写入只有一条路**：手机、个人 API key、AI 三种调用方对空间内容的每一次写入，都是一次 `ToolRegistry::invoke()`（S25，第 6.4 节）。授权、业务校验、审计、变更序号只写一次。
 4. **AI 运行**：每条用户消息开一次“运行”（`agent_runs` 一行 + 只追加的 journal），由 worker 领取执行，可以暂停几天（AI 层第 14 节）。
@@ -209,6 +209,8 @@ create index space_invitations_invitee on space_invitations (invitee_user_id) wh
 
 **邀请的流程**（P62）：成员按用户名邀请 → 生成一条 `pending` 邀请，对方**还不是成员**，看不到这个空间的任何内容。被邀请的人在 App 里看到“谁邀请你加入哪个空间”（只有空间名和邀请人的显示名），可以接受或拒绝；邀请人可以在接受之前撤回。接受 = 同一事务里把邀请改为 `accepted`，并新建成员行（`role = 'member'`）或把以前的成员行重新激活（`status = 'active'`、`join_epoch + 1`，P13 的“重新加入”）。拒绝或撤回后邀请人看到对应状态，可以再次邀请。不设过期时间。已是活跃成员、默认个人空间（P11）不能邀请。邀请和接受都只能在线、只能用会话（不进 outbox，API key 不能调用）。
 
+**邀请的状态转换**（S38）：任何一位活跃成员都能邀请（与上文一致，不看 `role`）。接受、拒绝、撤回都在该空间的锁（4.3）里做一次条件写入 `UPDATE space_invitations SET status = … WHERE id = $1 AND status = 'pending'`，影响 0 行就按当前状态返回（例如撤回先到，接受返回 404 `not_found`，界面提示“邀请已失效”），所以接受和撤回并发时只有一个生效。接受还要在同一事务里确认：请求者就是 `invitee_user_id`；空间未删除；**邀请人仍是活跃成员**（否则把邀请改为 `cancelled` 再返回 404）。邀请人退出或被移出时，同一事务里把他发出的 `pending` 邀请改为 `cancelled`（第 16 节第 4 条，待 Howard 确认）；删除空间时把该空间所有 `pending` 邀请改为 `cancelled`（3.10）。
+
 “最后一位所有者不能退出”（P18）、“删除只在只剩自己时允许”（P57）在服务层判断（需要计数，放在 4.3 的空间锁里做，没有竞态）。
 
 ### 3.4 账本（module = `ledger`）
@@ -307,7 +309,29 @@ create index records_tags on records using gin (tag_ids);
 
 **每月拨入**：后台任务每小时扫一次 `next_run_on <= 空间时区的今天` 的计划，在该空间的事务里插入一条 `allocation` 记录，ID = `uuidv5(account_id, 'YYYY-MM')`、`ON CONFLICT DO NOTHING`（同一个月最多一次），写 `last_run_month`，再把 `next_run_on` 推到下个月的拨入日（29–31 号遇小月取月末）。停机跨过几个拨入日时循环补到今天为止，每个月一条（P55）。设置或修改计划时 `next_run_on` = 今天之后的第一个拨入日，且月份不等于 `last_run_month`。拨入记录的撤销与普通记录相同。
 
-**退款**：同一空间锁内校验“该支出所有有效退款之和 + 本次 ≤ 原金额”，否则 422 `refund_exceeds_original`。原用途已归档时工具要求显式给出 `purpose_id`（AI 会先问，默认备用金，P53）。
+**退款**：原用途已归档时工具要求显式给出 `purpose_id`（AI 会先问，默认备用金，P53）。“一笔支出的有效退款之和 ≤ 它的金额，且退款只挂在有效的支出上”是一条**不变量**（S39），凡是可能破坏它的写入都在同一空间锁内检查，不只是新建退款：
+
+| 写入 | 检查 |
+|---|---|
+| `create_record(kind = refund)` | 原记录是本空间的有效**支出**（作废的返回 422 `parent_voided`）；已有有效退款 + 本次 ≤ 原金额，否则 422 `refund_exceeds_original` |
+| `update_record` 改退款的金额 | 同上（把本条旧金额换成新金额再算）；`refund_of_id` 建好后不能改 |
+| `update_record` 改支出的金额 | 新金额 ≥ 它的有效退款之和，否则 422 `refund_exceeds_original` |
+| `restore_record` 恢复退款 | 原支出有效，且恢复后不超额，否则 `parent_voided` / `refund_exceeds_original` |
+| `void_record` 撤销还有有效退款的支出 | 拒绝，422 `has_refunds`：先撤销退款（第 16 节第 3 条，待 Howard 确认）。AI 收到这个错误会问“这笔还有 1 笔退款，要一起撤销吗”，确认后依次撤销 |
+| `move_record` 移动还有有效退款的支出、或移动退款本身 | 拒绝（3.4.1） |
+
+撤销退款、恢复支出不会破坏不变量，不用额外检查。
+
+#### 3.4.1 跨空间移动（`move_record`）
+
+P16 只规定了“原处作废、目标新建、重选账户”。补齐的规则（S39；标“待定”的两条在第 16 节第 2 条）：
+
+- **能移动的记录**：`expense`、`income`、`transfer`、`reallocation`。`allocation`（每月拨入，由计划产生）和 `refund`（跟着原支出走）不能单独移动，返回 422 `move_not_allowed`。
+- **币种不同的空间之间不能移动**（待定，推荐）：422 `currency_mismatch`。金额按“最小单位整数”存，原样搬进另一种币种的空间，金额含义就变了。
+- **有有效退款的支出不能移动**（待定，推荐）：422 `has_refunds`。退款留在原空间会让原空间的余额和退款上限都对不上。
+- **参数**：`{id, target_space_id, target_join_epoch, target_id, account_id, to_account_id?, purpose_id?, to_purpose_id?, tag_ids}`，账户、用途、标签都必须属于目标空间（手机的移动界面按 `preset_key` 和同名预先对好标签，对不上的留空，用户可以改）；`target_id` 由客户端生成，重放幂等。
+- **其余字段**：金额、日期、备注原样；`created_by_member_id` = 移动者在**目标空间**的成员行（原记录的创建者不一定在目标空间）；`origin = 'manual'`（经 key 调用时为 `api`）；附件在同一事务里为目标空间补 `blob_refs(module = 'ledger')`（3.7），原图文件本来就按哈希共用。
+- **同一个事务**：两个空间按 ID 排序加锁（4.3），校验两边的 `join_epoch`（6.1），源记录作废（`void_reason = move_out`，写 `moved_to_record_id`）+ 目标新建（写 `moved_from_record_id`）+ 两条 `entity_events`（`move_out` / `move_in`，`related_space_id` 互指）。
 
 ### 3.5 资料（module = `documents`）
 
@@ -382,7 +406,7 @@ create index entity_events_entity on entity_events (entity_id, id);
 create index entity_events_sync on entity_events (space_id, change_seq);
 ```
 
-只追加：`jiabu_app` 对它只有 `INSERT` / `SELECT`。撤销 = 追加 `void` 事件并更新实体当前态。
+只追加：`jiabu_app` 对它只有 `INSERT` / `SELECT`。撤销 = 追加 `void` 事件并更新实体当前态。`before` / `after` 快照里也有移动关联列，下发时和实体本身一样过滤（5.4 的“移动关联的过滤”）。
 
 ### 3.7 原图
 
@@ -390,21 +414,26 @@ create index entity_events_sync on entity_events (space_id, change_seq);
 
 ```sql
 create table blob_refs (
+  id uuid primary key default uuidv7(),
   space_id uuid not null references spaces,
   module text not null check (module in ('ledger','documents','chat')),
   sha256 bytea not null references blobs,
-  uploaded_by_member_id uuid not null references space_members,
-  created_at timestamptz not null default now(),
-  primary key (space_id, module, sha256));
+  uploaded_by_member_id uuid not null references space_members,   -- chat：这条引用的主人；ledger / documents：第一次上传的人（只作记录）
+  created_at timestamptz not null default now());
+-- 聊天的图每位成员各有一条引用（两人各自发了同一张图，各自都能看）；业务模块每个空间每张图一条
+create unique index blob_refs_chat on blob_refs (space_id, sha256, uploaded_by_member_id) where module = 'chat';
+create unique index blob_refs_module on blob_refs (space_id, module, sha256) where module <> 'chat';
 ```
+
+物理文件按哈希只存一份；**逻辑引用**按上面两条唯一索引分开（S35）。上传时 `ON CONFLICT DO NOTHING` 按模块落到对应的索引上，所以第二位成员上传同一张聊天图也会得到自己的引用，响应与第一次完全相同，看不出别人传过。
 
 文件布局 `<data_dir>/blobs/{前 2 位}/{sha256}.{orig|1600|512}.jpg`：原图、给 AI 和详情页的 1600px 版、512px 缩略图，后两者去掉 EXIF。
 
-AI 把聊天里的照片挂到记录或资料上时（`attachments`、资料的 `image` 值），工具在同一事务里为目标模块补一条 `blob_refs`（只允许引用调用者本人上传的 `chat` 图，或本空间该模块已有的图），之后空间里有该模块读权限的成员都能看到原图。
+AI 把聊天里的照片挂到记录或资料上时（`attachments`、资料的 `image` 值），工具在同一事务里为目标模块补一条 `blob_refs`（只允许引用调用者本人有引用的 `chat` 图，或本空间该模块已有的图），之后空间里有该模块读权限的成员都能看到原图。
 
 ### 3.8 聊天与 AI 运行
 
-- `chat_entries`、`chat_stream_events`、`chat_actions`：照服务端 5.1，改动三处：去掉 `module` / `visibility`（13 节第 6 条）；加 `member_id uuid not null`（会话所属成员，冗余一份给同步过滤用）；助手消息加 `reply_to_id uuid`（回答的是哪条用户消息，供“重试”用）。
+- `chat_entries`、`chat_stream_events`、`chat_actions`：照服务端 5.1，改动：`chat_entries` 去掉 `module` / `visibility`（13 节第 6 条）；三张表都有 `space_id uuid not null` 和 `member_id uuid not null`（会话所属成员，冗余一份给 RLS 和同步过滤用；服务端 5.1 的 `chat_stream_events` 原来只有 `message_id`，这里补上两列）；助手消息加 `reply_to_id uuid`（回答的是哪条用户消息，供“重试”用）。
 - `conversations`：v1 每位成员在每个空间**一段连续的对话**：
 
 ```sql
@@ -417,13 +446,14 @@ create table conversations (
   unique (space_id, member_id));
 ```
 
-- `agent_runs`、`agent_run_items`、`agent_tool_calls`、`agent_prompt_snapshots`：照 AI 层 14.2，改动：`kind` 只有 `'chat'`（A16）；加 `input_entry_id uuid not null`（触发这次运行的用户消息）；唯一索引改为只管 `running` / `paused`（A17，7.3）：
+- `agent_runs`、`agent_run_items`、`agent_tool_calls`、`agent_prompt_snapshots`：照 AI 层 14.2，改动：`kind` 只有 `'chat'`（A16）；加 `input_entry_id uuid not null`（触发这次运行的用户消息）、`join_epoch int not null`（运行开始时发起成员的 `join_epoch`，7.5 比对用）、`retry_of_run_id uuid references agent_runs`（重试接着哪次运行做，7.3）；v1 不建子 Agent 的 `parent_run_id` / `parent_call_id` 两列，`agent_tool_calls.effect` 只允许 `read` / `local_write`（A20，7.8）；唯一索引改为只管 `running` / `paused`（A17，7.3）：
 
 ```sql
 create unique index one_active_run_per_conversation on agent_runs (conversation_id)
-  where parent_run_id is null and status in ('running','paused');
+  where status in ('running','paused');
 create index agent_runs_conversation_fifo on agent_runs (conversation_id, created_at)
   where status in ('queued','running','paused','waiting_ai');
+create unique index one_retry_per_run on agent_runs (retry_of_run_id) where retry_of_run_id is not null;   -- 7.3
 ```
 
 - `ai_calls`、`ai_step_meters`：照 AI 层第 8 节。`task_kind` 的取值改为 `chat` / `chat_vision` / `probe`（A16）。
@@ -454,7 +484,7 @@ create table app_releases (
 - **三个登录角色**：`jiabu_owner`（拥有全部表，只用于跑迁移）、`jiabu_app`（公开 API 与 worker）、`jiabu_admin`（管理侧，列级授权照服务端 9.2，加上 `users.admin_reset_at` 等新列和 `app_releases`）。
 - **RLS**（行级安全，PostgreSQL 按策略自动给每条查询加过滤条件）：内容表对 `jiabu_app` 启用，条件是“本事务允许的空间”，见 4.4。
 - **只追加的表**：`entity_events`、`space_events`、`chat_actions`、`api_key_audit`、`admin_audit` 对应用角色只有 `INSERT` / `SELECT`。
-- **删除空间**（P57）：在空间锁里校验“只剩请求者一人、名字一致、不是默认空间”→ `spaces.deleted_at = now()`、成员 `status = 'left'`、`left_reason = 'space_deleted'`、取消这个空间里所有未结束的运行。随后后台任务调用 `purge_space(space_id)`：一个 `SECURITY DEFINER` 函数（以函数所有者 `jiabu_owner` 的权限执行，所以能删只追加表），只在 `deleted_at` 非空时工作，按外键顺序删掉该空间的全部内容行（含 `entity_events`、聊天、运行、`blob_refs`）；没有引用的原图由原图清理任务删除。`spaces` 行、`space_members` 行和 `ai_calls` 保留：管理侧用量统计还要按空间名称显示（P30），名称以外的内容都已删除。
+- **删除空间**（P57）：在空间锁里校验“只剩请求者一人、名字一致、不是默认空间”→ `spaces.deleted_at = now()`、成员 `status = 'left'`、`left_reason = 'space_deleted'`、取消这个空间里所有未结束的运行、所有 `pending` 邀请改为 `cancelled`。随后后台任务调用 `purge_space(space_id)`：一个 `SECURITY DEFINER` 函数（以函数所有者 `jiabu_owner` 的权限执行，所以能删只追加表），只在 `deleted_at` 非空时工作，按外键顺序删掉该空间的全部内容行（含 `entity_events`、聊天、运行、`blob_refs`）；没有引用的原图由原图清理任务删除。`spaces` 行、`space_members` 行和 `ai_calls` 保留：管理侧用量统计还要按空间名称显示（P30），名称以外的内容都已删除。
 
 ### 3.11 保留期
 
@@ -497,8 +527,9 @@ pub fn authorize(member: &ActiveMember, module: Module, action: Action) -> Resul
 pub struct SpaceTx { tx: DatabaseTransaction, user_id: UserId, members: Vec<ActiveMember> }
 impl SpaceTx {
     /// 开事务 → 对每个空间取事务级咨询锁（写入时）→ 确认请求者在这些空间都是活跃成员（否则 NotFound）
+    /// → 请求带了 join_epoch 的空间逐个比对（否则 MembershipChanged，6.1）
     /// → set_config('jiabu.space_ids', '{…}', true) → 返回。
-    pub async fn begin(db: &AppDb, user: UserId, spaces: &[SpaceId], mode: Mode) -> Result<Self, NotFound>;
+    pub async fn begin(db: &AppDb, user: UserId, spaces: &[(SpaceId, Option<JoinEpoch>)], mode: Mode) -> Result<Self, BeginError>;
     pub fn member(&self, space: SpaceId) -> &ActiveMember;
 }
 /// 只给后台任务用（worker 领取、清扫器、每月拨入、清理、删除空间）；crates/api 里禁止出现（CI 检查）。
@@ -555,7 +586,9 @@ create policy space_scope on records to jiabu_app
 | `chat_action` | `POST /spaces/{space_id}/chat/actions` | 回答追问 / 确认（动作 ID = op_id，客户端 4.7） |
 | `chat_retry` | `POST /spaces/{space_id}/chat/messages/{message_id}/retry` | “没有完成”之后的重试 |
 
-- `entity_ids`：这条写入改了哪些实体；`depends_on`：参数里引用了哪些别的实体（例如退款引用原支出）。冲突处理靠这两列（5.5）。
+- `entity_ids`：这条写入改了哪些实体；`depends_on`：参数里引用了哪些别的实体（例如退款引用原支出）和原图（SHA-256）。冲突处理和下一条规则都靠这两列。
+- **同一个实体同一时间只有一条在途**（C21）：一条条目只有在它的 `entity_ids`、`depends_on` 都不和**更早的、还没确认成功的**条目重叠时才能上传；`blob` 条目确认之前，引用这张图的条目也不发。互不相关的条目照常合成一批。所以一批里不会出现“前一条冲突、后一条照样执行了”：同一笔记录离线改了三次，就分三轮上传；退款等原支出那条确认后再发。服务端不需要理解依赖。两人规模多几次往返没有代价，一轮同步会一直上传到没有可发的条目为止。
+- **`expected_version` 在上传时才填**：取本机行的 `base_version`（服务器最近确认的版本，9.1），不在排队时填，所以不会因为本机先改了版本号而“碰巧对上”服务器的版本。
 - 状态：`pending → sending → (删除) | failed | blocked`。`failed` 是永久性拒绝（4xx，保留并显示“失败可重试”，客户端 3.2）；`blocked` 是“它依赖的记录有冲突”。
 - API key 的管理、改密码、空间与成员管理、停止生成**不进 outbox**，只在线（C14、客户端 4.7）。
 
@@ -569,16 +602,22 @@ create policy space_scope on records to jiabu_app
            "account_id":"…","purpose_id":"…","tag_ids":["…"],"note":"午饭"}}]}
 ```
 
-服务端按顺序逐条处理，**每条一个事务**：幂等表（`(user_id, op_id)`，命中就回放）→ `join_epoch` 与当前成员行一致（否则 `membership_changed`）→ `ToolRegistry::invoke(tool, args, ToolCtx{via: App 或 ApiKey})`。返回逐条结果：
+服务端按顺序逐条处理，**每条一个事务**：`SpaceTx::begin`（请求者现在是活跃成员，否则 `space_unavailable`；本条的 `join_epoch` 与当前成员行一致，否则 `membership_changed`）→ 该工具的前置授权（`authorize(模块, 动作)`、key 的只读限制，与首次执行完全相同）→ 幂等表（`(user_id, op_id)`，命中就回放）→ `ToolRegistry::invoke(tool, args, ToolCtx{via: App 或 ApiKey})`。
+
+**授权永远在幂等回放之前**（S34）：幂等表只防重复执行，不是授权缓存。退出后、或退出又加回后重放旧的 `op_id`，拿到的是 `space_unavailable` / `membership_changed`，不是当时的结果；回放的工具结果也经过 5.4 的移动关联过滤（按此刻的成员关系）。工具 API、聊天的发消息 / 回答 / 重试也是同一个顺序（6.3、7.1）。
+
+返回逐条结果：
 
 | `status` | 含义 | 手机怎么做 |
 |---|---|---|
-| `ok` | 成功；`result` 是工具结果（含实体的新 `version`） | 删 outbox 条目，回写本机行 |
+| `ok` | 成功；`result` 是工具结果（含实体的新 `version`） | 删 outbox 条目，按 5.5 的回写规则更新本机行 |
 | `conflict` | 409 `version_conflict`，附 `current`（服务器上的当前实体） | 进入冲突（5.5） |
 | `rejected` | 其他 4xx（`problem` 里有错误代码） | 标 `failed`，显示原因 |
 | `space_unavailable` | 不是成员或空间不存在（不区分，S11） | 不处理这条，等第 2 步对账后清除 |
 | `membership_changed` | `join_epoch` 不符：中间退出过又加回 | 同上（5.6） |
 | `not_processed` | 前面某条遇到服务端内部错误，后面的没处理 | 下次从这条起重试 |
+
+**整批响应在一个本机事务里按顺序落地**（删条目、回写、进入冲突、标 `failed`），App 中途被杀也不会只落一半。因为每个实体只有一条在途（5.2），一条 409 不会牵连同批里已经成功的条目，也不会把已经提交的条目当成没执行的折进“我的版本”。
 
 API key 也能调 `/sync/push`（读写 key），行为与工具 API 相同。
 
@@ -592,12 +631,13 @@ API key 也能调 `/sync/push`（读写 key），行为与工具 API 相同。
  "unavailable":["…"]}
 ```
 
-- **变更序号**：沿用 S11 的全局 sequence `change_seq`；每张同步表都有 `change_seq` 列，写入时赋新值。**同一空间的写事务被 4.3 的咨询锁串行**，所以同一空间内序号的先后就是提交的先后：拉取方读到序号 N 时，序号小于 N 的同空间变更一定已经提交，不会被跳过。（不加锁时，两个并发事务先拿号的后提交，客户端游标会越过它，这是全局序号做增量同步的经典坑。）
-- **查询**：一个空间的拉取在**一个 `REPEATABLE READ` 只读事务**里完成（所有表看到同一个快照；否则一次写入在两条查询之间提交，可能一张表看到、另一张没看到，游标却越过了它）。对每张同步表 `SELECT … WHERE space_id = $1 AND change_seq > $cursor ORDER BY change_seq LIMIT $limit`，在内存里合并后按序号取最小的 `limit` 条，新游标 = 其中最大的序号。同步表：`spaces`（本空间的元信息）、`space_members`、`space_member_grants`、`accounts`、`allocation_plans`、`tags`、`records`、`entity_events`、`subjects`、`documents`、`conversations`、`chat_entries`。
-- **过滤**（都在服务端序列化时做）：
-  - 模块：成员对某模块是 `none` 时，跳过该模块的表；`entity_events` 按 `entity_kind` 归入模块（记录、账户、计划、标签 → 账本；资料、对象 → 资料）；
-  - 聊天：`conversations` / `chat_entries` 只返回 `member_id = 本人` 的行（S21 以来的规则）；
-  - 跨空间移动（P60）：`moved_to_record_id` / `moved_from_record_id` / `related_space_id` 只在请求者**同时是两个空间的活跃成员**时保留，否则置空，界面只显示“已移出本空间 / 已移入本空间”。
+- **变更序号**：沿用 S11 的全局 sequence `change_seq`；每张同步表都有 `change_seq` 列，写入时赋新值，**每一行各取一个**（一个事务改了记录又写了 `entity_events`，就调两次 `nextval`），所以同一个序号不会出现在两行上，分页从哪里切开都不会漏行（S36）。**同一空间的写事务被 4.3 的咨询锁串行**，所以同一空间内序号的先后就是提交的先后：拉取方读到序号 N 时，序号小于 N 的同空间变更一定已经提交，不会被跳过。（不加锁时，两个并发事务先拿号的后提交，客户端游标会越过它，这是全局序号做增量同步的经典坑。）
+- **查询**：一个空间的拉取在**一个 `REPEATABLE READ` 只读事务**里完成（所有表看到同一个快照；否则一次写入在两条查询之间提交，可能一张表看到、另一张没看到，游标却越过了它）。对每张同步表 `SELECT … WHERE space_id = $1 AND change_seq > $cursor AND <行过滤> ORDER BY change_seq LIMIT $limit + 1`，在内存里合并后按序号取最小的 `limit` 条；新游标 = 其中最后一条的序号（这一页为空时游标不变）；`has_more` = 合并后的行数超过 `limit`。同步表：`spaces`（本空间的元信息）、`space_members`、`space_member_grants`、`accounts`、`allocation_plans`、`tags`、`records`、`entity_events`、`subjects`、`documents`、`conversations`、`chat_entries`。
+- **行过滤写在查询里**（上面的 `<行过滤>`），不在序列化时丢行，所以游标按真正返回的行推进，不会因为“扫到的都被过滤掉”而卡住或提前结束：
+  - 模块：成员对某模块是 `none` 时，不查该模块的表；`entity_events` 加 `entity_kind = any($允许的种类)`（记录、账户、计划、标签 → 账本；资料、对象 → 资料）；
+  - 聊天：`conversations` / `chat_entries` 加 `member_id = 本人`（S21 以来的规则）。
+- **移动关联的过滤**（P60，字段级，序列化时做）：`moved_to_record_id` / `moved_from_record_id` / `related_space_id`，以及 `entity_events.before` / `after` 快照里的同名字段，只在请求者**此刻同时是两个空间的活跃成员**时保留，否则置空，界面只显示“已移出本空间 / 已移入本空间”。这是**一个**函数，拉取、工具结果（`get_record`、`search_records`、给模型的结果）和幂等回放都经过它（S36）。
+- **本机的旧关联**：成员关系变化不会改源记录的 `change_seq`，所以手机在清除某个空间时（5.6），同一事务里把本机其他空间 `related_space_id` 等于它的、以及 `moved_to_record_id` / `moved_from_record_id` 指向被清除空间里的记录的关联置空（先取出被清除空间的记录 ID 再删行）。
 - **授权变化**：成员的模块级别变了（v1 没有授权界面，实际碰不到），`GET /spaces` 里的 `modules` 会变；手机清掉失去权限的模块数据，并把这个空间的游标归零重拉。
 - 聊天流式中的临时状态不进同步；`chat_entries` 只在暂停、结束和块状态变化时分配新序号（服务端 5.2 第 7 条）。
 
@@ -609,7 +649,7 @@ API key 也能调 `/sync/push`（读写 key），行为与工具 API 相同。
 stateDiagram-v2
   [*] --> synced
   synced --> pending: 本机修改（行更新 + outbox）
-  pending --> synced: 上传成功
+  pending --> synced: 这个实体最后一条排队修改上传成功
   pending --> conflict: 409 version_conflict
   conflict --> synced: 用服务器的版本（丢弃我的）
   conflict --> pending: 用我的版本（重新提交，expected_version = 服务器版本）
@@ -617,7 +657,11 @@ stateDiagram-v2
   conflict --> synced: 已被撤销 → 知道了（保持撤销）
 ```
 
-- **收到 409 时**（同一个本机事务）：①把这条记录**当前的本机状态**（已经包含了这条和它之后所有排队修改的结果）存进 `entity_conflicts(entity_kind, entity_id, mine_json, server_version, server_status, detected_at)`；②删掉 outbox 里 `entity_ids` 含这条记录的**所有**修改条目（它们都已折进“我的版本”）；③把本机行改回服务器的版本（`current`）。所以**冲突解决之前，余额按服务器的版本算**（P56），不需要特殊逻辑。
+- **回写规则**（C21）：本机的同步行有两样东西——行内容（用户看到的，已经包含所有排队修改）和 `base_version`（服务器最近确认的版本）。三个入口按同一个规则更新：
+  - **成功响应**：`base_version = result.version`；outbox 里已经没有涉及这个实体的条目 → 用 `result` 整行替换，`sync_state = synced`；还有 → 行内容不动（它已经包含后面的修改），仍是 `pending`。例：上传“改成 50”的途中用户又改成 60，50 的响应回来只更新 `base_version`，界面仍是 60，下一条带着新的 `base_version` 上传。
+  - **拉取**：行是 `pending` → **跳过这一行**，内容和 `base_version` 都不动（如果把 `base_version` 推到别人的新版本，排队的修改就会把别人的修改静默盖掉；不动它，排队的修改上传时照常 409）。被跳过的那一版不会丢：之后这个实体的成功响应或 409 的 `current` 都是服务器的最新状态。行是 `conflict` → 它本来就显示服务器版本，照常覆盖，并更新 `entity_conflicts.server_version`；其他 → 覆盖。
+  - **409**：见下一条。
+- **收到 409 时**（同一个本机事务）：①把这条记录**当前的本机状态**（已经包含了这条和它之后所有排队修改的结果）存进 `entity_conflicts(entity_kind, entity_id, mine_json, server_version, server_status, detected_at)`；②删掉 outbox 里 `entity_ids` 含这条记录的**所有**修改条目（它们都已折进“我的版本”，而且按 5.2 一定还没上传过）；③把本机行改回服务器的版本（`current`）。所以**冲突解决之前，余额按服务器的版本算**（P56），不需要特殊逻辑。
 - **依赖它的后续条目**：`depends_on` 含这条记录的条目（例如对它的退款）置 `blocked`，不上传；冲突解决（不论哪种）后改回 `pending` 再交给服务端校验，例如原支出保持撤销时，退款会被拒（422 `parent_voided`），显示为失败，用户自己决定。
 - **撤销优先**（P56）：`server_status = voided` 时，界面只给“这笔已被撤销”和“恢复并改成我的版本”两个操作；“恢复并改成我的版本” = 两条 outbox 写入 `restore_record` → `update_record`。不存在“保留我的版本”顺带恢复的路径。
 - 解决时服务器又变了：重新提交照样可能 409，再进一次冲突（用最新的 `current`），不会静默覆盖。
@@ -629,7 +673,8 @@ stateDiagram-v2
 - **手机**：本机 `spaces` 表存每个空间的 `join_epoch`，outbox 条目创建时记下当时的 `join_epoch`。第 2 步对账：
   - 空间从 `GET /spaces` 消失 → 清除（客户端 3.2、P52）；
   - 空间还在但 **`join_epoch` 变大** → 说明中间退出过：**先按“被移出”清除**（本机行、outbox、游标、原图缓存，事后提示），再当作新加入从游标 0 完整同步；旧的排队内容不会提交进去，旧记录随同步重新关联到本人（需求第 10 节的验收场景）。
-- **服务端兜底**：outbox 条目带 `join_epoch`，`/sync/push`、聊天的三个提交接口都会比对，不一致返回 `membership_changed`。手机万一在对账前就上传（例如两步之间刚好被移出又加回），也提交不进去。这是一个整数比较，可靠且便宜。
+- **服务端兜底：所有空间内容的写请求都带成员世代**（S34）：`/sync/push` 每条带 `join_epoch`；其他写接口（原图上传、聊天的发消息 / 回答 / 重试 / 停止、工具 API）带请求头 `X-Jiabu-Join-Epoch`（工具 API 给 key 用时可省略，省略就只查成员身份）；`move_record` 另带目标空间的 `target_join_epoch`。都在 `SpaceTx::begin` 里统一比对（4.3），不一致返回 `membership_changed`，并且在幂等回放之前（5.3）。手机万一在对账前就上传（例如两步之间刚好被移出又加回），也提交不进去。这是一个整数比较，可靠且便宜。
+- **迟到的响应**：手机处理任何异步结果（push / 原图上传 / 聊天提交的响应、SSE 事件）之前，先确认当前分区没换、这个空间本机的 `join_epoch` 仍等于请求发出时的值，不等就丢弃。所以清除之后才回来的旧响应不会把数据写回本机。
 - 暂停中的回复：已在服务端随退出取消；手机清除本地聊天数据，重新同步后看到的是“已停止”的版本。
 
 ### 5.7 本机按“服务端 + 账号”分库（待定问题 34）
@@ -642,9 +687,9 @@ stateDiagram-v2
 ### 5.8 原图上传
 
 - 手机先把图转成 JPEG、算 SHA-256、存进分区的原图目录（9.4），再排一条 `blob` 条目，引用它的 `chat_send` / `tool` 条目排在后面。
-- `PUT /spaces/{space_id}/blobs/{sha256}?module=ledger|documents|chat`，请求体是 JPEG（≤ 20 MB）。聊天里发的图用 `chat`，记录详情、资料编辑里加的图用对应模块。服务端校验：成员 + `authorize(module, Write)`（`chat` 只要求是活跃成员）；`infer` 嗅探确实是 JPEG；内容的 SHA-256 等于路径里的值。之后写文件（已存在就跳过写盘）、生成两个派生尺寸、`blob_refs` `ON CONFLICT DO NOTHING`。
+- `PUT /spaces/{space_id}/blobs/{sha256}?module=ledger|documents|chat`，请求体是 JPEG（≤ 20 MB）。聊天里发的图用 `chat`，记录详情、资料编辑里加的图用对应模块。服务端校验：成员 + `X-Jiabu-Join-Epoch`（5.6）+ `authorize(module, Write)`（`chat` 只要求是活跃成员）；`infer` 嗅探确实是 JPEG；内容的 SHA-256 等于路径里的值。之后写文件（已存在就跳过写盘）、生成两个派生尺寸、按 3.7 写 `blob_refs`（`chat` 是本人的引用）`ON CONFLICT DO NOTHING`。
 - **总是要求上传完整内容**，即使这张图在服务器上已经存在（例如另一个空间传过）：如果允许“已存在就跳过上传”，就等于告诉上传者“某个空间里有一张一模一样的图”，违反空间隔离。响应对“新图”和“已有的图”完全相同。
-- 下载 `GET /spaces/{space_id}/blobs/{sha256}?variant=thumb|display|original`：本空间要有一条请求者能读的 `blob_refs`（`ledger` / `documents` 经 `authorize(module, Read)`，`chat` 要求上传者是本人），否则 404。
+- 下载 `GET /spaces/{space_id}/blobs/{sha256}?variant=thumb|display|original`：本空间要有一条请求者能读的 `blob_refs`（`ledger` / `documents` 经 `authorize(module, Read)`，`chat` 要求有一条本人的引用），否则 404。
 
 ## 6. 接口
 
@@ -663,6 +708,7 @@ stateDiagram-v2
 - **App 太老**：`min_client_build` = max（服务端代码里写死的“能兼容的最低构建号”，标了 `security_force` 的最新安装包的构建号）。请求里的构建号低于它时，除 `/meta`、`/auth/*`、`/app/*`、`/healthz`、`/client-logs` 外一律返回 426 `client_too_old`；App 进入强制更新：能看本机数据，不能同步、不能记新账，outbox 保留到更新后继续上传（P47、P59）。
 - **服务端太老**：App 里写死自己需要的 API 版本和最低服务端版本；`/meta` 不满足时显示“服务端版本过低，请联系管理员升级”，停止同步，本机数据照常查看。
 - 其余约定照服务端第 4 节：`Idempotency-Key`、`X-Request-Id`、problem+json、请求体上限（默认 2 MB，原图 20 MB，push 2 MB）。
+- 空间内容的写请求带 `X-Jiabu-Join-Epoch`（5.6）；幂等回放在身份、成员、`join_epoch` 与授权检查都通过**之后**（5.3，S34）。
 
 ### 6.2 错误模型
 
@@ -681,9 +727,9 @@ problem+json（RFC 9457）加一个机器可读的 `code`，App 按 `code` 显�
 | 401 | `unauthenticated` · `account_disabled` | 令牌无效 / 过期；账号停用 |
 | 403 | `password_change_required` · `api_key_read_only` · `api_key_not_allowed` · `api_key_ai_not_allowed` | 服务端 3.3 |
 | 404 | `not_found` | 不存在、不是成员、无模块权限、别人的会话——一律相同 |
-| 409 | `version_conflict`（附 `current`）· `membership_changed` · `space_last_owner` · `space_not_empty` · `interrupt_closed` | 并发与状态冲突 |
+| 409 | `version_conflict`（附 `current`）· `membership_changed` · `space_last_owner` · `space_not_empty` · `interrupt_closed` · `retry_unavailable` | 并发与状态冲突 |
 | 413 / 415 | `payload_too_large` · `unsupported_media_type` | 请求体 / 原图 |
-| 422 | `validation_failed`（附 `errors:[{pointer, rule}]`）· `idempotency_key_reused` · `refund_exceeds_original` · `parent_voided` · `account_archived` · `balance_not_zero` · `subject_rule_violated` · `template_unknown` · `blob_missing` · `id_taken` · `space_name_mismatch` · `default_space_forbidden` · `api_key_limit_reached` | 业务校验 |
+| 422 | `validation_failed`（附 `errors:[{pointer, rule}]`）· `idempotency_key_reused` · `refund_exceeds_original` · `parent_voided` · `has_refunds` · `currency_mismatch` · `move_not_allowed` · `account_archived` · `balance_not_zero` · `subject_rule_violated` · `template_unknown` · `blob_missing` · `id_taken` · `space_name_mismatch` · `default_space_forbidden` · `api_key_limit_reached` | 业务校验 |
 | 426 | `client_too_old` | 6.1 |
 | 429 | `rate_limited`（带 `Retry-After`） | 登录、API key 限流 |
 | 500 / 503 | `internal` · `unavailable` | 只记日志，不外泄细节 |
@@ -719,7 +765,7 @@ problem+json（RFC 9457）加一个机器可读的 `code`，App 按 `code` 显�
 | | `GET /spaces/{id}/chat/messages/{message_id}/stream` | ❌ | SSE（服务端 4.2） |
 | | `POST /spaces/{id}/chat/actions` | ❌ | 回答 / 确认（服务端 4.2） |
 | | `POST /spaces/{id}/chat/messages/{message_id}/stop` | ❌ | 停止生成（ChatWeave 4.6；也用于“改为手动填写”取消排队中的运行） |
-| | `POST /spaces/{id}/chat/messages/{message_id}/retry` | ❌ | 对“没有完成”的回复重试：同一条用户消息开一次新运行（新的一条回复） |
+| | `POST /spaces/{id}/chat/messages/{message_id}/retry` | ❌ | 对“没有完成”的回复重试：开一次新运行（新的一条回复），**接着原运行已完成的进度做**，已记的不会再记（7.3） |
 | | `GET /spaces/{id}/chat/active-messages` | ❌ | 本人会话里还没结束的回复（含排队中、暂停中），App 被杀后找回用 |
 | 更新 | `GET /app/releases/latest?channel=` | ❌ | 最新可用安装包：版本、构建号、大小、SHA-256、更新说明、是否强制（需要会话；强制更新期间照常可用） |
 | | `GET /app/releases/{build}/apk` | ❌ | 下载，支持 `Range` 断点续传 |
@@ -739,7 +785,7 @@ problem+json（RFC 9457）加一个机器可读的 `code`，App 按 `code` 显�
 | `search_records` · `get_record` | ledger / Read | read | AgentAndApi | — | 文字、账户、标签、成员、日期筛选；分页 |
 | `create_record` | ledger / Write | local_write | AgentAndApi | 否（P2） | `kind` 不含 `allocation`（拨入只由计划产生）；可带客户端 `id` |
 | `update_record` · `void_record` · `restore_record` | ledger / Write | local_write | AgentAndApi | **是**（改已有记录，P27 的 24 小时确认） | 带 `expected_version` |
-| `move_record` | ledger / Write | local_write | **ApiOnly** | — | 跨空间移动（P16），参数里有目标空间和目标空间的账户；AI 不做（A7） |
+| `move_record` | ledger / Write | local_write | **ApiOnly** | — | 跨空间移动（P16），参数里有目标空间和目标空间的账户、标签；规则见 3.4.1；AI 不做（A7） |
 | `create_account` · `update_account` · `archive_account` | ledger / Write | local_write | AgentAndApi | 归档要确认 | 首次设置靠它们（P3、P54） |
 | `set_allocation_plan` | ledger / Write | local_write | AgentAndApi | 否 | 设置 / 修改 / 停用拨入计划 |
 | `create_tag` · `rename_tag` · `delete_tag` | ledger / Write | local_write | AgentAndApi（删除为 ApiOnly） | — | |
@@ -773,8 +819,8 @@ AI 层第 12–15 节是规范；本节把它们落到代码上，并补上缺�
 | `render_request()`（agent） | 纯函数：快照 + journal + 历史 + 提供方 → 请求（AI 层 15.2） |
 | `ToolExecutor`（agent） | 在运行空间的 `SpaceTx` 里调用 `ToolRegistry::invoke()`，同一事务写 `tool_result` 和 `agent_tool_calls`（恰好一次，AI 层 14.5） |
 | `RunEmitter`（chat） | 包装 `chatweave-server` 的 `MessageStream`：步骤事件、文字块、组件块（工具结果按 AI 层 13.2 映射）、暂停 / 继续 / 结束；每个事件**先写 `chat_stream_events` 再广播** |
-| `StreamHub`（chat） | 进程内 `tokio::sync::broadcast`，按 `message_id` 分频道；SSE 处理函数先从表里重放 `seq > Last-Event-ID` 的事件，再接广播 |
-| 动作处理器（agent） | `clarification.answer`（`ask_user` 的选项和表单，首次设置也是它）、`pending_operation.confirm`；注册进 ChatWeave 的 `ActionRegistry`。服务端 4.2 表里单独的 `setup.submit` 合并进 `clarification.answer` |
+| `StreamHub`（chat） | 进程内 `tokio::sync::broadcast`，按 `message_id` 分频道；SSE 的重放与实时交接见 7.4（先订阅、再读日志） |
+| 动作处理器（agent） | `clarification.answer`（`ask_user` 的选项和表单，首次设置也是它）、`pending_operation.confirm`；注册进 ChatWeave 的 `ActionRegistry`。服务端 4.2 表里单独的 `setup.submit` 合并进 `clarification.answer`。处理顺序：块的加载函数先确认请求者是活跃成员、`join_epoch` 一致、这条消息属于本人的会话（不满足一律 `not_found`），再做宿主 `authorize`，**最后**才查动作的幂等结果并回放（S34；ChatWeave 的 dispatcher 目前把幂等放在 `authorize` 之前，要改，见 13 节第 20 条） |
 | 清扫器（agent，`SystemTx`） | 每 30 秒回收过期租约，每分钟关闭过期中断（AI 层 14.6、14.7） |
 
 ### 7.2 一条消息的一生
@@ -824,11 +870,18 @@ RETURNING *;
 ```
 
   所以唯一索引只需要管 `running` / `paused`（3.8）。后一条消息的历史里包含前一轮的 `history_item`，因为它一定在前一轮结束之后才开始。
+  - **后一条已经排队、前一条随后暂停**：B 在 A 生成时发出、已经排队，A 接着调用 `ask_user` 暂停 → A 照常暂停，B 继续排在后面，不关闭 A。“先停止再开始”只针对**到达时**已经有暂停中回复的新消息（那种消息只可能来自离线队列或另一台手机，说明用户已经往下说了）；B 发出时用户还没看到 A 的问题，A 的问题仍然要问。用户回答、停止或 A 过期后 A 结束，B 才开始；这期间 B 显示“排队中”，输入框照 13.5 锁定，问题卡可以回答。这个先后有单独的验收测试。
+- **重试不重复记账**（P27；用户看到的效果待 Howard 确认，第 16 节第 1 条）：“重试”开的新运行**接着原运行已经完成的进度做**，不是拿原话从头再来：
+  - 只对以 `interrupted`（`upstream_failed`）或 `failed`（超出预算、等 AI 太久）结束的运行开放；`permission_changed`（7.5）和 journal 已压缩（结束 30 天后）的不开放，返回 409 `retry_unavailable`，界面提示“请重新说一遍”。
+  - `RunService::retry()`：新运行 `retry_of_run_id = 原运行`、`input_entry_id` 相同、`join_epoch` 取当前值、新的一条助手消息（`reply_to_id` 同一条用户消息）。唯一索引 `one_retry_per_run on agent_runs (retry_of_run_id)` 保证一次运行只能被重试一次，两台手机同时点重试拿到的是同一条新回复。
+  - 新运行第一次领取时，在同一事务里把原运行的 journal 条目（`context`、`input`、已提交的 `model_turn`、`tool_result`、`interrupt` / `interrupt_answer`、`note`）和 `agent_tool_calls`（**连同原来的 `idempotency_key`**）原样复制过来，沿用原运行的提示词快照（版本变化照 AI 层 14.10），末尾追加一条 `note`：“上一次回复没有完成；上面已有结果的操作都已生效，不要重复，接着把没做完的做完”。之后照常 `next_action()`：已有结果的工具调用直接复用、**不会再执行**；还没结果的才执行（本地写入没有结果就说明当时的事务没提交）。
+  - 例：“午饭 50，停车 10”，午饭已记好、停车那一步模型连续失败 → 点重试，新回复只记停车 10，文字说明“午饭那笔上一条已经记好了”；午饭的记录卡留在原回复里。
 - **“改为手动填写”**（P54）：还在 outbox 里的 `chat_send` 直接撤下；已在服务端排队的调用 `stop`（`queued` / `waiting_ai` 直接 `cancelled`，不调模型）。
 
 ### 7.4 流、事件日志与单进程
 
 - 事件日志用 PostgreSQL 表（`chat_stream_events`，服务端 5.2 第 7 条），不用 ChatWeave 默认的进程内缓冲（ChatWeave D42）：重启后能逐事件续传，暂停检查点也在库里。文字增量按约 20 字或 50 毫秒合并一批再写（AI 层 13.2），一条回复每秒最多约 20 行，两人规模没有压力。
+- **重放与实时的交接**（S37）：SSE 处理函数①**先**订阅 `StreamHub` 的频道（收到的事件先放在本连接的缓冲里）；②再从表里读 `seq > Last-Event-ID` 的事件并发出，记下最后发出的 `seq` = M；③然后消费缓冲和后续广播，`seq ≤ M` 的丢弃，`seq = M + 1` 的发出并推进 M，遇到 `seq > M + 1`（中间缺号）就回表里补读 `(M, 该 seq)` 再继续。先订阅后读表，所以“读完表、还没订阅”之间写入的事件（例如最后一个 `message.end`）一定在缓冲里，不会漏。广播接收端落后（`RecvError::Lagged`）时直接断开，客户端按已应用的 `seq` 续传。读表时发现消息已结束且日志已清理，就照 ChatWeave 4.2 发快照。ChatWeave `streaming.md` 4.1 只写了“先重放、再接广播”，这个顺序要写进库的公共实现和一致性测试（13 节第 21 条）。
 - `StreamHub` 是进程内广播，所以 v1 **只跑一个服务端进程**；以后多实例时改为 `LISTEN/NOTIFY` 转发事件 ID，SSE 处理函数从表里读，接口不变。
 - 心跳 15 秒；SSE 路由不套 30 秒超时，改用 5 分钟空闲超时（服务端 4.2）。
 
@@ -836,8 +889,8 @@ RETURNING *;
 
 worker 每次领取后、做任何事之前，在运行空间的 `SpaceTx` 里检查：
 
-1. 发起成员仍是活跃成员，`join_epoch` 与运行开始时相同 → 否则 `cancelled`（“空间不可用”），不写任何业务数据（5.6 通常已经取消过）。
-2. **模块权限与运行开始时相同**：运行开始时把成员的模块级别记进 journal 的 `context` 条目；不同就以 `failed`（`permission_changed`，可重试）结束。理由：冻结的空间上下文和前几轮工具结果里可能有已经无权看的数据，重新发给模型就是泄露；重新渲染又会破坏 AI 层 15.2 的冻结规则。v1 没有授权界面，实际碰不到，所以选最简单、最安全的做法。
+1. 发起成员仍是活跃成员，`join_epoch` 等于 `agent_runs.join_epoch`（运行开始时记下的）→ 否则 `cancelled`（“空间不可用”），不写任何业务数据（5.6 通常已经取消过）。
+2. **模块权限与运行开始时相同**：运行开始时把成员的模块级别记进 journal 的 `context` 条目；不同就以 `failed`（`permission_changed`，不提供重试：重试会把旧权限下的 journal 带进新运行，7.3）结束。理由：冻结的空间上下文和前几轮工具结果里可能有已经无权看的数据，重新发给模型就是泄露；重新渲染又会破坏 AI 层 15.2 的冻结规则。v1 没有授权界面，实际碰不到，所以选最简单、最安全的做法。
 3. 每个工具执行时照常 `authorize()`（AI 层第 6 节）。
 
 **聊天同步不按模块过滤**：会话只属于本人（P23），历史回复是本人当时看到的内容，按 P40 原样保留；按 ID 实时读取的卡片在手机上按当前权限显示（9.3）。
@@ -854,6 +907,16 @@ worker 每次领取后、做任何事之前，在运行空间的 `SpaceTx` 里�
 ### 7.7 AI 是否可用
 
 `AiRouter` 维护每个提供方的熔断状态。`GET /status` 的 `ai_available` = 路由 `chat` 上至少有一个“按计费策略允许、熔断器未打开、凭据有效”的提供方。运行进入 `waiting_ai` 时 `RunEmitter` 发 `message.activity{phase: degraded}`，手机据此刷新一次 `/status`。
+
+### 7.8 v1 的实现范围（A20）
+
+AI 层第 14 节按“以后有子 Agent、外部副作用、多进程”设计，v1 只实现用得到的部分，状态少了，暂停、重试、恰好一次才好验证：
+
+- 只有顶层的 `chat` 运行；不建子运行的列和代码路径（3.8），以后加子 Agent 时用一次只追加的迁移补上。
+- 工具只有 `read` / `local_write` 两类；`external` 的执行分支和工具调用的 `unknown` 状态不实现（v1 没有这类工具，6.4）。
+- 换提供方时加密推理数据一律丢弃（AI 层 14.10 已是这样），不做跨提供方的推理回放。
+- 保留：租约 + `lease_epoch` 防护令牌、持久 journal、空间锁、清扫器——它们保证崩溃恢复和恰好一次，与 worker 数量无关。
+- worker 数量固定 **2 个**（不是 2–4 个可调）：一个 worker 会让一位家人的长回复（最长 10 分钟活跃时长）挡住另一位家人；两个就够，同一会话照样先进先出（7.3）。
 
 ## 8. 资料模板协议（待定问题 8、33）
 
@@ -1031,13 +1094,14 @@ worker 每次领取后、做任何事之前，在运行空间的 `SpaceTx` 里�
 | 表 | 来源 | 本机额外的列 |
 |---|---|---|
 | `spaces` · `space_members` · `member_grants` | `GET /spaces` | `join_epoch`、`modules` |
-| `accounts` · `allocation_plans` · `tags` · `records` · `subjects` · `documents` · `entity_events` | `/sync/pull` | `sync_state`（`synced` / `pending` / `conflict`） |
+| `accounts` · `allocation_plans` · `tags` · `records` · `subjects` · `documents` · `entity_events` | `/sync/pull` | `sync_state`（`synced` / `pending` / `conflict`）；可修改的实体另有 `base_version`（服务器最近确认的版本，5.5 的回写规则） |
 | `conversations` · `chat_entries` | `/sync/pull` + ChatWeave | 客户端 4.7 的 `message_json`、`rev`、`last_seq`、`sync_state` |
 | `entity_conflicts` | 本机 | 5.5 |
 | `outbox` · `sync_cursors(space_id, cursor)` | 本机 | 5.2 |
 | `blobs_local(sha256, path, bytes, uploaded)` | 本机 | 9.4 |
 | `templates(id, version, json, etag)` | `GET /templates` | — |
 
+- **聊天条目的替换规则**：同步下来的 `rev ≥ 1`（持久化版本）总是替换本地；`rev = 0`（生成中 / 暂停中的检查点）只在它的 `last_seq ≥ 本地已应用的 seq` 时替换（ChatWeave `streaming.md` 4.3），不会让已经续传到更后面的内容倒退。客户端 4.7 写的“`rev` ≥ 本地时整体替换”按此修正（13 节第 17 条）。
 - drift 的 `schemaVersion` 从 1 起，迁移用 drift 自带的迁移测试守住（客户端 6.1）。
 - 余额在本机按 3.4 的同一套规则用 SQL 聚合计算（drift 的 `watch()` 自动刷新），与服务端共用一组夹具测试（同一批记录，两边算出的余额一致）。
 
@@ -1090,7 +1154,7 @@ worker 每次领取后、做任何事之前，在运行空间的 `SpaceTx` 里�
 
 ### 9.7 测试补充
 
-- 同步引擎：5.3 的每种结果、5.5 冲突状态机的每条边、5.6 的 `join_epoch` 变化、5.7 的分区隔离（两个分区各有数据，互不可见），都用真 drift 内存库 + 假 `ApiClient` 覆盖。
+- 同步引擎：5.3 的每种结果、5.5 冲突状态机的每条边和回写规则（上传途中又改、拉取遇到 `pending` 行）、5.2 的“每个实体一条在途”（同一记录离线改三次、退款跟在原支出后面）、5.6 的 `join_epoch` 变化与迟到的响应、5.7 的分区隔离（两个分区各有数据，互不可见），都用真 drift 内存库 + 假 `ApiClient` 覆盖。
 - 余额夹具：服务端与客户端共用 `fixtures/ledger/*.json`（记录列表 → 期望余额），两边各跑一遍。
 
 ## 10. 部署与运维
@@ -1123,7 +1187,7 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 
 | 任务 | 频率 | 说明 |
 |---|---|---|
-| Agent worker | 常驻（2–4 个） | `LISTEN agent_runs` + 5 秒轮询（S14） |
+| Agent worker | 常驻（2 个，7.8） | `LISTEN agent_runs` + 5 秒轮询（S14） |
 | 运行清扫器 | 30 秒 / 1 分钟 | 租约回收 / 中断过期（AI 层 14.6、14.7） |
 | 每月拨入 | 每小时 | 3.4 |
 | 安装包拉取 | 每 6 小时 + 管理侧“立即检查” | 10.5 |
@@ -1137,7 +1201,7 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 
 - **服务端**：照服务端 8.2。
 - **App**：`release-app.yml` 在打 `app-v*` tag 时构建、签名（P42）、生成 `jiabu-<version>-<build>-<channel>.apk`、`.sha256` 和 `release.json`（`{build, version, channel, min_server_api, security_force, notes:{zh-Hans,en}}`），上传到 GitHub Releases（P45）。
-- **服务端拉取**：读 Releases API，下载 `release.json` 和 APK；核对 SHA-256；从 APK 签名块（v2 / v3 Signing Block）取出签名证书算 SHA-256，与配置 `app.cert_sha256`（正式签名证书指纹，公开信息）比对；都对才写 `app_releases(status = 'available')` 并把文件放进 `<data_dir>/releases/`，否则 `rejected` 并告警。签名本身的完整校验由手机的系统安装器做（9.6 再比一次证书）。
+- **服务端拉取**：读 Releases API，下载 `release.json` 和 APK；核对 SHA-256；从 APK 签名块（v2 / v3 Signing Block）取出签名证书算 SHA-256，与配置 `app.cert_sha256`（正式签名证书指纹，公开信息）比对；都对才写 `app_releases(status = 'available')` 并把文件放进 `<data_dir>/releases/`，否则 `rejected` 并告警。这一步**只是指纹预检**：它挡住“用别的证书签的包”，但不证明签名有效——“证书对、签名坏”的包会通过预检。签名有效性由手机负责：9.6 用系统接口取证书时系统会校验签名，坏签名在安装前就提示“安装包被篡改”，系统安装器再兜一次底；E6 加一个“证书对、签名坏”的样本。v1 不为服务端另接签名校验库。
 - **手动上传**：管理 API / `admin release upload <apk> <release.json>`，同样校验（GitHub 连不上时，P45）。
 
 ### 10.6 备份与恢复
@@ -1171,10 +1235,10 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 | 产品承诺 | 技术控制 | 验证 |
 |---|---|---|
 | 不是成员的空间完全不存在（P10、P20） | `SpaceTx` 唯一入口 + RLS（4.3、4.4）；一律 404；`GET /spaces` 只返回本人在册的 | 隔离矩阵集成测试：每个接口 × {非成员、已退出、别的空间的 ID、不存在的 ID}，响应完全相同 |
-| 另一个空间的名字不泄露（P60） | 同步序列化时按“两边都在”过滤移动关联（5.4）；工具错误不提别的空间 | 移动后用只在一边的成员同步，断言拿不到对方空间 ID / 名字 |
-| 原图不泄露“别的空间也有这张图” | 上传总是要完整内容，响应相同（5.8）；下载按本空间引用鉴权 | 集成测试：两个空间传同一张图，两次响应逐字节相同 |
+| 另一个空间的名字不泄露（P60） | 拉取、审计快照、工具结果、幂等回放共用一个移动关联过滤（5.4）；手机清除空间时清掉指向它的旧关联；工具错误不提别的空间 | 移动后用只在一边的成员同步、调 `get_record`、读 `entity_events`、重放移动请求，断言拿不到对方空间 ID / 记录 ID；两边都在的人被移出一边后，本机不再有关联 |
+| 原图不泄露“别的空间也有这张图” | 上传总是要完整内容，响应相同（5.8）；下载按本空间引用鉴权；聊天图每位成员各有引用（3.7） | 集成测试：两个空间传同一张图，两次响应逐字节相同；同空间两位成员在聊天里发同一张图，两人都能下载、响应相同 |
 | 对话一对一（P23） | 聊天查询都带 `member_id = 本人`；同步按会话所属过滤 | 同空间另一成员访问流、动作、停止、同步全部 404 / 拿不到 |
-| 退出即失去访问、本机清除（P19、P52） | 成员状态即时生效；`join_epoch`（5.6）；运行随退出取消 | 需求第 10 节的三个场景 |
+| 退出即失去访问、本机清除（P19、P52） | 成员状态即时生效；所有空间写请求带 `join_epoch`、授权先于幂等回放（5.3、5.6）；运行随退出取消；迟到的响应丢弃 | 需求第 10 节的三个场景；退出后、退出又加回后重放旧的 `op_id` / 动作 ID，拿不到当时的结果 |
 | AI 不串空间（A7） | 上下文只从运行空间渲染；工具空间来自 `ToolCtx`；恢复时检查成员与权限（7.5） | `MockProvider` 尝试越权参数的测试；恢复检查的单元测试 |
 | 管理功能看不到内容（P28、P49） | 服务端 9.2 的三层；新表 `app_releases` 是唯一新增给管理侧的表，不含内容 | `openapi-admin.json` 字段快照；`jiabu_admin` 读内容表报权限错误 |
 | API key 不比本人大（P29、P51） | 服务端 3.3；写入只经工具（S25），只读 key 只能 `effect = read` | 服务端第 7 节已有的 key 测试 |
@@ -1230,11 +1294,25 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 9. **管理 API 新增**：`GET /app-releases`、`POST /app-releases/check`、`POST /app-releases`（上传）、`POST /app-releases/{build}/withdraw`；`GET /meta` 增加 worker 与备份状态（10.7）。`admin` 命令增加 `release list|check|upload|withdraw`。`jiabu_admin` 的授权表加 `app_releases` 读写和 `users` 的新列。
 10. **聊天自定义块**多一个字段 `versionAtReply`（9.3），客户端 4.7 的示例只带 ID。
 11. **`agent` crate**（2.2）：服务端第 2 节的依赖方向里加 `agent`，ChatWeave 依赖放宽到 `chat`、`agent`、`api`。
-12. **`blob_refs` 加 `module`（`ledger` / `documents` / `chat`）并进主键**（3.7）：聊天里发的图只有本人能读，挂到记录或资料上时由工具补一条对应模块的引用。
+12. **`blob_refs` 改为代理主键 + 两条部分唯一索引**（3.7，S35）：加 `module`（`ledger` / `documents` / `chat`）；`chat` 每位成员一条引用（只有本人能读），业务模块每个空间每张图一条；挂到记录或资料上时由工具补一条对应模块的引用。服务端 5.1 的主键 `(sha256, space_id)` 作废。
+13. **`chat_stream_events` 加 `space_id`、`member_id`**（3.8）：4.4 的 RLS 策略要用 `space_id`；服务端 5.1 原表只有 `(message_id, seq, event, created_at)`。
+14. **`agent_runs` 加 `input_entry_id`、`join_epoch`、`retry_of_run_id`，去掉 `parent_run_id` / `parent_call_id`**，唯一索引去掉 `parent_run_id is null` 条件，新增 `one_retry_per_run`；`agent_tool_calls.effect` 只允许 `read` / `local_write`（3.8、7.3、7.8，A20）。改 AI 层 14.2。
+15. **会话归属列是 `conversations.member_id`**（3.8），不是服务端 5.1 / 5.2 第 7 条的 `created_by_member_id`；同步按 `member_id = 本人` 过滤（5.4），`chat_entries` 冗余同一列。
+16. **`setup.submit` 合并进 `clarification.answer`**（7.1）：服务端 4.2 的动作表去掉 `setup.submit` 一行。
+17. **客户端聊天条目的替换规则**（9.1）：客户端 4.7 表里 `rev` 一行的“同步版本 `rev` ≥ 本地时整体替换”改为“`rev ≥ 1` 总是替换；`rev = 0` 的检查点只在 `last_seq ≥ 已应用 seq` 时替换”。
+18. **客户端 outbox**（5.2、5.3、5.5，C21）：客户端 3.2 的“FIFO 逐条上传、成功后回写服务器返回值”改为：同一实体同一时间只有一条在途、`expected_version` 上传时取 `base_version`、整批响应一个本机事务落地、按回写规则更新（`pending` 的行拉取时跳过）；本机业务表加 `base_version`。
+19. **幂等回放在授权之后，成员世代覆盖全部空间写请求**（5.3、5.6，S34）：服务端第 4 节“已存在且有保存的响应则直接回放”前加上“身份、成员、`join_epoch`、授权都通过之后”；AI 层 14.4 A 第 1 步改为先鉴权再查动作幂等键；原图上传和聊天接口带 `X-Jiabu-Join-Epoch`。
+20. **ChatWeave dispatcher 的顺序**（7.1）：ChatWeave `protocol.md` 5.2 的第 5 步（幂等）与第 6 步（宿主 `authorize`）对调，`security.md` 第 7 条同步；作为通用改动进库（G3）。
+21. **ChatWeave SSE 交接**（7.4，S37）：`streaming.md` 4.1“先从日志重放、再接实时广播”改为“先订阅、再读日志、按 `seq` 交接、缺号回表补读、接收端落后就断开”，加竞态一致性测试。
+22. **重试的语义**（7.3）：服务端 6.3 / AI 层 14.6 的“用同一个问题开始一次新的运行”改为“新运行接着原运行的 journal 做”；`permission_changed` 不可重试。
+23. **跨空间移动、退款不变量**（3.4、3.4.1，S39）：服务端 5.2 第 6 条补上可移动的种类、币种、退款、标签、附件、创建者的规则；`move_record` 参数带 `target_join_epoch`、`target_id`、`tag_ids`。
+24. **移动关联的过滤是一个函数**（5.4，S36）：服务端 5.2 第 6 条的“同步、变更记录和审计查询都按这条过滤”具体化为：拉取、`entity_events` 的 `before` / `after` 快照、工具结果、幂等回放共用同一个过滤；拉取的行过滤写在查询里、每行一个序号、`has_more` 按 `limit + 1` 判断。
+25. **邀请的状态转换**（3.3，S38）：条件写入 `WHERE status = 'pending'`；接受时校验空间未删除、邀请人仍活跃；删除空间、邀请人离开时关闭待处理的邀请。
+26. **worker 固定 2 个**（7.8）：服务端 5.2 第 2 条、S14 写的“2–4 个”改为 2 个。
 
 ## 14. 可行性验证
 
-2026-10-27 已跑 E1–E5（E1 受阻，见下）；E6、E7 在实施阶段用真机验证。E2–E5 的结果与本文的设计一致，无需走退路。
+2026-10-27 已跑 E1–E5；E6、E7 在实施阶段用真机验证。E1–E5 的结果与本文的设计一致，无需走退路。注意这些实验的**范围**：E2 / E3 验证的是机制（RLS 与连接池、迁移执行器），用的是原型表，不等于首批迁移整体可用——首批迁移落地后，CI 在真实迁移上跑 11.1 的隔离矩阵测试和 E2 的那几项断言，才算通过；E5 是调研结论，真机表现随 E6 一起验证。
 
 | # | 验证什么 | 期望结果（本文按此设计） | 失败时的退路 | 影响章节 | 结果 |
 |---|---|---|---|---|---|
@@ -1243,7 +1321,7 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 | E3 | 迁移执行器：`sqlx::migrate!` 与 SeaORM 2.0.4 的 SQLx 0.9 能否共存（同一版本、特性不冲突、编译进二进制）；含 RLS 策略、`GRANT`、`SECURITY DEFINER` 的 SQL 文件能执行；`sea-orm-cli generate entity` 从迁移后的库生成实体 | `sqlx::migrate!` 可用 | 改用 `sea-orm-migration` 2.0.4 包装同一批 SQL 文件 | 10.1 | **通过**：sqlx 0.9 的迁移器可以编进我们的二进制、直接用 SeaORM 的连接池，不多引入 sqlx 版本；含 RLS、`GRANT` 的 SQL 正常执行；改了已执行过的迁移文件会被拒绝（"previously applied but has been modified"），正好保证“已发布的迁移只追加”。`sea-orm-migration` 也能用，但发现不了被改过的旧迁移，所以不选 |
 | E4 | Flutter 字体回退：`fontFamilyFallback: ['JiabuHand']` 的“数字 + 中文”混排，在固定 golden 环境与真机上的字形、基线；`locale: zh_CN` 下系统 Sans 的汉字字形 | 稳定，直接用回退链 | 按字符拆 `TextSpan`（9.5） | 9.5 | **golden 通过，待真机**：回退链（数字字体 → 手写字体 → 完整中文字体）与按字符拆 `TextSpan` 渲染逐像素相同，拆分没有收益；关键是回退顺序、最后放一个完整中文字体、用 strut 固定行高。注意手写字体子集只有 178 个字，缺字（如“早、打、车”）会在词中间换成另一种字形并撑高行——字体子集要覆盖预置分类、模板和常用记账词（实施计划里列字表）。真机待验：系统字体选择、Impeller、全角 `￥`、系统字号设置 |
 | E5 | 拍照选图插件调研：`image_picker` 在无 GMS、Android 10–15 上的拍照与选图（系统照片选择器的回退）；`flutter_image_compress` 转 HEIC；EXIF 方向；大图内存 | 两者都可用 | 转 JPEG 改用平台通道（9.4） | 9.4 | **调研结论与本文一致**：`image_picker` 1.2.4 + 系统照片选择器（不需要媒体权限）；`flutter_image_compress` 2.5.1 统一转 JPEG 并去掉 GPS 等 EXIF（`image_picker` 只在缩放时重编码、PNG 仍是 PNG、会带上定位信息）。安装包增量未实测 |
-| E6 | 两台小米真机：首次安装、应用内升级（`PackageInstaller` 会话）、拒绝授权、下载中断续传、安装包被篡改（P46） | 全部有明确提示、能重试 | 安装改用 `ACTION_VIEW`；仍不行则在更新提示里给出“用浏览器下载”的链接 | 9.6 | 实施阶段真机验证 |
+| E6 | 两台小米真机：首次安装、应用内升级（`PackageInstaller` 会话）、拒绝授权、下载中断续传、安装包被篡改（P46；含“证书对、签名坏”的样本，10.5） | 全部有明确提示、能重试 | 安装改用 `ACTION_VIEW`；仍不行则在更新提示里给出“用浏览器下载”的链接 | 9.6 | 实施阶段真机验证 |
 | E7 | `local_auth` 在小米上的生物识别（客户端附录 D 第 6 项）；`FLAG_SECURE` 遮挡 | 指纹可用 | 只用 PIN / 图案 | 客户端 4.6 | 实施阶段真机验证 |
 
 ## 15. 风险
@@ -1257,13 +1335,55 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 | 5 | 资料模板由自建者手写，格式错误 | JSON Schema + 语义校验，坏文件跳过并报错，不影响启动；不兼容修改被拒 |
 | 6 | 冲突界面复杂、用户看不懂 | 只对“修改”出现，新建永不冲突；撤销优先只给两个按钮；验收场景覆盖（需求第 10 节） |
 | 7 | 单进程：服务端重启时所有 SSE 断开 | 客户端续传（`Last-Event-ID`）+ 事件表；运行由清扫器接回（AI 层 14.6） |
-| 8 | 安装包签名证书解析是自写代码（读 APK 签名块） | 只取证书算指纹，不做签名校验（那由系统安装器和 9.6 的手机端核对负责）；用真实 APK 做夹具测试 |
+| 8 | 安装包签名证书解析是自写代码（读 APK 签名块） | 只取证书算指纹作预检，不做签名校验（那由 9.6 的手机端核对和系统安装器负责，10.5）；用真实 APK 做夹具测试；优先级低于同步与运行时 |
 | 9 | 按（服务端，账号）分库后，旧分区长期占空间 | 只有切换过账号或服务端的人才有；需要时以后加“清除本机数据” |
 | 10 | 只有一种运行（`chat`），简单记账也要走完整 Agent 循环，延迟和成本略高于单次结构化调用 | 缓存命中（AI 层 15）；评测集比较 P50 / P95 延迟；确有需要再为短文字加单次调用的快路径，接口不变 |
 
 ## 16. 需要 Howard 定的事
 
-1. ~~**邀请成员是否需要对方同意？**~~ 已定（P62，2026-10-27）：需要对方接受，见 3.3。
-2. ~~**SIWC 不能做工具调用时怎么办**~~：不需要了，实验 E1 证明 SIWC 能可靠调用 namespace 工具。
+已定：~~邀请成员是否需要对方同意~~（P62）；~~SIWC 不能做工具调用时怎么办~~（E1 证明能调用，不需要了）。
+
+第二轮技术评审发现下面四件事需要产品规则。本文**先按推荐的选项写**，你改了选项再改文档。
+
+**1. 点“重试”之后，已经记好的那几笔怎么办？**（7.3）
+
+场景：你说“午饭 50，停车 10”。午饭已经记好，记停车时 AI 服务连续出错，这条回复显示“没有完成”，你点“重试”。
+
+- **A（推荐，本文按此写）接着做完没做完的**：新的一条回复只处理停车，说“午饭那笔上一条已经记好了，停车 10 也记好了”。午饭不会因为重试再记一笔：已经执行过的那一步不会再执行，AI 接着的是自己上次的完整过程（里面有“午饭已记好”的结果），和一次正常回复做到一半时完全一样，而不是重新读一遍原话。
+- B 整句话从头再处理一遍，同时告诉 AI 哪些已经记过、请它别重复：多数时候不会重复，但不能保证，万一重复了要你自己撤销。
+- C 不提供“重试”：回复写清“已记 1 笔（午饭），停车没有记”，你自己再说一遍停车（和“停止”之后的做法一样，P50）。
+
+选 A 的话，需求第 4 节“点了用同一个问题重新回答一次”改成“点了接着把没做完的做完（新的一条回复）”。
+
+**2. 跨空间移动记录的两条限制**（3.4.1）
+
+- **2a 两个空间币种不同时**。场景：家庭空间用人民币，你另建了一个用日元的“日本旅行”空间，想把一笔 100 元的支出移过去。
+  - **A（推荐）不允许**，提示“两个空间币种不同，不能移动”，你在旅行空间里重新记。
+  - B 数字原样搬过去：100 元变成 100 日元，金额就错了，不推荐。
+  - C 移动时让你填目标币种的金额：多一步输入和换算，v1 不建议。
+- **2b 有退款的支出**。场景：买衣服 300 记在家庭空间，后来退了 100（记了一笔退款），现在发现应该记在个人空间。
+  - **A（推荐）不允许**，提示“这笔有退款，先撤销退款再移动”；移过去之后在个人空间重新记那笔退款。
+  - B 支出和它的退款一起移过去：最省事，但一次移动要动四条记录，规则和审计都更复杂，v1 不建议。
+
+另外几条按技术规则定了，告诉你一声：每月拨入和退款本身不能单独移动；标签按名字对到目标空间（对不上的留空，移动时可以改）；照片跟着记录一起过去；目标空间里这笔的“记录人”显示为做移动的人（原空间的变更记录里仍能看到原来是谁记的）。
+
+**3. 撤销一笔已经有退款的支出**（3.4）
+
+场景：买衣服 300、退了 100。后来发现 300 这笔整个记错了（比如记重了），想撤销它。
+
+- **A（推荐，本文按此写）不能直接撤销**，提示“这笔还有 1 笔退款”。在对话里 AI 会问“要连退款一起撤销吗”，你确认后两笔都撤销；在记录页手动操作时，先撤销退款、再撤销支出。
+- B 撤销支出时自动连退款一起撤销（一步完成）；那么“恢复支出时退款要不要跟着恢复”也要再定一条。
+- C 允许只撤销支出、退款留着：退款就挂在一笔不存在的支出上，余额会凭空多出 100，不推荐。
+
+（把支出金额改得比已退的钱还少，例如退了 100 再把 300 改成 80，会被拒绝——这是 P53“累计退款不超过原金额”的直接要求，不用另定。）
+
+**4. 邀请人还没等对方接受就离开了空间**（3.3）
+
+场景：你邀请妈妈加入“家庭”空间，她还没点接受，你就退出了这个空间（或被移出）。
+
+- **A（推荐，本文按此写）你发出的、还没被接受的邀请自动作废**：她打开 App 看到“邀请已失效”；要邀请就由空间里还在的人重新发。
+- B 邀请照样有效，她接受后照常加入，尽管邀请她的人已经不在了。
+
+（删除空间时，所有还没接受的邀请一律作废，这一条不用定。）
 
 除此之外，本文没有发现与已定产品规则冲突的地方；产品层面的两个界面问题（第 38 条入口位置、9.3 “后来改过 / 截至”的外观）交给界面设计。

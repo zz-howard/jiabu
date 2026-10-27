@@ -600,7 +600,7 @@ ChatWeave 这边沿用 `chat_entries`（暂停检查点：`stream_status = pause
 
 **A. 用户回答**（`POST /chat/actions`，一个事务）
 
-1. ChatWeave dispatcher 先查 `chat_actions` 的幂等键（同一个动作 ID 直接返回第一次的结果，包括 `resume`），再鉴权：回答者就是会话所属成员，并且仍是该空间的活跃成员。
+1. **先鉴权，再查幂等键**（技术方案 5.3、7.1，S34）：回答者此刻是该空间的活跃成员、`join_epoch` 与请求一致、这条消息属于本人的会话，再过宿主 `authorize`；都通过之后才查 `chat_actions` 的幂等键（同一个动作 ID 直接返回第一次的结果，包括 `resume`）。幂等结果不是授权缓存：退出后重放旧的动作 ID 拿到的是 `not_found`。
 2. 条件写入：`UPDATE agent_runs SET status = 'queued', run_after = now(), open_interrupt = NULL … WHERE id = $run AND status = 'paused' AND open_interrupt->>'id' = $int AND (open_interrupt->>'expires_at')::timestamptz > now()`。影响 0 行，说明停止或过期已经先到，返回 `already_resolved` / `expired` 并带 `resume`，客户端去看真实结果。
 3. 追加 journal：`interrupt_answer{interrupt_id, outcome: confirm | cancel | answer, selected?, values?, freeText?, answered_at}`。确认类：`agent_tool_calls` 改为 `approved` / `rejected`；`ask_user`：直接写一条 `tool_result`，结果就是用户的回答。**自由文字**（用户点了卡片上的“输入其他内容”）原样作为结果交给模型理解，例如在确认卡上写“改成 72 块再记”，对应的工具调用记为 `rejected`、结果写“用户没有确认，而是说：……”。
 4. 写事件：取 `chat_entries.last_seq` 为 N，插入 `block.patch`（seq N+1，块 → `resolved`）和 `message.resumed`（seq N+2），更新 `last_seq`，检查点改回 `streaming`。此时运行不被任何 worker 持有，不会有别人同时产生事件。
@@ -644,7 +644,7 @@ ChatWeave 这边沿用 `chat_entries`（暂停检查点：`stream_status = pause
 
 - **启动和每 30 秒**：清扫器把 `status = 'running' AND lease_until < now()` 的运行放回 `queued`（`attempt + 1`），超过 2 次改为 `failed` 并按上表结束消息。
 - **优雅停机**（systemd `TimeoutStopSec` 内）：停止领取；进行中的模型调用最多等约 20 秒，否则主动把运行放回 `queued`（`lease_until = now()`，不计 `attempt`），重启后马上接上。
-- **重试**：用户在“没有完成”的回复上点“重试”= 用同一个问题开始一次新的运行（新的一条回复）；原回复保持原样。
+- **重试**：用户在“没有完成”的回复上点“重试”= 开始一次新的运行（新的一条回复），**接着原运行的 journal 做**：原运行的 journal 和工具调用（连同幂等键）复制进新运行，已有结果的工具调用不再执行，所以已记的账不会重复（技术方案 7.3）；原回复保持原样。`permission_changed` 结束的运行不提供重试。
 
 ### 14.7 过期、停止与新消息
 
@@ -743,9 +743,10 @@ journal 存的是**数据**，不是“代码执行到第几行”，所以服�
 ### 15.5 指标与验收
 
 - `ai_calls`（第 8 节）每次调用记：缓存读取 token、缓存写入 token、未缓存输入 token、`prefix_hash`（①–③的哈希）、调用种类（首次 / 运行内续调 / 暂停后恢复 / 崩溃重试）、距本运行上一次调用的时间；OpenAI 返回缓存诊断时记下未命中原因；按价格表折算的成本与缓存省下的金额。不记内容。
-- 看板：按调用种类的命中率和缓存省下的金额（按官方 API 标价，订阅也算）；“暂停后恢复、距上次调用小于有效期、却没命中”的次数——应为 0，否则是我们的前缀不稳定。
+- 看板：按调用种类的命中率和缓存省下的金额（按官方 API 标价，订阅也算）；“暂停后恢复、距上次调用小于有效期、却没命中”的比例——应接近 0，持续偏高说明我们的前缀不稳定（提供方偶尔不命中是正常的：E1 实测 SIWC 16 次后续调用命中 14 次）。
 - **离线测试（必须）**：同一份 journal 在“暂停前”和“重启后恢复”各渲染一次，前缀部分逐字节相同（`insta` 请求体快照）；换进程、换 serde 特性组合都不变。
-- **在线验收（每个启用的提供方）**：同一次运行里第 2 次模型调用缓存读取 token > 0；暂停后在有效期内回答，恢复后的那次调用缓存读取 token > 0（前缀超过该提供方的最短长度）。SIWC 另记：缓存参数是否被接受、用量里是否返回缓存 token。
+- **正确性门槛只有上面的离线测试**：命中与否取决于提供方，不能做成零容错的验收。
+- **在线验收（每个启用的提供方，看比例不看单次）**：跑一组多轮对话（例如 10 段、每段 5 轮），运行内续调和有效期内的暂停后恢复，**多数**调用缓存读取 token > 0（前缀超过该提供方的最短长度）；达不到时先查前缀快照，再看提供方。上线后的命中率作为性能指标看板，不作为发版门槛。SIWC 另记：缓存参数是否被接受、用量里是否返回缓存 token。
 
 ## 16. 来源
 
