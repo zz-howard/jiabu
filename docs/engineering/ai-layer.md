@@ -121,6 +121,13 @@ SIWC 只有浏览器 + 本机回环回调，没有设备码流程。按官方“
 
 **网页管理控制台做不了这个登录**：回调地址只能是发起登录那台机器的回环地址，而控制台跑在服务器上、管理员的浏览器在自己的电脑上，回调到的是管理员电脑的 localhost，控制台收不到；动态注册的客户端也不能把回调改成控制台的网址。所以登录只在 `admin provider login chatgpt` 里做，管理 API 只提供登录状态、令牌到期时间和最近一次刷新结果（[服务端 9.7](server-rust.md#97-chatgpt-订阅的登录只在命令行)）。
 
+**已验证的最简登录方式（2026-10-27 实测）：粘贴回调网址。** 不需要 SSH 端口转发，也不用在管理员电脑上装工具：
+1. 服务器上 `admin provider login chatgpt` 生成授权链接（`client_id=dynamic_agent_client`、`ext_agent_host_id` = 本服务器的持久主机 ID、`agent_name_hint` = 应用名、PKCE S256、`redirect_uri=http://127.0.0.1:1455/auth/callback`），PKCE 校验串只留在服务器。
+2. 管理员在自己电脑的浏览器打开链接、登录 ChatGPT、同意授权；OpenAI 当场把它登记成一个独立应用（发放 `oaiapp_…` 应用 ID，用户可在 ChatGPT 设置里管理和撤销）。
+3. 浏览器跳到 `127.0.0.1` 打不开，这是正常的；把地址栏里的完整网址粘回命令行，服务器校验 `state`、用授权码 + PKCE 校验串换令牌（`id_token` 验签并核对 nonce），凭据只存在服务器上。授权码几分钟内有效，过期就重新生成链接（复用已发放的应用 ID）。
+
+注意：SIWC 没有设备码流程；Codex 命令行自己的登录属于另一个客户端，权限不同，不能借用（见 4.4 第 1 项）。
+
 ### 4.4 接入验证清单（实现 `SiwcProvider` 时逐项通过）
 
 1. 登录拿到含 `chatgpt.tokens.use.direct` 的令牌；`GET /v1/models` 查看账号可用模型。（2026-10-27 实测：Codex 命令行自己的 ChatGPT 登录令牌不含这些权限，`/v1` 返回 401/403，不能借用，必须走本节的 SIWC 登录。） 第 2–5 项 2026-10-27 已通过；第 8 项要求请求头 `session_id` = `prompt_cache_key` = 会话 ID，否则基本不命中（技术方案 E1）；流式下 `response.completed.output` 为空，适配器从 `response.output_item.done` 拼输出。
