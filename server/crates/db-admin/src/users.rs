@@ -4,7 +4,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 #[derive(Clone)]
 pub struct AdminDb {
-    pool: PgPool,
+    pub(crate) pool: PgPool,
 }
 impl AdminDb {
     pub async fn connect(url: &str) -> Result<Self> {

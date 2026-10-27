@@ -1,8 +1,8 @@
-use crate::{ApiError, AppState, SessionOnly, middleware};
+use crate::{ApiError, AppState, Principal, middleware};
 use axum::{
     Extension, Json,
     extract::{Path, State, rejection::JsonRejection},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 use jiabu_domain::{JoinEpoch, SpaceId};
 use jiabu_tools::{Effect, Invocation, ToolCtx};
@@ -24,10 +24,10 @@ pub struct ToolDirectory {
     tools: Vec<ToolDescription>,
 }
 
-#[utoipa::path(get,path="/v1/spaces/{space_id}/tools",security(("bearer"=[])),params(("space_id"=Uuid,Path)),responses((status=200,body=ToolDirectory,description="Tools allowed for the current member",example=json!({"tools":[]})),(status=404,body=crate::Problem,description="Not found")))]
+#[utoipa::path(get,path="/v1/spaces/{space_id}/tools",security(("bearer"=[])),params(("space_id"=Uuid,Path)),responses((status=200,body=ToolDirectory,description="Tools allowed for the current member",example=json!({"tools":[]})),(status=404,body=crate::Problem,description="Not found"),(status=429,body=crate::Problem,description="API key rate limited")))]
 pub(crate) async fn list(
     State(state): State<AppState>,
-    SessionOnly(principal): SessionOnly,
+    principal: Principal,
     Path(space): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     let ctx = ToolCtx::begin(
@@ -54,40 +54,43 @@ pub(crate) async fn list(
 #[utoipa::path(post,path="/v1/spaces/{space_id}/tools",operation_id="tool_dispatch",security(("bearer"=[])),params(("space_id"=Uuid,Path)),request_body(content=Value,example=json!({})),responses((status=200,body=Value,description="Typed tool result",example=json!({}))))]
 pub(crate) async fn invoke(
     State(state): State<AppState>,
-    SessionOnly(principal): SessionOnly,
+    principal: Principal,
     Path(space): Path<Uuid>,
     Extension(ToolName(name)): Extension<ToolName>,
+    Extension(audit): Extension<crate::middleware::api_key_audit::RequestAudit>,
     headers: HeaderMap,
     body: Result<Json<Value>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let tool = state.tools.get(name)?;
+    tracing::Span::current().record("tool", name);
     let writing = tool.effect() == Effect::LocalWrite;
     let (key, epoch) = if writing {
         let key = headers
             .get("idempotency-key")
-            .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "idempotency_key_required"))?
-            .to_str()
-            .map_err(|_| ApiError::bad_request())?;
-        if key.is_empty() || key.len() > 200 {
-            return Err(ApiError::bad_request());
-        }
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let epoch = headers
             .get("x-jiabu-join-epoch")
-            .and_then(|s| s.to_str().ok())
-            .and_then(|s| s.parse::<i32>().ok())
-            .filter(|n| *n > 0)
-            .map(JoinEpoch)
-            .ok_or_else(ApiError::bad_request)?;
-        (Some(key.to_owned()), Some(epoch))
+            .map(|value| {
+                value
+                    .to_str()
+                    .ok()
+                    .and_then(|s| s.parse::<i32>().ok())
+                    .filter(|n| *n > 0)
+                    .map(JoinEpoch)
+                    .ok_or_else(ApiError::bad_request)
+            })
+            .transpose();
+        (key, epoch)
     } else {
-        (None, None)
+        (None, Ok(None))
     };
     // Begin checks live membership/epoch before parsing tool arguments or replaying.
-    let ctx = ToolCtx::begin(
+    let mut ctx = ToolCtx::begin(
         &state.db,
         principal.clone(),
         SpaceId(space),
-        epoch,
+        epoch.as_ref().ok().copied().flatten(),
         tool.effect(),
         Invocation {
             idempotency_key: key
@@ -100,6 +103,8 @@ pub(crate) async fn invoke(
         },
     )
     .await?;
+    let _ = epoch?;
+    ctx.audit_completed = audit.completed.clone();
     let args = super::input(body)?;
     Ok(Json(state.tools.invoke(name, args, &ctx).await?))
 }

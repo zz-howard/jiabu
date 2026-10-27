@@ -24,7 +24,7 @@ pub(crate) struct AuthorizationProbeResponse {
 #[utoipa::path(get,path="/v1/spaces/{space_id}/authorization-probe",security(("bearer"=[])),params(("space_id"=Uuid,Path)),responses((status=200,body=AuthorizationProbeResponse,description="Test-only ledger authorization check",example=json!({"ok":true})),(status=404,body=crate::Problem,description="Not found")))]
 pub(crate) async fn authorization_probe(
     State(state): State<AppState>,
-    crate::SessionOnly(principal): crate::SessionOnly,
+    principal: crate::Principal,
     Path(space_id): Path<Uuid>,
 ) -> Result<Json<AuthorizationProbeResponse>, crate::ApiError> {
     let space = jiabu_domain::SpaceId(space_id);
@@ -243,42 +243,57 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
     let foreign_invitation: Uuid = sqlx::query_scalar("insert into space_invitations(space_id,invitee_user_id,invited_by_member_id,status) values($1,$2,$3,'pending') returning id")
         .bind(other.space_id.0).bind(app.plan.user_id.0).bind(foreign_member).fetch_one(&owner).await?;
     owner.close().await;
-    for (method, pattern) in ISOLATION_MATRIX {
-        let mut previous = None;
-        let mut ids = vec![
-            nonmember.space_id.0,
-            exited.space_id.0,
-            other.space_id.0,
-            Uuid::now_v7(),
-        ];
-        // Management routes deliberately depend on role, not module grants.
-        // The fifth case applies to the route that actually calls authorize().
-        if *pattern == AUTHORIZATION_PROBE_PATH {
-            ids.push(no_grants.0);
-        }
-        for id in ids {
-            let path = pattern
-                .replace("{space_id}", &id.to_string())
-                .replace("{inv_id}", &foreign_invitation.to_string())
-                .replace("{member_id}", &foreign_member.to_string());
-            let reply = app
-                .request(
-                    method,
-                    &path,
-                    spaces::matrix_body(method, pattern, foreign_member),
-                    Some(&token),
-                    &[
-                        ("idempotency-key", Uuid::now_v7().to_string()),
-                        ("x-jiabu-join-epoch", "1".into()),
-                    ],
-                )
-                .await?;
-            assert_eq!(reply.status, StatusCode::NOT_FOUND, "{method} {pattern}");
-            let normalized = normalize_request_id(&reply)?;
-            if let Some(expected) = &previous {
-                assert_eq!(expected, &normalized, "{method} {pattern}");
+    let (_, read_key) = api_keys::issue(&app, &token, "read").await?;
+    let (_, write_key) = api_keys::issue(&app, &token, "read_write").await?;
+    for (caller, is_key) in [(&token, false), (&read_key, true), (&write_key, true)].iter() {
+        for (method, pattern) in ISOLATION_MATRIX {
+            let mut previous = None;
+            let mut ids = vec![
+                nonmember.space_id.0,
+                exited.space_id.0,
+                other.space_id.0,
+                Uuid::now_v7(),
+            ];
+            // Management routes deliberately depend on role, not module grants.
+            // The fifth case applies to the route that actually calls authorize().
+            if *pattern == AUTHORIZATION_PROBE_PATH {
+                ids.push(no_grants.0);
             }
-            previous = Some(normalized);
+            for id in ids {
+                let path = pattern
+                    .replace("{space_id}", &id.to_string())
+                    .replace("{inv_id}", &foreign_invitation.to_string())
+                    .replace("{member_id}", &foreign_member.to_string());
+                let reply = app
+                    .request(
+                        method,
+                        &path,
+                        spaces::matrix_body(method, pattern, foreign_member),
+                        Some(caller),
+                        &[
+                            ("idempotency-key", Uuid::now_v7().to_string()),
+                            ("x-jiabu-join-epoch", "1".into()),
+                        ],
+                    )
+                    .await?;
+                let expected = if *is_key
+                    && !pattern.contains("/tools")
+                    && *pattern != AUTHORIZATION_PROBE_PATH
+                {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::NOT_FOUND
+                };
+                assert_eq!(reply.status, expected, "{method} {pattern}");
+                if expected == StatusCode::FORBIDDEN {
+                    assert_eq!(reply.json()["code"], "api_key_not_allowed");
+                }
+                let normalized = normalize_request_id(&reply)?;
+                if let Some(expected) = &previous {
+                    assert_eq!(expected, &normalized, "{method} {pattern}");
+                }
+                previous = Some(normalized);
+            }
         }
     }
     // The restricted identity must succeed when only its ledger grant changes.
@@ -1057,3 +1072,5 @@ async fn password_change_attempts_share_the_login_limit() -> Result<()> {
 
 #[path = "tests/ledger.rs"]
 mod ledger;
+
+pub(crate) mod api_keys;

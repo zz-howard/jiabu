@@ -1,3 +1,4 @@
+pub(crate) mod api_key_audit;
 mod login_limit;
 use crate::{ApiError, AppState};
 use axum::{
@@ -7,7 +8,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
-pub(crate) use login_limit::{LoginLimiter, WindowLimiter, source_ip};
+pub(crate) use login_limit::{LoginLimiter, WindowLimiter, ip_key, source_ip};
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
     sensitive_headers::SetSensitiveHeadersLayer, timeout::TimeoutLayer,
@@ -45,7 +46,9 @@ async fn not_found() -> ApiError {
 async fn method_not_allowed() -> ApiError {
     ApiError::new(StatusCode::METHOD_NOT_ALLOWED, "bad_request")
 }
-async fn context(State(state): State<AppState>, request: Request, next: Next) -> Response {
+async fn context(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
+    let audit = api_key_audit::RequestAudit::default();
+    request.extensions_mut().insert(audit.clone());
     let id = request
         .headers()
         .get("x-request-id")
@@ -59,7 +62,7 @@ async fn context(State(state): State<AppState>, request: Request, next: Next) ->
         .map_or("unmatched", MatchedPath::as_str)
         .to_owned();
     let span = tracing::info_span!("http", request_id=%id, user_id="", route=%route,
-        auth_kind="", status=0_u16, elapsed_ms=0_u64);
+        auth_kind="", api_key_id="", tool="", status=0_u16, elapsed_ms=0_u64);
     REQUEST_ID
         .scope(
             id,
@@ -83,6 +86,22 @@ async fn context(State(state): State<AppState>, request: Request, next: Next) ->
                 if response.status() == StatusCode::SERVICE_UNAVAILABLE {
                     response = ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "unavailable")
                         .into_response();
+                }
+                let outcome = response
+                    .extensions()
+                    .get::<api_key_audit::ErrorCode>()
+                    .map_or_else(
+                        || {
+                            if response.status().is_success() {
+                                "ok"
+                            } else {
+                                "invalid"
+                            }
+                        },
+                        |code| code.0,
+                    );
+                if let Err(error) = audit.finish(&state, outcome).await {
+                    response = error.into_response();
                 }
                 let elapsed = start.elapsed().as_millis() as u64;
                 tracing::Span::current().record("status", response.status().as_u16());
@@ -111,6 +130,19 @@ async fn handshake(
     headers: axum::http::HeaderMap,
     path: String,
 ) -> Result<(), ApiError> {
+    // A malformed credential must not cause even a version-handshake DB query.
+    if !matches!(
+        path.as_str(),
+        "/v1/auth/login" | "/v1/meta" | "/healthz" | "/v1/healthz"
+    ) && let Some(header) = headers.get("authorization")
+        && !header
+            .to_str()
+            .ok()
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .is_some_and(crate::principal::valid_token_shape)
+    {
+        return Err(ApiError::unauthorized());
+    }
     let Some(header) = headers.get("x-jiabu-client") else {
         return Ok(());
     };

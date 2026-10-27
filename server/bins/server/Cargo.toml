@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 jiabu-api.workspace = true
+jiabu-tools.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

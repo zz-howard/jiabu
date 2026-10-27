@@ -75,3 +75,11 @@ pub async fn reset_password(db: &AdminDb, username: &str, actor: &str) -> Result
 pub async fn set_disabled(db: &AdminDb, username: &str, disabled: bool, actor: &str) -> Result<()> {
     db.set_disabled(username, disabled, actor).await
 }
+pub async fn api_keys(
+    db: &AdminDb,
+    username: &str,
+    revoke: Option<Uuid>,
+    actor: &str,
+) -> Result<serde_json::Value> {
+    db.api_keys(username, revoke, actor).await
+}

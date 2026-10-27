@@ -1,5 +1,5 @@
 use super::me::UserResponse;
-use crate::{ApiError, AppState, SessionOnly, Via, credentials, middleware};
+use crate::{AccountSession, ApiError, AppState, Via, credentials, middleware};
 use axum::{
     Json,
     extract::{ConnectInfo, State, rejection::JsonRejection},
@@ -78,7 +78,7 @@ pub(crate) async fn login(
 #[utoipa::path(post,path="/v1/auth/logout",security(("bearer"=[])),responses((status=204,description="Current session removed")))]
 pub(crate) async fn logout(
     State(state): State<AppState>,
-    SessionOnly(principal): SessionOnly,
+    AccountSession(principal): AccountSession,
 ) -> Result<StatusCode, ApiError> {
     let Via::Session { session_id, .. } = principal.via else {
         return Err(ApiError::unauthorized());

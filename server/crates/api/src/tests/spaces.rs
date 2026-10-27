@@ -1207,7 +1207,10 @@ async fn cross_space_child_ids_and_session_only_routes() -> Result<()> {
         } else {
             route.method != "GET"
         };
-        if requires_key {
+        // Tool routes validate arguments before the Idempotency-Key check (S5 order:
+        // member -> read-only -> authorize -> replay); the generic matrix body is not a
+        // valid tool argument, so missing-key coverage for tools lives in tests::api_keys.
+        if requires_key && !route.path.contains("/tools/") {
             let missing = app
                 .request(
                     route.method,

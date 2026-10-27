@@ -103,6 +103,7 @@ fn version(value: &Value, expected: i32) -> Result<(), Error> {
             code: "version_conflict",
             current: Some(value.clone()),
             errors: None,
+            retry_after: None,
         });
     }
     Ok(())

@@ -110,12 +110,13 @@ fn extend_value(
         ];
         if tool.effect() == Effect::LocalWrite {
             parameters.push(json!({"name":"Idempotency-Key","in":"header","required":true,"schema":{"type":"string","minLength":1,"maxLength":200}}));
-            parameters.push(json!({"name":"X-Jiabu-Join-Epoch","in":"header","required":true,"schema":{"type":"integer","minimum":1}}));
+            parameters.push(json!({"name":"X-Jiabu-Join-Epoch","in":"header","required":false,"description":"Required for session writes; optional for API keys, validated whenever supplied","schema":{"type":"integer","minimum":1}}));
         }
         let mut responses = json!({"200":{"description":"Tool result","content":{"application/json":{"schema":{"$ref":format!("#/components/schemas/{output}")},"example":tool.example_output()}}}});
-        for code in [400, 401, 403, 404, 409, 422, 500, 503] {
+        for code in [400, 401, 403, 404, 409, 422, 429, 500, 503] {
             responses[code.to_string()] = json!({"description":"Problem","content":{"application/problem+json":{"schema":{"$ref":"#/components/schemas/Problem"}}}});
         }
+        responses["429"]["headers"] = json!({"Retry-After":{"description":"Seconds until the next token","schema":{"type":"integer"}}});
         doc["paths"][tool.api_path()] = json!({"post":{"operationId":format!("tool_{}",tool.name()),"description":tool.description(),"tags":["tools"],"security":[{"bearer":[]}],"parameters":parameters,"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":format!("#/components/schemas/{args}")},"example":tool.example_args()}}},"responses":responses}});
         let branch_name = format!("ToolCall_{}", tool.name());
         doc["components"]["schemas"][&branch_name] = json!({"type":"object","additionalProperties":false,"required":["tool","args"],"properties":{"tool":{"type":"string","enum":[tool.name()]},"args":{"$ref":format!("#/components/schemas/{args}")}}});

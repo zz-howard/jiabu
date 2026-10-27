@@ -35,6 +35,15 @@ impl LedgerApp {
         let mut state = AppState::new(db.clone())
             .await
             .map_err(anyhow::Error::msg)?;
+        state = state
+            .with_api_key_limiter(Arc::new(jiabu_tools::api_key::ApiKeyLimiter::configured(
+                jiabu_tools::api_key::ApiKeyLimits {
+                    read_per_minute: 1000,
+                    write_per_minute: 1000,
+                    unknown_per_minute: 60,
+                },
+            )))
+            .map_err(anyhow::Error::msg)?;
         state.clock = Arc::new(FixedClock(instant()));
         let registry = state.tools.clone();
         app.router = crate::router(state);
@@ -81,6 +90,12 @@ impl LedgerApp {
         Ok(member)
     }
     async fn principal(&self) -> Result<Principal> {
+        if self.token.starts_with("jiabu_pat_") {
+            return Ok(self
+                .db
+                .authenticate_api_key(crate::credentials::token_hash(&self.token))
+                .await?);
+        }
         let auth = self
             .db
             .authenticate(crate::credentials::token_hash(&self.token))
@@ -300,7 +315,19 @@ fn valid_args(name: &str, registry: &jiabu_tools::ToolRegistry) -> Result<Value>
 }
 #[tokio::test]
 async fn every_open_tool_matches_direct_invoke_including_full_audit_and_denial() -> Result<()> {
-    let harness = LedgerApp::new().await?;
+    entry_parity(false).await
+}
+#[tokio::test]
+async fn every_open_tool_key_matches_direct_invoke_including_full_audit_and_denial() -> Result<()> {
+    entry_parity(true).await
+}
+async fn entry_parity(use_key: bool) -> Result<()> {
+    let mut harness = LedgerApp::new().await?;
+    if use_key {
+        harness.token = super::api_keys::issue(&harness.app, &harness.token, "read_write")
+            .await?
+            .1;
+    }
     let owner = harness.app.fixture.owner().await?;
     let sequences = checkpoint(&owner).await?;
     for tool in harness

@@ -569,6 +569,7 @@ impl SpaceTx {
                     code: "version_conflict",
                     current: Some(value.clone()),
                     errors: None,
+                    retry_after: None,
                 });
             }
             (None, Some(_)) => return Err(Error::not_found()),

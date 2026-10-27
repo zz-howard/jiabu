@@ -49,6 +49,29 @@
         ],
         "type": "object"
       },
+      "CreateKey": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        },
+        "required": [
+          "name",
+          "scope"
+        ],
+        "type": "object"
+      },
       "CreateSpaceRequest": {
         "additionalProperties": false,
         "properties": {
@@ -74,6 +97,30 @@
           "name",
           "accent_color",
           "timezone"
+        ],
+        "type": "object"
+      },
+      "CreatedKey": {
+        "properties": {
+          "created": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "plaintext_available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "created",
+          "plaintext_available"
         ],
         "type": "object"
       },
@@ -142,6 +189,100 @@
         },
         "required": [
           "username"
+        ],
+        "type": "object"
+      },
+      "KeyList": {
+        "properties": {
+          "api_keys": {
+            "items": {
+              "$ref": "#/components/schemas/KeyView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "api_keys"
+        ],
+        "type": "object"
+      },
+      "KeyReplay": {
+        "properties": {
+          "created": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "plaintext_available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "created",
+          "plaintext_available"
+        ],
+        "type": "object"
+      },
+      "KeyView": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "display_prefix": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_used_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "revoked_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revoked_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "display_prefix",
+          "scope",
+          "created_at",
+          "status"
         ],
         "type": "object"
       },
@@ -336,6 +477,18 @@
         ],
         "type": "object"
       },
+      "RenameKey": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
       "RenameSpaceRequest": {
         "additionalProperties": false,
         "properties": {
@@ -360,6 +513,13 @@
           "expected_version"
         ],
         "type": "object"
+      },
+      "Scope": {
+        "enum": [
+          "read",
+          "read_write"
+        ],
+        "type": "string"
       },
       "SpaceActionResponse": {
         "properties": {
@@ -4106,6 +4266,7 @@
     },
     "securitySchemes": {
       "bearer": {
+        "description": "Bearer session token or personal API key (jiabu_pat_). Account administration requires a session; API keys cannot use AI.",
         "scheme": "bearer",
         "type": "http"
       }
@@ -4340,6 +4501,362 @@
               }
             },
             "description": "Locale saved"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/me/api-keys": {
+      "get": {
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "api_keys": []
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/KeyList"
+                }
+              }
+            },
+            "description": "Personal keys; never includes token hashes"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Account session required"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "create",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "示例脚本",
+                "scope": "read"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/CreateKey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "created": true,
+                  "id": "019a0000-0000-7000-8000-000000000001",
+                  "plaintext_available": false
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/KeyReplay"
+                }
+              }
+            },
+            "description": "Already created; plaintext unavailable"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "created": true,
+                  "id": "019a0000-0000-7000-8000-000000000001",
+                  "key": "<personal-key-shown-once>",
+                  "plaintext_available": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedKey"
+                }
+              }
+            },
+            "description": "Secret is returned once"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid request or missing idempotency key"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Account session required"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid input, key limit reached or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/me/api-keys/{id}": {
+      "patch": {
+        "operationId": "rename",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "改名后的示例脚本"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/RenameKey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": "019a0000-0000-7000-8000-000000000001",
+                  "name": "示例脚本",
+                  "scope": "read",
+                  "status": "active"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/KeyView"
+                }
+              }
+            },
+            "description": "Renamed key"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid request or missing idempotency key"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Account session required"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Validation failed or idempotency key reused"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/me/api-keys/{id}/revoke": {
+      "post": {
+        "operationId": "revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": "019a0000-0000-7000-8000-000000000001",
+                  "revoked_by": "user",
+                  "status": "revoked"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/KeyView"
+                }
+              }
+            },
+            "description": "Revoked key; row retained"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Missing idempotency key"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Account session required"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Idempotency key reused"
           }
         },
         "security": [
@@ -4668,7 +5185,7 @@
             },
             "description": "Active spaces, caller grants and member lists"
           },
-          "403": {
+          "429": {
             "content": {
               "application/json": {
                 "schema": {
@@ -4676,7 +5193,7 @@
                 }
               }
             },
-            "description": "Session required"
+            "description": "API key rate limited"
           }
         },
         "security": [
@@ -5725,6 +6242,16 @@
               }
             },
             "description": "Not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "API key rate limited"
           }
         },
         "security": [
@@ -5759,9 +6286,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -5871,6 +6399,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -5927,9 +6473,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -6041,6 +6588,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -6097,9 +6662,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -6222,6 +6788,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -6278,9 +6862,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -6383,6 +6968,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -6439,9 +7042,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -6543,6 +7147,24 @@
               }
             },
             "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -6701,6 +7323,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -6852,6 +7492,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -6996,6 +7654,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -7132,6 +7808,24 @@
               }
             },
             "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -7273,6 +7967,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -7329,9 +8041,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -7435,6 +8148,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -7491,9 +8222,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -7611,6 +8343,24 @@
               }
             },
             "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -7772,6 +8522,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -7828,9 +8596,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -7936,6 +8705,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -7992,9 +8779,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -8105,6 +8893,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -8161,9 +8967,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -8285,6 +9092,24 @@
             },
             "description": "Problem"
           },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -8341,9 +9166,10 @@
             }
           },
           {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
             "in": "header",
             "name": "X-Jiabu-Join-Epoch",
-            "required": true,
+            "required": false,
             "schema": {
               "minimum": 1,
               "type": "integer"
@@ -8461,6 +9287,24 @@
               }
             },
             "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "500": {
             "content": {

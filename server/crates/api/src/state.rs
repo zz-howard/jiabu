@@ -9,6 +9,7 @@ pub struct AppState {
     pub db: AppDb,
     pub tools: Arc<jiabu_tools::ToolRegistry>,
     pub clock: Arc<dyn jiabu_db::ledger::Clock>,
+    pub api_keys: Arc<jiabu_tools::api_key::ApiKeyLimiter>,
     pub(crate) limiter: Arc<LoginLimiter>,
     pub(crate) client_logs: Arc<WindowLimiter>,
     pub(crate) dummy_hash: Arc<String>,
@@ -24,9 +25,14 @@ impl AppState {
         })
         .await
         .map_err(|_| "password initialization failed".to_owned())??;
+        let tools = Arc::new(
+            jiabu_tools::ToolRegistry::ledger()
+                .map_err(|_| "tool initialization failed".to_owned())?,
+        );
         Ok(Self {
             db,
-            tools: jiabu_tools::builtin_registry(),
+            api_keys: tools.api_keys.clone(),
+            tools,
             clock: Arc::new(jiabu_db::ledger::SystemClock),
             limiter: Arc::new(LoginLimiter::default()),
             client_logs: Arc::new(WindowLimiter::new(
@@ -37,6 +43,17 @@ impl AppState {
             password_work: Arc::new(Semaphore::new(permits)),
             purge: Arc::new(Notify::new()),
         })
+    }
+    pub fn with_api_key_limiter(
+        mut self,
+        limiter: Arc<jiabu_tools::api_key::ApiKeyLimiter>,
+    ) -> Result<Self, String> {
+        let mut tools = jiabu_tools::ToolRegistry::ledger()
+            .map_err(|_| "tool initialization failed".to_owned())?;
+        tools.api_keys = limiter.clone();
+        self.api_keys = limiter;
+        self.tools = Arc::new(tools);
+        Ok(self)
     }
     pub fn purge_signal(&self) -> Arc<Notify> {
         self.purge.clone()

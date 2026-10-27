@@ -4,6 +4,8 @@ use serde::Deserialize;
 pub struct Settings {
     pub listen_addr: String,
     pub migrate_on_start: bool,
+    #[serde(default)]
+    pub api_keys: jiabu_tools::api_key::ApiKeyLimits,
 }
 impl Settings {
     pub fn load() -> Result<Self> {
@@ -32,9 +34,16 @@ impl Settings {
                     .context("Invalid JIABU_MIGRATE_ON_START")?,
             )?;
         }
-        builder
+        let settings: Self = builder
             .build()?
             .try_deserialize()
-            .context("Invalid server configuration")
+            .context("Invalid server configuration")?;
+        anyhow::ensure!(
+            settings.api_keys.read_per_minute > 0
+                && settings.api_keys.write_per_minute > 0
+                && settings.api_keys.unknown_per_minute > 0,
+            "API key rate limits must be positive"
+        );
+        Ok(settings)
     }
 }
