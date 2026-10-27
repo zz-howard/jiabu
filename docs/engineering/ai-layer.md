@@ -123,7 +123,7 @@ SIWC 只有浏览器 + 本机回环回调，没有设备码流程。按官方“
 
 ### 4.4 接入验证清单（实现 `SiwcProvider` 时逐项通过）
 
-1. 登录拿到含 `chatgpt.tokens.use.direct` 的令牌；`GET /v1/models` 查看账号可用模型。（2026-10-27 实测：Codex 命令行自己的 ChatGPT 登录令牌不含这些权限，`/v1` 返回 401/403，不能借用，必须走本节的 SIWC 登录。） 第 2–5 项 2026-10-27 已通过、第 8 项见技术方案 E1；流式下 `response.completed.output` 为空，适配器从 `response.output_item.done` 拼输出。
+1. 登录拿到含 `chatgpt.tokens.use.direct` 的令牌；`GET /v1/models` 查看账号可用模型。（2026-10-27 实测：Codex 命令行自己的 ChatGPT 登录令牌不含这些权限，`/v1` 返回 401/403，不能借用，必须走本节的 SIWC 登录。） 第 2–5 项 2026-10-27 已通过；第 8 项要求请求头 `session_id` = `prompt_cache_key` = 会话 ID，否则基本不命中（技术方案 E1）；流式下 `response.completed.output` 为空，适配器从 `response.output_item.done` 拼输出。
 2. 纯文本请求（stream + store=false）收到 `response.completed`。
 3. 图片输入（收据照片 base64 data URL）成功。
 4. namespace 工具调用：模型返回 `submit_record_draft` 工具调用，参数满足 JSON Schema。
