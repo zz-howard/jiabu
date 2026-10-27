@@ -8,9 +8,13 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn meta_advertises_api_v1() -> anyhow::Result<()> {
     let fixture = support::TestDb::new().await?;
-    let state = jiabu_api::AppState::new(jiabu_db::AppDb::connect(&fixture.app_url).await?)
-        .await
-        .map_err(anyhow::Error::msg)?;
+    let state = jiabu_api::AppState::with_storage(
+        jiabu_db::AppDb::connect(&fixture.app_url).await?,
+        jiabu_storage::BlobStore::local(fixture.data_dir())?,
+        jiabu_storage::ImageLimits::default(),
+    )
+    .await
+    .map_err(anyhow::Error::msg)?;
     let router = jiabu_api::router(state);
     let response = router
         .clone()
@@ -48,9 +52,13 @@ async fn production_router_excludes_module_authorization_probe() -> anyhow::Resu
     );
 
     let fixture = support::TestDb::new().await?;
-    let state = jiabu_api::AppState::new(jiabu_db::AppDb::connect(&fixture.app_url).await?)
-        .await
-        .map_err(anyhow::Error::msg)?;
+    let state = jiabu_api::AppState::with_storage(
+        jiabu_db::AppDb::connect(&fixture.app_url).await?,
+        jiabu_storage::BlobStore::local(fixture.data_dir())?,
+        jiabu_storage::ImageLimits::default(),
+    )
+    .await
+    .map_err(anyhow::Error::msg)?;
     let response = jiabu_api::router(state)
         .oneshot(
             Request::builder()

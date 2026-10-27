@@ -18,6 +18,7 @@ pub struct Model {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub created_at: DateTimeWithTimeZone,
+    pub unreferenced_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

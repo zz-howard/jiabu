@@ -32,9 +32,13 @@ impl LedgerApp {
     async fn new() -> Result<Self> {
         let mut app = TestApp::new(false).await?;
         let db = AppDb::connect(&app.fixture.app_url).await?;
-        let mut state = AppState::new(db.clone())
-            .await
-            .map_err(anyhow::Error::msg)?;
+        let mut state = AppState::with_storage(
+            db.clone(),
+            jiabu_storage::BlobStore::local(app.fixture.data_dir())?,
+            jiabu_storage::ImageLimits::default(),
+        )
+        .await
+        .map_err(anyhow::Error::msg)?;
         state = state
             .with_api_key_limiter(Arc::new(jiabu_tools::api_key::ApiKeyLimiter::configured(
                 jiabu_tools::api_key::ApiKeyLimits {
@@ -792,7 +796,7 @@ async fn exposure_status_schemas_and_oneof_are_public_contracts() -> Result<()> 
         .map_err(|_| anyhow::anyhow!("bad public call schema"))?;
     assert!(!public_validator.is_valid(&json!({"tool":"ask_user","args":{}})));
     assert!(!doc.to_string().contains("ask_user"));
-    assert!(doc["paths"]["/v1/sync/push"].is_null());
+    assert!(doc["paths"]["/v1/sync/push"]["post"].is_object());
     assert_eq!(
         doc["components"]["schemas"]["ToolCall"]["oneOf"]
             .as_array()

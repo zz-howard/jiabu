@@ -416,3 +416,8 @@ mod api_keys;
 mod ledger;
 #[path = "tests/spaces.rs"]
 mod spaces;
+
+#[path = "tests/blobs.rs"]
+mod blobs;
+#[path = "tests/sync.rs"]
+mod sync;

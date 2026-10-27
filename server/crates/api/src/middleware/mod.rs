@@ -4,14 +4,14 @@ use crate::{ApiError, AppState};
 use axum::{
     Router,
     extract::{DefaultBodyLimit, MatchedPath, Request, State},
-    http::{HeaderValue, StatusCode},
+    http::{HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
 pub(crate) use login_limit::{LoginLimiter, WindowLimiter, ip_key, source_ip};
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
-    sensitive_headers::SetSensitiveHeadersLayer, timeout::TimeoutLayer,
+    sensitive_headers::SetSensitiveHeadersLayer,
 };
 use tracing::Instrument;
 use uuid::Uuid;
@@ -29,10 +29,6 @@ pub(crate) fn apply(router: Router<AppState>, state: AppState) -> Router {
         .layer(CatchPanicLayer::custom(|_| {
             ApiError::internal().into_response()
         }))
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::SERVICE_UNAVAILABLE,
-            std::time::Duration::from_secs(30),
-        ))
         .layer(CompressionLayer::new())
         .layer(SetSensitiveHeadersLayer::new([
             axum::http::header::AUTHORIZATION,
@@ -40,6 +36,50 @@ pub(crate) fn apply(router: Router<AppState>, state: AppState) -> Router {
         .layer(middleware::from_fn_with_state(state.clone(), context))
         .with_state(state)
 }
+fn blob_transfer(route: Option<&str>, method: &Method) -> bool {
+    route == Some("/v1/spaces/{space_id}/blobs/{sha256}")
+        && matches!(*method, Method::PUT | Method::GET)
+}
+fn request_timeout(blob: bool, blob_seconds: u64) -> std::time::Duration {
+    std::time::Duration::from_secs(if blob { blob_seconds } else { 30 })
+}
+async fn deadline_response(
+    future: impl std::future::Future<Output = Response>,
+    timeout: std::time::Duration,
+    stream_body: bool,
+) -> Response {
+    use futures_util::StreamExt;
+    let deadline = tokio::time::Instant::now() + timeout;
+    let response = match tokio::time::timeout_at(deadline, future).await {
+        Ok(response) => response,
+        Err(_) => {
+            return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "unavailable").into_response();
+        }
+    };
+    if !stream_body {
+        return response;
+    }
+    let (parts, body) = response.into_parts();
+    // The same absolute deadline covers streamed downloads after their headers
+    // have been sent. A stalled stream ends with a body error, never silently EOF.
+    let stream =
+        futures_util::stream::unfold(Some(body.into_data_stream()), move |state| async move {
+            let mut stream = state?;
+            match tokio::time::timeout_at(deadline, stream.next()).await {
+                Ok(Some(item)) => Some((item.map_err(std::io::Error::other), Some(stream))),
+                Ok(None) => None,
+                Err(_) => Some((
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "blob transfer timed out",
+                    )),
+                    None,
+                )),
+            }
+        });
+    Response::from_parts(parts, axum::body::Body::from_stream(stream))
+}
+
 async fn not_found() -> ApiError {
     ApiError::not_found()
 }
@@ -78,7 +118,13 @@ async fn context(State(state): State<AppState>, mut request: Request, next: Next
                     Err(error) => Err(error),
                 };
                 let mut response = match handshake_result {
-                    Ok(()) => next.run(Request::from_parts(parts, body)).await,
+                    Ok(()) => {
+                        let blob = blob_transfer(Some(&route), &parts.method);
+                        let timeout =
+                            request_timeout(blob, state.image_limits.transfer_timeout_secs);
+                        deadline_response(next.run(Request::from_parts(parts, body)), timeout, blob)
+                            .await
+                    }
                     Err(error) => error.into_response(),
                 };
                 // Turn framework-level body limit rejections into the same error contract.
@@ -86,7 +132,12 @@ async fn context(State(state): State<AppState>, mut request: Request, next: Next
                     response = ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large")
                         .into_response();
                 }
-                if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+                if response.status() == StatusCode::SERVICE_UNAVAILABLE
+                    && response
+                        .extensions()
+                        .get::<api_key_audit::ErrorCode>()
+                        .is_none()
+                {
                     response = ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "unavailable")
                         .into_response();
                 }
@@ -191,5 +242,79 @@ async fn handshake(
         ))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+    use axum::body::{Body, to_bytes};
+    use std::time::Duration;
+
+    #[tokio::test(start_paused = true)]
+    async fn blob_deadline_allows_slow_uploads_and_keeps_other_routes_at_thirty_seconds() {
+        let path = Some("/v1/spaces/{space_id}/blobs/{sha256}");
+        assert!(blob_transfer(path, &Method::PUT));
+        assert!(blob_transfer(path, &Method::GET));
+        assert!(!blob_transfer(path, &Method::POST));
+        assert!(!blob_transfer(Some("/v1/sync/pull"), &Method::POST));
+        for blob in [true, false] {
+            let response = deadline_response(
+                async {
+                    tokio::time::sleep(Duration::from_secs(45)).await;
+                    StatusCode::NO_CONTENT.into_response()
+                },
+                request_timeout(blob, 600),
+                blob,
+            )
+            .await;
+            assert_eq!(
+                response.status(),
+                if blob {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            );
+        }
+        let response = deadline_response(
+            async {
+                tokio::time::sleep(Duration::from_secs(61)).await;
+                StatusCode::NO_CONTENT.into_response()
+            },
+            request_timeout(true, 60),
+            true,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn download_deadline_covers_the_stream_after_headers() {
+        let delayed = futures_util::stream::once(async {
+            tokio::time::sleep(Duration::from_secs(45)).await;
+            Ok::<_, std::io::Error>("jpeg")
+        });
+        let response = deadline_response(
+            async { Body::from_stream(delayed).into_response() },
+            Duration::from_secs(600),
+            true,
+        )
+        .await;
+        assert_eq!(
+            to_bytes(response.into_body(), 100).await.unwrap().as_ref(),
+            b"jpeg"
+        );
+        let stalled = futures_util::stream::once(async {
+            tokio::time::sleep(Duration::from_secs(601)).await;
+            Ok::<_, std::io::Error>("late")
+        });
+        let response = deadline_response(
+            async { Body::from_stream(stalled).into_response() },
+            Duration::from_secs(600),
+            true,
+        )
+        .await;
+        assert!(to_bytes(response.into_body(), 100).await.is_err());
     }
 }

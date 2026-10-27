@@ -8,3 +8,17 @@ publish.workspace = true
 
 [dependencies]
 jiabu-domain.workspace = true
+object_store.workspace = true
+image.workspace = true
+infer.workspace = true
+kamadak-exif.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+chrono.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+[dev-dependencies]
+tokio.workspace = true
+anyhow.workspace = true
+uuid.workspace = true

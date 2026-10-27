@@ -514,10 +514,11 @@ async fn keys_cannot_manage_account_keys_spaces_or_members() -> Result<()> {
             ("POST", format!("/v1/me/invitations/{id}/decline")),
             ("POST", "/v1/client-logs".into()),
         ];
-        for (method, path) in ISOLATION_MATRIX
-            .iter()
-            .filter(|(_, path)| !path.contains("/tools") && *path != AUTHORIZATION_PROBE_PATH)
-        {
+        for (method, path) in ISOLATION_MATRIX.iter().filter(|(_, path)| {
+            !path.contains("/tools")
+                && !path.contains("/blobs/")
+                && *path != AUTHORIZATION_PROBE_PATH
+        }) {
             routes.push((
                 *method,
                 path.replace("{space_id}", &app.plan.space_id.to_string())
@@ -1723,6 +1724,8 @@ async fn push_helpers_charge_each_item_once_and_audit_only_admitted_items() -> R
     let (id, key) = issue(&app, &session, "read_write").await?;
     let (principal, request) = admitted_batch(&state, &key).await?;
     let op_id = Uuid::now_v7();
+    let item_request_id = Uuid::now_v7();
+    let missing_request_id = Uuid::now_v7();
     let ticket = request
         .begin_push_item(
             &state,
@@ -1730,6 +1733,7 @@ async fn push_helpers_charge_each_item_once_and_audit_only_admitted_items() -> R
             Some(app.plan.space_id.0),
             Some("create_tag"),
             Some(op_id),
+            Some(item_request_id),
         )
         .map_err(|error| anyhow::anyhow!(error.code))?;
     let mut ctx = jiabu_tools::ToolCtx::begin(
@@ -1745,7 +1749,7 @@ async fn push_helpers_charge_each_item_once_and_audit_only_admitted_items() -> R
             )),
             replay_key: Some(op_id.to_string()),
             run_id: None,
-            request_id: Uuid::now_v7(),
+            request_id: item_request_id,
             now: Utc::now(),
         },
     )
@@ -1770,6 +1774,7 @@ async fn push_helpers_charge_each_item_once_and_audit_only_admitted_items() -> R
             Some(absent),
             Some("list_tags"),
             Some(Uuid::now_v7()),
+            Some(missing_request_id),
         )
         .map_err(|error| anyhow::anyhow!(error.code))?;
     let result = jiabu_tools::ToolCtx::begin(
@@ -1798,14 +1803,14 @@ async fn push_helpers_charge_each_item_once_and_audit_only_admitted_items() -> R
 
     // Missing/invalid metadata must still cost an item and receive safe audit.
     let ticket = request
-        .begin_push_item(&state, &principal, None, None, None)
+        .begin_push_item(&state, &principal, None, None, None, None)
         .map_err(|error| anyhow::anyhow!(error.code))?;
     ticket
         .finish(&state, "validation_failed")
         .await
         .map_err(|error| anyhow::anyhow!(error.code))?;
     let error = request
-        .begin_push_item(&state, &principal, None, None, None)
+        .begin_push_item(&state, &principal, None, None, None, None)
         .err()
         .ok_or_else(|| anyhow::anyhow!("fourth item bypassed quota"))?;
     assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
@@ -1837,7 +1842,7 @@ async fn push_helpers_charge_each_item_once_and_audit_only_admitted_items() -> R
     .bind(id)
     .fetch_one(&owner)
     .await?;
-    assert_eq!(request_ids, 1);
+    assert_eq!(request_ids, 3);
 
     // Push must require read_write even when the chosen tool is read-only.
     let (readonly_id, readonly_key) = issue(&app, &session, "read").await?;
@@ -1849,6 +1854,7 @@ async fn push_helpers_charge_each_item_once_and_audit_only_admitted_items() -> R
             Some(app.plan.space_id.0),
             Some("list_tags"),
             Some(Uuid::now_v7()),
+            None,
         )
         .map_err(|error| anyhow::anyhow!(error.code))?;
     let mut ctx = jiabu_tools::ToolCtx::begin(

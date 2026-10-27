@@ -6,6 +6,9 @@ pub struct Settings {
     pub migrate_on_start: bool,
     #[serde(default)]
     pub api_keys: jiabu_tools::api_key::ApiKeyLimits,
+    pub data_dir: std::path::PathBuf,
+    #[serde(default)]
+    pub blobs: jiabu_storage::ImageLimits,
 }
 impl Settings {
     pub fn load() -> Result<Self> {
@@ -23,6 +26,9 @@ impl Settings {
             .add_source(::config::File::with_name("config/base").required(false))
             .add_source(::config::File::with_name(&format!("config/{env}")).required(false));
         // Read only non-secret settings into config; database URLs use SecretString.
+        if let Ok(value) = std::env::var("JIABU_DATA_DIR") {
+            builder = builder.set_override("data_dir", value)?;
+        }
         if let Ok(value) = std::env::var("JIABU_LISTEN_ADDR") {
             builder = builder.set_override("listen_addr", value)?;
         }
@@ -45,5 +51,27 @@ impl Settings {
             "API key rate limits must be positive"
         );
         Ok(settings)
+    }
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn image_limits_are_explicit_in_base_configuration() -> anyhow::Result<()> {
+        let settings: super::Settings = ::config::Config::builder()
+            .add_source(::config::File::from_str(
+                include_str!("../../../config/base.toml"),
+                ::config::FileFormat::Toml,
+            ))
+            .build()?
+            .try_deserialize()?;
+        assert_eq!(settings.blobs.max_upload_bytes, 20 * 1024 * 1024);
+        assert_eq!(settings.blobs.max_pixels, 24_000_000);
+        assert_eq!(settings.blobs.max_dimension, 12_000);
+        assert_eq!(settings.blobs.max_decode_bytes, 128 * 1024 * 1024);
+        assert_eq!(settings.blobs.concurrency, 2);
+        assert_eq!(settings.blobs.max_in_flight_uploads, 8);
+        assert_eq!(settings.blobs.transfer_timeout_secs, 600);
+        settings.blobs.validate()?;
+        Ok(())
     }
 }

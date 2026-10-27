@@ -6,6 +6,7 @@ use sea_orm::{
 pub struct SystemTx {
     pub(crate) tx: DatabaseTransaction,
     locked: Option<SpaceId>,
+    pub(crate) blobs_locked: bool,
 }
 impl SystemTx {
     pub async fn begin(db: &AppDb) -> Result<Self, DbErr> {
@@ -15,9 +16,18 @@ impl SystemTx {
             "select set_config('jiabu.system', 'on', true)".to_owned(),
         ))
         .await?;
-        Ok(Self { tx, locked: None })
+        Ok(Self {
+            tx,
+            locked: None,
+            blobs_locked: false,
+        })
     }
     pub async fn lock_space(&mut self, space: SpaceId) -> Result<(), DbErr> {
+        // Fixed order: space -> blob lifecycle; collectors never acquire a space.
+        assert!(
+            !self.blobs_locked,
+            "space lock must precede blob lifecycle lock"
+        );
         assert!(
             self.locked.is_none_or(|id| id == space),
             "one space per write transaction"

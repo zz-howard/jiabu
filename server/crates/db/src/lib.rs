@@ -5,6 +5,7 @@ mod app_db;
 pub mod auth;
 pub mod entity;
 mod idempotency;
+mod json_time;
 mod member;
 mod space_tx;
 pub mod spaces;
@@ -24,3 +25,7 @@ pub use principal::{Principal, Via};
 
 mod operation;
 pub use operation::{Error as OperationError, Reply as OperationReply, ValidationIssue};
+
+pub mod blobs;
+pub mod maintenance;
+pub mod sync;

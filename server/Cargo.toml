@@ -45,6 +45,15 @@ rand = "0.10"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
 config = "0.15"
 secrecy = "0.10"
+# MIT / Apache-2.0; no cloud backend or non-JPEG codec features.
+object_store = { version = "0.14.2", default-features = false, features = ["fs"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
+infer = { version = "0.22.0", default-features = false }
+# BSD-2-Clause (crate is imported as `exif`).
+kamadak-exif = { version = "0.6.1" }
+# Already present transitively in Cargo.lock; preserve those versions.
+bytes = "1.12.1"
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 # ChatWeave has no Rust implementation yet. Add pinned protocol/server crates after CW1.
 # Only chat, agent, and api may depend on ChatWeave.
 

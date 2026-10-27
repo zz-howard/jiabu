@@ -22,3 +22,6 @@ pub(crate) mod spaces;
 
 pub(crate) mod status;
 pub(crate) mod tools;
+
+pub(crate) mod blobs;
+pub(crate) mod sync;

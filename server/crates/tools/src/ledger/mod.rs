@@ -37,6 +37,11 @@ macro_rules! ledger_tools {
         #[derive(serde::Serialize,serde::Deserialize,schemars::JsonSchema)]
         #[serde(tag="tool",content="args",deny_unknown_fields)]
         pub enum ToolCall {$(#[serde(rename=$name)] $kind($args)),+}
+        impl ToolCall {
+            pub fn name(&self) -> &'static str {
+                match self { $(Self::$kind(_) => $name),+ }
+            }
+        }
         pub(super) fn register(registry:&mut ToolRegistry)->Result<(),ToolError> {
             $(registry.register($tool)?;)+
             Ok(())

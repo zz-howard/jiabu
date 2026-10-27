@@ -38,6 +38,25 @@ async fn write(
     body: Value,
     epoch: i32,
 ) -> Result<Reply> {
+    if path.contains("/blobs/") {
+        let bytes = super::s4::jpeg(12, 8);
+        let path = path.replace("{sha256}", &super::s4::hash(&bytes).to_string());
+        let query = if method == "PUT" {
+            "module=ledger"
+        } else {
+            "variant=original"
+        };
+        return app
+            .raw_request(
+                method,
+                &format!("{path}?{query}"),
+                bytes,
+                "image/jpeg",
+                Some(token),
+                &headers(&Uuid::now_v7().to_string(), epoch),
+            )
+            .await;
+    }
     app.request(
         method,
         path,
@@ -619,7 +638,8 @@ async fn assert_routes_gone(
         let path = pattern
             .replace("{space_id}", &space.to_string())
             .replace("{inv_id}", &Uuid::now_v7().to_string())
-            .replace("{member_id}", &member.to_string());
+            .replace("{member_id}", &member.to_string())
+            .replace("{sha256}", &"00".repeat(32));
         assert_eq!(
             write(
                 app,
@@ -1191,7 +1211,8 @@ async fn cross_space_child_ids_and_session_only_routes() -> Result<()> {
             .path
             .replace("{space_id}", &space.to_string())
             .replace("{inv_id}", &foreign_invitation.to_string())
-            .replace("{member_id}", &member.to_string());
+            .replace("{member_id}", &member.to_string())
+            .replace("{sha256}", &"00".repeat(32));
         let mut body = matrix_body(route.method, &route.path, member);
         if route.method == "POST" && route.path == "/v1/spaces" {
             body =
@@ -1210,7 +1231,7 @@ async fn cross_space_child_ids_and_session_only_routes() -> Result<()> {
         // Tool routes validate arguments before the Idempotency-Key check (S5 order:
         // member -> read-only -> authorize -> replay); the generic matrix body is not a
         // valid tool argument, so missing-key coverage for tools lives in tests::api_keys.
-        if requires_key && !route.path.contains("/tools/") {
+        if requires_key && !route.path.contains("/tools/") && !route.path.contains("/blobs/") {
             let missing = app
                 .request(
                     route.method,

@@ -1,6 +1,6 @@
 //! Space service and scoped persistence. No connection/transaction escapes this crate.
 pub use crate::idempotency::Idempotency;
-use crate::{AppDb, BeginError, DbErr, Mode, SpaceTx};
+use crate::{AppDb, BeginError, DbErr, Mode, SpaceTx, json_time::normalize_fields};
 use jiabu_domain::{
     MemberId, SpaceId, UserId,
     presets::PRESETS,
@@ -87,14 +87,14 @@ impl SpaceTx {
     }
     /// The public member projection is shared by successful edits and conflicts.
     async fn member_view(&self, space: SpaceId, member: MemberId) -> Result<Value, Error> {
-        self.one(
+        let value = self.one(
             "select jsonb_build_object('id',m.id,'display_name',m.display_name,'role',m.role,'status',m.status,'join_epoch',m.join_epoch,'joined_at',m.joined_at,'left_at',m.left_at,'left_reason',m.left_reason,'version',m.version,'change_seq',m.change_seq) value from space_members m where space_id=$1 and id=$2",
             vec![space.0.into(), member.0.into()],
         )
         .await?
         .ok_or_else(Error::not_found)?
-        .try_get("", "value")
-        .map_err(Into::into)
+        .try_get("", "value")?;
+        Ok(normalize_fields(value, &["joined_at", "left_at"])?)
     }
     async fn grant(&self, space: SpaceId, member: MemberId, level: &str) -> Result<(), Error> {
         for module in ["ledger", "documents"] {
@@ -146,6 +146,7 @@ impl SpaceTx {
                 current: Some(current.clone()),
                 errors: None,
                 retry_after: None,
+                space_unavailable: false,
             });
         }
         Ok(())
@@ -203,14 +204,17 @@ impl SpaceTx {
                     vec![space.0.into(), username.trim().into(), self.member(space).user_id().0.into()]).await?.ok_or_else(Error::invalid)?;
                 let user: Uuid = invitee.try_get("", "id")?;
                 if let Some(row) = self.one("select to_jsonb(i) value from space_invitations i where space_id=$1 and invitee_user_id=$2 and status='pending'", vec![space.0.into(), user.into()]).await? {
-                    return Ok(Reply::ok(row.try_get("", "value")?));
+                    return Ok(Reply::ok(normalize_fields(row.try_get("", "value")?, &["created_at", "decided_at"])?));
                 }
                 let row = self.one("insert into space_invitations(space_id,invitee_user_id,invited_by_member_id,status) values($1,$2,$3,'pending') returning to_jsonb(space_invitations) value",
                     vec![space.0.into(), user.into(), actor.0.into()]).await?.ok_or_else(Error::internal)?;
                 self.event(space, actor, None, "invite", request).await?;
                 Ok(Reply {
                     status: 201,
-                    body: row.try_get("", "value")?,
+                    body: normalize_fields(
+                        row.try_get("", "value")?,
+                        &["created_at", "decided_at"],
+                    )?,
                 })
             }
             Change::Cancel { invitation } => {
@@ -528,7 +532,10 @@ impl SpaceTx {
             "select jsonb_build_object('id',i.id,'status',i.status,'invitee_username',u.username,'invited_by_member_id',i.invited_by_member_id,'created_at',i.created_at,'decided_at',i.decided_at) value from space_invitations i join users u on u.id=i.invitee_user_id where i.space_id=$1 order by i.created_at,i.id", [space.0.into()])).await?;
         let mut invitations = Vec::new();
         for row in rows {
-            invitations.push(row.try_get::<Value>("", "value")?);
+            invitations.push(normalize_fields(
+                row.try_get("", "value")?,
+                &["created_at", "decided_at"],
+            )?);
         }
         Ok(json!({"invitations":invitations}))
     }

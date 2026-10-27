@@ -80,9 +80,13 @@ impl TestApp {
                 .await?;
             owner.close().await;
         }
-        let state = AppState::new(AppDb::connect(&fixture.app_url).await?)
-            .await
-            .map_err(anyhow::Error::msg)?;
+        let state = AppState::with_storage(
+            AppDb::connect(&fixture.app_url).await?,
+            jiabu_storage::BlobStore::local(fixture.data_dir())?,
+            jiabu_storage::ImageLimits::default(),
+        )
+        .await
+        .map_err(anyhow::Error::msg)?;
         let purge = state.purge_signal();
         Ok(Self {
             fixture,
@@ -122,6 +126,38 @@ impl TestApp {
                 .to_vec(),
         })
     }
+    async fn raw_request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Vec<u8>,
+        content_type: &str,
+        token: Option<&str>,
+        extra: &[(&str, String)],
+    ) -> Result<Reply> {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("content-type", content_type);
+        if let Some(token) = token {
+            builder = builder.header("authorization", format!("Bearer {token}"));
+        }
+        for (name, value) in extra {
+            builder = builder.header(*name, value);
+        }
+        let response = self
+            .router
+            .clone()
+            .oneshot(builder.body(Body::from(body))?)
+            .await?;
+        Ok(Reply {
+            status: response.status(),
+            headers: response.headers().clone(),
+            bytes: to_bytes(response.into_body(), 32 * 1024 * 1024)
+                .await?
+                .to_vec(),
+        })
+    }
     async fn login(&self, password: &str) -> Result<Reply> {
         self.request(
             "POST",
@@ -147,6 +183,8 @@ impl TestApp {
 }
 // The matrix is separate from mounting so forgetting a registration actually fails.
 const ISOLATION_MATRIX: &[(&str, &str)] = &[
+    ("PUT", "/v1/spaces/{space_id}/blobs/{sha256}"),
+    ("GET", "/v1/spaces/{space_id}/blobs/{sha256}"),
     ("GET", "/v1/spaces/{space_id}/tools"),
     ("POST", "/v1/spaces/{space_id}/tools/list_accounts"),
     ("POST", "/v1/spaces/{space_id}/tools/list_tags"),
@@ -265,8 +303,25 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
                     .replace("{space_id}", &id.to_string())
                     .replace("{inv_id}", &foreign_invitation.to_string())
                     .replace("{member_id}", &foreign_member.to_string());
-                let reply = app
-                    .request(
+                let reply = if pattern.contains("/blobs/") {
+                    let image = s4::jpeg(12, 8);
+                    let path = path.replace("{sha256}", &s4::hash(&image).to_string());
+                    let query = if *method == "PUT" {
+                        "module=ledger"
+                    } else {
+                        "variant=original"
+                    };
+                    app.raw_request(
+                        method,
+                        &format!("{path}?{query}"),
+                        image,
+                        "image/jpeg",
+                        Some(caller),
+                        &[("x-jiabu-join-epoch", "1".into())],
+                    )
+                    .await?
+                } else {
+                    app.request(
                         method,
                         &path,
                         spaces::matrix_body(method, pattern, foreign_member),
@@ -276,9 +331,11 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
                             ("x-jiabu-join-epoch", "1".into()),
                         ],
                     )
-                    .await?;
+                    .await?
+                };
                 let expected = if *is_key
                     && !pattern.contains("/tools")
+                    && !pattern.contains("/blobs/")
                     && *pattern != AUTHORIZATION_PROBE_PATH
                 {
                     StatusCode::FORBIDDEN
@@ -845,9 +902,13 @@ async fn admin_create_uses_domain_defaults_and_requires_password_change() -> Res
     let owner = fixture.owner().await?;
     let valid:bool=sqlx::query_scalar("select s.name='个人空间' and s.accent_color='terracotta' and s.timezone='Asia/Shanghai' and s.currency='CNY' and s.is_default and u.must_change_password from spaces s join users u on u.id=s.created_by_user_id where u.id=$1").bind(result.id.0).fetch_one(&owner).await?;
     assert!(valid);
-    let state = AppState::new(AppDb::connect(&fixture.app_url).await?)
-        .await
-        .map_err(anyhow::Error::msg)?;
+    let state = AppState::with_storage(
+        AppDb::connect(&fixture.app_url).await?,
+        jiabu_storage::BlobStore::local(fixture.data_dir())?,
+        jiabu_storage::ImageLimits::default(),
+    )
+    .await
+    .map_err(anyhow::Error::msg)?;
     let response = crate::router(state)
         .oneshot(
             Request::builder()
@@ -1075,3 +1136,12 @@ async fn password_change_attempts_share_the_login_limit() -> Result<()> {
 mod ledger;
 
 pub(crate) mod api_keys;
+#[path = "tests/blobs.rs"]
+mod blobs;
+#[path = "tests/s4.rs"]
+mod s4;
+#[path = "tests/sync.rs"]
+mod sync;
+
+#[path = "tests/s4_api_keys.rs"]
+mod s4_api_keys;

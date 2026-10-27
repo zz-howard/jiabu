@@ -1,6 +1,5 @@
-#[path = "../../../../tests/support/mod.rs"]
-mod support;
 use super::*;
+use crate::tasks::test_support as support;
 use anyhow::Result;
 use jiabu_db::{Mode, SpaceTx, spaces::Idempotency};
 use jiabu_domain::{

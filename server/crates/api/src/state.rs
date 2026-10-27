@@ -10,15 +10,33 @@ pub struct AppState {
     pub tools: Arc<jiabu_tools::ToolRegistry>,
     pub clock: Arc<dyn jiabu_db::ledger::Clock>,
     pub api_keys: Arc<jiabu_tools::api_key::ApiKeyLimiter>,
+    pub blobs: Arc<jiabu_storage::BlobStore>,
+    pub image_limits: jiabu_storage::ImageLimits,
+    pub(crate) image_work: Arc<Semaphore>,
+    pub(crate) upload_slots: Arc<Semaphore>,
     pub(crate) limiter: Arc<LoginLimiter>,
     pub(crate) client_logs: Arc<WindowLimiter>,
     pub(crate) dummy_hash: Arc<String>,
     /// Bounds concurrent Argon2 work so a burst of logins cannot exhaust CPU and memory.
     password_work: Arc<Semaphore>,
     purge: Arc<Notify>,
+    #[cfg(test)]
+    pub(crate) upload_gate: Option<(Arc<Notify>, Arc<Notify>)>,
 }
 impl AppState {
     pub async fn new(db: AppDb) -> Result<Self, String> {
+        let store = jiabu_storage::BlobStore::local("data")
+            .map_err(|_| "storage initialization failed".to_owned())?;
+        Self::with_storage(db, store, jiabu_storage::ImageLimits::default()).await
+    }
+    pub async fn with_storage(
+        db: AppDb,
+        blobs: jiabu_storage::BlobStore,
+        image_limits: jiabu_storage::ImageLimits,
+    ) -> Result<Self, String> {
+        image_limits
+            .validate()
+            .map_err(|_| "invalid image limits".to_owned())?;
         let permits = std::thread::available_parallelism().map_or(1, usize::from);
         let dummy_hash = tokio::task::spawn_blocking(|| {
             crate::credentials::hash_password(&crate::credentials::random_secret())
@@ -33,6 +51,10 @@ impl AppState {
             db,
             api_keys: tools.api_keys.clone(),
             tools,
+            blobs: Arc::new(blobs),
+            image_work: Arc::new(Semaphore::new(image_limits.concurrency)),
+            upload_slots: Arc::new(Semaphore::new(image_limits.max_in_flight_uploads)),
+            image_limits,
             clock: Arc::new(jiabu_db::ledger::SystemClock),
             limiter: Arc::new(LoginLimiter::default()),
             client_logs: Arc::new(WindowLimiter::new(
@@ -42,6 +64,8 @@ impl AppState {
             dummy_hash: Arc::new(dummy_hash),
             password_work: Arc::new(Semaphore::new(permits)),
             purge: Arc::new(Notify::new()),
+            #[cfg(test)]
+            upload_gate: None,
         })
     }
     pub fn with_api_key_limiter(

@@ -28,7 +28,8 @@ async fn main() -> Result<()> {
     let db = jiabu_db::AppDb::connect(app_url.expose_secret())
         .await
         .context("Could not connect to application database")?;
-    let state = jiabu_api::AppState::new(db)
+    let blobs = jiabu_storage::BlobStore::local(&settings.data_dir)?;
+    let state = jiabu_api::AppState::with_storage(db, blobs, settings.blobs)
         .await
         .map_err(anyhow::Error::msg)?;
     let state = state
@@ -40,6 +41,11 @@ async fn main() -> Result<()> {
     let purge_task = tokio::spawn(tasks::purge_spaces::run(
         state.db.clone(),
         state.purge_signal(),
+    ));
+    let cleanup_task = tokio::spawn(tasks::cleanup::run(
+        state.db.clone(),
+        state.blobs.clone(),
+        state.clock.clone(),
     ));
     let allocation_task = tokio::spawn(tasks::monthly_allocation::run(state.db.clone()));
     let listener = tokio::net::TcpListener::bind(&settings.listen_addr)
@@ -54,5 +60,6 @@ async fn main() -> Result<()> {
     .context("HTTP server failed");
     purge_task.abort();
     allocation_task.abort();
+    cleanup_task.abort();
     result
 }
