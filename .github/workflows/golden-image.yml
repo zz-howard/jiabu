@@ -33,5 +33,5 @@ jobs:
           tags: ghcr.io/zz-howard/jiabu-flutter-ci:3.47.8-1
           labels: org.opencontainers.image.source=https://github.com/zz-howard/jiabu
           build-args: |
-            PUB_HOSTED_URL=${{ inputs.pub_hosted_url }}
-            FLUTTER_STORAGE_BASE_URL=${{ inputs.flutter_storage_base_url }}
+            PUB_HOSTED_URL=${{ inputs.pub_hosted_url || 'https://pub.dev' }}
+            FLUTTER_STORAGE_BASE_URL=${{ inputs.flutter_storage_base_url || 'https://storage.googleapis.com' }}

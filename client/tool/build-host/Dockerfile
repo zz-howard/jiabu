@@ -9,8 +9,8 @@ ARG JIABU_ANDROID_BUILD_TOOLS_VERSION=37.0.0
 ARG JIABU_ANDROID_PLATFORM=android-37.0
 ARG JIABU_NOTO_REVISION=165c01b46ea533872e002e0785ff17e44f6d97d8
 ARG JIABU_NOTO_SHA256=2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b
-ARG PUB_HOSTED_URL
-ARG FLUTTER_STORAGE_BASE_URL
+ARG PUB_HOSTED_URL=https://pub.dev
+ARG FLUTTER_STORAGE_BASE_URL=https://storage.googleapis.com
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash ca-certificates curl fontconfig git libglu1-mesa libgtk-3-0t64 \
