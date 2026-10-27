@@ -464,7 +464,7 @@ client/                                  # pub workspace 根
 | 签名 | `key.properties` + `signingConfigs`，密钥**绝不入库**；正式密钥只存放在构建机上（权限 600）并离线备份两份。丢了密钥就无法给已装的 App 推升级 |
 | 产物 | `flutter build apk --release --flavor prod --target-platform android-arm64 --obfuscate --split-debug-info=build/symbols`；release 始终开启 R8；符号文件按版本存档，崩溃堆栈用 `flutter symbolize` 还原（混淆不加密资源、也不能防逆向） |
 | 版本号 | `pubspec.yaml` 的 `version: x.y.z+build`；名称按语义化版本，构建号单调递增 |
-| 分发 | 不上架应用商店，APK 侧载安装（需允许“安装未知应用”）；v2 再做 App 内“检查更新” |
+| 分发 | 不上架应用商店，APK 侧载安装（需允许“安装未知应用”）；v1 即做 App 内“检查更新”，从自己的服务端下载（P45、P46） |
 | Google 开发者验证 | 2026-09-30 起在部分国家对“经过 Google 认证的安卓设备”生效，2027 年起逐步扩展到全球；“有限分发”账号可分发给最多 20 台设备。无 GMS 的国内设备预计不受影响（推断），正式包名仍建议提前登记 |
 | iOS（将来） | 需要 macOS + Xcode。drift、dio、Riverpod、go_router 都支持 iOS；后台同步换 BGTaskScheduler（workmanager 已封装）；平台相关代码（后台任务、相机）集中在 Service 层 |
 
