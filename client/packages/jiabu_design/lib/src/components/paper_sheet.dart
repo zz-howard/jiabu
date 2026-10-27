@@ -20,6 +20,8 @@ class PaperSheet extends StatelessWidget {
     sheetAnimationStyle: AnimationStyle(
       duration: context.jiabu.motion.sheet,
       reverseDuration: context.jiabu.motion.sheet,
+      curve: context.jiabu.motion.sheetCurve,
+      reverseCurve: context.jiabu.motion.sheetCurve.flipped,
     ),
     builder: (sheetContext) => PaperSheet(child: builder(sheetContext)),
   );

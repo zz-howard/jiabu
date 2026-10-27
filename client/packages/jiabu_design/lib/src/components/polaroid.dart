@@ -27,54 +27,60 @@ class Polaroid extends StatelessWidget {
   Widget build(BuildContext context) {
     final d = context.jiabu.decor;
     final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
-    return GestureDetector(
+    return Semantics(
+      button: onTap != null,
+      label: onTap == null ? null : caption,
       onTap: onTap,
-      child: Tilt(
-        degrees: degrees,
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.topCenter,
-          children: [
-            Container(
-              padding: EdgeInsets.only(
-                left: d.photoBorder,
-                top: d.photoBorder,
-                right: d.photoBorder,
-              ),
-              decoration: BoxDecoration(
-                color: context.jiabu.colors.white,
-                borderRadius: BorderRadius.circular(d.photoRadius),
-                boxShadow: d.cardShadow,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  image,
-                  ConstrainedBox(
-                    key: const Key('polaroid-caption'),
-                    constraints: BoxConstraints(minHeight: d.photoBottom),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        vertical: scale <= 1 ? 0 : 6,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const JiabuIcon(JiabuIcons.uiCheck, size: 14),
-                          const SizedBox(width: 4),
-                          Flexible(child: HandText(caption)),
-                        ],
+      excludeSemantics: onTap != null,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Tilt(
+          degrees: degrees,
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.topCenter,
+            children: [
+              Container(
+                padding: EdgeInsets.only(
+                  left: d.photoBorder,
+                  top: d.photoBorder,
+                  right: d.photoBorder,
+                ),
+                decoration: BoxDecoration(
+                  color: context.jiabu.colors.white,
+                  borderRadius: BorderRadius.circular(d.photoRadius),
+                  boxShadow: d.cardShadow,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    image,
+                    ConstrainedBox(
+                      key: const Key('polaroid-caption'),
+                      constraints: BoxConstraints(minHeight: d.photoBottom),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: scale <= 1 ? 0 : 6,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const JiabuIcon(JiabuIcons.uiCheck, size: 14),
+                            const SizedBox(width: 4),
+                            Flexible(child: HandText(caption)),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const Positioned(
-              top: -10,
-              child: Tape(pattern: TapePattern.dots, degrees: -2.5),
-            ),
-          ],
+              const Positioned(
+                top: -10,
+                child: Tape(pattern: TapePattern.dots, degrees: -2.5),
+              ),
+            ],
+          ),
         ),
       ),
     );

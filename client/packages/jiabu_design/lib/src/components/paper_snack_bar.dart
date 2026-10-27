@@ -26,6 +26,10 @@ class PaperSnackBar extends StatelessWidget {
   }) => ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       duration: visibleDuration,
+      // The undo action lives in custom content, so Material cannot see it.
+      // Keep the bar until the action or a dismissal when a screen reader or
+      // switch access is driving navigation.
+      persist: onAction != null && MediaQuery.accessibleNavigationOf(context),
       behavior: SnackBarBehavior.floating,
       margin: EdgeInsets.fromLTRB(
         12,
