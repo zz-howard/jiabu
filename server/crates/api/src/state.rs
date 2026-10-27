@@ -7,6 +7,8 @@ pub(crate) const CLIENT_LOG_BATCHES_PER_MINUTE: usize = 10;
 #[derive(Clone)]
 pub struct AppState {
     pub db: AppDb,
+    pub tools: Arc<jiabu_tools::ToolRegistry>,
+    pub clock: Arc<dyn jiabu_db::ledger::Clock>,
     pub(crate) limiter: Arc<LoginLimiter>,
     pub(crate) client_logs: Arc<WindowLimiter>,
     pub(crate) dummy_hash: Arc<String>,
@@ -24,6 +26,8 @@ impl AppState {
         .map_err(|_| "password initialization failed".to_owned())??;
         Ok(Self {
             db,
+            tools: jiabu_tools::builtin_registry(),
+            clock: Arc::new(jiabu_db::ledger::SystemClock),
             limiter: Arc::new(LoginLimiter::default()),
             client_logs: Arc::new(WindowLimiter::new(
                 CLIENT_LOG_BATCHES_PER_MINUTE,

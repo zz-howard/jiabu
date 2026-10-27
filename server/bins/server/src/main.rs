@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
         state.db.clone(),
         state.purge_signal(),
     ));
+    let allocation_task = tokio::spawn(tasks::monthly_allocation::run(state.db.clone()));
     let listener = tokio::net::TcpListener::bind(&settings.listen_addr)
         .await
         .context("Failed to bind HTTP listener")?;
@@ -47,5 +48,6 @@ async fn main() -> Result<()> {
     .await
     .context("HTTP server failed");
     purge_task.abort();
+    allocation_task.abort();
     result
 }

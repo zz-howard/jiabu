@@ -23,6 +23,11 @@ pub struct SpaceTx {
     pub(crate) tx: DatabaseTransaction,
     members: Vec<ActiveMember>,
     locked: bool,
+    #[cfg(test)]
+    pub(crate) refund_gate: Option<(
+        std::sync::Arc<tokio::sync::Notify>,
+        std::sync::Arc<tokio::sync::Notify>,
+    )>,
 }
 impl SpaceTx {
     pub async fn begin(
@@ -91,6 +96,8 @@ impl SpaceTx {
             tx,
             members,
             locked: mode == Mode::Write,
+            #[cfg(test)]
+            refund_gate: None,
         })
     }
     /// Private bootstrap context: only the checked creation/invitation services use it.
@@ -107,6 +114,8 @@ impl SpaceTx {
             tx,
             members: Vec::new(),
             locked: true,
+            #[cfg(test)]
+            refund_gate: None,
         })
     }
     pub(crate) async fn allow_bootstrap_space(&self, space: SpaceId) -> Result<(), DbErr> {

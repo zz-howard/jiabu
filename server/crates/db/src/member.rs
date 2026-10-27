@@ -17,7 +17,7 @@ impl GrantLevel {
     }
 }
 /// Only SpaceTx can instantiate an active membership.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ActiveMember {
     pub(super) id: MemberId,
     pub(super) space: SpaceId,

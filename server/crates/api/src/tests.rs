@@ -147,6 +147,24 @@ impl TestApp {
 }
 // The matrix is separate from mounting so forgetting a registration actually fails.
 const ISOLATION_MATRIX: &[(&str, &str)] = &[
+    ("GET", "/v1/spaces/{space_id}/tools"),
+    ("POST", "/v1/spaces/{space_id}/tools/list_accounts"),
+    ("POST", "/v1/spaces/{space_id}/tools/list_tags"),
+    ("POST", "/v1/spaces/{space_id}/tools/query_balance"),
+    ("POST", "/v1/spaces/{space_id}/tools/query_stats"),
+    ("POST", "/v1/spaces/{space_id}/tools/search_records"),
+    ("POST", "/v1/spaces/{space_id}/tools/get_record"),
+    ("POST", "/v1/spaces/{space_id}/tools/create_record"),
+    ("POST", "/v1/spaces/{space_id}/tools/update_record"),
+    ("POST", "/v1/spaces/{space_id}/tools/void_record"),
+    ("POST", "/v1/spaces/{space_id}/tools/restore_record"),
+    ("POST", "/v1/spaces/{space_id}/tools/create_account"),
+    ("POST", "/v1/spaces/{space_id}/tools/update_account"),
+    ("POST", "/v1/spaces/{space_id}/tools/archive_account"),
+    ("POST", "/v1/spaces/{space_id}/tools/set_allocation_plan"),
+    ("POST", "/v1/spaces/{space_id}/tools/create_tag"),
+    ("POST", "/v1/spaces/{space_id}/tools/rename_tag"),
+    ("POST", "/v1/spaces/{space_id}/tools/delete_tag"),
     ("GET", AUTHORIZATION_PROBE_PATH),
     ("PATCH", "/v1/spaces/{space_id}"),
     ("DELETE", "/v1/spaces/{space_id}"),
@@ -162,7 +180,7 @@ fn missing_routes(catalog: &[crate::RouteSpec], matrix: &[(&str, &str)]) -> Vec<
     catalog
         .iter()
         .filter(|route| route.path.contains("/spaces/{") || route.path.contains("{space_id}"))
-        .filter(|route| !matrix.contains(&(route.method, route.path)))
+        .filter(|route| !matrix.contains(&(route.method, route.path.as_str())))
         .map(|r| format!("{} {}", r.method, r.path))
         .collect()
 }
@@ -1036,3 +1054,6 @@ async fn password_change_attempts_share_the_login_limit() -> Result<()> {
     );
     Ok(())
 }
+
+#[path = "tests/ledger.rs"]
+mod ledger;

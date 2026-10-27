@@ -56,3 +56,88 @@ mod tests {
         }
     }
 }
+
+mod ask_user;
+mod context;
+mod ledger;
+mod registry;
+pub mod tool;
+pub use context::{Invocation, ToolCtx};
+pub use jiabu_db::OperationError as ToolError;
+pub use ledger::ToolCall;
+pub use registry::ToolRegistry;
+pub use tool::{
+    AgentTool, Effect, Exposure, StepKind, StepLabel, StepSummary, TypedTool, ValidatedCall,
+};
+
+/// Constructed once during startup/OpenAPI generation; schema failures are startup errors.
+pub fn builtin_registry() -> std::sync::Arc<ToolRegistry> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Arc<ToolRegistry>> = std::sync::OnceLock::new();
+    REGISTRY
+        .get_or_init(|| match ToolRegistry::ledger() {
+            Ok(registry) => std::sync::Arc::new(registry),
+            Err(error) => panic!("invalid built-in tool schema: {}", error.code),
+        })
+        .clone()
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+    #[test]
+    fn fixed_order_exposure_schemas_confirmation_and_unknown_fields() -> Result<(), ToolError> {
+        let registry = ToolRegistry::ledger()?;
+        let expected = [
+            "list_accounts",
+            "list_tags",
+            "query_balance",
+            "query_stats",
+            "search_records",
+            "get_record",
+            "create_record",
+            "update_record",
+            "void_record",
+            "restore_record",
+            "create_account",
+            "update_account",
+            "archive_account",
+            "set_allocation_plan",
+            "create_tag",
+            "rename_tag",
+            "delete_tag",
+            "ask_user",
+        ];
+        assert_eq!(
+            registry.tools().map(|t| t.name()).collect::<Vec<_>>(),
+            expected
+        );
+        for tool in registry.tools() {
+            let args = tool.example_args();
+            let call = tool.validate(args.clone())?;
+            assert_eq!(tool.schema_version(), 1);
+            assert_eq!(
+                tool.requires_confirmation(call.as_ref()),
+                matches!(
+                    tool.name(),
+                    "update_record" | "void_record" | "restore_record" | "archive_account"
+                )
+            );
+            let mut injected = args;
+            injected["space_id"] = serde_json::json!(uuid::Uuid::nil());
+            assert!(
+                tool.validate(injected).is_err(),
+                "{} accepted a space parameter",
+                tool.name()
+            );
+        }
+        assert_eq!(registry.get("delete_tag")?.exposure(), Exposure::ApiOnly);
+        assert_eq!(registry.get("ask_user")?.exposure(), Exposure::AgentOnly);
+        assert!(
+            registry
+                .agent_tools()
+                .all(|t| t.exposure() != Exposure::ApiOnly)
+        );
+        assert!(registry.get("create_record")?.validate(serde_json::json!({"kind":"allocation","amount_minor":1,"occurred_on":"2026-01-01","purpose_id":uuid::Uuid::nil()})).is_err());
+        Ok(())
+    }
+}

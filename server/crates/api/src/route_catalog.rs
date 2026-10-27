@@ -1,14 +1,18 @@
 use crate::{
     AppState,
-    handlers::{auth, client_logs, invitations, me, meta, spaces},
+    handlers::{auth, client_logs, invitations, me, meta, spaces, status, tools},
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RouteSpec {
     pub method: &'static str,
-    pub path: &'static str,
+    pub path: String,
 }
-fn build() -> (OpenApiRouter<AppState>, Vec<RouteSpec>) {
+fn build() -> (
+    axum::Router<AppState>,
+    utoipa::openapi::OpenApi,
+    Vec<RouteSpec>,
+) {
     let document = utoipa::openapi::OpenApiBuilder::new()
         .info(utoipa::openapi::Info::new(
             "Jiabu public API",
@@ -22,11 +26,13 @@ fn build() -> (OpenApiRouter<AppState>, Vec<RouteSpec>) {
         ($method:literal,$path:literal,$handler:path) => {{
             catalog.push(RouteSpec {
                 method: $method,
-                path: $path,
+                path: $path.into(),
             });
             router = router.routes(routes!($handler));
         }};
     }
+    mount!("GET", "/v1/status", status::get);
+    mount!("GET", "/v1/spaces/{space_id}/tools", tools::list);
     mount!("GET", "/v1/meta", meta::meta);
     mount!("GET", "/healthz", meta::healthz);
     mount!("GET", "/v1/healthz", meta::versioned_healthz);
@@ -86,11 +92,32 @@ fn build() -> (OpenApiRouter<AppState>, Vec<RouteSpec>) {
             crate::tests::authorization_probe
         );
     }
-    (router, catalog)
+    let (mut http, document) = router.split_for_parts();
+    let registry = jiabu_tools::builtin_registry();
+    for tool in registry
+        .tools()
+        .filter(|tool| tool.exposure() != jiabu_tools::Exposure::AgentOnly)
+    {
+        let path = tool.api_path();
+        catalog.push(RouteSpec {
+            method: "POST",
+            path: path.clone(),
+        });
+        http = http.route(
+            &path,
+            axum::routing::post(tools::invoke).layer(axum::Extension(tools::ToolName(tool.name()))),
+        );
+    }
+    let document = match crate::tool_openapi::extend(document, &registry) {
+        Ok(document) => document,
+        Err(error) => panic!("invalid generated tool OpenAPI: {error}"),
+    };
+    (http, document, catalog)
 }
-pub(crate) fn documented_router() -> OpenApiRouter<AppState> {
-    build().0
+pub(crate) fn documented_router() -> (axum::Router<AppState>, utoipa::openapi::OpenApi) {
+    let (router, document, _) = build();
+    (router, document)
 }
 pub fn route_catalog() -> Vec<RouteSpec> {
-    build().1
+    build().2
 }

@@ -11,63 +11,7 @@ use sea_orm::{ConnectionTrait, DbBackend, QueryResult, Statement, Value as SqlVa
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-#[derive(Debug, thiserror::Error)]
-#[error("{code}")]
-pub struct Error {
-    pub status: u16,
-    pub code: &'static str,
-    pub current: Option<Value>,
-}
-impl Error {
-    pub fn new(status: u16, code: &'static str) -> Self {
-        Self {
-            status,
-            code,
-            current: None,
-        }
-    }
-    pub fn not_found() -> Self {
-        Self::new(404, "not_found")
-    }
-    pub fn invalid() -> Self {
-        Self::new(422, "validation_failed")
-    }
-    pub fn internal() -> Self {
-        Self::new(500, "internal")
-    }
-    fn conflict(current: Value) -> Self {
-        Self {
-            status: 409,
-            code: "conflict",
-            current: Some(current),
-        }
-    }
-}
-impl From<DbErr> for Error {
-    fn from(_: DbErr) -> Self {
-        Self::internal()
-    }
-}
-impl From<BeginError> for Error {
-    fn from(error: BeginError) -> Self {
-        match error {
-            BeginError::NotFound => Self::not_found(),
-            BeginError::MembershipChanged => Self::new(409, "membership_changed"),
-            BeginError::InvalidScope => Self::new(400, "bad_request"),
-            BeginError::Database(_) => Self::internal(),
-        }
-    }
-}
-#[derive(Debug)]
-pub struct Reply {
-    pub status: u16,
-    pub body: Value,
-}
-impl Reply {
-    fn ok(body: Value) -> Self {
-        Self { status: 200, body }
-    }
-}
+pub use crate::operation::{Error, Reply};
 
 impl SpaceTx {
     /// Shared app-side adapter for the S1 SQL primitive, without committing the
@@ -200,6 +144,7 @@ impl SpaceTx {
                 status: 409,
                 code: "version_conflict",
                 current: Some(current.clone()),
+                errors: None,
             });
         }
         Ok(())

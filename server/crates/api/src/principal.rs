@@ -3,27 +3,9 @@ use axum::{
     extract::FromRequestParts,
     http::{Method, StatusCode, request::Parts},
 };
-use jiabu_db::auth::{SessionKind, User};
-use jiabu_domain::{SessionId, UserId};
-use uuid::Uuid;
-#[derive(Clone)]
-pub enum Via {
-    Session {
-        session_id: SessionId,
-        kind: SessionKind,
-    },
-    ApiKey {
-        id: Uuid,
-        name: String,
-        scope: String,
-    },
-}
-#[derive(Clone)]
-pub struct Principal {
-    pub user_id: UserId,
-    pub via: Via,
-    pub user: User,
-}
+use jiabu_db::auth::SessionKind;
+pub use jiabu_db::{Principal, Via};
+use jiabu_domain::UserId;
 impl FromRequestParts<AppState> for Principal {
     type Rejection = ApiError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {

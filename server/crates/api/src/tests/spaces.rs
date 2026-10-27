@@ -1192,12 +1192,22 @@ async fn cross_space_child_ids_and_session_only_routes() -> Result<()> {
             .replace("{space_id}", &space.to_string())
             .replace("{inv_id}", &foreign_invitation.to_string())
             .replace("{member_id}", &member.to_string());
-        let mut body = matrix_body(route.method, route.path, member);
+        let mut body = matrix_body(route.method, &route.path, member);
         if route.method == "POST" && route.path == "/v1/spaces" {
             body =
                 json!({"id":Uuid::now_v7(),"name":"示例","accent_color":"pine","timezone":"UTC"});
         }
-        if route.method != "GET" {
+        let requires_key = if let Some(name) = route
+            .path
+            .rsplit("/tools/")
+            .next()
+            .filter(|_| route.path.contains("/tools/"))
+        {
+            jiabu_tools::builtin_registry().get(name)?.effect() == jiabu_tools::Effect::LocalWrite
+        } else {
+            route.method != "GET"
+        };
+        if requires_key {
             let missing = app
                 .request(
                     route.method,

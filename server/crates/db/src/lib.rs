@@ -14,3 +14,11 @@ pub use space_tx::{BeginError, Mode, SpaceTx};
 pub use system_tx::SystemTx;
 #[cfg(test)]
 mod tests;
+
+pub mod ledger;
+mod principal;
+pub use idempotency::Idempotency;
+pub use principal::{Principal, Via};
+
+mod operation;
+pub use operation::{Error as OperationError, Reply as OperationReply, ValidationIssue};
