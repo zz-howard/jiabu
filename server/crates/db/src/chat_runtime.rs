@@ -76,7 +76,8 @@ impl SpaceTx {
         let row = self.tx.query_one_raw(statement(
             "select to_jsonb(r) as data from agent_runs r where r.id=$1 and r.space_id=$2 and r.member_id=$3 and r.status='running' and r.lease_owner=$4 and r.lease_epoch=$5 and r.lease_until>clock_timestamp() and r.join_epoch=$6 and not r.cancel_requested for update",
             vec![lease.run_id.into(), space.0.into(), self.chat_scope(space).0.into(), lease.owner.into(), lease.epoch.into(), self.member(space).join_epoch().0.into()])).await?.ok_or_else(|| conflict("guard_run: lease, status or membership mismatch"))?;
-        serde_json::from_value(row.try_get("", "data")?).map_err(|_| conflict("guard_run: invalid run row"))
+        serde_json::from_value(row.try_get("", "data")?)
+            .map_err(|_| conflict("guard_run: invalid run row"))
     }
     pub async fn conversation(&self, space: SpaceId) -> Result<Uuid, DbErr> {
         self.assert_write();
@@ -104,7 +105,9 @@ impl SpaceTx {
             .ok_or_else(|| conflict("insert_message: missing message id"))?
             .parse()
             .map_err(|_| conflict("insert_message: invalid message id"))?;
-        let role = message["role"].as_str().ok_or_else(|| conflict("insert_message: missing role"))?;
+        let role = message["role"]
+            .as_str()
+            .ok_or_else(|| conflict("insert_message: missing role"))?;
         self.tx.execute_raw(statement("insert into chat_entries(id,space_id,member_id,conversation_id,agent_run_id,reply_to_id,protocol_version,message,fallback_text,stream_status,rev,last_seq,role,change_seq,created_at,updated_at) values($1,$2,$3,$4,$5,$6,'0.1',$7,$8,$9,$10,$11,$12,nextval('change_seq'),now(),now())",
             vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),conversation.into(),run.into(),reply.into(),message.clone().into(),message["fallbackText"].as_str().unwrap_or_default().into(),message["status"].as_str().ok_or_else(|| conflict("insert_message: missing status"))?.into(),(message["rev"].as_i64().unwrap_or(0) as i32).into(),seq.into(),role.into()])).await?;
         Ok(())
@@ -122,7 +125,10 @@ impl SpaceTx {
     ) -> Result<(), DbErr> {
         self.assert_write();
         let seq = expected
-            .checked_add(i32::try_from(events.len()).map_err(|_| conflict("save_emission: event count overflow"))?)
+            .checked_add(
+                i32::try_from(events.len())
+                    .map_err(|_| conflict("save_emission: event count overflow"))?,
+            )
             .ok_or_else(|| conflict("save_emission: sequence overflow"))?;
         for (offset, event) in events.iter().enumerate() {
             if event["messageId"] != id.to_string()
@@ -135,7 +141,9 @@ impl SpaceTx {
         let n=self.tx.execute_raw(statement("update chat_entries set message=$5,last_seq=$6,rev=$7,stream_status=$8,fallback_text=$9,updated_at=now(),change_seq=nextval('change_seq'),checkpoint_work_ms=$10 where id=$1 and space_id=$2 and member_id=$3 and last_seq=$4 and rev<=$7",
             vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),expected.into(),message.clone().into(),seq.into(),(message["rev"].as_i64().unwrap_or(0) as i32).into(),message["status"].as_str().ok_or_else(|| conflict("save_emission: missing status"))?.into(),message["fallbackText"].as_str().unwrap_or_default().into(),work_ms.into()])).await?;
         if n.rows_affected() != 1 {
-            return Err(conflict("save_emission: checkpoint watermark or revision mismatch"));
+            return Err(conflict(
+                "save_emission: checkpoint watermark or revision mismatch",
+            ));
         }
         for event in events {
             self.tx.execute_raw(statement("insert into chat_stream_events(message_id,seq,space_id,member_id,event) values($1,$2,$3,$4,$5)",vec![id.into(),(event["seq"].as_i64().ok_or_else(|| conflict("save_emission: missing event sequence"))? as i32).into(),space.0.into(),self.chat_scope(space).0.into(),event.into()])).await?;
@@ -406,8 +414,12 @@ impl SpaceTx {
         approved: bool,
     ) -> Result<(), crate::OperationError> {
         self.assert_write();
-        let call = interrupt["call_id"].as_str().ok_or_else(|| conflict("resolve_interrupt: missing call id"))?;
-        let id = interrupt["id"].as_str().ok_or_else(|| conflict("resolve_interrupt: missing interrupt id"))?;
+        let call = interrupt["call_id"]
+            .as_str()
+            .ok_or_else(|| conflict("resolve_interrupt: missing call id"))?;
+        let id = interrupt["id"]
+            .as_str()
+            .ok_or_else(|| conflict("resolve_interrupt: missing interrupt id"))?;
         let n=self.tx.execute_raw(statement("update agent_runs set status='queued',open_interrupt=null,run_after=now(),lease_epoch=lease_epoch+1,updated_at=now() where id=$1 and space_id=$2 and member_id=$3 and status='paused' and open_interrupt->>'id'=$4 and (open_interrupt->>'expires_at')::timestamptz>clock_timestamp()",vec![run.into(),space.0.into(),self.chat_scope(space).0.into(),id.into()])).await?;
         if n.rows_affected() != 1 {
             return Err(crate::OperationError::new(409, "interrupt_resolved"));
@@ -588,12 +600,15 @@ impl AppDb {
             .into_iter()
             .map(|r| {
                 Ok((
-                    serde_json::from_value(r.try_get("", "data")?).map_err(|_| conflict("unavailable_run_messages: invalid run row"))?,
+                    serde_json::from_value(r.try_get("", "data")?)
+                        .map_err(|_| conflict("unavailable_run_messages: invalid run row"))?,
                     StoredMessage {
                         message: r.try_get("", "message")?,
                         last_seq: r.try_get("", "last_seq")?,
                         step_work_ms: serde_json::from_value(r.try_get("", "checkpoint_work_ms")?)
-                            .map_err(|_| conflict("unavailable_run_messages: invalid checkpoint clocks"))?,
+                            .map_err(|_| {
+                                conflict("unavailable_run_messages: invalid checkpoint clocks")
+                            })?,
                     },
                 ))
             })
@@ -624,7 +639,9 @@ impl AppDb {
         }
         let n=tx.tx.execute_raw(statement("update chat_entries set message=$4,last_seq=$5,rev=1,stream_status=$6,fallback_text=$7,updated_at=now(),change_seq=nextval('change_seq') where id=$1 and space_id=$2 and last_seq=$3",vec![run.assistant_message_id.into(),run.space_id.into(),expected.into(),message.clone().into(),(expected+events.len() as i32).into(),message["status"].as_str().ok_or_else(|| conflict("cancel_unavailable_run: missing status"))?.into(),message["fallbackText"].as_str().unwrap_or_default().into()])).await?;
         if n.rows_affected() != 1 {
-            return Err(conflict("cancel_unavailable_run: checkpoint watermark mismatch"));
+            return Err(conflict(
+                "cancel_unavailable_run: checkpoint watermark mismatch",
+            ));
         }
         for (offset, event) in events.into_iter().enumerate() {
             if event["seq"].as_i64() != Some(i64::from(expected) + offset as i64 + 1)
@@ -672,7 +689,9 @@ impl SpaceTx {
         }
         let n=self.tx.execute_raw(statement("update chat_entries set message=$5,rev=rev+1,fallback_text=$6,updated_at=now(),change_seq=nextval('change_seq') where id=$1 and space_id=$2 and member_id=$3 and rev=$4 and stream_status in ('complete','interrupted','error') and message->>'status'=$5::jsonb->>'status' and message->>'role'=$5::jsonb->>'role'",vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),expected_rev.into(),message.clone().into(),message["fallbackText"].as_str().unwrap_or_default().into()])).await?;
         if n.rows_affected() != 1 {
-            return Err(conflict("revise_final_chat_message: message revision or status mismatch"));
+            return Err(conflict(
+                "revise_final_chat_message: message revision or status mismatch",
+            ));
         }
         Ok(())
     }

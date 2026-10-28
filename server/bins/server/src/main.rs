@@ -64,10 +64,7 @@ async fn main() -> Result<()> {
         state.clock.clone(),
     ));
     let allocation_task = tokio::spawn(tasks::monthly_allocation::run(state.db.clone()));
-    let runtime = chat_runtime::runtime(
-        &state,
-        state.chat_hub.clone(),
-    );
+    let runtime = chat_runtime::runtime(&state, state.chat_hub.clone());
     runtime.sweep().await?;
     let agent_tasks = runtime.clone().spawn();
     let notification_task = tokio::spawn(async move {

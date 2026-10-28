@@ -460,26 +460,45 @@ pub(crate) async fn close_run(
         .iter()
         .filter(|c| c.effect == "local_write" && c.status == "succeeded")
         .count();
-    let current = stage.stream.message().await
+    let current = stage
+        .stream
+        .message()
+        .await
         .map_err(|error| protocol_error_at("close_run: read stream status", error))?;
-    let open_markdown = current.0["blocks"].as_array().is_some_and(|blocks|
-        blocks.iter().any(|block| block["type"] == "markdown" && block["status"] == "pending"));
+    let open_markdown = current.0["blocks"].as_array().is_some_and(|blocks| {
+        blocks
+            .iter()
+            .any(|block| block["type"] == "markdown" && block["status"] == "pending")
+    });
     // CW permits one open markdown block. Its terminator closes any persisted
     // model block; terminal_summary still reports counts when we skip this block.
-    if current.status() == "streaming" && reason == "stopped" && !open_markdown
-    {
-        stage.markdown(&format!("已停止，已保存 {count} 项 / Stopped; {count} operations saved.")).await.map_err(|error| protocol_error_at("close_run: append stop text", error))?;
+    if current.status() == "streaming" && reason == "stopped" && !open_markdown {
+        stage
+            .markdown(&format!(
+                "已停止，已保存 {count} 项 / Stopped; {count} operations saved."
+            ))
+            .await
+            .map_err(|error| protocol_error_at("close_run: append stop text", error))?;
     }
     // A paused stream must be closed through its interrupt-aware CW terminator.
     match reason {
-        "stopped" => stage.stream.stop().await.map_err(|error| protocol_error_at("close_run: stop stream", error))?,
+        "stopped" => stage
+            .stream
+            .stop()
+            .await
+            .map_err(|error| protocol_error_at("close_run: stop stream", error))?,
         "interrupt_expired" => stage
             .stream
             .expire_interrupt()
             .await
             .map_err(|error| protocol_error_at("close_run: expire interrupt", error))?,
         _ => {
-            if stage.stream.message().await.map_err(|error| protocol_error_at("close_run: read fallback text", error))?.0["fallbackText"]
+            if stage
+                .stream
+                .message()
+                .await
+                .map_err(|error| protocol_error_at("close_run: read fallback text", error))?
+                .0["fallbackText"]
                 .as_str()
                 .is_none_or(|s| s.trim().is_empty())
                 && !open_markdown
@@ -492,7 +511,10 @@ pub(crate) async fn close_run(
             stage.stream.fail(&format!("运行未完成，请重试 / Run did not finish; retry. 已保存 {count} 项 / {count} operations saved.")).await.map_err(|error| protocol_error_at("close_run: fail stream", error))?;
         }
     }
-    let mut batch = stage.batch().await.map_err(|error| protocol_error_at("close_run: collect terminal batch", error))?;
+    let mut batch = stage
+        .batch()
+        .await
+        .map_err(|error| protocol_error_at("close_run: collect terminal batch", error))?;
     if reason == "stopped" {
         let unfinished = calls.iter().filter(|c| c.status != "succeeded").count();
         batch=jiabu_chat::terminal_summary(&initial,batch,&format!("已停止；已保存 {count} 项，未完成 {unfinished} 项 / Stopped; {count} operations saved, {unfinished} unfinished.")).map_err(|error| protocol_error_at("close_run: fold terminal summary", error))?;

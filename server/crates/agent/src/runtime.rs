@@ -765,7 +765,9 @@ impl Runtime {
                     match runtime.work_once(owner).await {
                         Ok(true) => continue,
                         Ok(false) => {}
-                        Err(_) => tracing::warn!(error_kind = "worker_failed", "Agent worker failed"),
+                        Err(_) => {
+                            tracing::warn!(error_kind = "worker_failed", "Agent worker failed")
+                        }
                     }
                     tokio::select! {
                         _ = tokio::time::sleep(Duration::from_secs(5)) => {}

@@ -543,7 +543,14 @@ async fn keys_cannot_manage_account_keys_spaces_or_members() -> Result<()> {
                 StatusCode::FORBIDDEN,
                 "{scope} {method} {path}"
             );
-            assert_eq!(reply.json()["code"], if path.contains("/chat/") { "api_key_ai_not_allowed" } else { "api_key_not_allowed" });
+            assert_eq!(
+                reply.json()["code"],
+                if path.contains("/chat/") {
+                    "api_key_ai_not_allowed"
+                } else {
+                    "api_key_not_allowed"
+                }
+            );
         }
         for path in ["/v1/me", "/v1/status", "/v1/spaces"] {
             assert_eq!(

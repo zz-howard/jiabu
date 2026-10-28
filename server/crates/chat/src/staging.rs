@@ -131,9 +131,12 @@ mod tests {
     #[tokio::test]
     async fn markdown_terminal_text_uses_deltas_and_replays_to_checkpoint() -> Result<()> {
         for stopped in [false, true] {
-            let mut stage = StagedStream::start(StreamConfig::new(Uuid::now_v7().to_string())).await?;
+            let mut stage =
+                StagedStream::start(StreamConfig::new(Uuid::now_v7().to_string())).await?;
             let initial = stage.batch().await?.checkpoint;
-            stage.markdown("虚构收尾文字 / Synthetic terminal text").await?;
+            stage
+                .markdown("虚构收尾文字 / Synthetic terminal text")
+                .await?;
             if stopped {
                 stage.stream.stop().await?;
             } else {
@@ -145,13 +148,21 @@ mod tests {
             let mut fold = FoldState::from_checkpoint(initial.message, initial.last_seq)
                 .map_err(|_| Error::Conflict)?;
             for event in &batch.events {
-                validator()?.validate(DocumentKind::Event, &event.0).map_err(|_| Error::Conflict)?;
+                validator()?
+                    .validate(DocumentKind::Event, &event.0)
+                    .map_err(|_| Error::Conflict)?;
                 fold.apply(event.clone()).map_err(|_| Error::Conflict)?;
             }
-            assert_eq!(fold.message().map_err(|_| Error::Conflict)?.0, batch.checkpoint.message.0);
+            assert_eq!(
+                fold.message().map_err(|_| Error::Conflict)?.0,
+                batch.checkpoint.message.0
+            );
             assert_eq!(batch.checkpoint.message.rev(), 1);
-            assert!(batch.checkpoint.message.0["fallbackText"].as_str()
-                .is_some_and(|text| text.contains("虚构收尾文字")));
+            assert!(
+                batch.checkpoint.message.0["fallbackText"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("虚构收尾文字"))
+            );
         }
         Ok(())
     }

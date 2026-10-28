@@ -173,13 +173,13 @@ impl Fixture {
         Ok(run)
     }
     async fn checkpoint(&self, message: Uuid) -> Result<Checkpoint> {
-        Ok(PgCheckpointStore {
+        PgCheckpointStore {
             db: self.db.clone(),
             scope: self.scope().await?,
         }
         .load(&message.to_string())
         .await?
-        .context("missing checkpoint")?)
+        .context("missing checkpoint")
     }
     async fn scope(&self) -> Result<ChatScope> {
         let tx =

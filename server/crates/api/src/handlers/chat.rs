@@ -80,15 +80,20 @@ async fn check_space(
 }
 
 fn idempotency_key(headers: &HeaderMap) -> Result<Uuid, ApiError> {
-    headers.get("idempotency-key")
+    headers
+        .get("idempotency-key")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse().ok())
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "idempotency_key_required"))
 }
 fn bind(state: &AppState, tx: &SpaceTx, space: Uuid) -> jiabu_agent::ScopedRuns {
     state.runs.scoped(
-        state.db.clone(), SpaceId(space), tx.member(SpaceId(space)).join_epoch(),
-        state.chat_hub.clone(), state.tools.clone(), state.templates.clone(),
+        state.db.clone(),
+        SpaceId(space),
+        tx.member(SpaceId(space)).join_epoch(),
+        state.chat_hub.clone(),
+        state.tools.clone(),
+        state.templates.clone(),
     )
 }
 fn start_response(response: jiabu_agent::StartResponse) -> Json<Value> {
@@ -102,12 +107,16 @@ fn stream_error(error: jiabu_chat::ChatError) -> ApiError {
     }
 }
 fn resume_options(headers: &HeaderMap) -> Result<jiabu_chat::ResumeOptions, ApiError> {
-    let capabilities = headers.get("chatweave-capabilities")
+    let capabilities = headers
+        .get("chatweave-capabilities")
         .map(|value| value.to_str().map_err(|_| ApiError::bad_request()))
-        .transpose()?.unwrap_or_default();
-    let features: Vec<_> = capabilities.split(';')
+        .transpose()?
+        .unwrap_or_default();
+    let features: Vec<_> = capabilities
+        .split(';')
         .filter_map(|part| part.trim().strip_prefix("features="))
-        .flat_map(|features| features.split(',').map(str::trim)).collect();
+        .flat_map(|features| features.split(',').map(str::trim))
+        .collect();
     Ok(jiabu_chat::ResumeOptions {
         snapshots: features.contains(&"stream.snapshot"),
         activity: features.contains(&"stream.activity"),
@@ -130,13 +139,24 @@ pub(crate) async fn send(
     let tx = check_space(&state, &principal, space, &headers, true).await?;
     let input = super::input(body)?;
     if input.id != idempotency_key(&headers)? {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "idempotency_key_mismatch"));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "idempotency_key_mismatch",
+        ));
     }
     let runs = bind(&state, &tx, space);
     tx.commit().await?;
-    Ok(start_response(runs.start(&principal, jiabu_agent::StartMessage {
-        id: input.id, text: input.text, images: input.images,
-    }).await?))
+    Ok(start_response(
+        runs.start(
+            &principal,
+            jiabu_agent::StartMessage {
+                id: input.id,
+                text: input.text,
+                images: input.images,
+            },
+        )
+        .await?,
+    ))
 }
 
 #[utoipa::path(get,path="/v1/spaces/{space_id}/chat/messages/{message_id}/stream",security(("bearer"=[])),params(("space_id"=Uuid,Path),("message_id"=Uuid,Path),("ChatWeave-Capabilities"=Option<String>,Header,description="v=0.1; features=stream.resume,stream.snapshot,stream.activity"),("Last-Event-ID"=Option<String>,Header,description="Last reliable sequence; overrides after"),("after"=Option<String>,Query,description="Resume cursor when Last-Event-ID is absent")),responses((status=200,body=String,description="Resumable ChatWeave event stream; 15s heartbeat, 5min idle timeout; snapshot/activity require capability declarations",content_type="text/event-stream",example="event: message.start\ndata: {\"protocolVersion\":\"0.1\",\"messageId\":\"019a0000-0000-7000-8000-000000000003\",\"type\":\"message.start\",\"message\":{\"id\":\"019a0000-0000-7000-8000-000000000003\",\"role\":\"assistant\",\"conversationId\":\"019a0000-0000-7000-8000-000000000005\",\"createdAt\":\"2026-01-01T00:00:00Z\"},\"seq\":1}\n\n"),(status=503,body=crate::Problem,description="Stream storage unavailable"),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]
@@ -148,21 +168,30 @@ pub(crate) async fn stream(
     query: Result<Query<StreamQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Result<axum::response::Response, ApiError> {
     let tx = check_space(&state, &principal, space, &headers, false).await?;
-    let stored = tx.message(SpaceId(space), message_id).await?
+    let stored = tx
+        .message(SpaceId(space), message_id)
+        .await?
         .ok_or_else(ApiError::not_found)?;
     if stored.message["role"] != "assistant" {
         return Err(ApiError::not_found());
     }
     let scope = jiabu_chat::ChatScope {
-        space_id: SpaceId(space), member_id: tx.member(SpaceId(space)).id(),
+        space_id: SpaceId(space),
+        member_id: tx.member(SpaceId(space)).id(),
         user_id: principal.user_id,
     };
     tx.commit().await?;
     let Query(query) = query.map_err(|_| ApiError::bad_request())?;
     let service = jiabu_chat::resume_service(state.db.clone(), scope, state.chat_hub.clone());
-    jiabu_chat::sse_response(&service, &message_id.to_string(), &headers,
-        query.after.as_deref(), resume_options(&headers)?)
-        .await.map_err(stream_error)
+    jiabu_chat::sse_response(
+        &service,
+        &message_id.to_string(),
+        &headers,
+        query.after.as_deref(),
+        resume_options(&headers)?,
+    )
+    .await
+    .map_err(stream_error)
 }
 
 #[utoipa::path(post,path="/v1/spaces/{space_id}/chat/actions",security(("bearer"=[])),params(("space_id"=Uuid,Path),("X-Jiabu-Join-Epoch"=i32,Header,description="Current membership epoch"),("Idempotency-Key"=Uuid,Header,description="Message/action id for submit/action; operation key for stop/retry")),request_body(content=Value,example=json!({"protocolVersion":"0.1","id":"019a0000-0000-7000-8000-000000000002","context":{"conversationId":"019a0000-0000-7000-8000-000000000005","messageId":"019a0000-0000-7000-8000-000000000003","blockId":"question"},"type":"choice.select","target":"clarification.answer","payload":{"selected":["lunch"]}})),responses((status=200,body=Value,description="Accepted operation",example=json!({"status":"accepted","resume":{"messageId":"019a0000-0000-7000-8000-000000000003"}})),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]
@@ -178,7 +207,10 @@ pub(crate) async fn action(
     let key = idempotency_key(&headers)?;
     let runs = bind(&state, &tx, space);
     tx.commit().await?;
-    Ok(Json(runs.answer_with_key(&principal, request, &state.tools, key).await?))
+    Ok(Json(
+        runs.answer_with_key(&principal, request, &state.tools, key)
+            .await?,
+    ))
 }
 
 #[utoipa::path(post,path="/v1/spaces/{space_id}/chat/messages/{message_id}/stop",security(("bearer"=[])),params(("space_id"=Uuid,Path),("message_id"=Uuid,Path),("X-Jiabu-Join-Epoch"=i32,Header,description="Current membership epoch"),("Idempotency-Key"=Uuid,Header,description="Message/action id for submit/action; operation key for stop/retry")),responses((status=200,body=Value,description="Accepted operation",example=json!({"status":"accepted"})),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]
