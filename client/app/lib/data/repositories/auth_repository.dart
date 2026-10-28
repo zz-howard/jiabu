@@ -16,11 +16,15 @@ final class AuthSession {
     required this.user,
     required this.partition,
     required this.passwordChangeRequired,
+    required this.generation,
     this.adminResetAt,
   });
   final UserDto user;
   final Partition partition;
   final bool passwordChangeRequired;
+
+  /// Ownership captured by the transaction that accepted this session.
+  final int generation;
   final DateTime? adminResetAt;
 }
 
@@ -56,6 +60,8 @@ final class LocalAuthRepository implements AuthRepository {
   final bool activateOnResume;
   AuthSession? current;
   PartitionDatabase? handle;
+  Future<void> _logoutWork = Future<void>.value();
+  Future<void> get logoutWork => _logoutWork;
 
   @override
   Future<Result<AuthSession>> login(
@@ -87,18 +93,16 @@ final class LocalAuthRepository implements AuthRepository {
       if (opened == null) {
         return const Failure('database_unavailable');
       }
-      await opened.store.transaction(() async {
+      final loginGeneration = await opened.store.transaction(() async {
         await opened.store.lockRuntime();
         await sessions.write(partition, response.token);
         await opened.store.saveIdentity(
           response.user.toJson(),
           response.sessionKind,
         );
-        await opened.store.activate(authenticated: false);
+        return await opened.store.activate(authenticated: false);
       });
-      final loginGeneration = requireValue<int>(
-        (await opened.store.runtime())['generation'],
-      );
+      var generation = loginGeneration;
       var user = response.user;
       if (!restricted) {
         user = await apiFactory(normalized, partition).me();
@@ -109,20 +113,21 @@ final class LocalAuthRepository implements AuthRepository {
         final accepted = await opened.store.transaction(() async {
           await opened.store.lockRuntime();
           if ((await opened.store.runtime())['generation'] != loginGeneration) {
-            return false;
+            return null;
           }
           await opened.store.saveIdentity(user.toJson(), 'full');
-          await opened.store.activate(authenticated: true);
-          return true;
+          return await opened.store.activate(authenticated: true);
         });
-        if (!accepted) {
+        if (accepted == null) {
           return const Failure('stale_response');
         }
+        generation = accepted;
       }
       final session = AuthSession(
         user: user,
         partition: partition,
         passwordChangeRequired: restricted,
+        generation: generation,
         adminResetAt: response.adminResetAt,
       );
       current = session;
@@ -160,12 +165,12 @@ final class LocalAuthRepository implements AuthRepository {
     if (resumeHandle == null) {
       return const Failure('database_unavailable');
     }
-    if (!activateOnResume &&
-        (await resumeHandle.store.runtime())['authenticated'] != 1) {
+    final resumeRow = await resumeHandle.store.runtime();
+    if (!activateOnResume && resumeRow['authenticated'] != 1) {
       handle = null;
       return const Ok(null);
     }
-    final resumeGeneration = (await resumeHandle.store.runtime())['generation'];
+    final resumeGeneration = requireValue<int>(resumeRow['generation']);
     try {
       final user = await apiFactory(partition.server, partition).me();
       if (user.id != partition.userId) {
@@ -175,21 +180,22 @@ final class LocalAuthRepository implements AuthRepository {
         await resumeHandle.store.lockRuntime();
         if ((await resumeHandle.store.runtime())['generation'] !=
             resumeGeneration) {
-          return false;
+          return null;
         }
         await resumeHandle.store.saveIdentity(user.toJson(), 'full');
         if (activateOnResume) {
-          await resumeHandle.store.activate(authenticated: true);
+          return await resumeHandle.store.activate(authenticated: true);
         }
-        return true;
+        return resumeGeneration;
       });
-      if (!accepted) {
+      if (accepted == null) {
         return const Failure('stale_response');
       }
       final session = AuthSession(
         user: user,
         partition: partition,
         passwordChangeRequired: false,
+        generation: accepted,
       );
       current = session;
       onChanged?.call(session);
@@ -203,42 +209,59 @@ final class LocalAuthRepository implements AuthRepository {
         );
       }
       if (error.code == 'network' || error.status == 426) {
-        final persisted = await handle?.store.runtime();
-        final identity = persisted?['identity_json'] as String?;
-        if (identity != null) {
+        final session = await resumeHandle.store.transaction(() async {
+          await resumeHandle.store.lockRuntime();
+          final persisted = await resumeHandle.store.runtime();
+          if (persisted['generation'] != resumeGeneration) {
+            return null;
+          }
+          final identity = persisted['identity_json'] as String?;
+          if (identity == null) {
+            return null;
+          }
           final user = UserDto.fromJson(
             (jsonDecode(identity) as Map<String, Object?>)
                 .cast<String, Object?>(),
           );
-          final restricted = persisted?['session_kind'] == 'password_change';
-          if (activateOnResume) {
-            await handle?.store.activate(authenticated: !restricted);
-          }
-          final session = AuthSession(
+          final restricted = persisted['session_kind'] == 'password_change';
+          final generation = activateOnResume
+              ? await resumeHandle.store.activate(authenticated: !restricted)
+              : resumeGeneration;
+          return AuthSession(
             user: user,
             partition: partition,
             passwordChangeRequired: restricted,
+            generation: generation,
           );
+        });
+        if (session != null) {
           current = session;
           onChanged?.call(session);
           return Ok(session);
         }
       }
       if (error.status == 401) {
-        await invalidate(
-          partition,
-          expectedGeneration: requireValue<int>(resumeGeneration),
-        );
+        await invalidate(partition, expectedGeneration: resumeGeneration);
       }
       if (error.code == 'password_change_required') {
         // /me is forbidden for restricted sessions; allow only the password
         // page.
-        handle = await databases.open(partition);
-        await handle?.store.activate(authenticated: false);
+        final generation = await resumeHandle.store.transaction(() async {
+          await resumeHandle.store.lockRuntime();
+          if ((await resumeHandle.store.runtime())['generation'] !=
+              resumeGeneration) {
+            return null;
+          }
+          return await resumeHandle.store.activate(authenticated: false);
+        });
+        if (generation == null) {
+          return const Failure('stale_response');
+        }
         final session = AuthSession(
           user: UserDto(id: partition.userId, username: '', locale: 'system'),
           partition: partition,
           passwordChangeRequired: true,
+          generation: generation,
         );
         current = session;
         onChanged?.call(session);
@@ -265,7 +288,7 @@ final class LocalAuthRepository implements AuthRepository {
     if (opened == null) {
       return const Failure('database_unavailable');
     }
-    final expectedGeneration = (await opened.store.runtime())['generation'];
+    final expectedGeneration = session.generation;
     try {
       final api = apiFactory(session.partition.server, session.partition);
       await api.changePassword(
@@ -280,19 +303,19 @@ final class LocalAuthRepository implements AuthRepository {
         if (!identical(current, session) ||
             (await opened.store.runtime())['generation'] !=
                 expectedGeneration) {
-          return false;
+          return null;
         }
         await opened.store.saveIdentity(user.toJson(), 'full');
-        await opened.store.activate(authenticated: true);
-        return true;
+        return await opened.store.activate(authenticated: true);
       });
-      if (!accepted) {
+      if (accepted == null) {
         return const Failure('stale_response');
       }
       final next = AuthSession(
         user: user,
         partition: session.partition,
         passwordChangeRequired: false,
+        generation: accepted,
         adminResetAt: session.adminResetAt,
       );
       current = next;
@@ -360,21 +383,31 @@ final class LocalAuthRepository implements AuthRepository {
     if (opened == null) {
       return;
     }
-    final logoutGeneration = (await opened.store.runtime())['generation'];
+    final logoutGeneration = session.generation;
+    String? token;
+    var revoked = false;
     await opened.store.transaction(() async {
       await opened.store.lockRuntime();
       if ((await opened.store.runtime())['generation'] != logoutGeneration) {
         return;
       }
-      final token = await sessions.read(session.partition);
+      token = await sessions.read(session.partition);
       await opened.store.activate(authenticated: false);
+      await sessions.delete(session.partition);
+      revoked = true;
+    });
+    if (revoked && token != null) {
+      // Start outside drift's transaction Zone. The response can arrive after
+      // commit; it must never query a released transaction executor or use the
+      // next login's token. Revocation needs only the captured credential.
       final pendingLogout = apiFactory(
         session.partition.server,
-        session.partition,
-      ).logout(token: token);
-      unawaited(pendingLogout.catchError((Object _) {}));
-      await sessions.delete(session.partition);
-    });
+        null,
+      ).logout(token: token).catchError((Object _) {});
+      _logoutWork = Future.wait<void>([_logoutWork, pendingLogout])
+          .then((_) {});
+      unawaited(_logoutWork);
+    }
     if (!identical(current, session)) {
       return;
     }

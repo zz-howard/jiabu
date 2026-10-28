@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -6,11 +7,37 @@ import 'package:jiabu/data/api/dto/auth_dto.dart';
 import 'package:jiabu/data/db/database_manager.dart';
 import 'package:jiabu/data/repositories/auth_repository.dart';
 import 'package:jiabu/data/services/app_settings_service.dart';
+import 'package:jiabu/domain/partition.dart';
 import 'package:jiabu/domain/required_value.dart';
 import 'package:jiabu/domain/result.dart';
 
 import '../support/memory_stores.dart';
 import '../support/sync_harness.dart';
+
+class TransactionTrackingSessions extends MemorySessions {
+  Zone? deletionZone;
+
+  @override
+  Future<void> delete(Partition partition) async {
+    deletionZone = Zone.current;
+    await super.delete(partition);
+  }
+}
+
+class LogoutProbeApi extends AuthApi {
+  Zone? logoutZone;
+  String? logoutToken;
+  final started = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<void> logout({String? token}) async {
+    logoutZone = Zone.current;
+    logoutToken = token;
+    started.complete();
+    await release.future;
+  }
+}
 
 class AuthApi extends FakeApi {
   bool restricted = false;
@@ -49,14 +76,14 @@ class AuthApi extends FakeApi {
 void main() {
   late Directory directory;
   late DatabaseManager manager;
-  late MemorySessions sessions;
+  late TransactionTrackingSessions sessions;
   late AppSettingsService settings;
   late AuthApi api;
   late LocalAuthRepository auth;
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('jiabu-auth-');
     manager = DatabaseManager(directory);
-    sessions = MemorySessions();
+    sessions = TransactionTrackingSessions();
     settings = AppSettingsService(MemorySettings());
     api = AuthApi();
     auth = LocalAuthRepository(
@@ -165,5 +192,38 @@ void main() {
     expect(auth.current, isNotNull);
     expect(await sessions.read(first.partition), isNotNull);
     expect((await first.store.runtime())['authenticated'], 1);
+  });
+
+  test('logout_dispatches_outside_transaction_with_captured_token', () async {
+    final probe = LogoutProbeApi();
+    api = probe;
+    final callerZone = Zone.current;
+    try {
+      final login = await auth.login(
+        'https://example.invalid/',
+        'fictional',
+        'fictional-test-password',
+      );
+      final session = (login as Ok<AuthSession>).value;
+      final store = auth.handle!.store;
+      expect(session.generation, (await store.runtime())['generation']);
+      await auth.logout();
+      await probe.started.future;
+      // Zone identity is deterministic: the old implementation starts logout
+      // in the same drift transaction Zone that deletes the credential.
+      expect(sessions.deletionZone, isNotNull);
+      expect(identical(sessions.deletionZone, callerZone), isFalse);
+      expect(identical(probe.logoutZone, sessions.deletionZone), isFalse);
+      expect(identical(probe.logoutZone, callerZone), isTrue);
+      expect(probe.logoutToken, 'fictional-session');
+      expect(await sessions.read(session.partition), isNull);
+      expect((await store.runtime())['authenticated'], 0);
+      expect(auth.current, isNull);
+      // The response stays pending while another operation uses the database.
+      await store.setWriteAllowed(allowed: false);
+    } finally {
+      probe.release.complete();
+      await auth.logoutWork;
+    }
   });
 }

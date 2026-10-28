@@ -315,15 +315,15 @@
     {
       "id": "stale_runtime_uses_captured_generation",
       "file": "client/app/lib/app/runtime.dart",
-      "find": "expectedGeneration: requireValue<int>(generation),",
-      "replace": "expectedGeneration: requireValue<int>((await store.runtime())['generation']),",
+      "find": "expectedGeneration: generation",
+      "replace": "expectedGeneration: requireValue<int>((await store.runtime())['generation'])",
       "expected_occurrences": 1,
       "test_file": "client/app/test/data/runtime_auth_test.dart",
       "test_names": [
         "stale_runtime_cannot_invalidate_new_login_token"
       ],
       "command": "flutter test test/data/runtime_auth_test.dart --plain-name stale_runtime_cannot_invalidate_new_login_token",
-      "find_regex": "expectedGeneration\\s*:\\s*requireValue\\s*<\\s*int\\s*>\\s*\\(\\s*generation\\s*(?:,\\s*)?\\)\\s*,"
+      "find_regex": "expectedGeneration\\s*:\\s*generation\\b"
     },
     {
       "id": "existing_refund_depends_on_parent",
@@ -339,6 +339,19 @@
       ],
       "command": "flutter test test/data/conflict_test.dart --name '^refund_(update_waits_while_parent_expense_in_conflict|update_continues_after_parent_conflict_resolved|restore_waits_for_parent_conflict_resolution)$'",
       "find_regex": ":\\s*previous\\s*\\[\\s*'refund_of_id'\\s*\\]\\s*;"
+    },
+    {
+      "id": "runtime_initialization_uses_auth_session_generation",
+      "file": "client/app/lib/app/runtime.dart",
+      "find": "final generation = session.generation;",
+      "replace": "final generation = requireValue<int>((await store.runtime())['generation']);",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/runtime_auth_test.dart",
+      "test_names": [
+        "resume_authenticated_before_relogin_cannot_adopt_new_generation"
+      ],
+      "command": "flutter test test/data/runtime_auth_test.dart --plain-name resume_authenticated_before_relogin_cannot_adopt_new_generation",
+      "find_regex": "final\\s+generation\\s*=\\s*session\\s*\\.\\s*generation\\s*;"
     }
   ]
 }

@@ -38,6 +38,7 @@ final class AppRuntime {
     required this.device,
     this.background = false,
     this.createDio,
+    this.beforeSessionInitialization,
   }) {
     auth = LocalAuthRepository(
       databases: databases,
@@ -56,6 +57,10 @@ final class AppRuntime {
   final DeviceContext device;
   final bool background;
   final Dio Function()? createDio;
+
+  /// Allows tests to pause after auth commits and before runtime
+  /// initialization.
+  final Future<void> Function(AuthSession)? beforeSessionInitialization;
   late final LocalAuthRepository auth;
   final StreamController<void> _events = StreamController<void>.broadcast();
   Stream<void> get events => _events.stream;
@@ -90,11 +95,12 @@ final class AppRuntime {
     }
   }
 
-  ApiClient api(String server, Partition? partition) {
+  ApiClient api(String server, Partition? partition, {int? sessionGeneration}) {
     final capturedRevision = revision;
     final handleFuture = partition == null ? null : databases.open(partition);
     final generationFuture = handleFuture?.then(
-      (handle) async => (await handle.store.runtime())['generation'],
+      (handle) async =>
+          sessionGeneration ?? (await handle.store.runtime())['generation'],
     );
     Future<bool> valid() async {
       if (partition == null || capturedRevision != revision) {
@@ -193,21 +199,22 @@ final class AppRuntime {
       installStartupLogging();
       return;
     }
+    await beforeSessionInitialization?.call(session);
+    if (capturedRevision != revision) {
+      return;
+    }
     final handle = auth.handle;
     if (handle == null) {
       return;
     }
     final store = handle.store;
-    final generation = (await store.runtime())['generation'];
+    final generation = session.generation;
     Future<void> authenticationLost() async {
       if (capturedRevision != revision) {
         return;
       }
       status = SyncStatus.loginRequired;
-      await auth.invalidate(
-        session.partition,
-        expectedGeneration: requireValue<int>(generation),
-      );
+      await auth.invalidate(session.partition, expectedGeneration: generation);
       if (capturedRevision == revision) {
         // Another instance changed the generation. Only detach this runtime;
         // its captured credentials no longer own the shared session.
@@ -215,7 +222,11 @@ final class AppRuntime {
       }
     }
 
-    final client = api(session.partition.server, session.partition);
+    final client = api(
+      session.partition.server,
+      session.partition,
+      sessionGeneration: generation,
+    );
     currentSpace = await settings.lastSpace(session.partition);
     final cache = BlobCacheService(store, handle.blobs);
     await cache.cleanPending();
@@ -406,6 +417,8 @@ final class AppRuntime {
   }
 
   Future<void> close() async {
+    await sessionWork;
+    await auth.logoutWork;
     await triggers?.dispose();
     await _logs?.close();
     await _startupLogs?.close();

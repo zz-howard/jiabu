@@ -831,3 +831,33 @@ nice -n 19 ionice -c3 flutter test
 ```
 
 需在隔离副本保留新测试、恢复本轮修前的生产实现，先确认对应测试为断言失败；恢复修复后确认通过。再按 JSON 一次应用一条负对照，确认断言失败（编译失败不算）、恢复并复跑。当前拿不准的是上述动态执行结果，不能声称本轮测试或负对照已跑通过。
+
+### 第五轮评审修正
+
+本轮在当前工作树修复以下两点，未提交 git；未修改 docs/、server/、生成文件或 PNG。
+
+1. **认证确认到 runtime 初始化之间的代次归属窗口。** `AuthSession.generation` 为必填字段。登录的首次令牌写入、完整认证确认、前台 / 后台 resume、离线 / 426 身份恢复、受限会话恢复和改密码，均从接受该会话的同一存储事务返回 generation；不在事务结束后重新认领数据库里的当前代次。后台 resume 的 authenticated 与初始 generation 也从同一行快照读取。runtime 初始化、同步客户端的响应栅栏及 authenticationLost 均使用会话带来的代次；logout 和改密码也以会话代次检查所有权。
+   - 新增 `resume_authenticated_before_relogin_cannot_adopt_new_generation`：通过 `beforeSessionInitialization` 钩子与两个 Completer，先确认后台 resume 的认证事务已提交，再阻塞 runtime 消费代次；前台完成退出及同账号 `password_change` 重新登录后，才释放后台初始化并启动旧引擎。断言新令牌、新 generation、authenticated=0 均保留，旧 runtime 只清理自身；新会话改密码请求仍携带新令牌。
+   - 新负对照 `runtime_initialization_uses_auth_session_generation`（`tool/c2-negative-controls.json`，expected_occurrences=1）：find `final generation = session.generation;`；replace `final generation = requireValue<int>((await store.runtime())['generation']);`。恢复事后读取时，新增测试应在新令牌 / 代次断言处失败，而不是依赖编译失败。
+   - 同步更新第四轮负对照 `stale_runtime_uses_captured_generation` 的锚点为 `expectedGeneration: generation`，替换为 `expectedGeneration: requireValue<int>((await store.runtime())['generation'])`；仍由原测试验证失效回调不能改用当前代次。
+2. **CI 失败的代码根因是登出异步工作逃出 drift 事务。** 原两个测试已各自创建独立 `DatabaseManager`。manager 按自身 map 关闭自己创建的连接；切换分区不调用 close。同一 isolate 内创建两个 JiabuDatabase 会产生 drift 的多实例诊断，但该警告不能证明两者共享执行器。发现的实际缺陷在 `LocalAuthRepository.logout`：事务内调用 `apiFactory` 并以 unawaited 启动 logout；`AppRuntime.api` 同时创建了读取 generation 的 Future，后续响应守卫也可能查库。这些异步工作继承 drift 的事务 Zone，却未纳入事务的 await 链，提交后可能访问已释放的事务 executor。drift 上游的事务执行器管理会在提交后移除该 executor，且明确要求等待事务内所有操作；见 [drift 事务文档](https://drift.simonbinder.eu/dart_api/transactions/) 与 [remote server 实现](https://github.com/simolus3/drift/blob/drift-2.35.0/drift/lib/src/remote/server_impl.dart)。这是产品调用边界问题，不能仅靠调整测试关库顺序解决。
+   - 修复：本地事务只捕获旧 token、撤销认证并删除凭据；提交后才创建并发送远端 logout。该请求使用无分区客户端和捕获的 token，不再读取分区 generation 或后来登录的 token。仓库暴露 `logoutWork` 跟踪请求结束；`AppRuntime.close` 先等待 sessionWork、logoutWork，再关闭资源。没有重试或延时，也没有关闭 drift 的诊断。
+   - 新增 `logout_dispatches_outside_transaction_with_captured_token`：记录删除凭据时的 Zone 和调用 logout 时的 Zone，直接断言远端调用处于调用方 Zone、不同于事务 Zone；用 Completer 保留响应，确认本地退出和后续数据库操作无需等待网络。按源码推导，旧实现在 Zone 归属断言处失败；尚未动态执行。
+   - 重写原两个 CI 测试 `stale_runtime_cannot_invalidate_new_login_token`、`runtime_observing_external_logout_only_clears_local_session`：明确断言 manager 独立，两个 runtime 各用独立 HTTP adapter；用 Completer 将旧 logout 响应固定到本地退出及可选的新登录之后；显式等待引擎轮次、sessionWork 和 logoutWork，finally 先释放所有门闩、等待在途工作，再依次关闭各 runtime 和临时目录。不依赖 sleep 或调度速度。
+
+修改文件（相对 client/）：`app/lib/app/runtime.dart`、`app/lib/data/repositories/auth_repository.dart`、`app/test/data/runtime_auth_test.dart`、`app/test/data/auth_repository_test.dart`、`app/test/features/auth_view_model_test.dart`（补齐 AuthSession 假数据的必填 generation）、`tool/c2-negative-controls.json`、`C2-DELIVERY.md`。
+
+验证证据与限制：
+
+- 已通过 `git diff --check`、`check_rules.dart`、全部 27 条负对照的 JSON 解析 / ID 唯一性 / 精确及正则锚点次数 / 测试路径和名称检查；新 / 更新的两条 runtime 负对照替换结果也通过 dart_style 语法解析（不代表编译或测试通过）。
+- 本机找到 Dart 3.13.7（aarch64），用其 VM 直接运行缓存中的 dart_style 3.1.7 格式化上述 5 个 Dart 文件，再跑一次为 0 changed；规则检查同样直接运行缓存依赖。格式化器提示缺少 very_good_analysis 的 package resolution，因此这不是完整的 CI 格式 / analyze 证据。未运行生成器。
+- client/AGENTS.md 要求 build、test、golden 仅在 x86_64 Linux 构建机执行；本机为 aarch64。`ssh -o BatchMode=yes -o ConnectTimeout=8 jiabu-build` 被沙箱拒绝（`socket: Operation not permitted`）。本轮尚未运行 Flutter 测试、analyze、修前红 / 修后绿、负对照断言失败验证及重复稳定性验证。上述 CI 根因是调用链与 drift 生命周期源码分析结论，尚未取得同版本 CI 栈的动态复现；不能宣称两个测试已在 CI 稳定通过。
+
+构建机应先串行运行以下目标测试，再按新 / 更新负对照分别要求断言失败并恢复；对 runtime_auth_test.dart 连续多次运行确认稳定性（不是失败重试）。最后运行原有完整 CI 检查，不生成或更新 PNG：
+
+```bash
+cd client/app
+nice -n 19 ionice -c3 flutter test test/data/runtime_auth_test.dart test/data/auth_repository_test.dart test/data/runtime_channel_test.dart test/features/auth_view_model_test.dart
+nice -n 19 ionice -c3 flutter test test/data/runtime_auth_test.dart --plain-name resume_authenticated_before_relogin_cannot_adopt_new_generation
+nice -n 19 ionice -c3 flutter test test/data/auth_repository_test.dart --plain-name logout_dispatches_outside_transaction_with_captured_token
+```

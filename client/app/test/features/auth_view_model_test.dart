@@ -30,6 +30,7 @@ class FakeAuth implements AuthRepository {
       user: const UserDto(id: 'u', username: 'fictional', locale: 'en'),
       partition: Partition('https://example.invalid/', 'u'),
       passwordChangeRequired: forced,
+      generation: 1,
     ),
   );
   @override
