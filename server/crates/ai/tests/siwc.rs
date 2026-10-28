@@ -508,3 +508,88 @@ async fn token_error_after_visible_text_does_not_replay_output_or_revoke_credent
     assert!(manager.available());
     assert!(tokens.load().await.unwrap().usable);
 }
+
+#[tokio::test]
+async fn refusal_text_is_visible_with_or_without_deltas_and_is_not_duplicated() {
+    for prefix in ["", "I cannot ", "I cannot help with that request."] {
+        let server = MockServer::start().await;
+        let mut events = vec![];
+        if !prefix.is_empty() {
+            events.push(json!({"type":"response.refusal.delta","output_index":0,"delta":prefix}));
+        }
+        events.push(json!({"type":"response.output_item.done","output_index":0,"item":{
+            "type":"message","content":[{"type":"refusal","refusal":"I cannot help with that request."}]
+        }}));
+        events.push(completed());
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(sse(&events)))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut sink = Sink::default();
+        provider(&server)
+            .await
+            .run_turn(&request(), &mut sink)
+            .await
+            .unwrap();
+        let text: String = sink
+            .0
+            .iter()
+            .filter_map(|event| match event {
+                TurnEvent::TextDelta(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(text, "I cannot help with that request.");
+        assert!(matches!(sink.0.last(), Some(TurnEvent::Done { .. })));
+    }
+}
+
+#[tokio::test]
+async fn completed_usage_reaches_observer_before_tool_call_sink_failure() {
+    struct FailTool;
+    #[async_trait::async_trait]
+    impl TurnSink for FailTool {
+        async fn emit(&mut self, event: TurnEvent) -> Result<(), ProviderError> {
+            assert!(matches!(event, TurnEvent::ToolCall { .. }));
+            Err(ProviderError::Sink)
+        }
+    }
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sse(&[
+            json!({"type":"response.output_item.done","output_index":0,"item":{
+                "type":"function_call","call_id":"synthetic-call","name":"create_record","arguments":"{}"
+            }}),
+            completed(),
+        ])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let meter = Meter::default();
+    assert_eq!(
+        provider(&server)
+            .await
+            .run_turn_observed(
+                TaskKind::Chat,
+                &request(),
+                &mut FailTool,
+                &meter,
+                std::time::Duration::from_secs(30),
+            )
+            .await,
+        Err(ProviderError::Sink)
+    );
+    let usage = meter.usages.lock().unwrap();
+    let usage = usage[0].as_ref().unwrap();
+    assert_eq!(
+        (
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.cached_input_tokens,
+            usage.cache_write_tokens
+        ),
+        (100, 12, 60, 10)
+    );
+    assert_eq!(*meter.results.lock().unwrap(), vec![Some("sink".into())]);
+}

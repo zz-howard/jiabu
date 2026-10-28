@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use jiabu_ai::{
     CallObserver, Capabilities, ModelProvider, ProviderError, RouterStore, TaskKind, TurnRequest,
     Usage,
-    credentials::{CredentialManager, FileTokenStore, SecretKey, TokenStore, VersionedToken},
+    credentials::{
+        CredentialManager, FileTokenStore, RefreshGate, SecretKey, TokenStore, VersionedToken,
+    },
     siwc::{
         SiwcProvider,
         oauth::{OAuthClient, OAuthCredentials},
@@ -99,17 +101,20 @@ impl TokenStore for EnvironmentTokens {
         Ok(true)
     }
 }
-fn refresh_gate(provider: &str) -> Arc<tokio::sync::Mutex<()>> {
-    type Gates = std::sync::Mutex<std::collections::BTreeMap<String, Arc<tokio::sync::Mutex<()>>>>;
+fn refresh_gate(provider: &str, source: &str) -> Arc<RefreshGate> {
+    type Gates = std::sync::Mutex<std::collections::BTreeMap<String, (String, Arc<RefreshGate>)>>;
     static GATES: std::sync::OnceLock<Gates> = std::sync::OnceLock::new();
     let mut gates = GATES
         .get_or_init(Gates::default)
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    gates
+    let entry = gates
         .entry(provider.to_owned())
-        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-        .clone()
+        .or_insert_with(|| (source.to_owned(), Arc::new(RefreshGate::default())));
+    if entry.0 != source {
+        *entry = (source.to_owned(), Arc::new(RefreshGate::default()));
+    }
+    entry.1.clone()
 }
 async fn reload(db: &AppDb, store: &RouterStore) -> Result<()> {
     reload_with_key(db, store, SecretKey::from_environment).await
@@ -163,8 +168,12 @@ async fn reload_with_key(
             _ => continue,
         };
         let manager = Arc::new(
-            CredentialManager::with_gate(source, OAuthClient::official()?, refresh_gate(&p.id))
-                .await,
+            CredentialManager::with_gate(
+                source,
+                OAuthClient::official()?,
+                refresh_gate(&p.id, p.secret_source.as_deref().unwrap_or("db")),
+            )
+            .await,
         );
         let caps = Capabilities {
             structured: jiabu_ai::StructuredMode::ToolCall,
@@ -270,6 +279,25 @@ mod tests {
     use super::*;
     use jiabu_db_admin::ai_configuration::ConfigWrite;
     use jiabu_domain::ai::{Billing, ModelConfig, ProviderConfig, StructuredMode};
+    #[test]
+    fn refresh_state_is_shared_only_for_the_same_provider_and_source() {
+        let first = refresh_gate("synthetic-gate", "db");
+        assert!(Arc::ptr_eq(&first, &refresh_gate("synthetic-gate", "db")));
+        assert!(!Arc::ptr_eq(&first, &refresh_gate("synthetic-other", "db")));
+        let file = refresh_gate("synthetic-gate", "file:/tmp/synthetic-a");
+        assert!(!Arc::ptr_eq(&first, &file));
+        assert!(Arc::ptr_eq(
+            &file,
+            &refresh_gate("synthetic-gate", "file:/tmp/synthetic-a")
+        ));
+        let env = refresh_gate("synthetic-gate", "env:SYNTHETIC_A");
+        assert!(!Arc::ptr_eq(&file, &env));
+        assert!(!Arc::ptr_eq(
+            &env,
+            &refresh_gate("synthetic-gate", "env:SYNTHETIC_B")
+        ));
+        assert!(!Arc::ptr_eq(&first, &refresh_gate("synthetic-gate", "db")));
+    }
     async fn wait_version(store: &RouterStore, version: i64) -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), async {
             while store.0.load().config.version <= version {
@@ -423,6 +451,87 @@ mod tests {
                 None,
             )
             .await?;
+        // completed usage must survive a subsequent journal failure, including cost.
+        let owner = fixture.owner().await?;
+        sqlx::query("insert into ai_prices(provider_kind,model,input,cached_input,output,cache_write,source,as_of,effective_from) values('siwc','unknown-model',10,2,20,'{\"default\":\"12\"}','https://example.invalid/prices',current_date,now()-interval '1 day')")
+            .execute(&owner)
+            .await?;
+        struct CompletedTool(Capabilities);
+        #[async_trait]
+        impl ModelProvider for CompletedTool {
+            fn id(&self) -> &str {
+                "synthetic"
+            }
+            fn capabilities(&self) -> &Capabilities {
+                &self.0
+            }
+            async fn run_turn(
+                &self,
+                req: &TurnRequest,
+                sink: &mut dyn jiabu_ai::TurnSink,
+            ) -> Result<(), ProviderError> {
+                let mut state = jiabu_ai::siwc::stream::TurnState::default();
+                state
+                    .accept(
+                        serde_json::json!({
+                            "type":"response.output_item.done", "output_index":0,
+                            "item":{"type":"function_call","call_id":"synthetic-call","name":"create_record","arguments":"{}"}
+                        }),
+                        sink,
+                    )
+                    .await?;
+                state
+                    .accept(
+                        serde_json::json!({
+                            "type":"response.completed", "response":{"status":"completed","usage":{
+                                "input_tokens":100,"output_tokens":20,
+                                "input_tokens_details":{"cached_tokens":60,"cache_write_tokens":10}
+                            }}
+                        }),
+                        sink,
+                    )
+                    .await?;
+                state
+                    .finish(self.id(), &req.snapshot.model, "synthetic-account", sink)
+                    .await
+            }
+        }
+        struct FailTool;
+        #[async_trait]
+        impl jiabu_ai::TurnSink for FailTool {
+            async fn emit(&mut self, event: jiabu_ai::TurnEvent) -> Result<(), ProviderError> {
+                assert!(matches!(event, jiabu_ai::TurnEvent::ToolCall { .. }));
+                Err(ProviderError::Sink)
+            }
+        }
+        assert_eq!(
+            jiabu_ai::measured_attempt(
+                &CompletedTool(Capabilities {
+                    structured: StructuredMode::ToolCall,
+                    vision: true,
+                    max_images: 8,
+                    context_tokens: 32000,
+                }),
+                TaskKind::Probe,
+                &request,
+                &mut FailTool,
+                &meter,
+                Duration::from_secs(30),
+            )
+            .await,
+            Err(ProviderError::Sink)
+        );
+        let row: (String, String, i32, i32, i32, i32, bool, bool) = sqlx::query_as(
+            "select outcome,error_kind,input_tokens,output_tokens,cached_input_tokens,cache_write_tokens,cost_usd=0.00094,completed_at is not null from ai_calls where attempt_token=$1 order by id desc limit 1",
+        )
+        .bind(meter.attempt_token)
+        .fetch_one(&owner)
+        .await?;
+        assert_eq!(
+            row,
+            ("failed".into(), "sink".into(), 100, 20, 60, 10, true, true)
+        );
+        owner.close().await;
         task.abort();
         let _ = task.await;
         // A hung provider must finish the durable row before the router returns Timeout.

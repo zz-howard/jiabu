@@ -65,7 +65,7 @@ impl TurnState {
             return Err(ProviderError::InvalidOutput);
         }
         match event["type"].as_str().ok_or(ProviderError::InvalidOutput)? {
-            "response.output_text.delta" => {
+            "response.output_text.delta" | "response.refusal.delta" => {
                 let delta = event["delta"]
                     .as_str()
                     .ok_or(ProviderError::InvalidOutput)?;
@@ -111,14 +111,16 @@ impl TurnState {
                     }
                     i32::try_from(n).map_err(|_| ProviderError::InvalidOutput)
                 };
-                self.usage = Some(Usage {
+                let usage = Usage {
                     input_tokens: token(&usage["input_tokens"])?,
                     output_tokens: token(&usage["output_tokens"])?,
                     cached_input_tokens: token(&usage["input_tokens_details"]["cached_tokens"])?,
                     cache_write_tokens: token(
                         &usage["input_tokens_details"]["cache_write_tokens"],
                     )?,
-                });
+                };
+                sink.record_usage(&usage);
+                self.usage = Some(usage);
                 self.completed = true;
             }
             "response.failed" | "error" => return Err(error(&event)),
@@ -185,11 +187,12 @@ impl TurnState {
                         .ok_or(ProviderError::InvalidOutput)?;
                     let mut full = String::new();
                     for part in content {
-                        if part["type"] == "output_text" {
-                            full.push_str(
-                                part["text"].as_str().ok_or(ProviderError::InvalidOutput)?,
-                            );
-                        }
+                        let field = match part["type"].as_str() {
+                            Some("output_text") => "text",
+                            Some("refusal") => "refusal",
+                            _ => continue,
+                        };
+                        full.push_str(part[field].as_str().ok_or(ProviderError::InvalidOutput)?);
                     }
                     let prefix = self.text.get(index).map(String::as_str).unwrap_or("");
                     let suffix = full

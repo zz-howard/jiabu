@@ -46,6 +46,8 @@ impl ProviderError {
 }
 #[async_trait]
 pub trait TurnSink: Send {
+    /// Capture transport usage synchronously, independently of journal publication.
+    fn record_usage(&mut self, _usage: &Usage) {}
     async fn emit(&mut self, event: TurnEvent) -> Result<(), ProviderError>;
 }
 #[async_trait]
@@ -97,6 +99,10 @@ pub struct AttemptSink<'a> {
 }
 #[async_trait]
 impl TurnSink for AttemptSink<'_> {
+    fn record_usage(&mut self, usage: &Usage) {
+        self.usage = Some(usage.clone());
+        self.inner.record_usage(usage);
+    }
     async fn emit(&mut self, event: TurnEvent) -> Result<(), ProviderError> {
         if let TurnEvent::Done { usage } = &event {
             self.usage = Some(usage.clone());

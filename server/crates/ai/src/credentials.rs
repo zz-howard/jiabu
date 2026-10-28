@@ -31,25 +31,31 @@ pub trait TokenStore: Send + Sync {
     ) -> Result<bool, ProviderError>;
     async fn invalidate(&self, expected: i64) -> Result<bool, ProviderError>;
 }
-pub struct CredentialManager {
-    store: Arc<dyn TokenStore>,
-    oauth: OAuthClient,
-    refresh: Arc<Mutex<()>>,
-    available: AtomicBool,
+/// Shared by provider/source across configuration generations, including cancellation.
+#[derive(Default)]
+pub struct RefreshGate {
+    lock: Mutex<()>,
     // Rotated credentials awaiting persistence, with the original CAS revision.
     pending: Mutex<Option<VersionedToken>>,
     retry: std::sync::Mutex<Option<(i64, std::time::Instant, i64)>>,
 }
+pub struct CredentialManager {
+    store: Arc<dyn TokenStore>,
+    oauth: OAuthClient,
+    refresh: Arc<RefreshGate>,
+    available: AtomicBool,
+}
 impl CredentialManager {
     pub async fn new(store: Arc<dyn TokenStore>, oauth: OAuthClient) -> Self {
-        Self::with_gate(store, oauth, Arc::new(Mutex::new(()))).await
+        Self::with_gate(store, oauth, Arc::new(RefreshGate::default())).await
     }
     /// The composition root shares a gate by provider across configuration generations.
     pub async fn with_gate(
         store: Arc<dyn TokenStore>,
         oauth: OAuthClient,
-        refresh: Arc<Mutex<()>>,
+        refresh: Arc<RefreshGate>,
     ) -> Self {
+        let guard = refresh.lock.lock().await;
         let initial = store.load().await;
         let available = initial
             .as_ref()
@@ -62,17 +68,29 @@ impl CredentialManager {
             )),
             _ => None,
         };
+        let pending = refresh.pending.lock().await;
+        let mut shared_retry = refresh
+            .retry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let available = pending.as_ref().map_or(available, |v| {
+            v.credentials.expires_at > chrono::Utc::now().timestamp()
+        });
+        if shared_retry.is_none() && pending.is_none() {
+            *shared_retry = retry;
+        }
+        drop(pending);
+        drop(shared_retry);
+        drop(guard);
         Self {
             store,
             oauth,
             refresh,
             available: AtomicBool::new(available),
-            pending: Mutex::new(None),
-            retry: std::sync::Mutex::new(retry),
         }
     }
     pub fn available(&self) -> bool {
-        if let Ok(retry) = self.retry.lock()
+        if let Ok(retry) = self.refresh.retry.lock()
             && let Some((_, at, expires_at)) = *retry
         {
             return chrono::Utc::now().timestamp() < expires_at || std::time::Instant::now() >= at;
@@ -103,7 +121,11 @@ impl CredentialManager {
                         0,
                     ))
                 };
-                *self.retry.lock().map_err(|_| ProviderError::Transport)? = retry;
+                *self
+                    .refresh
+                    .retry
+                    .lock()
+                    .map_err(|_| ProviderError::Transport)? = retry;
                 self.available.store(false, Ordering::Release);
                 Err(e)
             }
@@ -113,10 +135,11 @@ impl CredentialManager {
         &self,
         rejected: Option<&str>,
     ) -> Result<OAuthCredentials, ProviderError> {
-        let _guard = self.refresh.lock().await;
-        let mut pending = self.pending.lock().await;
+        let _guard = self.refresh.lock.lock().await;
+        let mut pending = self.refresh.pending.lock().await;
         if let Some(next) = pending.as_ref() {
             let waiting = self
+                .refresh
                 .retry
                 .lock()
                 .map_err(|_| ProviderError::Transport)?
@@ -139,7 +162,11 @@ impl CredentialManager {
                 Ok(true) => {
                     let credentials = next.credentials.clone();
                     *pending = None;
-                    *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
+                    *self
+                        .refresh
+                        .retry
+                        .lock()
+                        .map_err(|_| ProviderError::Transport)? = None;
                     self.available.store(true, Ordering::Release);
                     if rejected != Some(credentials.access_token.as_str())
                         && credentials.expires_at > chrono::Utc::now().timestamp() + 60
@@ -151,7 +178,11 @@ impl CredentialManager {
                     // Keep pending until the authoritative winner can be read.
                     let winner = self.load().await?;
                     *pending = None;
-                    *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
+                    *self
+                        .refresh
+                        .retry
+                        .lock()
+                        .map_err(|_| ProviderError::Transport)? = None;
                     let usable = winner.usable
                         && winner.credentials.expires_at > chrono::Utc::now().timestamp();
                     self.available.store(usable, Ordering::Release);
@@ -175,6 +206,7 @@ impl CredentialManager {
         }
         // Revision -1 marks a failed read: there is no known token to reuse yet.
         if self
+            .refresh
             .retry
             .lock()
             .map_err(|_| ProviderError::Transport)?
@@ -186,13 +218,21 @@ impl CredentialManager {
         let current = self.load().await?;
         let force = rejected == Some(current.credentials.access_token.as_str());
         if !current.usable || !current.credentials.refreshable() {
-            *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
+            *self
+                .refresh
+                .retry
+                .lock()
+                .map_err(|_| ProviderError::Transport)? = None;
             self.available.store(false, Ordering::Release);
             return Err(ProviderError::Auth);
         }
         let now = chrono::Utc::now().timestamp();
         {
-            let mut retry = self.retry.lock().map_err(|_| ProviderError::Transport)?;
+            let mut retry = self
+                .refresh
+                .retry
+                .lock()
+                .map_err(|_| ProviderError::Transport)?;
             if retry.as_ref().is_some_and(|(revision, at, _)| {
                 *revision == current.revision && std::time::Instant::now() < *at
             }) {
@@ -211,23 +251,26 @@ impl CredentialManager {
         }
         match self.oauth.refresh(&current.credentials).await {
             Ok(next) => {
+                // Save the only rotated copy before CAS can suspend or be cancelled.
+                *pending = Some(VersionedToken {
+                    revision: current.revision,
+                    credentials: next.clone(),
+                    usable: true,
+                });
                 let changed = match self.store.compare_exchange(current.revision, &next).await {
                     Ok(changed) => changed,
                     Err(_) => {
                         self.defer(current.revision, next.expires_at)?;
-                        *pending = Some(VersionedToken {
-                            revision: current.revision,
-                            credentials: next.clone(),
-                            usable: true,
-                        });
                         return Ok(next);
                     }
                 };
                 if changed {
+                    *pending = None;
                     self.available.store(true, Ordering::Release);
                     Ok(next)
                 } else {
                     let winner = self.load().await?;
+                    *pending = None;
                     let usable = winner.usable
                         && winner.credentials.expires_at > chrono::Utc::now().timestamp();
                     self.available.store(usable, Ordering::Release);
@@ -239,7 +282,11 @@ impl CredentialManager {
                 }
             }
             Err(error) if error != ProviderError::Auth => {
-                *self.retry.lock().map_err(|_| ProviderError::Transport)? = Some((
+                *self
+                    .refresh
+                    .retry
+                    .lock()
+                    .map_err(|_| ProviderError::Transport)? = Some((
                     current.revision,
                     std::time::Instant::now() + std::time::Duration::from_secs(5),
                     current.credentials.expires_at,
@@ -256,7 +303,11 @@ impl CredentialManager {
         }
     }
     fn defer(&self, revision: i64, expires_at: i64) -> Result<(), ProviderError> {
-        *self.retry.lock().map_err(|_| ProviderError::Transport)? = Some((
+        *self
+            .refresh
+            .retry
+            .lock()
+            .map_err(|_| ProviderError::Transport)? = Some((
             revision,
             std::time::Instant::now() + std::time::Duration::from_secs(5),
             expires_at,
@@ -269,7 +320,11 @@ impl CredentialManager {
     }
     /// Only called for a definite rejection from the OAuth token endpoint.
     async fn reject(&self, current: &VersionedToken) -> Result<OAuthCredentials, ProviderError> {
-        *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
+        *self
+            .refresh
+            .retry
+            .lock()
+            .map_err(|_| ProviderError::Transport)? = None;
         self.available.store(false, Ordering::Release);
         // A competing successful rotation must not be invalidated by this loser.
         if !self.store.invalidate(current.revision).await? {

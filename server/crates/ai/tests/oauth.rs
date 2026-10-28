@@ -180,7 +180,7 @@ async fn reload_generations_share_refresh_gate_and_do_not_reuse_rotated_token() 
     let server = MockServer::start().await;
     Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_millis(20)).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-new-refresh","expires_in":3600,"token_type":"Bearer"}))).expect(1).mount(&server).await;
     let tokens = Tokens::new(1);
-    let gate = Arc::new(tokio::sync::Mutex::new(()));
+    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
     let first = CredentialManager::with_gate(
         tokens.clone(),
         OAuthClient::at(&server.uri()).unwrap(),
@@ -421,12 +421,25 @@ async fn rotated_credentials_survive_write_failure_and_retry_original_cas() {
             fail: std::sync::atomic::AtomicBool::new(true),
             committed,
         });
-        let manager =
-            CredentialManager::new(store.clone(), OAuthClient::at(&server.uri()).unwrap()).await;
+        let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+        let manager = CredentialManager::with_gate(
+            store.clone(),
+            OAuthClient::at(&server.uri()).unwrap(),
+            gate.clone(),
+        )
+        .await;
         assert_eq!(
             manager.access().await.unwrap().access_token,
             "synthetic-new-access"
         );
+        drop(manager);
+        // A route/price reload must inherit both R1 and the persistence backoff.
+        let manager = CredentialManager::with_gate(
+            store.clone(),
+            OAuthClient::at(&server.uri()).unwrap(),
+            gate,
+        )
+        .await;
         assert!(manager.available());
         assert_eq!(
             manager.access().await.unwrap().refresh_token,
@@ -457,4 +470,63 @@ async fn rotated_credentials_survive_write_failure_and_retry_original_cas() {
         assert!(manager.available());
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
+}
+
+struct HangingWrite {
+    tokens: Arc<Tokens>,
+    entered: tokio::sync::Notify,
+    hang: std::sync::atomic::AtomicBool,
+}
+#[async_trait::async_trait]
+impl TokenStore for HangingWrite {
+    async fn load(&self) -> Result<jiabu_ai::credentials::VersionedToken, ProviderError> {
+        self.tokens.load().await
+    }
+    async fn compare_exchange(
+        &self,
+        revision: i64,
+        next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        assert_eq!(next.refresh_token, "synthetic-new-refresh");
+        if self.hang.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            self.entered.notify_one();
+            std::future::pending::<()>().await;
+        }
+        self.tokens.compare_exchange(revision, next).await
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn dropping_refresh_during_cas_retains_rotated_credentials() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token":"synthetic-new-access", "refresh_token":"synthetic-new-refresh",
+            "expires_in":3600, "token_type":"Bearer"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let store = Arc::new(HangingWrite {
+        tokens: Tokens::new(1),
+        entered: tokio::sync::Notify::new(),
+        hang: std::sync::atomic::AtomicBool::new(true),
+    });
+    let manager =
+        CredentialManager::new(store.clone(), OAuthClient::at(&server.uri()).unwrap()).await;
+    // select drops access once CAS is waiting, exactly like an outer timeout.
+    tokio::select! {
+        _ = store.entered.notified() => {},
+        _ = manager.access() => panic!("CAS should still be waiting"),
+    }
+    assert_eq!(store.tokens.load().await.unwrap().revision, 1);
+    assert_eq!(
+        manager.access().await.unwrap().refresh_token,
+        "synthetic-new-refresh"
+    );
+    assert_eq!(store.tokens.load().await.unwrap().revision, 2);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }

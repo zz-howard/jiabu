@@ -21,6 +21,7 @@ impl TurnSink for Sink {
 pub struct Meter {
     pub calls: Mutex<Vec<(String, String)>>,
     pub results: Mutex<Vec<Option<String>>>,
+    pub usages: Mutex<Vec<Option<Usage>>>,
 }
 #[async_trait]
 impl CallObserver for Meter {
@@ -39,9 +40,10 @@ impl CallObserver for Meter {
         &self,
         _id: i64,
         _elapsed: Duration,
-        _usage: Option<&Usage>,
+        usage: Option<&Usage>,
         error: Option<&ProviderError>,
     ) -> Result<(), ProviderError> {
+        self.usages.lock().unwrap().push(usage.cloned());
         self.results
             .lock()
             .unwrap()

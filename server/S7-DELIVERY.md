@@ -147,3 +147,11 @@
 - 刷新成功但写库失败时，manager 保留新凭据并继续提供新访问令牌，复用 5 秒退避，下一次 access 先以原 revision 重试 CAS，revision 已变化则采用库中凭据；新增写入失败、提交结果不明和竞争登录测试，不再使用旧 refresh token。
 - SIWC 认证恢复的两次物理模型请求分别经过 observer begin/finish，第一次记录 auth、第二次记录 success 或自身错误，共用剩余超时预算；补充 401 / 流中认证错误的逐次计量断言。
 - 需要 DB 主密钥时读取失败使 reload 返回错误并保留旧 router 与版本，首次失败保留 version=-1 的不可用 router，60 秒兜底按未加载版本重试；新增密钥恢复后同配置重新加载及可用性断言（本轮均未编译或运行测试）。
+
+
+第四轮独立评审修复：
+
+- 现有按 provider ID 共享的刷新闸门同时持有 pending 轮换凭据和退避状态，同来源 reload 继承，仅 provider ID 或 db / file 路径 / env 名称变更时隔离；补充写库失败后 reload 继续使用 R1 的回归测试。
+- OAuth 刷新成功后在下一次 await 前写入共享 pending，CAS 成功后清除，CAS 等待被取消仍保留 R1；补充挂起 CAS 后 drop future 再次 access 的回归测试。
+- 完成项 refusal 文本与 output_text 一样发送给 sink，response.refusal.delta 复用文字增量与完成项前缀去重规则；补充无增量、部分增量和完整增量拒答流测试。
+- response.completed 的 usage 在发布其他事件前同步交给 AttemptSink 计量，后续 ToolCall sink 失败仍独立 finish；补充 observer 与 ai_calls token、成本、失败结果断言（本轮未编译或运行测试，未联网）。

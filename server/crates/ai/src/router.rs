@@ -41,6 +41,9 @@ pub(crate) struct OutputSink<'a> {
 }
 #[async_trait::async_trait]
 impl TurnSink for OutputSink<'_> {
+    fn record_usage(&mut self, usage: &Usage) {
+        self.inner.record_usage(usage);
+    }
     async fn emit(&mut self, event: TurnEvent) -> Result<(), ProviderError> {
         let visible = match &event {
             TurnEvent::TextDelta(text) => !text.is_empty(),
