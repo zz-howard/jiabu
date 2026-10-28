@@ -102,7 +102,7 @@ impl TokenStore for EnvironmentTokens {
         _expected: i64,
         _next: &OAuthCredentials,
     ) -> Result<bool, ProviderError> {
-        Err(ProviderError::Auth)
+        Ok(false)
     }
     async fn invalidate(&self, _expected: i64) -> Result<bool, ProviderError> {
         Ok(true)
@@ -115,7 +115,7 @@ fn refresh_gate(provider: &str, source: &str) -> Arc<RefreshGate> {
         .get_or_init(Gates::default)
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // Keep every source resident so switching back reuses lock, pending and backoff.
+    // Keep every source resident so switching back reuses the refresh lock and usability.
     gates
         .entry((provider.to_owned(), source.to_owned()))
         .or_insert_with(|| Arc::new(RefreshGate::default()))
@@ -665,8 +665,7 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn real_clear_secret_discards_pending_without_decrypting_tombstone_or_sending_a1()
-    -> Result<()> {
+    async fn real_clear_secret_prevents_old_tokens_without_decrypting_tombstone() -> Result<()> {
         use super::ai_test_support::*;
         use jiabu_ai::{AiRouter, credentials::TokenRead};
         use wiremock::{
@@ -861,7 +860,7 @@ mod tests {
         }
         let manager =
             Arc::new(CredentialManager::new(store.clone(), OAuthClient::at(&server.uri())?).await);
-        // Successful CAS leaves no pending/retry; the shared deadline is A1's real expiry.
+        // Persist A1, then let its access token expire before the router call.
         assert_eq!(manager.access().await?.access_token, "synthetic-A1");
         assert!(matches!(
             store.load().await?,

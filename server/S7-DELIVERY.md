@@ -20,15 +20,14 @@
 2. 动态客户端首次使用 `dynamic_agent_client`；令牌响应有 client_id 时按它核对 audience，否则要求直接令牌响应的 audience 是单个 `oaiapp_…` 应用 ID，保存后用于后续登录和刷新。真实 SIWC 响应形状需由 luna.coco 的在线测试验证。scope 在令牌响应中存在时逐项检查；省略时沿用本次申请范围，并用 `/v1/models` 再验证访问。
 3. 主机 ID 存在 ai_settings 的单例行中，适用于 v1 单主机部署，不是每次进程启动生成。首次 `provider login chatgpt` 可创建订阅 SIWC 提供方；模型与路由由管理员从返回的账号模型列表配置。
 4. 管理配置 add/update 和 price/settings set 使用 `--file <JSON>`，提供方 / 模型 update 是完整替换元数据。模型 add 缺 id 时生成 UUIDv7；provider.version 默认 1，但更新版本只由数据库递增。secret 只接受 `--stdin` / `--file`，不接受 argv 明文。价格为十进制字符串；`cache_write` 的费率值也用字符串，`long_context` 的阈值用整数、费率用字符串。
-5. 文件凭据结构是 `{revision, usable, credentials: {access_token, refresh_token, client_id, account_id, expires_at, host_id}}`。env 来源是其中 credentials 本体 JSON，由外部系统更新；环境变量无法原子写回，刷新结果只保存在共享 pending 中，到期或被拒后继续用最新 refresh token 刷新。env 来源建议只用于短期调试，轮换后的令牌不会持久化，进程重启后需外部更新。建议使用数据库或文件实现自动轮换。file/env 来源不由本 CLI 覆盖。
+5. 文件凭据结构是 `{revision, usable, credentials: {access_token, refresh_token, client_id, account_id, expires_at, host_id}}`。env 来源是其中 credentials 本体 JSON，只适合外部负责更新令牌的场景；CAS 永远失败，自动刷新后的令牌只用于本次调用，不会保存。建议使用数据库或文件实现自动轮换。file/env 来源不由本 CLI 覆盖。
 6. 缓存写入用量目前没有 TTL：价格表存在 default 时使用 default；只有一个 TTL 费率时使用该费率；多个 TTL 且无 default 时，不猜测费率，成本保持 NULL。长上下文按 input_tokens 阈值选价。价格缺失不阻止调用，历史价格不重算。
 7. 配置一次管理操作可以触发多次版本递增；约定是单调递增，不保证正好 +1。所有正常配置写入与 OAuth 函数先锁 settings 行，避免密钥行 / 提供方行之间的锁反转。刷新 CAS 只允许当前启用的 SIWC 数据库 OAuth 行，刷新失败的失效写入也绑定 revision；旧请求的认证失败不撤销已经轮换的新令牌。单进程内还按 provider ID 跨配置代共享刷新锁，避免热替换期间两个适配器同时使用旧 refresh token。
 8. 运行等待退避的 5 秒初值 / 60 秒上限 / 600 秒硬上限在本 PR 提供可配置字段；实际等待状态机留 PR ②。路由的 5 分钟总调用超时和 SIWC 的 60 秒流空闲超时已经接入。
 9. ProviderBlob 作为有序 RequestItem 保留在模型输出原位置，限提供方 / 模型 / 账号完全匹配才发送；无关 scope 就地跳过，其余条目顺序不变。被拒后重试一次，移除全部 ProviderBlob 条目并保留其余历史顺序。PR ② 负责消费 Note、原子落 model_turn / journal、保存前缀计量上下文；本 PR 不建立任何 agent worker。
 10. 非 SIWC 的真实付费适配器按范围不实现。配置能力与付费开关已存在，Mock 覆盖付费降级。ChatWeave 依赖、dispatcher 授权接线与通用后续项均在 PR ② 处理。
 
-11. 凭据可用 / 回退 / 丢弃规则：存储读取明确返回 `Present(revision, 凭据)`、`Cleared(revision)` 或临时故障 `Unavailable`；先读 revision / usable，墓碑不解密，密文或 JSON 损坏按 Auth 不可用处理。仅 `Unavailable` 可回退到共享 pending；同 revision 优先 pending，墓碑、损坏或库中 revision 更新立即丢弃 pending 和旧退避，更新的 Present 采用库中凭据。pending 保留最新轮换结果与原 CAS 基准，在可取消的保存前发布；相同 provider / 来源的 reload 共用它、刷新锁和退避。`available()` 表示未确定失效，且访问令牌未过期 / 未被拒，或有 refresh token 且不在刷新退避期；需要刷新仍允许 router 进入 `access()` 并在共享锁下刷新。401 / invalid_token 把旧访问令牌标为过期，禁止重发；刷新临时故障退避 5 秒，结束后经路由恢复，仅令牌端点明确的 invalid_grant / invalid_client / unauthorized_client 永久失效。无 pending 的临时读取故障在退避结束后允许重新读取探测。clear-secret 清空密文并保留递增 revision 的墓碑，重新登录继续递增，旧 CAS 不能覆盖新版本。
-    第七轮补充：每次模型请求的 Auth（401 / invalid_token，含第二次失败及已有输出之后）均按访问令牌身份记录被拒，迟到的旧令牌失败不误标新令牌；是否刷新重试仍限一次且已有输出不重试。文件来源的 NotFound、权限违规（含 0600 检查）、JSON / 结构损坏仍为权威结果，其他 IO 错误（含 EIO、EMFILE、Interrupted）返回 Unavailable 并保留 pending，恢复后继续使用最新 R1。刷新闸门按 `(provider_id, source_identity)` 常驻保存、不从 map 移除，db → file → db 复用原闸门的锁、pending 和退避。
+11. 凭据规则：每次调用在共享刷新锁内读存储，不缓存凭据；闸门按 `(provider_id, source_identity)` 跨配置代常驻共享，只含锁与 `usable`。墓碑 / 损坏返回 Auth 并标记不可用，临时读取故障返回 Transport、不改可用性，退避由路由熔断处理。访问令牌 60 秒内到期或收到 401 / invalid_token 时，有 refresh token 就刷新；并发被拒请求若读到令牌已变，直接复用。成功后 CAS 保存新令牌，CAS 冲突或存储错误只记日志，本次仍用刷新结果；下次以存储为准。令牌端点明确拒绝则按 revision invalidate、标记不可用并要求重新登录；网络 / 5xx / 429 失败时沿用尚未过期的访问令牌，过期则返回 Transport，不保留失败状态。`available()` 只读 `usable`。模型认证失败最多刷新后重试一次，已有可见输出不重试；403 不改凭据。clear-secret 保留递增 revision 的墓碑，重新登录继续递增，下一次读库立即生效。
 12. router 跟踪已送往 sink 的非空文字、工具调用及 Note；已部分输出后的失败返回带原始错误的 PartialOutput，停止同一 sink 上的透明重试和降级，PR ② 据此保留已有文字并另起一块。
 13. 半开探测由 RAII 许可持有，提前返回或取消均按失败释放；包含重试及 observer / sink 等待的单提供方调用总时限为 300 秒，过期探测在额外冷却后可回收，许可代次隔离过期探测的迟到收尾。
 
@@ -138,7 +137,7 @@
 第二轮独立评审修复：
 
 - 每次尝试传入总时限的剩余预算（含登记耗时），只对提供方调用套超时；捕获 Timeout 后独立执行 `observer.finish()`，router 返回前 `ai_calls` 已完成（`outcome=failed`、`error_kind=timeout`、`completed_at` 非空），重试共用剩余预算。
-- 模型请求 401 或流中 `invalid_api_key` / `invalid_token` / `token_expired` 在尚无可见输出时，经共享刷新锁重新读取并强制刷新（并发请求已轮换则复用新令牌），仅重试一次；`reject()` 仅由令牌端点明确的 `invalid_grant` / `invalid_client` / `unauthorized_client` 触发。403 保留 quota 码 → `QuotaExhausted`、`rate_limit_exceeded` → `RateLimited`、加密内容拒绝码 → `BlobRejected`；`permission_denied` / `insufficient_permissions` / `model_not_found` / `model_access_denied` 及未知或访问令牌类 403 → `Unsupported("permission denied")`，均不刷新、不修改凭据；已输出内容的流失败不透明重试。
+- 模型请求 401 或流中 `invalid_api_key` / `invalid_token` / `token_expired` 在尚无可见输出时，经共享刷新锁重新读取并强制刷新（并发请求已轮换则复用新令牌），仅重试一次；凭据失效仅由令牌端点明确的 `invalid_grant` / `invalid_client` / `unauthorized_client` 触发。403 保留 quota 码 → `QuotaExhausted`、`rate_limit_exceeded` → `RateLimited`、加密内容拒绝码 → `BlobRejected`；`permission_denied` / `insufficient_permissions` / `model_not_found` / `model_access_denied` 及未知或访问令牌类 403 → `Unsupported("permission denied")`，均不刷新、不修改凭据；已输出内容的流失败不透明重试。
 
 
 第三轮独立评审修复：
@@ -153,9 +152,9 @@
 - response.completed 的 usage 在发布其他事件前同步交给 AttemptSink 计量，后续 ToolCall sink 失败仍独立 finish；补充 observer 与 ai_calls token、成本、失败结果断言（本轮未编译或运行测试，未联网）。
 
 
-第五、六轮凭据修复的最终规则已合并到上文“凭据可用 / 回退 / 丢弃规则”。新增 / 调整回归包括：真实 PG18 的 db-admin clear-secret 在 pending 存在时阻止下一次模型请求发送 A1（含 reload）；读取临时不可用允许 pending、凭据损坏丢弃 pending；真实 DB 凭据自然过期后经 AiRouter 刷新并调用成功；401 → 刷新 503 → 退避不可用 → 端点恢复后经 AiRouter 成功且不重发旧令牌。保留重新登录淘汰 pending 与 env 使用最新 refresh token 的回归。本轮仅做静态核对，未编译、未运行 Rust / 数据库测试、未联网、未提交；新增 server 的 wiremock 开发依赖供构建机运行合成 HTTP 回归。
+凭据简化回归覆盖：到期前刷新并 CAS 保存新 refresh token、并发到期只刷新一次、401 单次重试及并发 401 共用刷新、明确拒绝后不可用及重新登录恢复、503 后下一次调用恢复、真实 db-admin clear-secret 路径阻止下一次请求发送旧令牌、临时读取故障恢复。本轮仅做静态核对，未编译、未运行 Rust / 数据库测试、未联网、未提交。
 
+## 已知限制
 
-## 后续（已评估、可延后；见 issue #14）
-
-调用截止时间可能取消已在上游完成轮换、但响应尚未返回的刷新请求，导致新 refresh token 丢失（触发条件：临近 300 秒截止时才收到 401，且令牌端点响应延迟超过剩余预算）。建议做法：刷新启动后由独立任务持有共享刷新锁完成接收与保存，调用方截止只停止等待。
+- 刷新成功但写库失败时，新 refresh token 只用于本次调用；若上游已作废旧 refresh token，需要重新登录。
+- 调用截止时间取消刷新时，可能丢失上游已轮换的新 refresh token，需要重新登录。
