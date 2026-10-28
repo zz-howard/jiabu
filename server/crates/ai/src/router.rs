@@ -66,7 +66,10 @@ pub struct RouterStore(pub ArcSwap<AiRouter>);
 impl Default for RouterStore {
     fn default() -> Self {
         Self(ArcSwap::from_pointee(AiRouter::new(
-            AiConfig::default(),
+            AiConfig {
+                version: -1,
+                ..AiConfig::default()
+            },
             vec![],
         )))
     }
@@ -205,8 +208,8 @@ impl AiRouter {
                     if remaining.is_zero() {
                         break Err(ProviderError::Timeout);
                     }
-                    let result = measured_attempt(
-                        provider.as_ref(), task, &request, &mut output, observer, remaining,
+                    let result = provider.run_turn_observed(
+                        task, &request, &mut output, observer, remaining,
                     ).await;
                     if output.visible && result.is_err() {
                         break result;

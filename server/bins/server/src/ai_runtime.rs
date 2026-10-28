@@ -47,19 +47,19 @@ impl TokenStore for DatabaseTokens {
         expected: i64,
         next: &OAuthCredentials,
     ) -> Result<bool, ProviderError> {
-        let bytes = Zeroizing::new(serde_json::to_vec(next).map_err(|_| ProviderError::Auth)?);
+        let bytes = Zeroizing::new(serde_json::to_vec(next).map_err(|_| ProviderError::Transport)?);
         let secret = self
             .key
             .seal("provider", &self.provider, "oauth", &bytes)
-            .map_err(|_| ProviderError::Auth)?;
+            .map_err(|_| ProviderError::Transport)?;
         let tx = SystemTx::begin(&self.db)
             .await
-            .map_err(|_| ProviderError::Auth)?;
+            .map_err(|_| ProviderError::Transport)?;
         let changed = tx
             .rotate_ai_secret(&self.provider, expected, &secret, next.expires_at)
             .await
-            .map_err(|_| ProviderError::Auth)?;
-        tx.commit().await.map_err(|_| ProviderError::Auth)?;
+            .map_err(|_| ProviderError::Transport)?;
+        tx.commit().await.map_err(|_| ProviderError::Transport)?;
         Ok(changed)
     }
     async fn invalidate(&self, expected: i64) -> Result<bool, ProviderError> {
@@ -112,6 +112,13 @@ fn refresh_gate(provider: &str) -> Arc<tokio::sync::Mutex<()>> {
         .clone()
 }
 async fn reload(db: &AppDb, store: &RouterStore) -> Result<()> {
+    reload_with_key(db, store, SecretKey::from_environment).await
+}
+async fn reload_with_key(
+    db: &AppDb,
+    store: &RouterStore,
+    read_key: impl FnOnce() -> Result<SecretKey, &'static str>,
+) -> Result<()> {
     let config = db.ai_configuration().await?;
     let old = store.0.load_full();
     if config.version == old.config.version
@@ -123,7 +130,14 @@ async fn reload(db: &AppDb, store: &RouterStore) -> Result<()> {
     {
         return Ok(());
     }
-    let key = SecretKey::from_environment().ok().map(Arc::new);
+    let needs_key = config.providers.iter().any(|p| {
+        p.enabled && p.kind == "siwc" && matches!(p.secret_source.as_deref(), None | Some("db"))
+    });
+    let key = if needs_key {
+        Some(Arc::new(read_key().map_err(anyhow::Error::msg)?))
+    } else {
+        None
+    };
     let mut providers: Vec<Arc<dyn ModelProvider>> = vec![];
     for p in &config.providers {
         if !p.enabled || p.kind != "siwc" {
@@ -138,7 +152,7 @@ async fn reload(db: &AppDb, store: &RouterStore) -> Result<()> {
             }),
             None | Some("db") => {
                 let Some(key) = key.clone() else {
-                    continue;
+                    anyhow::bail!("master key required");
                 };
                 Arc::new(DatabaseTokens {
                     db: db.clone(),
@@ -171,7 +185,13 @@ pub async fn start(
     // Subscribe before the initial load, so startup writes cannot be missed.
     let mut notifications = ConfigNotifications::connect(url.expose_secret()).await?;
     db.recover_lost_ai_calls().await?;
-    reload(&db, &store).await?;
+    // The default router is unavailable with version -1 until a load succeeds.
+    if reload(&db, &store).await.is_err() {
+        tracing::warn!(
+            error_kind = "ai_config",
+            "Initial AI configuration load failed"
+        );
+    }
     Ok(tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
@@ -451,6 +471,63 @@ mod tests {
         .await?;
         assert_eq!(row, ("failed".into(), "timeout".into(), true));
         owner.close().await;
+
+        // Missing master key must preserve the published router and its version.
+        let mut db_provider = provider;
+        db_provider.secret_source = Some("db".into());
+        admin
+            .ai_write(
+                ConfigWrite::Provider {
+                    config: db_provider,
+                    create: false,
+                },
+                "test",
+            )
+            .await?;
+        let key =
+            SecretKey::new("synthetic-key".into(), vec![7; 32]).map_err(anyhow::Error::msg)?;
+        let secret = key
+            .seal(
+                "provider",
+                "synthetic",
+                "oauth",
+                &serde_json::to_vec(&doc.credentials)?,
+            )
+            .map_err(anyhow::Error::msg)?;
+        admin
+            .ai_save_oauth(
+                "synthetic",
+                &secret,
+                &doc.credentials.client_id,
+                doc.credentials.expires_at,
+                "test",
+            )
+            .await?;
+        let old = store.0.load_full();
+        assert!(
+            reload_with_key(&db, &store, || Err("temporarily unreadable"))
+                .await
+                .is_err()
+        );
+        assert!(Arc::ptr_eq(&old, &store.0.load_full()));
+        assert_eq!(store.0.load().config.version, old.config.version);
+
+        // Startup publishes the default unavailable status with an unloaded version.
+        let initial = RouterStore::default();
+        assert!(
+            reload_with_key(&db, &initial, || Err("temporarily unreadable"))
+                .await
+                .is_err()
+        );
+        assert!(!initial.0.load().availability(TaskKind::Chat).available);
+        assert_eq!(initial.0.load().config.version, -1);
+        let version = db.ai_configuration().await?.version;
+        // The next fallback uses the same reload path, with no configuration change.
+        reload_with_key(&db, &initial, || Ok(key)).await?;
+        assert_eq!(initial.0.load().config.version, version);
+        assert!(initial.0.load().availability(TaskKind::Chat).available);
+        reload_with_key(&db, &initial, || Err("must not reread a loaded version")).await?;
+        assert!(initial.0.load().availability(TaskKind::Chat).available);
         db.close().await?;
         Ok(())
     }

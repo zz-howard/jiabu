@@ -55,6 +55,17 @@ pub trait ModelProvider: Send + Sync {
     fn credentials_available(&self) -> bool {
         true
     }
+    /// Override when one logical turn can send multiple independently metered requests.
+    async fn run_turn_observed(
+        &self,
+        task: TaskKind,
+        req: &TurnRequest,
+        sink: &mut dyn TurnSink,
+        observer: &dyn CallObserver,
+        budget: Duration,
+    ) -> Result<(), ProviderError> {
+        measured_attempt(self, task, req, sink, observer, budget).await
+    }
     async fn run_turn(
         &self,
         req: &TurnRequest,
@@ -94,7 +105,7 @@ impl TurnSink for AttemptSink<'_> {
     }
 }
 pub async fn measured_attempt(
-    provider: &dyn ModelProvider,
+    provider: &(impl ModelProvider + ?Sized),
     task: TaskKind,
     req: &TurnRequest,
     sink: &mut dyn TurnSink,

@@ -366,7 +366,29 @@ async fn access_token_errors_refresh_once_but_only_token_endpoint_rejection_revo
         )
         .unwrap();
         let mut sink = Sink::default();
-        let result = provider.run_turn(&request(), &mut sink).await;
+        let meter = Meter::default();
+        let result = provider
+            .run_turn_observed(
+                TaskKind::Chat,
+                &request(),
+                &mut sink,
+                &meter,
+                std::time::Duration::from_secs(30),
+            )
+            .await;
+        let expected = if refresh_rejected {
+            vec![Some("auth".to_owned())]
+        } else {
+            vec![
+                Some("auth".to_owned()),
+                second_rejected.then(|| "auth".to_owned()),
+            ]
+        };
+        assert_eq!(*meter.results.lock().unwrap(), expected);
+        assert_eq!(
+            meter.calls.lock().unwrap().len(),
+            if refresh_rejected { 1 } else { 2 }
+        );
         if refresh_rejected || second_rejected {
             assert_eq!(result, Err(ProviderError::Auth));
             assert!(sink.0.is_empty());

@@ -20,7 +20,7 @@
 2. 动态客户端首次使用 `dynamic_agent_client`；令牌响应有 client_id 时按它核对 audience，否则要求直接令牌响应的 audience 是单个 `oaiapp_…` 应用 ID，保存后用于后续登录和刷新。真实 SIWC 响应形状需由 luna.coco 的在线测试验证。scope 在令牌响应中存在时逐项检查；省略时沿用本次申请范围，并用 `/v1/models` 再验证访问。
 3. 主机 ID 存在 ai_settings 的单例行中，适用于 v1 单主机部署，不是每次进程启动生成。首次 `provider login chatgpt` 可创建订阅 SIWC 提供方；模型与路由由管理员从返回的账号模型列表配置。
 4. 管理配置 add/update 和 price/settings set 使用 `--file <JSON>`，提供方 / 模型 update 是完整替换元数据。模型 add 缺 id 时生成 UUIDv7；provider.version 默认 1，但更新版本只由数据库递增。secret 只接受 `--stdin` / `--file`，不接受 argv 明文。价格为十进制字符串；`cache_write` 的费率值也用字符串，`long_context` 的阈值用整数、费率用字符串。
-5. 文件凭据结构是 `{revision, usable, credentials: {access_token, refresh_token, client_id, account_id, expires_at, host_id}}`。env 来源是其中 credentials 本体 JSON，由外部系统更新；环境变量无法原子写回，刷新若无法保存便将该适配器判为不可用，建议使用数据库或文件实现自动轮换。file/env 来源不由本 CLI 覆盖。
+5. 文件凭据结构是 `{revision, usable, credentials: {access_token, refresh_token, client_id, account_id, expires_at, host_id}}`。env 来源是其中 credentials 本体 JSON，由外部系统更新；环境变量无法原子写回，刷新若无法保存便在本进程保留新凭据并退避重试保存，建议使用数据库或文件实现自动轮换。file/env 来源不由本 CLI 覆盖。
 6. 缓存写入用量目前没有 TTL：价格表存在 default 时使用 default；只有一个 TTL 费率时使用该费率；多个 TTL 且无 default 时，不猜测费率，成本保持 NULL。长上下文按 input_tokens 阈值选价。价格缺失不阻止调用，历史价格不重算。
 7. 配置一次管理操作可以触发多次版本递增；约定是单调递增，不保证正好 +1。所有正常配置写入与 OAuth 函数先锁 settings 行，避免密钥行 / 提供方行之间的锁反转。刷新 CAS 只允许当前启用的 SIWC 数据库 OAuth 行，刷新失败的失效写入也绑定 revision；旧请求的认证失败不撤销已经轮换的新令牌。单进程内还按 provider ID 跨配置代共享刷新锁，避免热替换期间两个适配器同时使用旧 refresh token。
 8. 运行等待退避的 5 秒初值 / 60 秒上限 / 600 秒硬上限在本 PR 提供可配置字段；实际等待状态机留 PR ②。路由的 5 分钟总调用超时和 SIWC 的 60 秒流空闲超时已经接入。
@@ -140,3 +140,10 @@
 - 每次尝试传入总时限的剩余预算（含登记耗时），只对提供方调用套超时；捕获 Timeout 后独立执行 `observer.finish()`，router 返回前 `ai_calls` 已完成（`outcome=failed`、`error_kind=timeout`、`completed_at` 非空），重试共用剩余预算。
 - 初始化和后续凭据读取的连接、池、超时等存储故障复用现有 5 秒 `retry` 退避；manager 保留，退避到期重新允许路由探测并读取，无需配置变更或重启，凭据缺失、损坏或明确不可用仍按 Auth 处理。
 - 模型请求 401 或流中 `invalid_api_key` / `invalid_token` / `token_expired` 在尚无可见输出时，经共享刷新锁重新读取并强制刷新（并发请求已轮换则复用新令牌），仅重试一次；`reject()` 仅由令牌端点明确的 `invalid_grant` / `invalid_client` / `unauthorized_client` 触发。403 保留 quota 码 → `QuotaExhausted`、`rate_limit_exceeded` → `RateLimited`、加密内容拒绝码 → `BlobRejected`；`permission_denied` / `insufficient_permissions` / `model_not_found` / `model_access_denied` 及未知或访问令牌类 403 → `Unsupported("permission denied")`，均不刷新、不修改凭据；已输出内容的流失败不透明重试。
+
+
+第三轮独立评审修复：
+
+- 刷新成功但写库失败时，manager 保留新凭据并继续提供新访问令牌，复用 5 秒退避，下一次 access 先以原 revision 重试 CAS，revision 已变化则采用库中凭据；新增写入失败、提交结果不明和竞争登录测试，不再使用旧 refresh token。
+- SIWC 认证恢复的两次物理模型请求分别经过 observer begin/finish，第一次记录 auth、第二次记录 success 或自身错误，共用剩余超时预算；补充 401 / 流中认证错误的逐次计量断言。
+- 需要 DB 主密钥时读取失败使 reload 返回错误并保留旧 router 与版本，首次失败保留 version=-1 的不可用 router，60 秒兜底按未加载版本重试；新增密钥恢复后同配置重新加载及可用性断言（本轮均未编译或运行测试）。

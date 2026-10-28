@@ -95,6 +95,57 @@ impl ModelProvider for SiwcProvider {
     fn credentials_available(&self) -> bool {
         self.credentials.available()
     }
+    async fn run_turn_observed(
+        &self,
+        task: TaskKind,
+        req: &TurnRequest,
+        sink: &mut dyn TurnSink,
+        observer: &dyn CallObserver,
+        budget: Duration,
+    ) -> Result<(), ProviderError> {
+        let deadline = tokio::time::Instant::now() + budget;
+        let mut creds = tokio::time::timeout_at(deadline, self.credentials.access())
+            .await
+            .unwrap_or(Err(ProviderError::Timeout))?;
+        let mut output = crate::router::OutputSink {
+            inner: sink,
+            visible: false,
+        };
+        let result = measured_attempt(
+            &HttpAttempt {
+                provider: self,
+                credentials: &creds,
+            },
+            task,
+            req,
+            &mut output,
+            observer,
+            deadline.saturating_duration_since(tokio::time::Instant::now()),
+        )
+        .await;
+        if result != Err(ProviderError::Auth) || output.visible {
+            return result;
+        }
+        creds = tokio::time::timeout_at(
+            deadline,
+            self.credentials
+                .refresh_after_rejection(&creds.access_token),
+        )
+        .await
+        .unwrap_or(Err(ProviderError::Timeout))?;
+        measured_attempt(
+            &HttpAttempt {
+                provider: self,
+                credentials: &creds,
+            },
+            task,
+            req,
+            &mut output,
+            observer,
+            deadline.saturating_duration_since(tokio::time::Instant::now()),
+        )
+        .await
+    }
     async fn run_turn(
         &self,
         req: &TurnRequest,
@@ -200,5 +251,29 @@ impl SiwcProvider {
             }
         }
         Err(ProviderError::InvalidOutput)
+    }
+}
+
+// A borrowed, single HTTP request; authentication recovery stays outside its meter.
+struct HttpAttempt<'a> {
+    provider: &'a SiwcProvider,
+    credentials: &'a oauth::OAuthCredentials,
+}
+#[async_trait]
+impl ModelProvider for HttpAttempt<'_> {
+    fn id(&self) -> &str {
+        self.provider.id()
+    }
+    fn capabilities(&self) -> &Capabilities {
+        self.provider.capabilities()
+    }
+    async fn run_turn(
+        &self,
+        req: &TurnRequest,
+        sink: &mut dyn TurnSink,
+    ) -> Result<(), ProviderError> {
+        self.provider
+            .request_once(req, sink, self.credentials)
+            .await
     }
 }

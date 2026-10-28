@@ -36,6 +36,8 @@ pub struct CredentialManager {
     oauth: OAuthClient,
     refresh: Arc<Mutex<()>>,
     available: AtomicBool,
+    // Rotated credentials awaiting persistence, with the original CAS revision.
+    pending: Mutex<Option<VersionedToken>>,
     retry: std::sync::Mutex<Option<(i64, std::time::Instant, i64)>>,
 }
 impl CredentialManager {
@@ -65,6 +67,7 @@ impl CredentialManager {
             oauth,
             refresh,
             available: AtomicBool::new(available),
+            pending: Mutex::new(None),
             retry: std::sync::Mutex::new(retry),
         }
     }
@@ -111,6 +114,65 @@ impl CredentialManager {
         rejected: Option<&str>,
     ) -> Result<OAuthCredentials, ProviderError> {
         let _guard = self.refresh.lock().await;
+        let mut pending = self.pending.lock().await;
+        if let Some(next) = pending.as_ref() {
+            let waiting = self
+                .retry
+                .lock()
+                .map_err(|_| ProviderError::Transport)?
+                .as_ref()
+                .is_some_and(|(_, at, _)| std::time::Instant::now() < *at);
+            if waiting {
+                return if rejected != Some(next.credentials.access_token.as_str())
+                    && next.credentials.expires_at > chrono::Utc::now().timestamp()
+                {
+                    Ok(next.credentials.clone())
+                } else {
+                    Err(ProviderError::Transport)
+                };
+            }
+            match self
+                .store
+                .compare_exchange(next.revision, &next.credentials)
+                .await
+            {
+                Ok(true) => {
+                    let credentials = next.credentials.clone();
+                    *pending = None;
+                    *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
+                    self.available.store(true, Ordering::Release);
+                    if rejected != Some(credentials.access_token.as_str())
+                        && credentials.expires_at > chrono::Utc::now().timestamp() + 60
+                    {
+                        return Ok(credentials);
+                    }
+                }
+                Ok(false) => {
+                    // Keep pending until the authoritative winner can be read.
+                    let winner = self.load().await?;
+                    *pending = None;
+                    *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
+                    let usable = winner.usable
+                        && winner.credentials.expires_at > chrono::Utc::now().timestamp();
+                    self.available.store(usable, Ordering::Release);
+                    return if usable {
+                        Ok(winner.credentials)
+                    } else {
+                        Err(ProviderError::Auth)
+                    };
+                }
+                Err(_) => {
+                    self.defer(next.revision, next.credentials.expires_at)?;
+                    return if rejected != Some(next.credentials.access_token.as_str())
+                        && next.credentials.expires_at > chrono::Utc::now().timestamp()
+                    {
+                        Ok(next.credentials.clone())
+                    } else {
+                        Err(ProviderError::Transport)
+                    };
+                }
+            }
+        }
         // Revision -1 marks a failed read: there is no known token to reuse yet.
         if self
             .retry
@@ -151,9 +213,14 @@ impl CredentialManager {
             Ok(next) => {
                 let changed = match self.store.compare_exchange(current.revision, &next).await {
                     Ok(changed) => changed,
-                    Err(e) => {
-                        self.available.store(false, Ordering::Release);
-                        return Err(e);
+                    Err(_) => {
+                        self.defer(current.revision, next.expires_at)?;
+                        *pending = Some(VersionedToken {
+                            revision: current.revision,
+                            credentials: next.clone(),
+                            usable: true,
+                        });
+                        return Ok(next);
                     }
                 };
                 if changed {
@@ -187,6 +254,18 @@ impl CredentialManager {
             }
             Err(_) => self.reject(&current).await,
         }
+    }
+    fn defer(&self, revision: i64, expires_at: i64) -> Result<(), ProviderError> {
+        *self.retry.lock().map_err(|_| ProviderError::Transport)? = Some((
+            revision,
+            std::time::Instant::now() + std::time::Duration::from_secs(5),
+            expires_at,
+        ));
+        self.available.store(
+            expires_at > chrono::Utc::now().timestamp(),
+            Ordering::Release,
+        );
+        Ok(())
     }
     /// Only called for a definite rejection from the OAuth token endpoint.
     async fn reject(&self, current: &VersionedToken) -> Result<OAuthCredentials, ProviderError> {

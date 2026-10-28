@@ -374,3 +374,87 @@ async fn concurrent_access_token_rejections_force_only_one_refresh() {
     assert_eq!(tokens.load().await.unwrap().revision, 2);
     assert!(manager.available());
 }
+
+struct FlakyWrite {
+    tokens: Arc<Tokens>,
+    fail: std::sync::atomic::AtomicBool,
+    committed: bool,
+}
+#[async_trait::async_trait]
+impl TokenStore for FlakyWrite {
+    async fn load(&self) -> Result<jiabu_ai::credentials::VersionedToken, ProviderError> {
+        self.tokens.load().await
+    }
+    async fn compare_exchange(
+        &self,
+        revision: i64,
+        next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+            if self.committed {
+                self.tokens.compare_exchange(revision, next).await?;
+            }
+            return Err(ProviderError::Transport);
+        }
+        self.tokens.compare_exchange(revision, next).await
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn rotated_credentials_survive_write_failure_and_retry_original_cas() {
+    // Also cover an ambiguous commit and a competing login winning the CAS.
+    for (committed, competing) in [(false, false), (true, false), (false, true)] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/oauth/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token":"synthetic-new-access", "refresh_token":"synthetic-new-refresh",
+                "expires_in":3600, "token_type":"Bearer"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let store = Arc::new(FlakyWrite {
+            tokens: Tokens::new(1),
+            fail: std::sync::atomic::AtomicBool::new(true),
+            committed,
+        });
+        let manager =
+            CredentialManager::new(store.clone(), OAuthClient::at(&server.uri()).unwrap()).await;
+        assert_eq!(
+            manager.access().await.unwrap().access_token,
+            "synthetic-new-access"
+        );
+        assert!(manager.available());
+        assert_eq!(
+            manager.access().await.unwrap().refresh_token,
+            "synthetic-new-refresh"
+        );
+        assert_eq!(
+            store.tokens.load().await.unwrap().revision,
+            if committed { 2 } else { 1 }
+        );
+        store.fail.store(false, std::sync::atomic::Ordering::SeqCst);
+        if competing {
+            let mut winner = store.tokens.load().await.unwrap().credentials;
+            winner.access_token = "synthetic-login-access".into();
+            winner.refresh_token = "synthetic-login-refresh".into();
+            winner.expires_at = chrono::Utc::now().timestamp() + 3600;
+            assert!(store.tokens.compare_exchange(1, &winner).await.unwrap());
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let expected = if competing {
+            "synthetic-login-access"
+        } else {
+            "synthetic-new-access"
+        };
+        assert_eq!(manager.access().await.unwrap().access_token, expected);
+        let saved = store.tokens.load().await.unwrap();
+        assert_eq!(saved.revision, 2);
+        assert_eq!(saved.credentials.access_token, expected);
+        assert!(manager.available());
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
