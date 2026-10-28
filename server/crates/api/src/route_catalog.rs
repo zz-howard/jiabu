@@ -1,7 +1,8 @@
 use crate::{
     AppState,
     handlers::{
-        api_keys, auth, blobs, client_logs, invitations, me, meta, spaces, status, sync, tools,
+        api_keys, auth, blobs, client_logs, invitations, me, meta, spaces, status, sync, templates,
+        tools,
     },
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -38,6 +39,7 @@ fn build() -> (
     mount!("PUT", "/v1/spaces/{space_id}/blobs/{sha256}", blobs::upload);
     mount!("GET", "/v1/spaces/{space_id}/blobs/{sha256}", blobs::get);
     mount!("GET", "/v1/status", status::get);
+    mount!("GET", "/v1/templates", templates::get);
     mount!("GET", "/v1/spaces/{space_id}/tools", tools::list);
     mount!("GET", "/v1/meta", meta::meta);
     mount!("GET", "/healthz", meta::healthz);

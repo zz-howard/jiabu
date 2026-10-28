@@ -136,6 +136,462 @@
         ],
         "type": "object"
       },
+      "DocumentTemplate": {
+        "additionalProperties": false,
+        "properties": {
+          "ai": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentTemplate_Ai"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentTemplate_Localized"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_date_field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentTemplate_Field"
+            },
+            "type": "array"
+          },
+          "id": {
+            "pattern": "^[a-z0-9_]+\\.[a-z0-9_]+$",
+            "type": "string"
+          },
+          "layout": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentTemplate_LayoutGroup"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "name": {
+            "$ref": "#/components/schemas/DocumentTemplate_Localized"
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/DocumentTemplate_Protocol"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentTemplate_SubjectRule"
+            },
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentTemplate_Localized"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol",
+          "id",
+          "version",
+          "name",
+          "subjects",
+          "fields"
+        ],
+        "title": "Template",
+        "type": "object"
+      },
+      "DocumentTemplate_Ai": {
+        "additionalProperties": false,
+        "properties": {
+          "extract_from_images": {
+            "default": false,
+            "type": "boolean"
+          },
+          "hints": {
+            "maxLength": 2000,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "DocumentTemplate_Column": {
+        "additionalProperties": false,
+        "properties": {
+          "digits": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "help": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentTemplate_Localized"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/DocumentTemplate_Localized"
+          },
+          "max": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "max_length": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "min": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "multiline": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentTemplate_SelectOption"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "required": {
+            "default": false,
+            "type": "boolean"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DocumentTemplate_ColumnType"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "units": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "DocumentTemplate_ColumnType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "single_select"
+        ],
+        "type": "string"
+      },
+      "DocumentTemplate_Field": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentTemplate_Column"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "digits": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "help": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentTemplate_Localized"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/DocumentTemplate_Localized"
+          },
+          "max": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "max_items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_length": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "metric": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metric_columns": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentTemplate_MetricColumns"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "min": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "multiline": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentTemplate_SelectOption"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "required": {
+            "default": false,
+            "type": "boolean"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DocumentTemplate_ValueType"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "units": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "DocumentTemplate_LayoutGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "label": {
+            "$ref": "#/components/schemas/DocumentTemplate_Localized"
+          }
+        },
+        "required": [
+          "label",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "DocumentTemplate_Localized": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "required": [
+          "zh-Hans"
+        ],
+        "type": "object"
+      },
+      "DocumentTemplate_MetricColumns": {
+        "additionalProperties": false,
+        "properties": {
+          "item": {
+            "type": "string"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item",
+          "value"
+        ],
+        "type": "object"
+      },
+      "DocumentTemplate_Protocol": {
+        "enum": [
+          "jiabu.template/1"
+        ],
+        "type": "string"
+      },
+      "DocumentTemplate_SelectOption": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/DocumentTemplate_Localized"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "type": "object"
+      },
+      "DocumentTemplate_SubjectKind": {
+        "enum": [
+          "family_member",
+          "pet",
+          "property",
+          "vehicle",
+          "other"
+        ],
+        "type": "string"
+      },
+      "DocumentTemplate_SubjectRule": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/DocumentTemplate_SubjectKind"
+          },
+          "max": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "min": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "min"
+        ],
+        "type": "object"
+      },
+      "DocumentTemplate_ValueType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "image",
+          "single_select",
+          "multi_select",
+          "table"
+        ],
+        "type": "string"
+      },
       "Entry": {
         "additionalProperties": false,
         "properties": {
@@ -1032,21 +1488,33 @@
         "discriminator": {
           "mapping": {
             "archive_account": "#/components/schemas/SyncPushOperation_archive_account",
+            "archive_subject": "#/components/schemas/SyncPushOperation_archive_subject",
             "create_account": "#/components/schemas/SyncPushOperation_create_account",
+            "create_document": "#/components/schemas/SyncPushOperation_create_document",
             "create_record": "#/components/schemas/SyncPushOperation_create_record",
+            "create_subject": "#/components/schemas/SyncPushOperation_create_subject",
             "create_tag": "#/components/schemas/SyncPushOperation_create_tag",
+            "delete_subject": "#/components/schemas/SyncPushOperation_delete_subject",
             "delete_tag": "#/components/schemas/SyncPushOperation_delete_tag",
+            "document_metric_series": "#/components/schemas/SyncPushOperation_document_metric_series",
+            "get_document": "#/components/schemas/SyncPushOperation_get_document",
             "get_record": "#/components/schemas/SyncPushOperation_get_record",
             "list_accounts": "#/components/schemas/SyncPushOperation_list_accounts",
+            "list_subjects": "#/components/schemas/SyncPushOperation_list_subjects",
             "list_tags": "#/components/schemas/SyncPushOperation_list_tags",
             "query_balance": "#/components/schemas/SyncPushOperation_query_balance",
             "query_stats": "#/components/schemas/SyncPushOperation_query_stats",
             "rename_tag": "#/components/schemas/SyncPushOperation_rename_tag",
+            "restore_document": "#/components/schemas/SyncPushOperation_restore_document",
             "restore_record": "#/components/schemas/SyncPushOperation_restore_record",
+            "search_documents": "#/components/schemas/SyncPushOperation_search_documents",
             "search_records": "#/components/schemas/SyncPushOperation_search_records",
             "set_allocation_plan": "#/components/schemas/SyncPushOperation_set_allocation_plan",
             "update_account": "#/components/schemas/SyncPushOperation_update_account",
+            "update_document": "#/components/schemas/SyncPushOperation_update_document",
             "update_record": "#/components/schemas/SyncPushOperation_update_record",
+            "update_subject": "#/components/schemas/SyncPushOperation_update_subject",
+            "void_document": "#/components/schemas/SyncPushOperation_void_document",
             "void_record": "#/components/schemas/SyncPushOperation_void_record"
           },
           "propertyName": "tool"
@@ -1102,6 +1570,42 @@
           },
           {
             "$ref": "#/components/schemas/SyncPushOperation_delete_tag"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_list_subjects"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_search_documents"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_get_document"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_document_metric_series"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_create_document"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_update_document"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_void_document"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_restore_document"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_create_subject"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_update_subject"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_archive_subject"
+          },
+          {
+            "$ref": "#/components/schemas/SyncPushOperation_delete_subject"
           }
         ]
       },
@@ -1130,6 +1634,45 @@
           "tool": {
             "enum": [
               "archive_account"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "SyncPushOperation_archive_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_archive_subject"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "archive_subject"
             ],
             "type": "string"
           }
@@ -1183,6 +1726,45 @@
         ],
         "type": "object"
       },
+      "SyncPushOperation_create_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_create_document"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "create_document"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
       "SyncPushOperation_create_record": {
         "additionalProperties": false,
         "properties": {
@@ -1208,6 +1790,45 @@
           "tool": {
             "enum": [
               "create_record"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "SyncPushOperation_create_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_create_subject"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "create_subject"
             ],
             "type": "string"
           }
@@ -1261,6 +1882,45 @@
         ],
         "type": "object"
       },
+      "SyncPushOperation_delete_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_delete_subject"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "delete_subject"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
       "SyncPushOperation_delete_tag": {
         "additionalProperties": false,
         "properties": {
@@ -1286,6 +1946,84 @@
           "tool": {
             "enum": [
               "delete_tag"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "SyncPushOperation_document_metric_series": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_document_metric_series"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "document_metric_series"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "SyncPushOperation_get_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_get_document"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "get_document"
             ],
             "type": "string"
           }
@@ -1364,6 +2102,45 @@
           "tool": {
             "enum": [
               "list_accounts"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "SyncPushOperation_list_subjects": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_list_subjects"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "list_subjects"
             ],
             "type": "string"
           }
@@ -1534,6 +2311,45 @@
         ],
         "type": "object"
       },
+      "SyncPushOperation_restore_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_restore_document"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "restore_document"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
       "SyncPushOperation_restore_record": {
         "additionalProperties": false,
         "properties": {
@@ -1559,6 +2375,45 @@
           "tool": {
             "enum": [
               "restore_record"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "SyncPushOperation_search_documents": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_search_documents"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "search_documents"
             ],
             "type": "string"
           }
@@ -1690,6 +2545,45 @@
         ],
         "type": "object"
       },
+      "SyncPushOperation_update_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_update_document"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "update_document"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
       "SyncPushOperation_update_record": {
         "additionalProperties": false,
         "properties": {
@@ -1715,6 +2609,84 @@
           "tool": {
             "enum": [
               "update_record"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "SyncPushOperation_update_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_update_subject"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "update_subject"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "space_id",
+          "join_epoch",
+          "request_id",
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "SyncPushOperation_void_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_void_document"
+          },
+          "join_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "op_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "void_document"
             ],
             "type": "string"
           }
@@ -1768,6 +2740,20 @@
         ],
         "type": "object"
       },
+      "TemplatesResponse": {
+        "properties": {
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentTemplate"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "templates"
+        ],
+        "type": "object"
+      },
       "ToolArgs_archive_account": {
         "additionalProperties": false,
         "properties": {
@@ -1786,6 +2772,26 @@
           "expected_version"
         ],
         "title": "ArchiveAccount",
+        "type": "object"
+      },
+      "ToolArgs_archive_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "expected_version"
+        ],
+        "title": "Versioned",
         "type": "object"
       },
       "ToolArgs_create_account": {
@@ -1839,6 +2845,137 @@
         "enum": [
           "real",
           "purpose"
+        ],
+        "type": "string"
+      },
+      "ToolArgs_create_document": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "$ref": "#/components/schemas/ToolArgs_create_document_Content"
+          },
+          "event_date": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject_ids": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "CreateDocument",
+        "type": "object"
+      },
+      "ToolArgs_create_document_Content": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ToolArgs_create_document_ContentItem"
+            },
+            "type": "array"
+          },
+          "v": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ToolArgs_create_document_ContentItem": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/ToolArgs_create_document_ValueType"
+          },
+          "uncertain": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ToolArgs_create_document_ValueType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "image",
+          "single_select",
+          "multi_select",
+          "table"
         ],
         "type": "string"
       },
@@ -1943,6 +3080,47 @@
         ],
         "type": "string"
       },
+      "ToolArgs_create_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ToolArgs_create_subject_SubjectKind"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "title": "CreateSubject",
+        "type": "object"
+      },
+      "ToolArgs_create_subject_SubjectKind": {
+        "enum": [
+          "family_member",
+          "pet",
+          "property",
+          "vehicle",
+          "other"
+        ],
+        "type": "string"
+      },
       "ToolArgs_create_tag": {
         "additionalProperties": false,
         "properties": {
@@ -1965,6 +3143,26 @@
         "title": "CreateTag",
         "type": "object"
       },
+      "ToolArgs_delete_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "expected_version"
+        ],
+        "title": "Versioned",
+        "type": "object"
+      },
       "ToolArgs_delete_tag": {
         "additionalProperties": false,
         "properties": {
@@ -1983,6 +3181,52 @@
           "expected_version"
         ],
         "title": "DeleteTag",
+        "type": "object"
+      },
+      "ToolArgs_document_metric_series": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metric": {
+            "type": "string"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "to": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "subject_id",
+          "metric"
+        ],
+        "title": "MetricSeries",
+        "type": "object"
+      },
+      "ToolArgs_get_document": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "GetDocument",
         "type": "object"
       },
       "ToolArgs_get_record": {
@@ -2035,6 +3279,63 @@
           }
         },
         "type": "object"
+      },
+      "ToolArgs_list_subjects": {
+        "additionalProperties": false,
+        "properties": {
+          "include_archived": {
+            "default": false,
+            "type": "boolean"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ToolArgs_list_subjects_SubjectKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "page": {
+            "$ref": "#/components/schemas/ToolArgs_list_subjects_Page",
+            "default": {
+              "limit": 50,
+              "offset": 0
+            }
+          }
+        },
+        "title": "ListSubjects",
+        "type": "object"
+      },
+      "ToolArgs_list_subjects_Page": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 50,
+            "format": "uint32",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ToolArgs_list_subjects_SubjectKind": {
+        "enum": [
+          "family_member",
+          "pet",
+          "property",
+          "vehicle",
+          "other"
+        ],
+        "type": "string"
       },
       "ToolArgs_list_tags": {
         "additionalProperties": false,
@@ -2286,6 +3587,26 @@
         "title": "RenameTag",
         "type": "object"
       },
+      "ToolArgs_restore_document": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "expected_version"
+        ],
+        "title": "Versioned",
+        "type": "object"
+      },
       "ToolArgs_restore_record": {
         "additionalProperties": false,
         "properties": {
@@ -2305,6 +3626,112 @@
         ],
         "title": "VersionedRecord",
         "type": "object"
+      },
+      "ToolArgs_search_documents": {
+        "additionalProperties": false,
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/ToolArgs_search_documents_DocumentFilters",
+            "default": {
+              "created_by_member_id": null,
+              "from": null,
+              "status": null,
+              "subject_id": null,
+              "template_id": null,
+              "to": null,
+              "unassociated": false
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/ToolArgs_search_documents_Page",
+            "default": {
+              "limit": 50,
+              "offset": 0
+            }
+          }
+        },
+        "title": "SearchDocuments",
+        "type": "object"
+      },
+      "ToolArgs_search_documents_DocumentFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ToolArgs_search_documents_Status"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subject_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unassociated": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "ToolArgs_search_documents_Page": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 50,
+            "format": "uint32",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ToolArgs_search_documents_Status": {
+        "enum": [
+          "active",
+          "voided"
+        ],
+        "type": "string"
       },
       "ToolArgs_search_records": {
         "additionalProperties": false,
@@ -2540,6 +3967,159 @@
         "title": "UpdateAccount",
         "type": "object"
       },
+      "ToolArgs_update_document": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "$ref": "#/components/schemas/ToolArgs_update_document_DocumentPatch"
+          },
+          "expected_version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "expected_version",
+          "changes"
+        ],
+        "title": "UpdateDocument",
+        "type": "object"
+      },
+      "ToolArgs_update_document_Content": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ToolArgs_update_document_ContentItem"
+            },
+            "type": "array"
+          },
+          "v": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ToolArgs_update_document_ContentItem": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/ToolArgs_update_document_ValueType"
+          },
+          "uncertain": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ToolArgs_update_document_DocumentPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ToolArgs_update_document_Content"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_date": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ToolArgs_update_document_ValueType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "image",
+          "single_select",
+          "multi_select",
+          "table"
+        ],
+        "type": "string"
+      },
       "ToolArgs_update_record": {
         "additionalProperties": false,
         "properties": {
@@ -2641,6 +4221,59 @@
         },
         "type": "object"
       },
+      "ToolArgs_update_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "expected_version"
+        ],
+        "title": "UpdateSubject",
+        "type": "object"
+      },
+      "ToolArgs_void_document": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "expected_version"
+        ],
+        "title": "Versioned",
+        "type": "object"
+      },
       "ToolArgs_void_record": {
         "additionalProperties": false,
         "properties": {
@@ -2665,21 +4298,33 @@
         "discriminator": {
           "mapping": {
             "archive_account": "#/components/schemas/ToolCall_archive_account",
+            "archive_subject": "#/components/schemas/ToolCall_archive_subject",
             "create_account": "#/components/schemas/ToolCall_create_account",
+            "create_document": "#/components/schemas/ToolCall_create_document",
             "create_record": "#/components/schemas/ToolCall_create_record",
+            "create_subject": "#/components/schemas/ToolCall_create_subject",
             "create_tag": "#/components/schemas/ToolCall_create_tag",
+            "delete_subject": "#/components/schemas/ToolCall_delete_subject",
             "delete_tag": "#/components/schemas/ToolCall_delete_tag",
+            "document_metric_series": "#/components/schemas/ToolCall_document_metric_series",
+            "get_document": "#/components/schemas/ToolCall_get_document",
             "get_record": "#/components/schemas/ToolCall_get_record",
             "list_accounts": "#/components/schemas/ToolCall_list_accounts",
+            "list_subjects": "#/components/schemas/ToolCall_list_subjects",
             "list_tags": "#/components/schemas/ToolCall_list_tags",
             "query_balance": "#/components/schemas/ToolCall_query_balance",
             "query_stats": "#/components/schemas/ToolCall_query_stats",
             "rename_tag": "#/components/schemas/ToolCall_rename_tag",
+            "restore_document": "#/components/schemas/ToolCall_restore_document",
             "restore_record": "#/components/schemas/ToolCall_restore_record",
+            "search_documents": "#/components/schemas/ToolCall_search_documents",
             "search_records": "#/components/schemas/ToolCall_search_records",
             "set_allocation_plan": "#/components/schemas/ToolCall_set_allocation_plan",
             "update_account": "#/components/schemas/ToolCall_update_account",
+            "update_document": "#/components/schemas/ToolCall_update_document",
             "update_record": "#/components/schemas/ToolCall_update_record",
+            "update_subject": "#/components/schemas/ToolCall_update_subject",
+            "void_document": "#/components/schemas/ToolCall_void_document",
             "void_record": "#/components/schemas/ToolCall_void_record"
           },
           "propertyName": "tool"
@@ -2735,6 +4380,42 @@
           },
           {
             "$ref": "#/components/schemas/ToolCall_delete_tag"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_list_subjects"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_search_documents"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_get_document"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_document_metric_series"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_create_document"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_update_document"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_void_document"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_restore_document"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_create_subject"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_update_subject"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_archive_subject"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCall_delete_subject"
           }
         ]
       },
@@ -2747,6 +4428,25 @@
           "tool": {
             "enum": [
               "archive_account"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "ToolCall_archive_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_archive_subject"
+          },
+          "tool": {
+            "enum": [
+              "archive_subject"
             ],
             "type": "string"
           }
@@ -2776,6 +4476,25 @@
         ],
         "type": "object"
       },
+      "ToolCall_create_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_create_document"
+          },
+          "tool": {
+            "enum": [
+              "create_document"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
       "ToolCall_create_record": {
         "additionalProperties": false,
         "properties": {
@@ -2785,6 +4504,25 @@
           "tool": {
             "enum": [
               "create_record"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "ToolCall_create_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_create_subject"
+          },
+          "tool": {
+            "enum": [
+              "create_subject"
             ],
             "type": "string"
           }
@@ -2814,6 +4552,25 @@
         ],
         "type": "object"
       },
+      "ToolCall_delete_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_delete_subject"
+          },
+          "tool": {
+            "enum": [
+              "delete_subject"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
       "ToolCall_delete_tag": {
         "additionalProperties": false,
         "properties": {
@@ -2823,6 +4580,44 @@
           "tool": {
             "enum": [
               "delete_tag"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "ToolCall_document_metric_series": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_document_metric_series"
+          },
+          "tool": {
+            "enum": [
+              "document_metric_series"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "ToolCall_get_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_get_document"
+          },
+          "tool": {
+            "enum": [
+              "get_document"
             ],
             "type": "string"
           }
@@ -2861,6 +4656,25 @@
           "tool": {
             "enum": [
               "list_accounts"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "ToolCall_list_subjects": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_list_subjects"
+          },
+          "tool": {
+            "enum": [
+              "list_subjects"
             ],
             "type": "string"
           }
@@ -2947,6 +4761,25 @@
         ],
         "type": "object"
       },
+      "ToolCall_restore_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_restore_document"
+          },
+          "tool": {
+            "enum": [
+              "restore_document"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
       "ToolCall_restore_record": {
         "additionalProperties": false,
         "properties": {
@@ -2956,6 +4789,25 @@
           "tool": {
             "enum": [
               "restore_record"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "ToolCall_search_documents": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_search_documents"
+          },
+          "tool": {
+            "enum": [
+              "search_documents"
             ],
             "type": "string"
           }
@@ -3023,6 +4875,25 @@
         ],
         "type": "object"
       },
+      "ToolCall_update_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_update_document"
+          },
+          "tool": {
+            "enum": [
+              "update_document"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
       "ToolCall_update_record": {
         "additionalProperties": false,
         "properties": {
@@ -3032,6 +4903,44 @@
           "tool": {
             "enum": [
               "update_record"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "ToolCall_update_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_update_subject"
+          },
+          "tool": {
+            "enum": [
+              "update_subject"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "args"
+        ],
+        "type": "object"
+      },
+      "ToolCall_void_document": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/ToolArgs_void_document"
+          },
+          "tool": {
+            "enum": [
+              "void_document"
             ],
             "type": "string"
           }
@@ -3224,6 +5133,104 @@
         ],
         "type": "string"
       },
+      "ToolResult_archive_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "archived_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ToolResult_archive_subject_SubjectKind"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "module": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "kind",
+          "name",
+          "created_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Subject",
+        "type": "object"
+      },
+      "ToolResult_archive_subject_SubjectKind": {
+        "enum": [
+          "family_member",
+          "pet",
+          "property",
+          "vehicle",
+          "other"
+        ],
+        "type": "string"
+      },
       "ToolResult_create_account": {
         "additionalProperties": false,
         "properties": {
@@ -3321,6 +5328,218 @@
         "enum": [
           "real",
           "purpose"
+        ],
+        "type": "string"
+      },
+      "ToolResult_create_document": {
+        "additionalProperties": false,
+        "properties": {
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ToolResult_create_document_Content"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "event_date": {
+            "format": "date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ToolResult_create_document_Origin"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ToolResult_create_document_Status"
+          },
+          "subject_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template_version": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "title",
+          "event_date",
+          "subject_ids",
+          "content",
+          "status",
+          "origin",
+          "created_by_member_id",
+          "updated_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Document",
+        "type": "object"
+      },
+      "ToolResult_create_document_Content": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_create_document_ContentItem"
+            },
+            "type": "array"
+          },
+          "v": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ToolResult_create_document_ContentItem": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/ToolResult_create_document_ValueType"
+          },
+          "uncertain": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ToolResult_create_document_Origin": {
+        "enum": [
+          "chat",
+          "manual",
+          "api"
+        ],
+        "type": "string"
+      },
+      "ToolResult_create_document_Status": {
+        "enum": [
+          "active",
+          "voided"
+        ],
+        "type": "string"
+      },
+      "ToolResult_create_document_ValueType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "image",
+          "single_select",
+          "multi_select",
+          "table"
         ],
         "type": "string"
       },
@@ -3510,6 +5729,104 @@
         ],
         "type": "string"
       },
+      "ToolResult_create_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "archived_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ToolResult_create_subject_SubjectKind"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "module": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "kind",
+          "name",
+          "created_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Subject",
+        "type": "object"
+      },
+      "ToolResult_create_subject_SubjectKind": {
+        "enum": [
+          "family_member",
+          "pet",
+          "property",
+          "vehicle",
+          "other"
+        ],
+        "type": "string"
+      },
       "ToolResult_create_tag": {
         "additionalProperties": false,
         "properties": {
@@ -3569,6 +5886,104 @@
         "title": "Tag",
         "type": "object"
       },
+      "ToolResult_delete_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "archived_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ToolResult_delete_subject_SubjectKind"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "module": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "kind",
+          "name",
+          "created_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Subject",
+        "type": "object"
+      },
+      "ToolResult_delete_subject_SubjectKind": {
+        "enum": [
+          "family_member",
+          "pet",
+          "property",
+          "vehicle",
+          "other"
+        ],
+        "type": "string"
+      },
       "ToolResult_delete_tag": {
         "additionalProperties": false,
         "properties": {
@@ -3627,6 +6042,295 @@
         ],
         "title": "Tag",
         "type": "object"
+      },
+      "ToolResult_document_metric_series": {
+        "properties": {
+          "excluded": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_document_metric_series_Excluded"
+            },
+            "type": "array"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_document_metric_series_MetricPoint"
+            },
+            "type": "array"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "subject_id",
+          "metric",
+          "points",
+          "excluded"
+        ],
+        "title": "MetricResult",
+        "type": "object"
+      },
+      "ToolResult_document_metric_series_Excluded": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "document_id"
+        ],
+        "type": "object"
+      },
+      "ToolResult_document_metric_series_MetricPoint": {
+        "properties": {
+          "document_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "event_date": {
+            "format": "date",
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "document_id",
+          "event_date",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ToolResult_get_document": {
+        "additionalProperties": false,
+        "properties": {
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ToolResult_get_document_Content"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "event_date": {
+            "format": "date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ToolResult_get_document_Origin"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ToolResult_get_document_Status"
+          },
+          "subject_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template_version": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "title",
+          "event_date",
+          "subject_ids",
+          "content",
+          "status",
+          "origin",
+          "created_by_member_id",
+          "updated_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Document",
+        "type": "object"
+      },
+      "ToolResult_get_document_Content": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_get_document_ContentItem"
+            },
+            "type": "array"
+          },
+          "v": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ToolResult_get_document_ContentItem": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/ToolResult_get_document_ValueType"
+          },
+          "uncertain": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ToolResult_get_document_Origin": {
+        "enum": [
+          "chat",
+          "manual",
+          "api"
+        ],
+        "type": "string"
+      },
+      "ToolResult_get_document_Status": {
+        "enum": [
+          "active",
+          "voided"
+        ],
+        "type": "string"
+      },
+      "ToolResult_get_document_ValueType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "image",
+          "single_select",
+          "multi_select",
+          "table"
+        ],
+        "type": "string"
       },
       "ToolResult_get_record": {
         "additionalProperties": false,
@@ -3933,6 +6637,122 @@
         ],
         "type": "string"
       },
+      "ToolResult_list_subjects": {
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_list_subjects_Subject"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "subjects",
+          "has_more"
+        ],
+        "title": "SubjectsResult",
+        "type": "object"
+      },
+      "ToolResult_list_subjects_Subject": {
+        "additionalProperties": false,
+        "properties": {
+          "archived_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ToolResult_list_subjects_SubjectKind"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "module": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "kind",
+          "name",
+          "created_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ToolResult_list_subjects_SubjectKind": {
+        "enum": [
+          "family_member",
+          "pet",
+          "property",
+          "vehicle",
+          "other"
+        ],
+        "type": "string"
+      },
       "ToolResult_list_tags": {
         "additionalProperties": false,
         "properties": {
@@ -4156,6 +6976,218 @@
         "title": "Tag",
         "type": "object"
       },
+      "ToolResult_restore_document": {
+        "additionalProperties": false,
+        "properties": {
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ToolResult_restore_document_Content"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "event_date": {
+            "format": "date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ToolResult_restore_document_Origin"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ToolResult_restore_document_Status"
+          },
+          "subject_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template_version": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "title",
+          "event_date",
+          "subject_ids",
+          "content",
+          "status",
+          "origin",
+          "created_by_member_id",
+          "updated_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Document",
+        "type": "object"
+      },
+      "ToolResult_restore_document_Content": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_restore_document_ContentItem"
+            },
+            "type": "array"
+          },
+          "v": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ToolResult_restore_document_ContentItem": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/ToolResult_restore_document_ValueType"
+          },
+          "uncertain": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ToolResult_restore_document_Origin": {
+        "enum": [
+          "chat",
+          "manual",
+          "api"
+        ],
+        "type": "string"
+      },
+      "ToolResult_restore_document_Status": {
+        "enum": [
+          "active",
+          "voided"
+        ],
+        "type": "string"
+      },
+      "ToolResult_restore_document_ValueType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "image",
+          "single_select",
+          "multi_select",
+          "table"
+        ],
+        "type": "string"
+      },
       "ToolResult_restore_record": {
         "additionalProperties": false,
         "properties": {
@@ -4339,6 +7371,236 @@
         "enum": [
           "active",
           "voided"
+        ],
+        "type": "string"
+      },
+      "ToolResult_search_documents": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_search_documents_Document"
+            },
+            "type": "array"
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "documents",
+          "has_more"
+        ],
+        "title": "DocumentsResult",
+        "type": "object"
+      },
+      "ToolResult_search_documents_Content": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_search_documents_ContentItem"
+            },
+            "type": "array"
+          },
+          "v": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ToolResult_search_documents_ContentItem": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/ToolResult_search_documents_ValueType"
+          },
+          "uncertain": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ToolResult_search_documents_Document": {
+        "additionalProperties": false,
+        "properties": {
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ToolResult_search_documents_Content"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "event_date": {
+            "format": "date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ToolResult_search_documents_Origin"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ToolResult_search_documents_Status"
+          },
+          "subject_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template_version": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "title",
+          "event_date",
+          "subject_ids",
+          "content",
+          "status",
+          "origin",
+          "created_by_member_id",
+          "updated_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ToolResult_search_documents_Origin": {
+        "enum": [
+          "chat",
+          "manual",
+          "api"
+        ],
+        "type": "string"
+      },
+      "ToolResult_search_documents_Status": {
+        "enum": [
+          "active",
+          "voided"
+        ],
+        "type": "string"
+      },
+      "ToolResult_search_documents_ValueType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "image",
+          "single_select",
+          "multi_select",
+          "table"
         ],
         "type": "string"
       },
@@ -4708,6 +7970,218 @@
         ],
         "type": "string"
       },
+      "ToolResult_update_document": {
+        "additionalProperties": false,
+        "properties": {
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ToolResult_update_document_Content"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "event_date": {
+            "format": "date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ToolResult_update_document_Origin"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ToolResult_update_document_Status"
+          },
+          "subject_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template_version": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "title",
+          "event_date",
+          "subject_ids",
+          "content",
+          "status",
+          "origin",
+          "created_by_member_id",
+          "updated_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Document",
+        "type": "object"
+      },
+      "ToolResult_update_document_Content": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_update_document_ContentItem"
+            },
+            "type": "array"
+          },
+          "v": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ToolResult_update_document_ContentItem": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/ToolResult_update_document_ValueType"
+          },
+          "uncertain": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ToolResult_update_document_Origin": {
+        "enum": [
+          "chat",
+          "manual",
+          "api"
+        ],
+        "type": "string"
+      },
+      "ToolResult_update_document_Status": {
+        "enum": [
+          "active",
+          "voided"
+        ],
+        "type": "string"
+      },
+      "ToolResult_update_document_ValueType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "image",
+          "single_select",
+          "multi_select",
+          "table"
+        ],
+        "type": "string"
+      },
       "ToolResult_update_record": {
         "additionalProperties": false,
         "properties": {
@@ -4891,6 +8365,316 @@
         "enum": [
           "active",
           "voided"
+        ],
+        "type": "string"
+      },
+      "ToolResult_update_subject": {
+        "additionalProperties": false,
+        "properties": {
+          "archived_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ToolResult_update_subject_SubjectKind"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "module": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "kind",
+          "name",
+          "created_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Subject",
+        "type": "object"
+      },
+      "ToolResult_update_subject_SubjectKind": {
+        "enum": [
+          "family_member",
+          "pet",
+          "property",
+          "vehicle",
+          "other"
+        ],
+        "type": "string"
+      },
+      "ToolResult_void_document": {
+        "additionalProperties": false,
+        "properties": {
+          "change_seq": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "content": {
+            "$ref": "#/components/schemas/ToolResult_void_document_Content"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "event_date": {
+            "format": "date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ToolResult_void_document_Origin"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "space_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ToolResult_void_document_Status"
+          },
+          "subject_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template_version": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by_member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "visibility": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "module",
+          "title",
+          "event_date",
+          "subject_ids",
+          "content",
+          "status",
+          "origin",
+          "created_by_member_id",
+          "updated_by_member_id",
+          "version",
+          "change_seq",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Document",
+        "type": "object"
+      },
+      "ToolResult_void_document_Content": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ToolResult_void_document_ContentItem"
+            },
+            "type": "array"
+          },
+          "v": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ToolResult_void_document_ContentItem": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "metric": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/ToolResult_void_document_ValueType"
+          },
+          "uncertain": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "number",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ToolResult_void_document_Origin": {
+        "enum": [
+          "chat",
+          "manual",
+          "api"
+        ],
+        "type": "string"
+      },
+      "ToolResult_void_document_Status": {
+        "enum": [
+          "active",
+          "voided"
+        ],
+        "type": "string"
+      },
+      "ToolResult_void_document_ValueType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "image",
+          "single_select",
+          "multi_select",
+          "table"
         ],
         "type": "string"
       },
@@ -7661,6 +11445,191 @@
         ]
       }
     },
+    "/v1/spaces/{space_id}/tools/archive_subject": {
+      "post": {
+        "description": "归档资料对象；有关联资料也允许归档",
+        "operationId": "tool_archive_subject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "expected_version": 1,
+                "id": "00000000-0000-7000-8000-000000000011"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_archive_subject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "archived_at": null,
+                  "change_seq": 10,
+                  "created_at": "2026-10-12T00:00:00Z",
+                  "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "deleted_at": null,
+                  "id": "00000000-0000-7000-8000-000000000011",
+                  "kind": "family_member",
+                  "member_id": null,
+                  "module": "documents",
+                  "name": "示例家人甲",
+                  "space_id": "00000000-0000-7000-8000-000000000006",
+                  "updated_at": "2026-10-12T00:00:00Z",
+                  "version": 1,
+                  "visibility": null
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_archive_subject"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
     "/v1/spaces/{space_id}/tools/create_account": {
       "post": {
         "description": "新建真实资金账户或用途账户及起始余额",
@@ -7736,6 +11705,209 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ToolResult_create_account"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/tools/create_document": {
+      "post": {
+        "description": "新建资料；按模板校验内容、对象和原图，必填缺项仍可保存",
+        "operationId": "tool_create_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "content": {
+                  "items": [],
+                  "v": 1
+                },
+                "title": "虚构资料"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_create_document"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "change_seq": 12,
+                  "content": {
+                    "items": [
+                      {
+                        "key": "note",
+                        "label": "备注",
+                        "type": "text",
+                        "value": "虚构样例"
+                      }
+                    ],
+                    "v": 1
+                  },
+                  "created_at": "2026-10-12T00:00:00Z",
+                  "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "event_date": "2026-10-12",
+                  "id": "00000000-0000-7000-8000-000000000012",
+                  "module": "documents",
+                  "origin": "api",
+                  "run_id": null,
+                  "space_id": "00000000-0000-7000-8000-000000000006",
+                  "status": "active",
+                  "subject_ids": [],
+                  "template_id": null,
+                  "template_version": null,
+                  "title": "虚构资料",
+                  "updated_at": "2026-10-12T00:00:00Z",
+                  "updated_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "version": 1,
+                  "visibility": null
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_create_document"
                 }
               }
             },
@@ -8050,6 +12222,191 @@
         ]
       }
     },
+    "/v1/spaces/{space_id}/tools/create_subject": {
+      "post": {
+        "description": "新建资料对象；规范化同种类同名对象直接沿用，已归档则自动取消归档",
+        "operationId": "tool_create_subject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "kind": "family_member",
+                "name": "虚构家人"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_create_subject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "archived_at": null,
+                  "change_seq": 10,
+                  "created_at": "2026-10-12T00:00:00Z",
+                  "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "deleted_at": null,
+                  "id": "00000000-0000-7000-8000-000000000011",
+                  "kind": "family_member",
+                  "member_id": null,
+                  "module": "documents",
+                  "name": "示例家人甲",
+                  "space_id": "00000000-0000-7000-8000-000000000006",
+                  "updated_at": "2026-10-12T00:00:00Z",
+                  "version": 1,
+                  "visibility": null
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_create_subject"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
     "/v1/spaces/{space_id}/tools/create_tag": {
       "post": {
         "description": "新建本空间自定义标签",
@@ -8230,6 +12587,191 @@
         ]
       }
     },
+    "/v1/spaces/{space_id}/tools/delete_subject": {
+      "post": {
+        "description": "删除没有任何资料关联的对象；已作废资料的关联也会阻止删除",
+        "operationId": "tool_delete_subject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "expected_version": 1,
+                "id": "00000000-0000-7000-8000-000000000011"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_delete_subject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "archived_at": null,
+                  "change_seq": 10,
+                  "created_at": "2026-10-12T00:00:00Z",
+                  "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "deleted_at": null,
+                  "id": "00000000-0000-7000-8000-000000000011",
+                  "kind": "family_member",
+                  "member_id": null,
+                  "module": "documents",
+                  "name": "示例家人甲",
+                  "space_id": "00000000-0000-7000-8000-000000000006",
+                  "updated_at": "2026-10-12T00:00:00Z",
+                  "version": 1,
+                  "visibility": null
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_delete_subject"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
     "/v1/spaces/{space_id}/tools/delete_tag": {
       "post": {
         "description": "软删除标签，保留历史记录中的标签引用",
@@ -8296,6 +12838,341 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ToolResult_delete_tag"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/tools/document_metric_series": {
+      "post": {
+        "description": "查询同一对象同一指标的历次有效数值；以范围内最近一次单位为准，其他单位列入 excluded，不换算",
+        "operationId": "tool_document_metric_series",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "metric": "body.weight",
+                "subject_id": "00000000-0000-7000-8000-000000000011"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_document_metric_series"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "excluded": [],
+                  "metric": "body.weight",
+                  "points": [],
+                  "subject_id": "00000000-0000-7000-8000-000000000011",
+                  "unit": "kg"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_document_metric_series"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/tools/get_document": {
+      "post": {
+        "description": "读取当前空间的一份资料，包括已作废资料",
+        "operationId": "tool_get_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "id": "00000000-0000-7000-8000-000000000012"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_get_document"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "change_seq": 12,
+                  "content": {
+                    "items": [
+                      {
+                        "key": "note",
+                        "label": "备注",
+                        "type": "text",
+                        "value": "虚构样例"
+                      }
+                    ],
+                    "v": 1
+                  },
+                  "created_at": "2026-10-12T00:00:00Z",
+                  "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "event_date": "2026-10-12",
+                  "id": "00000000-0000-7000-8000-000000000012",
+                  "module": "documents",
+                  "origin": "api",
+                  "run_id": null,
+                  "space_id": "00000000-0000-7000-8000-000000000006",
+                  "status": "active",
+                  "subject_ids": [],
+                  "template_id": null,
+                  "template_version": null,
+                  "title": "虚构资料",
+                  "updated_at": "2026-10-12T00:00:00Z",
+                  "updated_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "version": 1,
+                  "visibility": null
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_get_document"
                 }
               }
             },
@@ -8640,6 +13517,173 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ToolResult_list_accounts"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/tools/list_subjects": {
+      "post": {
+        "description": "列出当前空间的资料对象；默认不含归档，按名称和 ID 排序并分页",
+        "operationId": "tool_list_subjects",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {},
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_list_subjects"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "has_more": false,
+                  "subjects": [
+                    {
+                      "archived_at": null,
+                      "change_seq": 10,
+                      "created_at": "2026-10-12T00:00:00Z",
+                      "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                      "deleted_at": null,
+                      "id": "00000000-0000-7000-8000-000000000011",
+                      "kind": "family_member",
+                      "member_id": null,
+                      "module": "documents",
+                      "name": "示例家人甲",
+                      "space_id": "00000000-0000-7000-8000-000000000006",
+                      "updated_at": "2026-10-12T00:00:00Z",
+                      "version": 1,
+                      "visibility": null
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_list_subjects"
                 }
               }
             },
@@ -9410,6 +14454,206 @@
         ]
       }
     },
+    "/v1/spaces/{space_id}/tools/restore_document": {
+      "post": {
+        "description": "恢复已作废资料；需要 expected_version",
+        "operationId": "tool_restore_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "expected_version": 2,
+                "id": "00000000-0000-7000-8000-000000000012"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_restore_document"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "change_seq": 12,
+                  "content": {
+                    "items": [
+                      {
+                        "key": "note",
+                        "label": "备注",
+                        "type": "text",
+                        "value": "虚构样例"
+                      }
+                    ],
+                    "v": 1
+                  },
+                  "created_at": "2026-10-12T00:00:00Z",
+                  "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "event_date": "2026-10-12",
+                  "id": "00000000-0000-7000-8000-000000000012",
+                  "module": "documents",
+                  "origin": "api",
+                  "run_id": null,
+                  "space_id": "00000000-0000-7000-8000-000000000006",
+                  "status": "active",
+                  "subject_ids": [],
+                  "template_id": null,
+                  "template_version": null,
+                  "title": "虚构资料",
+                  "updated_at": "2026-10-12T00:00:00Z",
+                  "updated_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "version": 1,
+                  "visibility": null
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_restore_document"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
     "/v1/spaces/{space_id}/tools/restore_record": {
       "post": {
         "description": "恢复已撤销记录；退款须重新满足父支出及金额限制",
@@ -9492,6 +14736,188 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ToolResult_restore_record"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/tools/search_documents": {
+      "post": {
+        "description": "按对象或未关联、模板、事件日期和创建人筛选资料；日期及 ID 倒序分页，默认有效资料",
+        "operationId": "tool_search_documents",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {},
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_search_documents"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "documents": [
+                    {
+                      "change_seq": 12,
+                      "content": {
+                        "items": [
+                          {
+                            "key": "note",
+                            "label": "备注",
+                            "type": "text",
+                            "value": "虚构样例"
+                          }
+                        ],
+                        "v": 1
+                      },
+                      "created_at": "2026-10-12T00:00:00Z",
+                      "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                      "event_date": "2026-10-12",
+                      "id": "00000000-0000-7000-8000-000000000012",
+                      "module": "documents",
+                      "origin": "api",
+                      "run_id": null,
+                      "space_id": "00000000-0000-7000-8000-000000000006",
+                      "status": "active",
+                      "subject_ids": [],
+                      "template_id": null,
+                      "template_version": null,
+                      "title": "虚构资料",
+                      "updated_at": "2026-10-12T00:00:00Z",
+                      "updated_by_member_id": "00000000-0000-7000-8000-000000000005",
+                      "version": 1,
+                      "visibility": null
+                    }
+                  ],
+                  "has_more": false
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_search_documents"
                 }
               }
             },
@@ -10155,6 +15581,209 @@
         ]
       }
     },
+    "/v1/spaces/{space_id}/tools/update_document": {
+      "post": {
+        "description": "修改有效资料；expected_version 冲突返回 current；更正关联对象保留完整修改快照",
+        "operationId": "tool_update_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "changes": {
+                  "title": "虚构更正"
+                },
+                "expected_version": 1,
+                "id": "00000000-0000-7000-8000-000000000012"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_update_document"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "change_seq": 12,
+                  "content": {
+                    "items": [
+                      {
+                        "key": "note",
+                        "label": "备注",
+                        "type": "text",
+                        "value": "虚构样例"
+                      }
+                    ],
+                    "v": 1
+                  },
+                  "created_at": "2026-10-12T00:00:00Z",
+                  "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "event_date": "2026-10-12",
+                  "id": "00000000-0000-7000-8000-000000000012",
+                  "module": "documents",
+                  "origin": "api",
+                  "run_id": null,
+                  "space_id": "00000000-0000-7000-8000-000000000006",
+                  "status": "active",
+                  "subject_ids": [],
+                  "template_id": null,
+                  "template_version": null,
+                  "title": "虚构资料",
+                  "updated_at": "2026-10-12T00:00:00Z",
+                  "updated_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "version": 1,
+                  "visibility": null
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_update_document"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
     "/v1/spaces/{space_id}/tools/update_record": {
       "post": {
         "description": "修改已有有效记录；种类和退款父关联不可改",
@@ -10240,6 +15869,392 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ToolResult_update_record"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/tools/update_subject": {
+      "post": {
+        "description": "修改资料对象名字或空间成员绑定；种类固定，不合并同名对象",
+        "operationId": "tool_update_subject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "expected_version": 1,
+                "id": "00000000-0000-7000-8000-000000000011",
+                "name": "虚构新名字"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_update_subject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "archived_at": null,
+                  "change_seq": 10,
+                  "created_at": "2026-10-12T00:00:00Z",
+                  "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "deleted_at": null,
+                  "id": "00000000-0000-7000-8000-000000000011",
+                  "kind": "family_member",
+                  "member_id": null,
+                  "module": "documents",
+                  "name": "示例家人甲",
+                  "space_id": "00000000-0000-7000-8000-000000000006",
+                  "updated_at": "2026-10-12T00:00:00Z",
+                  "version": 1,
+                  "visibility": null
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_update_subject"
+                }
+              }
+            },
+            "description": "Tool result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the next token",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Problem"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tools"
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/tools/void_document": {
+      "post": {
+        "description": "作废资料并保留历史；需要 expected_version",
+        "operationId": "tool_void_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for session writes; optional for API keys, validated whenever supplied",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "expected_version": 1,
+                "id": "00000000-0000-7000-8000-000000000012"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ToolArgs_void_document"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "change_seq": 12,
+                  "content": {
+                    "items": [
+                      {
+                        "key": "note",
+                        "label": "备注",
+                        "type": "text",
+                        "value": "虚构样例"
+                      }
+                    ],
+                    "v": 1
+                  },
+                  "created_at": "2026-10-12T00:00:00Z",
+                  "created_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "event_date": "2026-10-12",
+                  "id": "00000000-0000-7000-8000-000000000012",
+                  "module": "documents",
+                  "origin": "api",
+                  "run_id": null,
+                  "space_id": "00000000-0000-7000-8000-000000000006",
+                  "status": "active",
+                  "subject_ids": [],
+                  "template_id": null,
+                  "template_version": null,
+                  "title": "虚构资料",
+                  "updated_at": "2026-10-12T00:00:00Z",
+                  "updated_by_member_id": "00000000-0000-7000-8000-000000000005",
+                  "version": 1,
+                  "visibility": null
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ToolResult_void_document"
                 }
               }
             },
@@ -10932,6 +16947,91 @@
             }
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/templates": {
+      "get": {
+        "operationId": "get",
+        "parameters": [
+          {
+            "description": "Cached template collection ETag",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "templates": []
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatesResponse"
+                }
+              }
+            },
+            "description": "All loaded templates; ordered by ID",
+            "headers": {
+              "ETag": {
+                "description": "SHA-256 of the response bytes",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Collection unchanged",
+            "headers": {
+              "ETag": {
+                "description": "Current collection hash",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
             "content": {
               "application/json": {
                 "schema": {

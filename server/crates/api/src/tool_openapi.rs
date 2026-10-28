@@ -336,6 +336,21 @@ fn extend_value(
         SYNC_OPERATION,
         json!({"oneOf":sync_branches,"discriminator":{"propertyName":"tool","mapping":sync_mapping}}),
     )?;
+    add_schema(
+        &mut doc,
+        "DocumentTemplate",
+        &serde_json::to_value(jiabu_domain::templates::schema())?,
+    )?;
+    insert_component(
+        &mut doc,
+        "TemplatesResponse",
+        json!({"type":"object","required":["templates"],"properties":{"templates":{"type":"array","items":{"$ref":"#/components/schemas/DocumentTemplate"}}}}),
+    )?;
+    if let Some(media) =
+        doc.pointer_mut("/paths/~1v1~1templates/get/responses/200/content/application~1json")
+    {
+        media["schema"] = json!({"$ref":"#/components/schemas/TemplatesResponse"});
+    }
     apply_sync_blob_contract(&mut doc)?;
     normalize_document(&mut doc, "")?;
     Ok(doc)

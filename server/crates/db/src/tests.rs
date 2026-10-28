@@ -1,5 +1,5 @@
 #[path = "../../../tests/support/mod.rs"]
-mod support;
+pub(crate) mod support;
 use crate::{AppDb, BeginError, Mode, SpaceTx};
 use anyhow::Result;
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DbBackend, Statement, TransactionTrait};

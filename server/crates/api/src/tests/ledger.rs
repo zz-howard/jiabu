@@ -337,6 +337,7 @@ async fn entry_parity(use_key: bool) -> Result<()> {
     for tool in harness
         .registry
         .tools()
+        .filter(|t| matches!(t.module(), jiabu_tools::Module::Ledger))
         .filter(|t| t.exposure() != Exposure::AgentOnly)
     {
         let name = tool.name();
@@ -747,7 +748,7 @@ async fn exposure_status_schemas_and_oneof_are_public_contracts() -> Result<()> 
             &[],
         )
         .await?;
-    assert_eq!(tools.json()["tools"].as_array().unwrap().len(), 17);
+    assert_eq!(tools.json()["tools"].as_array().unwrap().len(), 29);
     assert!(!tools.json().to_string().contains("ask_user"));
     assert!(!h.registry.agent_tools().any(|t| t.name() == "delete_tag"));
     assert!(h.registry.agent_tools().any(|t| t.name() == "ask_user"));
@@ -802,7 +803,7 @@ async fn exposure_status_schemas_and_oneof_are_public_contracts() -> Result<()> 
             .as_array()
             .unwrap()
             .len(),
-        17
+        29
     );
     fn refs(value: &Value, doc: &Value) {
         match value {

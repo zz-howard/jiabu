@@ -60,12 +60,27 @@ mod tests {
 pub mod api_key;
 mod ask_user;
 mod context;
+mod documents;
 mod ledger;
 mod registry;
+pub mod templates;
 pub mod tool;
 pub use context::{Invocation, ToolCtx};
 pub use jiabu_db::OperationError as ToolError;
-pub use ledger::ToolCall;
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum ToolCall {
+    Ledger(Box<ledger::ToolCall>),
+    Documents(Box<documents::ToolCall>),
+}
+impl ToolCall {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Ledger(call) => call.name(),
+            Self::Documents(call) => call.name(),
+        }
+    }
+}
 pub use registry::ToolRegistry;
 pub use tool::{
     AgentTool, Effect, Exposure, StepKind, StepLabel, StepSummary, TypedTool, ValidatedCall,
@@ -75,9 +90,13 @@ pub use tool::{
 pub fn builtin_registry() -> std::sync::Arc<ToolRegistry> {
     static REGISTRY: std::sync::OnceLock<std::sync::Arc<ToolRegistry>> = std::sync::OnceLock::new();
     REGISTRY
-        .get_or_init(|| match ToolRegistry::ledger() {
-            Ok(registry) => std::sync::Arc::new(registry),
-            Err(error) => panic!("invalid built-in tool schema: {}", error.code),
+        .get_or_init(|| {
+            match templates::TemplateStore::empty()
+                .and_then(|store| ToolRegistry::with_templates(std::sync::Arc::new(store)))
+            {
+                Ok(registry) => std::sync::Arc::new(registry),
+                Err(error) => panic!("invalid built-in tool schema: {}", error.code),
+            }
         })
         .clone()
 }

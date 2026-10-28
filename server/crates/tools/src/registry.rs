@@ -19,6 +19,13 @@ impl ToolRegistry {
         registry.register(crate::ask_user::AskUser)?;
         Ok(registry)
     }
+    pub fn with_templates(
+        templates: std::sync::Arc<crate::templates::TemplateStore>,
+    ) -> Result<Self, ToolError> {
+        let mut registry = Self::ledger()?;
+        crate::documents::register(&mut registry, templates)?;
+        Ok(registry)
+    }
     pub fn register<T: TypedTool>(&mut self, tool: T) -> Result<(), ToolError> {
         if !tool
             .name()

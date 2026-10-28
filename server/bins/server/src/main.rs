@@ -1,5 +1,6 @@
 mod config;
 mod tasks;
+mod templates;
 use anyhow::{Context, Result};
 use secrecy::{ExposeSecret, SecretString};
 use tracing_subscriber::EnvFilter;
@@ -37,6 +38,18 @@ async fn main() -> Result<()> {
             jiabu_tools::api_key::ApiKeyLimiter::configured(settings.api_keys),
         ))
         .map_err(anyhow::Error::msg)?;
+    if templates::load(&state.db, &state.templates, &settings.data_dir)
+        .await
+        .is_err()
+    {
+        jiabu_tools::templates::log_rejection("templates", "database");
+    }
+    #[cfg(unix)]
+    let template_task = templates::start(
+        state.db.clone(),
+        state.templates.clone(),
+        settings.data_dir.clone(),
+    )?;
     // First pass runs immediately, including tombstones left by a previous process.
     let purge_task = tokio::spawn(tasks::purge_spaces::run(
         state.db.clone(),
@@ -58,6 +71,8 @@ async fn main() -> Result<()> {
     )
     .await
     .context("HTTP server failed");
+    #[cfg(unix)]
+    template_task.abort();
     purge_task.abort();
     allocation_task.abort();
     cleanup_task.abort();

@@ -1,0 +1,128 @@
+{
+  "protocol": "jiabu.template/1",
+  "id": "jiabu.vaccination",
+  "version": 1,
+  "name": {
+    "zh-Hans": "疫苗",
+    "en": "Vaccination"
+  },
+  "subjects": [
+    {
+      "kind": "family_member",
+      "min": 1,
+      "max": 1
+    }
+  ],
+  "event_date_field": "vaccination_date",
+  "title": {
+    "zh-Hans": "{subject}疫苗 {vaccination_date}",
+    "en": "{subject} Vaccination {vaccination_date}"
+  },
+  "fields": [
+    {
+      "key": "vaccination_date",
+      "type": "date",
+      "label": {
+        "zh-Hans": "接种日期",
+        "en": "Vaccination date"
+      },
+      "required": true
+    },
+    {
+      "key": "vaccine_name",
+      "type": "text",
+      "label": {
+        "zh-Hans": "疫苗名称",
+        "en": "Vaccine"
+      },
+      "required": true,
+      "max_length": 100
+    },
+    {
+      "key": "dose_no",
+      "type": "number",
+      "label": {
+        "zh-Hans": "剂次",
+        "en": "Dose number"
+      },
+      "digits": 0
+    },
+    {
+      "key": "manufacturer",
+      "type": "text",
+      "label": {
+        "zh-Hans": "厂家",
+        "en": "Manufacturer"
+      },
+      "max_length": 100
+    },
+    {
+      "key": "batch",
+      "type": "text",
+      "label": {
+        "zh-Hans": "批号",
+        "en": "Batch"
+      },
+      "max_length": 100
+    },
+    {
+      "key": "institution",
+      "type": "text",
+      "label": {
+        "zh-Hans": "接种机构",
+        "en": "Clinic"
+      },
+      "max_length": 100
+    },
+    {
+      "key": "next_due",
+      "type": "date",
+      "label": {
+        "zh-Hans": "下次日期",
+        "en": "Next date"
+      }
+    },
+    {
+      "key": "note",
+      "type": "text",
+      "label": {
+        "zh-Hans": "备注",
+        "en": "Notes"
+      },
+      "max_length": 2000,
+      "multiline": true
+    },
+    {
+      "key": "report_images",
+      "type": "image",
+      "label": {
+        "zh-Hans": "原图",
+        "en": "Photos"
+      },
+      "max_items": 20
+    }
+  ],
+  "ai": {
+    "extract_from_images": true,
+    "hints": "只记录这位家人的接种凭证原文，区分接种日期与下次日期；不推测剂次、不安排接种计划。模糊内容标 uncertain。\nCopy this family member’s vaccination record, distinguishing the administered date from the next date. Do not infer doses or recommend schedules. Mark unclear entries uncertain."
+  },
+  "layout": [
+    {
+      "label": {
+        "zh-Hans": "资料",
+        "en": "Details"
+      },
+      "fields": [
+        "vaccination_date",
+        "vaccine_name",
+        "dose_no",
+        "manufacturer",
+        "batch",
+        "institution",
+        "next_due",
+        "note",
+        "report_images"
+      ]
+    }
+  ]
+}

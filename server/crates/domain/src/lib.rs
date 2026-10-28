@@ -13,3 +13,6 @@ pub struct NotFound;
 
 pub mod allocation;
 pub mod ledger;
+
+pub mod documents;
+pub mod templates;
