@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:jiabu/data/api/api_client.dart';
 import 'package:jiabu/data/api/dio_api_client.dart';
 import 'package:jiabu/data/db/database_manager.dart';
@@ -36,6 +37,7 @@ final class AppRuntime {
     required this.sessions,
     required this.device,
     this.background = false,
+    this.createDio,
   }) {
     auth = LocalAuthRepository(
       databases: databases,
@@ -53,6 +55,7 @@ final class AppRuntime {
   final SessionStore sessions;
   final DeviceContext device;
   final bool background;
+  final Dio Function()? createDio;
   late final LocalAuthRepository auth;
   final StreamController<void> _events = StreamController<void>.broadcast();
   Stream<void> get events => _events.stream;
@@ -109,6 +112,7 @@ final class AppRuntime {
     return client = DioApiClient(
       server: server,
       clientHeader: device.clientHeader,
+      dio: createDio?.call(),
       acceptResponse: () async =>
           partition == null ? capturedRevision == revision : await valid(),
       token: () async {
@@ -425,14 +429,36 @@ final class AppRuntime {
   static Future<AppRuntime> create({
     bool background = false,
     String channel = 'beta',
+    DatabaseManager? databases,
+    AppSettingsService? settings,
+    SessionStore? sessions,
+    Future<DeviceContext> Function(String channel)? loadDevice,
+    Dio Function()? createDio,
   }) async {
-    final directory = await getApplicationSupportDirectory();
+    final appSettings = settings ?? AppSettingsService(PreferencesStorage());
+    if (!background) {
+      // Persist before bootstrap registers any background work.
+      await appSettings.setClientChannel(channel);
+    }
+    final runtimeChannel = background
+        ? await appSettings.clientChannel()
+        : channel;
+    final manager =
+        databases ??
+        DatabaseManager(
+          Directory(
+            p.join((await getApplicationSupportDirectory()).path, 'jiabu'),
+          ),
+        );
     return AppRuntime(
-      databases: DatabaseManager(Directory(p.join(directory.path, 'jiabu'))),
-      settings: AppSettingsService(PreferencesStorage()),
-      sessions: const SecureSessionStore(),
-      device: await DeviceContext.load(channel: channel),
+      databases: manager,
+      settings: appSettings,
+      sessions: sessions ?? const SecureSessionStore(),
+      device:
+          await (loadDevice?.call(runtimeChannel) ??
+              DeviceContext.load(channel: runtimeChannel)),
       background: background,
+      createDio: createDio,
     );
   }
 }

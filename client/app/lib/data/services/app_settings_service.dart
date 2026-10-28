@@ -30,6 +30,19 @@ final class AppSettingsService {
   AppSettingsService(this.storage);
   final SettingsStorage storage;
 
+  Future<String> clientChannel() async =>
+      switch (await storage.read('client_channel')) {
+        'beta' => 'beta',
+        _ => 'stable',
+      };
+
+  Future<void> setClientChannel(String channel) {
+    if (!const {'stable', 'beta'}.contains(channel)) {
+      throw ArgumentError('invalid_client_channel');
+    }
+    return storage.write('client_channel', channel);
+  }
+
   Future<List<String>> servers() async =>
       (jsonDecode(await storage.read('servers') ?? '[]') as List<Object?>)
           .cast<String>();

@@ -247,6 +247,32 @@
       ],
       "command": "flutter test test/data/additional_sync_test.dart --plain-name late_spaces_response_does_not_remove_rejoined_space",
       "find_regex": "if\\s*\\(\\s*!\\s*await\\s*store\\s*\\.\\s*accepts\\s*\\(\\s*fence\\s*\\)\\s*\\)\\s*\\{\\s*return\\s*;\\s*\\}"
+    },
+    {
+      "id": "resolution_keeps_required_blob_ahead",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "if (shouldDefer) {",
+      "replace": "if (shouldDefer || deferredEntities.isNotEmpty) {",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/conflict_test.dart",
+      "test_names": [
+        "resolve_mine_keeps_required_blob_ahead_of_resolution"
+      ],
+      "command": "flutter test test/data/conflict_test.dart --plain-name resolve_mine_keeps_required_blob_ahead_of_resolution",
+      "find_regex": "if\\s*\\(\\s*shouldDefer\\s*(?:,\\s*)?\\)\\s*\\{"
+    },
+    {
+      "id": "background_uses_foreground_channel",
+      "file": "client/app/lib/app/runtime.dart",
+      "find": "final runtimeChannel = background\n        ? await appSettings.clientChannel()\n        : channel;",
+      "replace": "final runtimeChannel = background ? 'beta' : channel;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/runtime_channel_test.dart",
+      "test_names": [
+        "stable_entry_background_handshake_and_client_header_are_stable"
+      ],
+      "command": "flutter test test/data/runtime_channel_test.dart --plain-name stable_entry_background_handshake_and_client_header_are_stable",
+      "find_regex": "final\\s+runtimeChannel\\s*=\\s*background\\s*\\?\\s*await\\s+appSettings\\s*\\.\\s*clientChannel\\s*\\(\\s*\\)\\s*:\\s*channel\\s*;"
     }
   ]
 }

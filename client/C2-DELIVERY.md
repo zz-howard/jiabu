@@ -579,3 +579,107 @@ MIT：drift/drift_dev、sqlite3（SQLite 本体 public domain）、dio、freezed
 ### 发现的服务端缺口（未改 `server/`）
 
 master 的 `server/Cargo.lock` 落后于 Cargo.toml：S4 引入的 image / kamadak-exif / zune-jpeg 等 18 个包不在锁文件里，`cargo build --locked` 失败（server CI 不带 `--locked`，所以没暴露）。`tool/server-it.sh` 保留 `--locked`；本次实测在构建机临时副本里去掉了 `--locked` 运行。建议单独一个服务端 PR 补锁文件，并让 server CI 带 `--locked`。
+
+## PR 评审修正
+
+本节对应 PR #10 的四条评审。每条均先补回归测试、再改对应行为；第 2 条为了测试真实 runtime 创建路径，先为原有工厂加入可选的 settings / database / session / device / Dio 注入，不改变默认行为，再写测试、修渠道选择。未提交 git。此次只修改下列客户端源文件、测试和交付清单；没有修改 docs/、server/、生成文件或 PNG。
+
+### 1. 冲突解决保留所需 blob 前置顺序
+
+- `LocalStore.deferDependents` 不再从第一个依赖项开始移动整个队尾。只移动直接依赖冲突实体的条目，并沿被移动条目的 entity_ids 继续移动后续修改和下游依赖；解决操作自身和无关的 blob 前置条件保持原位置。只调整 created_at，保留 op_id、request_id 和 payload。
+- 新测试 `resolve_mine_keeps_required_blob_ahead_of_resolution`：R 请求在途时排入退款、退款后续修改、blob B、R 的附件修改；R 返回 409 后 B 上传报 network。用我的后断言顺序为 B → R 解决操作 → 退款 → 退款后续修改；重试后队列清空、B 已上传、R 已引用 B，并核对退款身份及参数不变。
+- 修前源码推导模型得到 resolution → refund → B；resolution 等未上传的 B，B 又与更早 resolution 的引用交叠，两个均无法领取。此为源码推导模型复现，尚不是 Flutter 动态复现。
+
+### 2. 前后台使用同一渠道
+
+- 前台 `AppRuntime.create` 在 bootstrap 注册后台任务之前，将入口渠道写入 App 级 `client_channel` 设置。后台通过无缓存的 `SharedPreferencesAsync` 读取该设置；缺失或无效值回退 stable，读取失败则创建失败，不创建 beta worker。合法 beta 设置仍保留，前台后续 stable 启动会覆盖旧 beta 设置。
+- 同一个 runtime 的 `DeviceContext.channel` 同时用于 `VersionHandshakeService` 和 `X-Jiabu-Client`，不再分别选渠道。
+- 新测试 `stable_entry_background_handshake_and_client_header_are_stable` 使用与 main_prod → bootstrap 相同的 `create(channel: 'stable')` 参数，再用 dispatcher 相同的 `create(background: true)` 参数创建后台 runtime。通过真实 Dio 拦截器和内存 adapter 检查所有前后台请求头、实际同步引擎握手的渠道，以及 stable 最低构建 2 / beta 最低构建 0 / 当前构建 1 时后台保留写入门禁、不上传。
+- 补充 `background_channel_from_settings_missing`、`background_channel_from_settings_invalid`、`background_channel_from_settings_beta`，覆盖缺失、无效值和合法 beta。
+
+### 3. 用我的版本保留撤销意图
+
+- mine 为 voided、server 为 active 时重新排 `void_record`；发送时仍绑定最新服务器 base_version。void 操作不需要上传 mine 中尚未发布的附件。其他普通状态仍生成 update。
+- 新测试 `resolve_mine_preserves_void_intent_after_version_conflict` 从真实的乐观 void_record 入队开始，制造另一设备先改后的 409，检查 mine 状态与原因、解决操作类型、expected_version，以及完成后的本机 / 假服务器均为 voided、synced。假服务器的 void / restore 原因字段同步按真实服务端语义处理。
+- 已核对 technical-design 5.5“撤销优先”：server_status=voided 时仍拒绝普通“用我的”（explicit_restore_required），只有显式“恢复并改成我的版本”才排 restore_record → update_record。已有 `voided_mine_requires_explicit_restore`、`restore_then_update_use_successive_server_versions`、`restoring_mine_keeps_refund_behind_restore_and_update` 继续覆盖这些边。
+- **接口限制**：当前服务端 `VersionedRecord` 带 deny_unknown_fields，仅接受 id / expected_version；`ledger_record_status` 固定写 void_reason='user'。因此不能把原 void_reason 加到请求参数，否则会变成 422。客户端保持 mine 中原原因直至服务器确认；标准 user 原因可完整保留，自定义原因无法通过当前接口保留。本轮不修改 server，也不声称已满足任意原原因的服务端往返。此限制已向用户询问；未收到进一步指示时按现有严格接口兼容处理。
+- 修前源码推导模型确认 update_record 的可编辑字段没有 status / void_reason，voided mine 会被提交为普通字段修改，服务器仍 active。尚未执行 Flutter 动态复现。
+
+### 4. 令牌读取异常结束请求与同步轮
+
+- Dio 请求拦截器捕获 token 读取的异常，以 unknown 类型、规范化 `ApiError('token_unavailable')` 经 handler.reject 结束请求；不附带原异常或异常文本，拒绝后立即 return。
+- `token_read_failure_rejects_request_without_sensitive_error` 检查 DioException 类型、错误码、无敏感异常文本且未触达 adapter。
+- `token_read_failure_finishes_round_releases_lease_and_can_retry` 使用真实 DioApiClient + SyncEngine + drift，检查一轮结束、round_owner / round_lease_until 清空、心跳取消，并能开始第二轮。现有 SyncEngine 的 finally / whenComplete 即可完成清理，无需修改引擎。
+- 测试用隔离 zone 接住修前逃逸的异步错误，并设短超时和心跳清理，防止回归时测试自身无限挂起。
+
+### 新增负对照
+
+清单 `tool/c2-negative-controls.json` 从 19 条增为 21 条；新增两条的精确 find / replace 如下。命令均在构建机 `client/app` 目录执行，必须由对应测试产生断言失败，编译失败不计成功。
+
+1. `resolution_keeps_required_blob_ahead`
+
+   文件：`app/lib/data/db/daos/local_store.dart`
+
+   find：`if (shouldDefer) {`
+
+   replace：`if (shouldDefer || deferredEntities.isNotEmpty) {`
+
+   应失败测试：`resolve_mine_keeps_required_blob_ahead_of_resolution`
+
+   命令：`flutter test test/data/conflict_test.dart --plain-name resolve_mine_keeps_required_blob_ahead_of_resolution`
+
+2. `background_uses_foreground_channel`
+
+   文件：`app/lib/app/runtime.dart`
+
+   find：
+
+   ```dart
+   final runtimeChannel = background
+       ? await appSettings.clientChannel()
+       : channel;
+   ```
+
+   replace：`final runtimeChannel = background ? 'beta' : channel;`
+
+   应失败测试：`stable_entry_background_handshake_and_client_header_are_stable`
+
+   命令：`flutter test test/data/runtime_channel_test.dart --plain-name stable_entry_background_handshake_and_client_header_are_stable`
+
+### 本次文件与验证状态
+
+本次修改共 11 个文件：
+
+- `client/app/lib/app/runtime.dart`
+- `client/app/lib/data/api/dio_api_client.dart`
+- `client/app/lib/data/db/daos/local_store.dart`
+- `client/app/lib/data/services/app_settings_service.dart`
+- `client/app/lib/data/sync/conflict_service.dart`
+- `client/app/test/data/conflict_test.dart`
+- `client/app/test/data/api_contract_test.dart`
+- `client/app/test/data/runtime_channel_test.dart`（新增）
+- `client/app/test/support/sync_harness.dart`
+- `client/tool/c2-negative-controls.json`
+- `client/C2-DELIVERY.md`
+
+本机为 aarch64、没有 Dart / Flutter；调用 Flutter 得到 command not found，访问已配置的 jiabu-build SSH 被网络沙箱拒绝（socket: Operation not permitted）。按 client/AGENTS.md 不在本机安装或执行构建 / 测试。已完成源码推导场景检查、负对照精确 / 正则锚点唯一性检查、测试名与命令对照、改动 whitespace 检查；**没有实际取得修前红 / 修后绿，也未实测新增负对照**。历史章节的构建机通过记录不覆盖本次修改。
+
+构建机待执行（不要运行生成器或更新 PNG）：
+
+```bash
+cd client
+# 仅格式化本节列出的 Dart 文件，避免改到生成文件。
+flutter analyze --fatal-infos
+dart run tool/check_rules.dart
+cd app
+flutter test test/data/conflict_test.dart test/data/runtime_channel_test.dart test/data/api_contract_test.dart
+flutter test test/data/sync_test.dart test/data/sync_audit_test.dart test/data/partition_and_lease_test.dart
+```
+
+再逐条应用新增负对照、断言失败、恢复，并复跑对应原版测试。当前工作树另有并行的 CI / 字体相关修改，不属于本次文件清单。
+
+### CI 修正（luna.coco）
+
+- push 事件下 git 不信任容器里的检出目录（只有 PR 事件那一步设了 safe.directory），生成一致性检查里的 `git diff` 因此报用法错误退出 129：把 `safe.directory` 提成所有事件都跑的第一步。
+- 字体覆盖测试与 `tool/fonts/subset.py` 原本遇到 ICU plural/select 就直接报错；C2 的英文 ARB 用了 plural。两边都改成取出每个分支的文字（plural 里的 `#` 是数字，不计），其他 ICU 参数仍然报错，并加了 Python / Dart 测试。按新规则在构建机重跑 subset：思源宋体子集多了 1 个 C2 新文案里的字（3883 → 3884），manifest 已更新。
+- 构建机上集成测试端口：S6 的开发库占着 55462，本次实测改用 PG 55479、HTTP 18481/18482。

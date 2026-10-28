@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -14,6 +15,8 @@ import 'package:jiabu/data/api/dto/spaces_dto.dart';
 import 'package:jiabu/data/api/dto/sync_dto.dart';
 import 'package:jiabu/data/services/app_settings_service.dart';
 import 'package:jiabu/data/services/version_handshake_service.dart';
+import 'package:jiabu/data/sync/outbox_processor.dart';
+import 'package:jiabu/data/sync/sync_engine.dart';
 import 'package:jiabu/domain/required_value.dart';
 import 'package:jiabu/domain/sync_state.dart';
 
@@ -63,7 +66,128 @@ Map<String, Object?> openapi() {
       .cast<String, Object?>();
 }
 
+// Capture the old interceptor's escaped async error so regressions fail with
+// an assertion / timeout rather than leaving a test runner or heartbeat alive.
+Future<T> guardedRequest<T>(
+  Future<T> Function() work,
+  List<Object> uncaught,
+  List<Timer> timers,
+) {
+  final result = Completer<T>();
+  unawaited(
+    runZonedGuarded(
+      () async {
+        try {
+          result.complete(await work());
+        } on Object catch (error, stack) {
+          result.completeError(error, stack);
+        }
+      },
+      (error, stack) => uncaught.add(error),
+      zoneSpecification: ZoneSpecification(
+        createPeriodicTimer: (self, parent, zone, duration, callback) {
+          final timer = parent.createPeriodicTimer(zone, duration, callback);
+          timers.add(timer);
+          return timer;
+        },
+      ),
+    ),
+  );
+  return result.future.timeout(const Duration(seconds: 2));
+}
+
 void main() {
+  test('token_read_failure_rejects_request_without_sensitive_error', () async {
+    final adapter = CapturingAdapter();
+    final api = DioApiClient(
+      server: 'https://example.invalid/',
+      clientHeader: 'android/0.1.0+1; channel=stable',
+      token: () async => throw StateError('fictional-sensitive-storage-detail'),
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    final uncaught = <Object>[];
+    final timers = <Timer>[];
+    try {
+      await expectLater(
+        guardedRequest(
+          () => api.dio.get<Object?>('v1/spaces'),
+          uncaught,
+          timers,
+        ),
+        throwsA(
+          isA<DioException>()
+              .having((error) => error.type, 'type', DioExceptionType.unknown)
+              .having(
+                (error) => error.error,
+                'normalized error',
+                isA<ApiError>().having(
+                  (error) => error.code,
+                  'code',
+                  'token_unavailable',
+                ),
+              )
+              .having(
+                (error) => error.toString(),
+                'safe message',
+                isNot(contains('fictional-sensitive-storage-detail')),
+              ),
+        ),
+      );
+      expect(uncaught, isEmpty);
+      expect(adapter.requests, isEmpty);
+    } finally {
+      for (final timer in timers) {
+        timer.cancel();
+      }
+      api.dio.close(force: true);
+    }
+  });
+
+  test('token_read_failure_finishes_round_releases_lease_'
+      'and_can_retry', () async {
+    final h = await SyncHarness.create();
+    final adapter = CapturingAdapter();
+    var tokenReads = 0;
+    final api = DioApiClient(
+      server: 'https://example.invalid/',
+      clientHeader: 'android/0.1.0+1; channel=stable',
+      token: () async {
+        tokenReads++;
+        throw StateError('fictional-sensitive-storage-detail');
+      },
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    final engine = SyncEngine(
+      store: h.store,
+      api: api,
+      handshake: VersionHandshakeService(api, channel: 'stable'),
+      memberships: h.memberships,
+      outbox: OutboxProcessor(h.store, api, h.conflicts),
+      pull: h.pull,
+    );
+    final uncaught = <Object>[];
+    final timers = <Timer>[];
+    try {
+      for (var round = 0; round < 2; round++) {
+        await guardedRequest(engine.runRound, uncaught, timers);
+        expect(tokenReads, round + 1);
+        expect(engine.status, SyncStatus.retryLater);
+        final runtime = await h.store.runtime();
+        expect(runtime['round_owner'], isNull);
+        expect(runtime['round_lease_until'], isNull);
+        expect(timers.every((timer) => !timer.isActive), isTrue);
+      }
+      expect(uncaught, isEmpty);
+      expect(adapter.requests.map((request) => request.path), ['v1/meta']);
+    } finally {
+      for (final timer in timers) {
+        timer.cancel();
+      }
+      api.dio.close(force: true);
+      await h.close();
+    }
+  });
+
   test('download_accepts_cleaned_bytes_under_uploaded_content_hash', () async {
     final bytes = Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]);
     final adapter = CapturingAdapter()

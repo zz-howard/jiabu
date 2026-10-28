@@ -125,6 +125,11 @@ final class ConflictService {
     final key = EntityRef(kind, id).key;
     final created = now().microsecondsSinceEpoch;
     if (useMine) {
+      final voidMine =
+          kind == 'record' &&
+          mine['status'] == 'voided' &&
+          conflict['server_status'] == 'active' &&
+          !restore;
       if (restore) {
         await store.enqueue(
           OutboxOperation(
@@ -150,20 +155,26 @@ final class ConflictService {
           joinEpoch: fence.joinEpoch,
           kind: 'tool',
           payload: {
-            'tool': switch (kind) {
-              'tag' => 'rename_tag',
-              'allocation_plan' => 'set_allocation_plan',
-              _ => 'update_$kind',
-            },
-            'args': _updateArgs(kind, id, mine),
+            'tool': voidMine
+                ? 'void_record'
+                : switch (kind) {
+                    'tag' => 'rename_tag',
+                    'allocation_plan' => 'set_allocation_plan',
+                    _ => 'update_$kind',
+                  },
+            // The current void_record schema only accepts id / version; the
+            // server assigns void_reason=user. Keep mine intact locally until
+            // acknowledgement, without sending an unsupported argument.
+            'args': voidMine ? {'id': id} : _updateArgs(kind, id, mine),
           },
           entityIds: {key},
           dependsOn: {
-            for (final hash
-                in (mine['attachments'] as List<Object?>? ?? const []))
-              if (!(row.data['attachments'] as List<Object?>? ?? const [])
-                  .contains(hash))
-                EntityRef.blob('ledger', hash as String),
+            if (!voidMine)
+              for (final hash
+                  in (mine['attachments'] as List<Object?>? ?? const []))
+                if (!(row.data['attachments'] as List<Object?>? ?? const [])
+                    .contains(hash))
+                  EntityRef.blob('ledger', hash as String),
           },
           requestId: newId(),
           createdAt: created + (restore ? 1 : 0),

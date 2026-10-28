@@ -85,12 +85,59 @@ def select_values(value, path):
     return select_values(value[key], tail)
 
 
-def message_text(text):
-    # C1 ARB messages use simple named placeholders (no ICU plurals/selects).
-    # Reject richer ICU instead of silently extracting a different character set.
-    if re.search(r"\{\s*\w+\s*,", text):
-        raise ValueError("Add explicit ICU handling before using plural/select sources")
-    return re.sub(r"\{\w+\}", "", text)
+ICU_BRANCHING = {"plural", "select", "selectordinal"}
+
+
+def _closing_brace(text, start):
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    raise ValueError("Unbalanced braces in ARB message")
+
+
+def message_text(text, in_plural=False):
+    # Placeholders contribute no characters; plural/select contribute every
+    # branch (so all wordings are covered) and "#" inside plural is the count.
+    # Any other ICU argument (number/date formats) is rejected rather than
+    # silently extracting a different character set.
+    out = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char != "{":
+            if not (in_plural and char == "#"):
+                out.append(char)
+            index += 1
+            continue
+        end = _closing_brace(text, index)
+        body = text[index + 1:end]
+        if "," in body:
+            parts = [part.strip() for part in body.split(",", 2)]
+            if len(parts) != 3 or parts[1] not in ICU_BRANCHING:
+                raise ValueError("Add explicit ICU handling for: " + body)
+            name, kind, rest = parts
+            if not re.fullmatch(r"\w+", name) or kind not in ICU_BRANCHING:
+                raise ValueError("Add explicit ICU handling for " + kind)
+            position = 0
+            while position < len(rest):
+                if rest[position].isspace():
+                    position += 1
+                    continue
+                opening = rest.index("{", position)
+                if not re.fullmatch(r"=?\w+", rest[position:opening].strip()):
+                    raise ValueError("Malformed ICU selector")
+                closing = _closing_brace(rest, opening)
+                out.append(message_text(rest[opening + 1:closing], kind != "select"))
+                position = closing + 1
+        elif not re.fullmatch(r"\w+", body):
+            raise ValueError("Malformed ARB placeholder")
+        index = end + 1
+    return "".join(out)
 
 
 def read_sources(config, root=ROOT):

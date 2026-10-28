@@ -114,8 +114,14 @@ class FakeApi implements ApiClient {
       if (op.tool.startsWith('create_')) ...op.args,
       if (op.args['changes'] case final Map<String, Object?> changes)
         ...changes,
-      if (op.tool == 'void_record') 'status': 'voided',
-      if (op.tool == 'restore_record') 'status': 'active',
+      if (op.tool == 'void_record') ...{
+        'status': 'voided',
+        'void_reason': 'user',
+      },
+      if (op.tool == 'restore_record') ...{
+        'status': 'active',
+        'void_reason': null,
+      },
       'version': requireValue<int>(previous['version']) + 1,
     };
     server[id] = data;

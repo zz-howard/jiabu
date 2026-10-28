@@ -52,9 +52,19 @@ final class DioApiClient implements ApiClient {
             );
           }
           if (options.extra['anonymous'] != true) {
-            final secret = await token();
-            if (secret != null) {
-              options.headers['Authorization'] = 'Bearer $secret';
+            try {
+              final secret = await token();
+              if (secret != null) {
+                options.headers['Authorization'] = 'Bearer $secret';
+              }
+            } on Object {
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  error: const ApiError('token_unavailable'),
+                ),
+              );
+              return;
             }
           }
           handler.next(options);
