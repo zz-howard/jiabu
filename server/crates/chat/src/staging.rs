@@ -117,12 +117,17 @@ impl StagedStream {
         block.append_text(text).await?;
         block.finish().await
     }
-    /// A card the protocol rejects (e.g. more than 12 metrics) is skipped rather
-    /// than failing the run; the complete tool result still reaches the model.
-    /// The check runs on a scratch stream so the real stream is never left with
-    /// a half-open block.
+    /// A card the protocol rejects (e.g. more than 12 metrics, or a message that
+    /// would exceed its size limit) is skipped rather than failing the run; the
+    /// complete tool result still reaches the model. The check runs on a copy of
+    /// the current stream so the real stream is never left with a half-open block.
     pub async fn component(&self, kind: &str, data: Value, fallback: &str) -> Result<()> {
-        let scratch = Self::start(StreamConfig::new(Uuid::now_v7().to_string())).await?;
+        let scratch = Self::load(Checkpoint {
+            message: self.stream.message().await?,
+            last_seq: self.stream.last_seq().await,
+            step_work_ms: Default::default(),
+        })
+        .await?;
         if scratch.emit_component(kind, data.clone(), fallback).await.is_err() {
             return Ok(());
         }
@@ -153,6 +158,24 @@ mod tests {
         let blocks = blocks.as_array().ok_or(Error::Conflict)?;
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0]["data"]["metrics"].as_array().map(Vec::len), Some(2));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn component_that_would_overflow_the_message_is_skipped() -> Result<()> {
+        let mut stage = StagedStream::start(StreamConfig::new(Uuid::now_v7().to_string())).await?;
+        // Each card is ~54 KiB (under the 64 KiB block limit); five exceed 256 KiB.
+        let rows: Vec<_> = (0..600)
+            .map(|i| serde_json::json!({"id": format!("{i:090}")}))
+            .collect();
+        let data = serde_json::json!({"columns":[{"key":"id","label":"虚构","type":"string"}],"rows":rows});
+        for _ in 0..5 {
+            stage.component("dataset", data.clone(), "记录").await?;
+        }
+        let message = stage.batch().await?.checkpoint.message;
+        let blocks = message.0["blocks"].as_array().ok_or(Error::Conflict)?.len();
+        assert!((1..5).contains(&blocks), "{blocks} cards");
+        assert!(serde_json::to_vec(&message.0).map_err(|_| Error::Conflict)?.len() <= 256 * 1024);
         Ok(())
     }
 
