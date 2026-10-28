@@ -99,7 +99,9 @@ pub async fn measured_attempt(
     req: &TurnRequest,
     sink: &mut dyn TurnSink,
     observer: &dyn CallObserver,
+    budget: Duration,
 ) -> Result<(), ProviderError> {
+    let deadline = tokio::time::Instant::now() + budget;
     let id = observer
         .begin(provider.id(), &req.snapshot.model, task, req)
         .await?;
@@ -108,9 +110,14 @@ pub async fn measured_attempt(
         inner: sink,
         usage: None,
     };
-    let result = tokio::time::timeout(Duration::from_secs(300), provider.run_turn(req, &mut tap))
-        .await
-        .unwrap_or(Err(ProviderError::Timeout));
+    // Registration and finalization are never dropped by the provider deadline.
+    let result = if tokio::time::Instant::now() >= deadline {
+        Err(ProviderError::Timeout)
+    } else {
+        tokio::time::timeout_at(deadline, provider.run_turn(req, &mut tap))
+            .await
+            .unwrap_or(Err(ProviderError::Timeout))
+    };
     observer
         .finish(
             id,

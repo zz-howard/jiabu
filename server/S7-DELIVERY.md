@@ -134,3 +134,9 @@
 - `server/crates/domain/src/lib.rs`
 - `server/migrations/0008_s7_ai.sql`
 - `server/support/ai_secrets.rs`
+
+第二轮独立评审修复：
+
+- 每次尝试传入总时限的剩余预算（含登记耗时），只对提供方调用套超时；捕获 Timeout 后独立执行 `observer.finish()`，router 返回前 `ai_calls` 已完成（`outcome=failed`、`error_kind=timeout`、`completed_at` 非空），重试共用剩余预算。
+- 初始化和后续凭据读取的连接、池、超时等存储故障复用现有 5 秒 `retry` 退避；manager 保留，退避到期重新允许路由探测并读取，无需配置变更或重启，凭据缺失、损坏或明确不可用仍按 Auth 处理。
+- 模型请求 401 或流中 `invalid_api_key` / `invalid_token` / `token_expired` 在尚无可见输出时，经共享刷新锁重新读取并强制刷新（并发请求已轮换则复用新令牌），仅重试一次；`reject()` 仅由令牌端点明确的 `invalid_grant` / `invalid_client` / `unauthorized_client` 触发。403 保留 quota 码 → `QuotaExhausted`、`rate_limit_exceeded` → `RateLimited`、加密内容拒绝码 → `BlobRejected`；`permission_denied` / `insufficient_permissions` / `model_not_found` / `model_access_denied` 及未知或访问令牌类 403 → `Unsupported("permission denied")`，均不刷新、不修改凭据；已输出内容的流失败不透明重试。

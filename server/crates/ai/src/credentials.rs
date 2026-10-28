@@ -48,16 +48,24 @@ impl CredentialManager {
         oauth: OAuthClient,
         refresh: Arc<Mutex<()>>,
     ) -> Self {
-        let available = store
-            .load()
-            .await
+        let initial = store.load().await;
+        let available = initial
+            .as_ref()
             .is_ok_and(|v| v.usable && v.credentials.refreshable());
+        let retry = match initial {
+            Err(error) if error != ProviderError::Auth => Some((
+                -1,
+                std::time::Instant::now() + std::time::Duration::from_secs(5),
+                0,
+            )),
+            _ => None,
+        };
         Self {
             store,
             oauth,
             refresh,
             available: AtomicBool::new(available),
-            retry: std::sync::Mutex::new(None),
+            retry: std::sync::Mutex::new(retry),
         }
     }
     pub fn available(&self) -> bool {
@@ -70,15 +78,51 @@ impl CredentialManager {
     }
 
     pub async fn access(&self) -> Result<OAuthCredentials, ProviderError> {
-        let _guard = self.refresh.lock().await;
-        let current = match self.store.load().await {
-            Ok(v) => v,
+        self.access_inner(None).await
+    }
+    /// Re-read under the shared gate: another request may already have rotated the token.
+    pub async fn refresh_after_rejection(
+        &self,
+        access_token: &str,
+    ) -> Result<OAuthCredentials, ProviderError> {
+        self.access_inner(Some(access_token)).await
+    }
+    async fn load(&self) -> Result<VersionedToken, ProviderError> {
+        match self.store.load().await {
+            Ok(v) => Ok(v),
             Err(e) => {
-                *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
+                let retry = if e == ProviderError::Auth {
+                    None
+                } else {
+                    Some((
+                        -1,
+                        std::time::Instant::now() + std::time::Duration::from_secs(5),
+                        0,
+                    ))
+                };
+                *self.retry.lock().map_err(|_| ProviderError::Transport)? = retry;
                 self.available.store(false, Ordering::Release);
-                return Err(e);
+                Err(e)
             }
-        };
+        }
+    }
+    async fn access_inner(
+        &self,
+        rejected: Option<&str>,
+    ) -> Result<OAuthCredentials, ProviderError> {
+        let _guard = self.refresh.lock().await;
+        // Revision -1 marks a failed read: there is no known token to reuse yet.
+        if self
+            .retry
+            .lock()
+            .map_err(|_| ProviderError::Transport)?
+            .as_ref()
+            .is_some_and(|(revision, at, _)| *revision == -1 && std::time::Instant::now() < *at)
+        {
+            return Err(ProviderError::Transport);
+        }
+        let current = self.load().await?;
+        let force = rejected == Some(current.credentials.access_token.as_str());
         if !current.usable || !current.credentials.refreshable() {
             *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
             self.available.store(false, Ordering::Release);
@@ -90,7 +134,7 @@ impl CredentialManager {
             if retry.as_ref().is_some_and(|(revision, at, _)| {
                 *revision == current.revision && std::time::Instant::now() < *at
             }) {
-                return if current.credentials.expires_at > now {
+                return if !force && current.credentials.expires_at > now {
                     Ok(current.credentials)
                 } else {
                     self.available.store(false, Ordering::Release);
@@ -99,7 +143,7 @@ impl CredentialManager {
             }
             *retry = None;
         }
-        if current.credentials.expires_at > now + 60 {
+        if !force && current.credentials.expires_at > now + 60 {
             self.available.store(true, Ordering::Release);
             return Ok(current.credentials);
         }
@@ -116,7 +160,7 @@ impl CredentialManager {
                     self.available.store(true, Ordering::Release);
                     Ok(next)
                 } else {
-                    let winner = self.store.load().await?;
+                    let winner = self.load().await?;
                     let usable = winner.usable
                         && winner.credentials.expires_at > chrono::Utc::now().timestamp();
                     self.available.store(usable, Ordering::Release);
@@ -135,42 +179,28 @@ impl CredentialManager {
                 ));
                 let usable = current.credentials.expires_at > chrono::Utc::now().timestamp();
                 self.available.store(usable, Ordering::Release);
-                if usable {
+                if usable && !force {
                     Ok(current.credentials)
                 } else {
                     Err(error)
                 }
             }
-            Err(_) => {
-                self.available.store(false, Ordering::Release);
-                // A competing successful rotation must not be invalidated by this loser.
-                if self.store.invalidate(current.revision).await? {
-                    self.available.store(false, Ordering::Release);
-                } else {
-                    let winner = self.store.load().await?;
-                    if winner.usable
-                        && winner.credentials.expires_at > chrono::Utc::now().timestamp()
-                    {
-                        self.available.store(true, Ordering::Release);
-                        return Ok(winner.credentials);
-                    }
-                    self.available.store(false, Ordering::Release);
-                }
-                Err(ProviderError::Auth)
-            }
+            Err(_) => self.reject(&current).await,
         }
     }
-    pub async fn reject(&self, access_token: &str) {
-        if let Ok(current) = self.store.load().await {
-            if current.credentials.access_token != access_token {
-                return;
-            }
-            let _ = self.store.invalidate(current.revision).await;
-        }
-        if let Ok(mut retry) = self.retry.lock() {
-            *retry = None;
-        }
+    /// Only called for a definite rejection from the OAuth token endpoint.
+    async fn reject(&self, current: &VersionedToken) -> Result<OAuthCredentials, ProviderError> {
+        *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
         self.available.store(false, Ordering::Release);
+        // A competing successful rotation must not be invalidated by this loser.
+        if !self.store.invalidate(current.revision).await? {
+            let winner = self.load().await?;
+            if winner.usable && winner.credentials.expires_at > chrono::Utc::now().timestamp() {
+                self.available.store(true, Ordering::Release);
+                return Ok(winner.credentials);
+            }
+        }
+        Err(ProviderError::Auth)
     }
 }
 /// Compatibility source, atomically replaced on the same filesystem. A sidecar

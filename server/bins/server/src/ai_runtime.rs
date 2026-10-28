@@ -24,13 +24,13 @@ impl TokenStore for DatabaseTokens {
     async fn load(&self) -> Result<VersionedToken, ProviderError> {
         let tx = SystemTx::begin(&self.db)
             .await
-            .map_err(|_| ProviderError::Auth)?;
+            .map_err(|_| ProviderError::Transport)?;
         let secret = tx
             .ai_secret(&self.provider)
             .await
-            .map_err(|_| ProviderError::Auth)?
+            .map_err(|_| ProviderError::Transport)?
             .ok_or(ProviderError::Auth)?;
-        tx.commit().await.map_err(|_| ProviderError::Auth)?;
+        tx.commit().await.map_err(|_| ProviderError::Transport)?;
         let bytes = self
             .key
             .open("provider", &self.provider, "oauth", &secret)
@@ -405,6 +405,52 @@ mod tests {
             .await?;
         task.abort();
         let _ = task.await;
+        // A hung provider must finish the durable row before the router returns Timeout.
+        let mut config = store.0.load().config.clone();
+        config.routes[0].task_kind = TaskKind::Probe;
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let mock = jiabu_ai::mock::MockProvider::scripted(
+            "synthetic",
+            Capabilities {
+                structured: StructuredMode::ToolCall,
+                vision: true,
+                max_images: 8,
+                context_tokens: 32000,
+            },
+            vec![vec![
+                jiabu_ai::mock::MockStep::Barrier(barrier.clone()),
+                jiabu_ai::mock::MockStep::Delay(Duration::from_secs(600)),
+            ]],
+        );
+        let router = jiabu_ai::AiRouter::new(config, vec![Arc::new(mock)]);
+        struct Discard;
+        #[async_trait]
+        impl jiabu_ai::TurnSink for Discard {
+            async fn emit(&mut self, _: jiabu_ai::TurnEvent) -> Result<(), ProviderError> {
+                Ok(())
+            }
+        }
+        let attempt_token = meter.attempt_token;
+        let pending = tokio::spawn(async move {
+            router
+                .run_turn(TaskKind::Probe, &request, &mut Discard, &meter)
+                .await
+        });
+        barrier.wait().await;
+        tokio::task::yield_now().await;
+        tokio::time::pause();
+        tokio::time::advance(jiabu_ai::breaker::CALL_TIMEOUT + Duration::from_secs(1)).await;
+        tokio::time::resume();
+        assert_eq!(pending.await?, Err(ProviderError::Timeout));
+        let owner = fixture.owner().await?;
+        let row: (String, String, bool) = sqlx::query_as(
+            "select outcome,error_kind,completed_at is not null from ai_calls where attempt_token=$1 order by id desc limit 1",
+        )
+        .bind(attempt_token)
+        .fetch_one(&owner)
+        .await?;
+        assert_eq!(row, ("failed".into(), "timeout".into(), true));
+        owner.close().await;
         db.close().await?;
         Ok(())
     }

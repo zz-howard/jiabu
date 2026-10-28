@@ -158,7 +158,7 @@ async fn refresh_rotation_saves_new_refresh_token_and_failure_disables_availabil
     assert!(!tokens.load().await.unwrap().usable);
 }
 #[tokio::test]
-async fn concurrent_access_serializes_one_refresh_and_stale_rejection_preserves_rotation() {
+async fn concurrent_access_serializes_one_refresh_and_stale_access_error_preserves_rotation() {
     let server = MockServer::start().await;
     Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-new-refresh","expires_in":3600,"token_type":"Bearer"}))).expect(1).mount(&server).await;
     let tokens = Tokens::new(1);
@@ -167,7 +167,10 @@ async fn concurrent_access_serializes_one_refresh_and_stale_rejection_preserves_
     let (a, b) = tokio::join!(manager.access(), manager.access());
     assert!(a.is_ok() && b.is_ok());
     assert_eq!(tokens.load().await.unwrap().revision, 2);
-    manager.reject("synthetic-old-access").await;
+    manager
+        .refresh_after_rejection("synthetic-old-access")
+        .await
+        .unwrap();
     assert!(manager.available());
     assert!(tokens.load().await.unwrap().usable);
 }
@@ -284,4 +287,90 @@ async fn old_access_expiring_during_refresh_backoff_temporarily_removes_availabi
     ));
     assert!(tokens.load().await.unwrap().usable);
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+struct FlakyRead {
+    tokens: Arc<Tokens>,
+    fail: std::sync::atomic::AtomicBool,
+}
+#[async_trait::async_trait]
+impl TokenStore for FlakyRead {
+    async fn load(&self) -> Result<jiabu_ai::credentials::VersionedToken, ProviderError> {
+        if self.fail.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            Err(ProviderError::Transport)
+        } else {
+            self.tokens.load().await
+        }
+    }
+    async fn compare_exchange(
+        &self,
+        revision: i64,
+        next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        self.tokens.compare_exchange(revision, next).await
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn temporary_store_read_failure_at_initialization_or_access_recovers_after_backoff() {
+    for initialization in [true, false] {
+        let store = Arc::new(FlakyRead {
+            tokens: Tokens::new(chrono::Utc::now().timestamp() + 3600),
+            fail: std::sync::atomic::AtomicBool::new(initialization),
+        });
+        // No network needed: the valid stored access token needs no refresh.
+        let manager = CredentialManager::new(
+            store.clone(),
+            OAuthClient::at("http://127.0.0.1:1").unwrap(),
+        )
+        .await;
+        if !initialization {
+            assert!(manager.available());
+            store.fail.store(true, std::sync::atomic::Ordering::SeqCst);
+            assert!(matches!(
+                manager.access().await,
+                Err(ProviderError::Transport)
+            ));
+        }
+        assert!(!manager.available());
+        assert!(matches!(
+            manager.access().await,
+            Err(ProviderError::Transport)
+        ));
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        assert!(manager.available());
+        assert_eq!(
+            manager.access().await.unwrap().access_token,
+            "synthetic-access"
+        );
+        assert!(manager.available());
+        assert!(store.tokens.load().await.unwrap().usable);
+    }
+}
+
+#[tokio::test]
+async fn concurrent_access_token_rejections_force_only_one_refresh() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token":"synthetic-new-access", "refresh_token":"synthetic-new-refresh",
+            "expires_in":3600, "token_type":"Bearer"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 3600);
+    let manager =
+        CredentialManager::new(tokens.clone(), OAuthClient::at(&server.uri()).unwrap()).await;
+    let (a, b) = tokio::join!(
+        manager.refresh_after_rejection("synthetic-access"),
+        manager.refresh_after_rejection("synthetic-access")
+    );
+    assert_eq!(a.unwrap().access_token, "synthetic-new-access");
+    assert_eq!(b.unwrap().access_token, "synthetic-new-access");
+    assert_eq!(tokens.load().await.unwrap().revision, 2);
+    assert!(manager.available());
 }

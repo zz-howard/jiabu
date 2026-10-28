@@ -362,3 +362,37 @@ async fn invalid_output_without_visible_events_still_retries_once() {
         .unwrap();
     assert_eq!(mock.requests().len(), 2);
 }
+
+#[tokio::test(start_paused = true)]
+async fn timeout_finishes_meter_and_retries_share_remaining_budget() {
+    for retry in [false, true] {
+        let script = if retry {
+            vec![
+                vec![
+                    MockStep::Delay(Duration::from_secs(200)),
+                    MockStep::Fail(ProviderError::InvalidOutput),
+                ],
+                vec![MockStep::Delay(Duration::from_secs(200))],
+            ]
+        } else {
+            vec![vec![MockStep::Delay(Duration::from_secs(600))]]
+        };
+        let mock = Arc::new(MockProvider::scripted("fake-1", capabilities(), script));
+        let router = AiRouter::new(config(), vec![mock]);
+        let meter = Meter::default();
+        let started = tokio::time::Instant::now();
+        assert_eq!(
+            router
+                .run_turn(TaskKind::Chat, &request(), &mut Sink::default(), &meter)
+                .await,
+            Err(ProviderError::Timeout)
+        );
+        assert!(started.elapsed() >= jiabu_ai::breaker::CALL_TIMEOUT);
+        assert!(started.elapsed() < jiabu_ai::breaker::CALL_TIMEOUT + Duration::from_secs(1));
+        let calls = meter.calls.lock().unwrap();
+        let results = meter.results.lock().unwrap();
+        assert_eq!(calls.len(), if retry { 2 } else { 1 });
+        assert_eq!(calls.len(), results.len());
+        assert_eq!(results.last().unwrap().as_deref(), Some("timeout"));
+    }
+}

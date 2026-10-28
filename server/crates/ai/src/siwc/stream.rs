@@ -219,6 +219,10 @@ pub fn error(event: &Value) -> ProviderError {
         | "subscription_sharing_usage_unavailable"
         | "insufficient_quota" => ProviderError::QuotaExhausted,
         "invalid_api_key" | "invalid_token" | "token_expired" => ProviderError::Auth,
+        "permission_denied"
+        | "insufficient_permissions"
+        | "model_not_found"
+        | "model_access_denied" => ProviderError::Unsupported("permission denied"),
         "invalid_encrypted_content" | "encrypted_content_invalid" => ProviderError::BlobRejected,
         "rate_limit_exceeded" => ProviderError::RateLimited { retry_after: None },
         _ => ProviderError::InvalidOutput,

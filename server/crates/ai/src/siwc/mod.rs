@@ -100,7 +100,30 @@ impl ModelProvider for SiwcProvider {
         req: &TurnRequest,
         sink: &mut dyn TurnSink,
     ) -> Result<(), ProviderError> {
-        let creds = self.credentials.access().await?;
+        let mut creds = self.credentials.access().await?;
+        let mut output = crate::router::OutputSink {
+            inner: sink,
+            visible: false,
+        };
+        let result = self.request_once(req, &mut output, &creds).await;
+        if result != Err(ProviderError::Auth) || output.visible {
+            return result;
+        }
+        creds = self
+            .credentials
+            .refresh_after_rejection(&creds.access_token)
+            .await?;
+        // Only this one retry; a second access-token error never revokes the session.
+        self.request_once(req, &mut output, &creds).await
+    }
+}
+impl SiwcProvider {
+    async fn request_once(
+        &self,
+        req: &TurnRequest,
+        sink: &mut dyn TurnSink,
+        creds: &oauth::OAuthCredentials,
+    ) -> Result<(), ProviderError> {
         let body = request::body(req, &self.id, &creds.account_id)?;
         let response = self
             .client
@@ -137,9 +160,16 @@ impl ModelProvider for SiwcProvider {
             if mapped == ProviderError::QuotaExhausted {
                 return Err(mapped);
             }
-            if status.as_u16() == 401 || status.as_u16() == 403 {
-                self.credentials.reject(&creds.access_token).await;
+            if status.as_u16() == 401 {
                 return Err(ProviderError::Auth);
+            }
+            if status.as_u16() == 403 {
+                return Err(match mapped {
+                    ProviderError::InvalidOutput | ProviderError::Auth => {
+                        ProviderError::Unsupported("permission denied")
+                    }
+                    error => error,
+                });
             }
             if status.as_u16() == 429 {
                 return Err(ProviderError::RateLimited { retry_after });
@@ -161,12 +191,7 @@ impl ModelProvider for SiwcProvider {
                 }
             })?;
             for event in decoder.push(&chunk)? {
-                if let Err(error) = turn.accept(event, sink).await {
-                    if error == ProviderError::Auth {
-                        self.credentials.reject(&creds.access_token).await;
-                    }
-                    return Err(error);
-                }
+                turn.accept(event, sink).await?;
                 if turn.completed() {
                     return turn
                         .finish(&self.id, &req.snapshot.model, &creds.account_id, sink)

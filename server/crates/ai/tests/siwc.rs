@@ -301,3 +301,188 @@ fn history_replay_preserves_raw_arguments_and_frozen_model_parameters() {
     assert_eq!(body["reasoning"]["effort"], "low");
     assert_eq!(body["text"]["verbosity"], "low");
 }
+
+#[tokio::test]
+async fn access_token_errors_refresh_once_but_only_token_endpoint_rejection_revokes() {
+    use jiabu_ai::credentials::TokenStore;
+    for (status, events, refresh_rejected, second_rejected) in [
+        (
+            200,
+            vec![json!({"type":"error","code":"token_expired"})],
+            false,
+            false,
+        ),
+        (401, vec![], false, false),
+        (
+            200,
+            vec![json!({"type":"error","code":"token_expired"})],
+            true,
+            false,
+        ),
+        (401, vec![], false, true),
+    ] {
+        let server = MockServer::start().await;
+        let tokens = Tokens::new(chrono::Utc::now().timestamp() + 3600);
+        let manager = Arc::new(
+            CredentialManager::new(tokens.clone(), OAuthClient::at(&server.uri()).unwrap()).await,
+        );
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .and(header("authorization", "Bearer synthetic-access"))
+            .respond_with(ResponseTemplate::new(status).set_body_string(sse(&events)))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let refresh = if refresh_rejected {
+            ResponseTemplate::new(400).set_body_json(json!({"error":"invalid_grant"}))
+        } else {
+            ResponseTemplate::new(200).set_body_json(json!({
+                "access_token":"synthetic-new-access", "refresh_token":"synthetic-new-refresh",
+                "expires_in":3600, "token_type":"Bearer"
+            }))
+        };
+        Mock::given(method("POST"))
+            .and(path("/oauth/token"))
+            .respond_with(refresh)
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .and(header("authorization", "Bearer synthetic-new-access"))
+            .respond_with(if second_rejected {
+                ResponseTemplate::new(401)
+            } else {
+                ResponseTemplate::new(200).set_body_string(sse(&[completed()]))
+            })
+            .expect(if refresh_rejected { 0 } else { 1 })
+            .mount(&server)
+            .await;
+        let provider = SiwcProvider::at(
+            "synthetic".into(),
+            capabilities(),
+            manager.clone(),
+            &format!("{}/v1/responses", server.uri()),
+        )
+        .unwrap();
+        let mut sink = Sink::default();
+        let result = provider.run_turn(&request(), &mut sink).await;
+        if refresh_rejected || second_rejected {
+            assert_eq!(result, Err(ProviderError::Auth));
+            assert!(sink.0.is_empty());
+        } else {
+            result.unwrap();
+            assert!(matches!(sink.0.last(), Some(TurnEvent::Done { .. })));
+        }
+        assert_eq!(tokens.load().await.unwrap().usable, !refresh_rejected);
+        assert_eq!(manager.available(), !refresh_rejected);
+    }
+}
+
+#[tokio::test]
+async fn forbidden_errors_do_not_refresh_or_change_credentials() {
+    use jiabu_ai::credentials::TokenStore;
+    for (code, expected) in [
+        (
+            "permission_denied",
+            ProviderError::Unsupported("permission denied"),
+        ),
+        (
+            "insufficient_permissions",
+            ProviderError::Unsupported("permission denied"),
+        ),
+        (
+            "model_not_found",
+            ProviderError::Unsupported("permission denied"),
+        ),
+        (
+            "model_access_denied",
+            ProviderError::Unsupported("permission denied"),
+        ),
+        (
+            "token_expired",
+            ProviderError::Unsupported("permission denied"),
+        ),
+        ("unknown", ProviderError::Unsupported("permission denied")),
+        ("insufficient_quota", ProviderError::QuotaExhausted),
+        (
+            "rate_limit_exceeded",
+            ProviderError::RateLimited { retry_after: None },
+        ),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(json!({"error":{"code":code}})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/oauth/token"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let tokens = Tokens::new(chrono::Utc::now().timestamp() + 3600);
+        let manager = Arc::new(
+            CredentialManager::new(tokens.clone(), OAuthClient::at(&server.uri()).unwrap()).await,
+        );
+        let provider = SiwcProvider::at(
+            "synthetic".into(),
+            capabilities(),
+            manager.clone(),
+            &format!("{}/v1/responses", server.uri()),
+        )
+        .unwrap();
+        assert_eq!(
+            provider.run_turn(&request(), &mut Sink::default()).await,
+            Err(expected)
+        );
+        assert!(manager.available());
+        let current = tokens.load().await.unwrap();
+        assert!(current.usable);
+        assert_eq!(current.revision, 1);
+        assert_eq!(current.credentials.access_token, "synthetic-access");
+    }
+}
+
+#[tokio::test]
+async fn token_error_after_visible_text_does_not_replay_output_or_revoke_credentials() {
+    use jiabu_ai::credentials::TokenStore;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sse(&[
+            json!({"type":"response.output_text.delta","output_index":0,"delta":"Recorded."}),
+            json!({"type":"error","code":"token_expired"}),
+        ])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 3600);
+    let manager = Arc::new(
+        CredentialManager::new(tokens.clone(), OAuthClient::at(&server.uri()).unwrap()).await,
+    );
+    let provider = SiwcProvider::at(
+        "synthetic".into(),
+        capabilities(),
+        manager.clone(),
+        &format!("{}/v1/responses", server.uri()),
+    )
+    .unwrap();
+    let mut sink = Sink::default();
+    assert_eq!(
+        provider.run_turn(&request(), &mut sink).await,
+        Err(ProviderError::Auth)
+    );
+    assert_eq!(sink.0.len(), 1);
+    assert!(matches!(&sink.0[0], TurnEvent::TextDelta(text) if text == "Recorded."));
+    assert!(manager.available());
+    assert!(tokens.load().await.unwrap().usable);
+}

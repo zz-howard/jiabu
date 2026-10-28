@@ -35,9 +35,9 @@ impl Drop for ProbePermit {
         }
     }
 }
-struct OutputSink<'a> {
-    inner: &'a mut dyn TurnSink,
-    visible: bool,
+pub(crate) struct OutputSink<'a> {
+    pub(crate) inner: &'a mut dyn TurnSink,
+    pub(crate) visible: bool,
 }
 #[async_trait::async_trait]
 impl TurnSink for OutputSink<'_> {
@@ -198,10 +198,15 @@ impl AiRouter {
             request.snapshot.model = model.model.clone();
             let mut retried_blob = false;
             let mut retried_format = false;
-            let result = tokio::time::timeout(crate::breaker::CALL_TIMEOUT, async {
+            let deadline = tokio::time::Instant::now() + crate::breaker::CALL_TIMEOUT;
+            let result = async {
                 loop {
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if remaining.is_zero() {
+                        break Err(ProviderError::Timeout);
+                    }
                     let result = measured_attempt(
-                        provider.as_ref(), task, &request, &mut output, observer,
+                        provider.as_ref(), task, &request, &mut output, observer, remaining,
                     ).await;
                     if output.visible && result.is_err() {
                         break result;
@@ -229,9 +234,8 @@ impl AiRouter {
                     }
                     break result;
                 }
-            })
-            .await
-            .unwrap_or(Err(ProviderError::Timeout));
+            }
+            .await;
             permit.finish(result.is_ok());
             let result = if output.visible {
                 result.map_err(|error| ProviderError::PartialOutput {
