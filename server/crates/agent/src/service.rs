@@ -336,8 +336,19 @@ impl ScopedRuns {
             jiabu_tools::authorize(tx.member(self.space), tool.module(), tool.action())
                 .map_err(|_| OperationError::not_found())?;
         }
-        validate_environment(tx.member(self.space), &journal)
-            .map_err(|_| OperationError::not_found())?;
+        if validate_environment(tx.member(self.space), &journal).is_err() {
+            // The frozen permissions no longer hold, so this reply can never
+            // resume; close it now instead of leaving it paused until expiry.
+            if run.status == "paused" {
+                let batch =
+                    close_run(&tx, self.space, &run, "failed", "permission_changed").await?;
+                tx.commit().await?;
+                jiabu_chat::publish(&self.hub, batch)
+                    .await
+                    .map_err(protocol_error)?;
+            }
+            return Err(OperationError::not_found());
+        }
         if key.is_some_and(|key| key != action) {
             return Err(OperationError::new(400, "idempotency_key_mismatch"));
         }
@@ -492,6 +503,12 @@ pub(crate) async fn close_run(
             .expire_interrupt()
             .await
             .map_err(|error| protocol_error_at("close_run: expire interrupt", error))?,
+        // ChatWeave only closes a paused stream through stop / expiry.
+        _ if current.status() == "paused" => stage
+            .stream
+            .stop()
+            .await
+            .map_err(|error| protocol_error_at("close_run: stop paused stream", error))?,
         _ => {
             if stage
                 .stream

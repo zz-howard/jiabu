@@ -1485,6 +1485,27 @@ async fn action_module_denial_precedes_receipt_lookup_even_on_replay() -> Result
     Ok(())
 }
 #[tokio::test]
+async fn permission_change_while_paused_closes_the_reply_on_answer() -> Result<()> {
+    let f = Fixture::new(vec![question()]).await?;
+    let r = f.start().await?;
+    f.work().await?;
+    assert_eq!(f.run(r.message_id).await?.status, "paused");
+    sqlx::query("update space_member_grants set level='none' where member_id=(select member_id from agent_runs where assistant_message_id=$1) and module='ledger'").bind(r.message_id).execute(&f.owner).await?;
+    let action = f.answer(r.message_id).await?;
+    let error = f
+        .runs()
+        .answer(&f.p, action, &f.runtime.tools)
+        .await
+        .err()
+        .context("denied")?;
+    assert_eq!(error.status, 404);
+    let run = f.run(r.message_id).await?;
+    assert_eq!(run.status, "failed");
+    assert_eq!(run.last_error.as_deref(), Some("permission_changed"));
+    assert_ne!(f.checkpoint(r.message_id).await?.message.status(), "paused");
+    Ok(())
+}
+#[tokio::test]
 async fn other_member_cannot_access_conversation_or_checkpoint() -> Result<()> {
     let f = Fixture::new(vec![]).await?;
     let r = f.start().await?;
