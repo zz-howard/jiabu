@@ -1594,6 +1594,88 @@ async fn clarification_form_and_free_text_from_second_device_resume_same_message
     Ok(())
 }
 #[tokio::test]
+async fn permission_change_during_confirmation_closes_the_reply_on_answer() -> Result<()> {
+    let mut f = Fixture::new(vec![]).await?;
+    let account = Uuid::now_v7();
+    let ctx = jiabu_tools::ToolCtx::begin(
+        &f.db,
+        f.p.clone(),
+        f.space,
+        Some(JoinEpoch(1)),
+        jiabu_tools::Effect::LocalWrite,
+        jiabu_tools::Invocation {
+            idempotency_key: Some(account),
+            replay_key: None,
+            run_id: None,
+            request_id: Uuid::now_v7(),
+            now: chrono::Utc::now(),
+        },
+    )
+    .await?;
+    f.runtime
+        .tools
+        .invoke(
+            "create_account",
+            json!({"kind":"real","name":"虚构确认账户","opening_on":"2026-01-01"}),
+            &ctx,
+        )
+        .await?;
+    let scripts = vec![
+        vec![
+            call(
+                "archive",
+                "archive_account",
+                json!({"id":account,"expected_version":1}),
+            ),
+            done(),
+        ],
+        vec![text("数据已变化，请重新确认 / Data changed"), done()],
+    ];
+    let mock = Arc::new(MockProvider::scripted(
+        "synthetic",
+        Capabilities {
+            structured: StructuredMode::ToolCall,
+            vision: true,
+            max_images: 8,
+            context_tokens: 8192,
+        },
+        scripts,
+    ));
+    let config = f.runtime.router.0.load().config.clone();
+    f.runtime
+        .router
+        .0
+        .store(Arc::new(AiRouter::new(config, vec![mock.clone()])));
+    f.mock = mock;
+    let r = f.start().await?;
+    f.work().await?;
+    let cp = f.checkpoint(r.message_id).await?;
+    let run = f.run(r.message_id).await?;
+    assert_eq!(run.status, "paused");
+    sqlx::query("update space_member_grants set level='read' where member_id=$1 and module='ledger'")
+        .bind(run.member_id)
+        .execute(&f.owner)
+        .await?;
+    let action = json!({"protocolVersion":"0.1","id":Uuid::now_v7(),"context":{"messageId":r.message_id,"conversationId":run.conversation_id,"blockId":cp.message.0["interrupt"]["blockId"]},"type":"confirmation.respond","target":"pending_operation.confirm","payload":{"outcome":"confirm"}});
+    let error = f
+        .runs()
+        .answer(&f.p, action, &f.runtime.tools)
+        .await
+        .err()
+        .context("denied")?;
+    assert_eq!(error.status, 404);
+    let run = f.run(r.message_id).await?;
+    assert_eq!(run.status, "failed");
+    assert_eq!(run.last_error.as_deref(), Some("permission_changed"));
+    let archived: bool =
+        sqlx::query_scalar("select archived_at is not null from accounts where id=$1")
+            .bind(account)
+            .fetch_one(&f.owner)
+            .await?;
+    assert!(!archived);
+    Ok(())
+}
+#[tokio::test]
 async fn confirmation_guard_changed_account_does_not_archive() -> Result<()> {
     let mut f = Fixture::new(vec![]).await?;
     let account = Uuid::now_v7();

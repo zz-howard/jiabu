@@ -331,11 +331,6 @@ impl ScopedRuns {
             .iter()
             .find(|c| Some(c.call_id.as_str()) == interrupt["call_id"].as_str())
             .ok_or_else(OperationError::not_found)?;
-        let tool = registry.get(&call.tool)?;
-        if call.tool != "ask_user" {
-            jiabu_tools::authorize(tx.member(self.space), tool.module(), tool.action())
-                .map_err(|_| OperationError::not_found())?;
-        }
         if validate_environment(tx.member(self.space), &journal).is_err() {
             // The frozen permissions no longer hold, so this reply can never
             // resume; close it now instead of leaving it paused until expiry.
@@ -348,6 +343,11 @@ impl ScopedRuns {
                     .map_err(protocol_error)?;
             }
             return Err(OperationError::not_found());
+        }
+        let tool = registry.get(&call.tool)?;
+        if call.tool != "ask_user" {
+            jiabu_tools::authorize(tx.member(self.space), tool.module(), tool.action())
+                .map_err(|_| OperationError::not_found())?;
         }
         if key.is_some_and(|key| key != action) {
             return Err(OperationError::new(400, "idempotency_key_mismatch"));
