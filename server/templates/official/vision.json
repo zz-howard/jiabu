@@ -1,0 +1,140 @@
+{
+  "protocol": "jiabu.template/1",
+  "id": "jiabu.vision",
+  "version": 1,
+  "name": {
+    "zh-Hans": "视力",
+    "en": "Vision exam"
+  },
+  "subjects": [
+    {
+      "kind": "family_member",
+      "min": 1,
+      "max": 1
+    }
+  ],
+  "event_date_field": "exam_date",
+  "title": {
+    "zh-Hans": "{subject}视力 {exam_date}",
+    "en": "{subject} Vision exam {exam_date}"
+  },
+  "fields": [
+    {
+      "key": "exam_date",
+      "type": "date",
+      "label": {
+        "zh-Hans": "检查日期",
+        "en": "Exam date"
+      },
+      "required": true
+    },
+    {
+      "key": "institution",
+      "type": "text",
+      "label": {
+        "zh-Hans": "检查机构",
+        "en": "Clinic"
+      },
+      "max_length": 60
+    },
+    {
+      "key": "left_acuity",
+      "type": "number",
+      "label": {
+        "zh-Hans": "左眼视力",
+        "en": "Left visual acuity"
+      },
+      "unit": "decimal",
+      "units": [
+        "decimal",
+        "logMAR"
+      ],
+      "digits": 1,
+      "metric": "vision.acuity.left"
+    },
+    {
+      "key": "right_acuity",
+      "type": "number",
+      "label": {
+        "zh-Hans": "右眼视力",
+        "en": "Right visual acuity"
+      },
+      "unit": "decimal",
+      "units": [
+        "decimal",
+        "logMAR"
+      ],
+      "digits": 1,
+      "metric": "vision.acuity.right"
+    },
+    {
+      "key": "left_sphere",
+      "type": "number",
+      "label": {
+        "zh-Hans": "左眼球镜",
+        "en": "Left sphere"
+      },
+      "unit": "D",
+      "units": [
+        "D"
+      ],
+      "digits": 2,
+      "metric": "vision.sphere.left"
+    },
+    {
+      "key": "right_sphere",
+      "type": "number",
+      "label": {
+        "zh-Hans": "右眼球镜",
+        "en": "Right sphere"
+      },
+      "unit": "D",
+      "units": [
+        "D"
+      ],
+      "digits": 2,
+      "metric": "vision.sphere.right"
+    },
+    {
+      "key": "note",
+      "type": "text",
+      "label": {
+        "zh-Hans": "备注",
+        "en": "Notes"
+      },
+      "multiline": true,
+      "max_length": 2000
+    },
+    {
+      "key": "report_images",
+      "type": "image",
+      "label": {
+        "zh-Hans": "原图",
+        "en": "Photos"
+      },
+      "max_items": 20
+    }
+  ],
+  "ai": {
+    "extract_from_images": true,
+    "hints": "按报告区分左右眼与检查日期；视力单位只用报告对应的 decimal 或 logMAR，不换算。球镜保留正负号和 D 单位。看不清标 uncertain，不推测缺项。\nKeep left/right eyes and the report date distinct. Preserve decimal or logMAR notation and signed sphere values in D; never convert units or infer missing values. Mark unclear entries uncertain."
+  },
+  "layout": [
+    {
+      "label": {
+        "zh-Hans": "资料",
+        "en": "Details"
+      },
+      "fields": [
+        "exam_date",
+        "institution",
+        "left_acuity",
+        "right_acuity",
+        "left_sphere",
+        "right_sphere",
+        "note",
+        "report_images"
+      ]
+    }
+  ]
+}

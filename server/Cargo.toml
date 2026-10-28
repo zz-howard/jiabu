@@ -71,3 +71,7 @@ features = ["derive"]
 [workspace.dependencies.jsonschema]
 version = "0.60"
 default-features = false
+
+# MIT / Apache-2.0; reuse Cargo.lock's existing package.
+[workspace.dependencies.unicode-normalization]
+version = "0.1.26"

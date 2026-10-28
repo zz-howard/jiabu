@@ -25,3 +25,5 @@ pub(crate) mod tools;
 
 pub(crate) mod blobs;
 pub(crate) mod sync;
+
+pub(crate) mod templates;

@@ -8,6 +8,7 @@ pub(crate) const CLIENT_LOG_BATCHES_PER_MINUTE: usize = 10;
 pub struct AppState {
     pub db: AppDb,
     pub tools: Arc<jiabu_tools::ToolRegistry>,
+    pub templates: Arc<jiabu_tools::templates::TemplateStore>,
     pub clock: Arc<dyn jiabu_db::ledger::Clock>,
     pub api_keys: Arc<jiabu_tools::api_key::ApiKeyLimiter>,
     pub blobs: Arc<jiabu_storage::BlobStore>,
@@ -43,14 +44,23 @@ impl AppState {
         })
         .await
         .map_err(|_| "password initialization failed".to_owned())??;
+        let templates = Arc::new(
+            jiabu_tools::templates::TemplateStore::empty()
+                .map_err(|_| "template initialization failed".to_owned())?,
+        );
+        templates
+            .reload(&db, jiabu_tools::templates::official_files())
+            .await
+            .map_err(|_| "template initialization failed".to_owned())?;
         let tools = Arc::new(
-            jiabu_tools::ToolRegistry::ledger()
+            jiabu_tools::ToolRegistry::with_templates(templates.clone())
                 .map_err(|_| "tool initialization failed".to_owned())?,
         );
         Ok(Self {
             db,
             api_keys: tools.api_keys.clone(),
             tools,
+            templates,
             blobs: Arc::new(blobs),
             image_work: Arc::new(Semaphore::new(image_limits.concurrency)),
             upload_slots: Arc::new(Semaphore::new(image_limits.max_in_flight_uploads)),
@@ -72,7 +82,7 @@ impl AppState {
         mut self,
         limiter: Arc<jiabu_tools::api_key::ApiKeyLimiter>,
     ) -> Result<Self, String> {
-        let mut tools = jiabu_tools::ToolRegistry::ledger()
+        let mut tools = jiabu_tools::ToolRegistry::with_templates(self.templates.clone())
             .map_err(|_| "tool initialization failed".to_owned())?;
         tools.api_keys = limiter.clone();
         self.api_keys = limiter;

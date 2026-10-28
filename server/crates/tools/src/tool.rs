@@ -40,6 +40,18 @@ pub enum StepKind {
     RenameTag,
     DeleteTag,
     AskUser,
+    ListSubjects,
+    SearchDocuments,
+    GetDocument,
+    DocumentMetricSeries,
+    CreateDocument,
+    UpdateDocument,
+    VoidDocument,
+    RestoreDocument,
+    CreateSubject,
+    UpdateSubject,
+    ArchiveSubject,
+    DeleteSubject,
 }
 pub struct StepLabel(pub &'static str);
 pub struct StepSummary(pub &'static str);

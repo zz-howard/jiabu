@@ -183,6 +183,18 @@ impl TestApp {
 }
 // The matrix is separate from mounting so forgetting a registration actually fails.
 const ISOLATION_MATRIX: &[(&str, &str)] = &[
+    ("POST", "/v1/spaces/{space_id}/tools/list_subjects"),
+    ("POST", "/v1/spaces/{space_id}/tools/search_documents"),
+    ("POST", "/v1/spaces/{space_id}/tools/get_document"),
+    ("POST", "/v1/spaces/{space_id}/tools/document_metric_series"),
+    ("POST", "/v1/spaces/{space_id}/tools/create_document"),
+    ("POST", "/v1/spaces/{space_id}/tools/update_document"),
+    ("POST", "/v1/spaces/{space_id}/tools/void_document"),
+    ("POST", "/v1/spaces/{space_id}/tools/restore_document"),
+    ("POST", "/v1/spaces/{space_id}/tools/create_subject"),
+    ("POST", "/v1/spaces/{space_id}/tools/update_subject"),
+    ("POST", "/v1/spaces/{space_id}/tools/archive_subject"),
+    ("POST", "/v1/spaces/{space_id}/tools/delete_subject"),
     ("PUT", "/v1/spaces/{space_id}/blobs/{sha256}"),
     ("GET", "/v1/spaces/{space_id}/blobs/{sha256}"),
     ("GET", "/v1/spaces/{space_id}/tools"),
@@ -1145,3 +1157,6 @@ mod sync;
 
 #[path = "tests/s4_api_keys.rs"]
 mod s4_api_keys;
+
+mod documents;
+mod templates;

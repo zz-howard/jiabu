@@ -1,0 +1,135 @@
+{
+  "protocol": "jiabu.template/1",
+  "id": "jiabu.certificate",
+  "version": 1,
+  "name": {
+    "zh-Hans": "证件",
+    "en": "Certificate"
+  },
+  "subjects": [
+    {
+      "kind": "family_member",
+      "min": 1,
+      "max": 1
+    }
+  ],
+  "event_date_field": "issue_date",
+  "title": {
+    "zh-Hans": "{subject}证件 {issue_date}",
+    "en": "{subject} Certificate {issue_date}"
+  },
+  "fields": [
+    {
+      "key": "category",
+      "type": "single_select",
+      "label": {
+        "zh-Hans": "证件类别",
+        "en": "Category"
+      },
+      "options": [
+        {
+          "id": "identity",
+          "label": {
+            "zh-Hans": "身份证明",
+            "en": "Identity"
+          }
+        },
+        {
+          "id": "passport",
+          "label": {
+            "zh-Hans": "护照",
+            "en": "Passport"
+          }
+        },
+        {
+          "id": "licence",
+          "label": {
+            "zh-Hans": "执照",
+            "en": "Licence"
+          }
+        },
+        {
+          "id": "other",
+          "label": {
+            "zh-Hans": "其他",
+            "en": "Other"
+          }
+        }
+      ]
+    },
+    {
+      "key": "document_number",
+      "type": "text",
+      "label": {
+        "zh-Hans": "证件号码",
+        "en": "Document number"
+      },
+      "max_length": 120
+    },
+    {
+      "key": "issue_date",
+      "type": "date",
+      "label": {
+        "zh-Hans": "签发日期",
+        "en": "Issue date"
+      }
+    },
+    {
+      "key": "expiry_date",
+      "type": "date",
+      "label": {
+        "zh-Hans": "到期日期",
+        "en": "Expiry date"
+      }
+    },
+    {
+      "key": "issuer",
+      "type": "text",
+      "label": {
+        "zh-Hans": "签发机构",
+        "en": "Issuer"
+      },
+      "max_length": 120
+    },
+    {
+      "key": "note",
+      "type": "text",
+      "label": {
+        "zh-Hans": "备注",
+        "en": "Notes"
+      },
+      "max_length": 2000,
+      "multiline": true
+    },
+    {
+      "key": "report_images",
+      "type": "image",
+      "label": {
+        "zh-Hans": "原图",
+        "en": "Photos"
+      },
+      "max_items": 20
+    }
+  ],
+  "ai": {
+    "extract_from_images": true,
+    "hints": "关联恰好一位持证家人；号码按原文保留前导零，签发日期与到期日期分开；看不清标 uncertain，不推测号码。\nAssociate exactly one family member. Preserve leading zeros and distinguish issue and expiry dates. Mark unclear entries uncertain; never guess document numbers."
+  },
+  "layout": [
+    {
+      "label": {
+        "zh-Hans": "资料",
+        "en": "Details"
+      },
+      "fields": [
+        "category",
+        "document_number",
+        "issue_date",
+        "expiry_date",
+        "issuer",
+        "note",
+        "report_images"
+      ]
+    }
+  ]
+}

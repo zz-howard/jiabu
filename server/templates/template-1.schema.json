@@ -1,0 +1,459 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Template",
+  "type": "object",
+  "properties": {
+    "ai": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Ai"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "description": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Localized"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "event_date_field": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Field"
+      }
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+\\.[a-z0-9_]+$"
+    },
+    "layout": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/LayoutGroup"
+      }
+    },
+    "name": {
+      "$ref": "#/$defs/Localized"
+    },
+    "protocol": {
+      "$ref": "#/$defs/Protocol"
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SubjectRule"
+      }
+    },
+    "title": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Localized"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "version": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "id",
+    "version",
+    "name",
+    "subjects",
+    "fields"
+  ],
+  "$defs": {
+    "Ai": {
+      "type": "object",
+      "properties": {
+        "extract_from_images": {
+          "type": "boolean",
+          "default": false
+        },
+        "hints": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2000
+        }
+      },
+      "additionalProperties": false
+    },
+    "Column": {
+      "type": "object",
+      "properties": {
+        "digits": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "help": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Localized"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "label": {
+          "$ref": "#/$defs/Localized"
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "max_length": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "multiline": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "options": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SelectOption"
+          }
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "type": {
+          "$ref": "#/$defs/ColumnType"
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "units": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "type"
+      ]
+    },
+    "ColumnType": {
+      "type": "string",
+      "enum": [
+        "text",
+        "number",
+        "date",
+        "single_select"
+      ]
+    },
+    "Field": {
+      "type": "object",
+      "properties": {
+        "columns": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/Column"
+          }
+        },
+        "digits": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "help": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Localized"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "label": {
+          "$ref": "#/$defs/Localized"
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "max_items": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "max_length": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "metric": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "metric_columns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricColumns"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "multiline": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "options": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SelectOption"
+          }
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "type": {
+          "$ref": "#/$defs/ValueType"
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "units": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "type"
+      ]
+    },
+    "LayoutGroup": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "label": {
+          "$ref": "#/$defs/Localized"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "fields"
+      ]
+    },
+    "Localized": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "required": [
+        "zh-Hans"
+      ]
+    },
+    "MetricColumns": {
+      "type": "object",
+      "properties": {
+        "item": {
+          "type": "string"
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "value"
+      ]
+    },
+    "Protocol": {
+      "type": "string",
+      "enum": [
+        "jiabu.template/1"
+      ]
+    },
+    "SelectOption": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "$ref": "#/$defs/Localized"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "SubjectKind": {
+      "type": "string",
+      "enum": [
+        "family_member",
+        "pet",
+        "property",
+        "vehicle",
+        "other"
+      ]
+    },
+    "SubjectRule": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/SubjectKind"
+        },
+        "max": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "min"
+      ]
+    },
+    "ValueType": {
+      "type": "string",
+      "enum": [
+        "text",
+        "number",
+        "date",
+        "image",
+        "single_select",
+        "multi_select",
+        "table"
+      ]
+    }
+  }
+}

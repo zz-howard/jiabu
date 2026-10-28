@@ -14,3 +14,7 @@ thiserror.workspace = true
 chrono.workspace = true
 schemars.workspace = true
 validator.workspace = true
+unicode-normalization.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true

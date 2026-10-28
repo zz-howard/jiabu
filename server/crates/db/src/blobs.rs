@@ -87,3 +87,25 @@ impl SpaceTx {
         Ok(())
     }
 }
+
+impl SpaceTx {
+    /// S6 counterpart of ledger_blob_ref above. Keep the same lock order and
+    /// indistinguishable blob_missing response; ledger refs alone are not sources.
+    pub(crate) async fn documents_blob_ref(&self, space: SpaceId, sha: &str) -> Result<(), Error> {
+        self.assert_write();
+        let member = self.member(space);
+        self.lock_blobs().await?;
+        let row=self.tx.query_one_raw(Statement::from_sql_and_values(DbBackend::Postgres,
+            "insert into blob_refs(space_id,module,sha256,uploaded_by_member_id) select $1,'documents',decode($2,'hex'),$3 where exists(select 1 from blob_refs where space_id=$1 and sha256=decode($2,'hex') and (module='documents' or (module='chat' and uploaded_by_member_id=$3))) on conflict do nothing returning id",
+            vec![space.0.into(),sha.into(),member.id().0.into()])).await?;
+        if row.is_some() {
+            return Ok(());
+        }
+        let exists=self.tx.query_one_raw(Statement::from_sql_and_values(DbBackend::Postgres,
+            "select id from blob_refs where space_id=$1 and module='documents' and sha256=decode($2,'hex')",vec![space.0.into(),sha.into()])).await?;
+        if exists.is_none() {
+            return Err(Error::new(422, "blob_missing"));
+        }
+        Ok(())
+    }
+}

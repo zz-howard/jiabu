@@ -29,3 +29,6 @@ pub use operation::{Error as OperationError, Reply as OperationReply, Validation
 pub mod blobs;
 pub mod maintenance;
 pub mod sync;
+
+pub mod documents;
+pub mod template_snapshots;
