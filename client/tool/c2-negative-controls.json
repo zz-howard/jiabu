@@ -1,0 +1,252 @@
+{
+  "instructions": "Build host, cwd client/app. Apply ONE control, require an assertion failure (a compilation failure is not success), restore, repeat. Paths are repository-relative. find is the exact original source; find_regex tolerates dart format whitespace and trailing commas. Require exactly expected_occurrences before re.sub; use a lambda replacement to preserve literal text. Never commit mutations.",
+  "controls": [
+    {
+      "id": "one_entity_in_flight",
+      "file": "client/app/lib/data/sync/outbox_processor.dart",
+      "find": "if (overlapsEarlier) {\n            continue;\n          }",
+      "replace": "if (overlapsEarlier && op.id.isEmpty) { continue; }",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "same_record_three_edits_use_three_batches"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name same_record_three_edits_use_three_batches",
+      "find_regex": "if\\s*\\(\\s*overlapsEarlier\\s*(?:,\\s*)?\\)\\s*\\{\\s*continue\\s*;\\s*\\}"
+    },
+    {
+      "id": "bind_version_at_send",
+      "file": "client/app/lib/data/repositories/local_mutations_repository.dart",
+      "find": "final cleanArgs = {...args}..remove('expected_version');",
+      "replace": "final cleanArgs = {...args, 'expected_version': existing?.baseVersion ?? 0};",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "expected_version_is_bound_after_predecessor_ack"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name expected_version_is_bound_after_predecessor_ack",
+      "find_regex": "final\\s*cleanArgs\\s*=\\s*\\{\\s*\\.\\s*\\.\\s*\\.\\s*args\\s*\\}\\s*\\.\\s*\\.\\s*remove\\s*\\(\\s*'expected_version'\\s*(?:,\\s*)?\\)\\s*;"
+    },
+    {
+      "id": "refund_dependency",
+      "file": "client/app/lib/domain/outbox_operation.dart",
+      "find": "Set<String> get references => {...entityIds, ...dependsOn};",
+      "replace": "Set<String> get references => {...entityIds};",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "refund_waits_for_expense_ack"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name refund_waits_for_expense_ack",
+      "find_regex": "Set\\s*<\\s*String\\s*>\\s*get\\s*references\\s*=\\s*>\\s*\\{\\s*\\.\\s*\\.\\s*\\.\\s*entityIds\\s*,\\s*\\.\\s*\\.\\s*\\.\\s*dependsOn\\s*\\}\\s*;"
+    },
+    {
+      "id": "blob_before_reference",
+      "file": "client/app/lib/data/sync/outbox_processor.dart",
+      "find": "if (matches.isEmpty ||\n                  matches.any((blob) => blob['uploaded'] != 1)) {\n                blocked = true;\n              }",
+      "replace": "if (op.id.isEmpty) { blocked = true; }",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/additional_sync_test.dart",
+      "test_names": [
+        "unuploaded_blob_metadata_prevents_reference_upload"
+      ],
+      "command": "flutter test test/data/additional_sync_test.dart --plain-name unuploaded_blob_metadata_prevents_reference_upload",
+      "find_regex": "if\\s*\\(\\s*matches\\s*\\.\\s*isEmpty\\s*\\|\\|\\s*matches\\s*\\.\\s*any\\s*\\(\\s*\\(\\s*blob\\s*(?:,\\s*)?\\)\\s*=\\s*>\\s*blob\\s*\\[\\s*'uploaded'\\s*(?:,\\s*)?\\]\\s*!\\s*=\\s*1\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*\\{\\s*blocked\\s*=\\s*true\\s*;\\s*\\}"
+    },
+    {
+      "id": "freeze_retry_payload",
+      "file": "client/app/lib/data/sync/outbox_processor.dart",
+      "find": "if (!args.containsKey('expected_version') &&\n                !tool.startsWith('create_')) {",
+      "replace": "if (!tool.startsWith('create_')) {",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "retry_replays_identical_operation"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name retry_replays_identical_operation",
+      "find_regex": "if\\s*\\(\\s*!\\s*args\\s*\\.\\s*containsKey\\s*\\(\\s*'expected_version'\\s*(?:,\\s*)?\\)\\s*\\&\\s*\\&\\s*!\\s*tool\\s*\\.\\s*startsWith\\s*\\(\\s*'create_'\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*\\{"
+    },
+    {
+      "id": "rejoin_purge",
+      "file": "client/app/lib/data/sync/membership_reconciler.dart",
+      "find": "await store.purgeSpace(spaceId);",
+      "replace": "await store.setCursor(spaceId, 0);",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "rejoin_purges_then_pulls_from_zero"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name rejoin_purges_then_pulls_from_zero",
+      "find_regex": "await\\s*store\\s*\\.\\s*purgeSpace\\s*\\(\\s*spaceId\\s*(?:,\\s*)?\\)\\s*;"
+    },
+    {
+      "id": "purge_includes_outbox",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "'outbox',\n      'sync_cursors',\n      'entity_conflicts',\n      'blobs_local'",
+      "replace": "'sync_cursors', 'entity_conflicts', 'blobs_local'",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "rejoin_purges_then_pulls_from_zero"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name rejoin_purges_then_pulls_from_zero",
+      "find_regex": "'outbox'\\s*,\\s*'sync_cursors'\\s*,\\s*'entity_conflicts'\\s*,\\s*'blobs_local'"
+    },
+    {
+      "id": "purge_includes_sync_cursors",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "'outbox',\n      'sync_cursors',\n      'entity_conflicts',\n      'blobs_local'",
+      "replace": "'outbox', 'entity_conflicts', 'blobs_local'",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "rejoin_purges_then_pulls_from_zero"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name rejoin_purges_then_pulls_from_zero",
+      "find_regex": "'outbox'\\s*,\\s*'sync_cursors'\\s*,\\s*'entity_conflicts'\\s*,\\s*'blobs_local'"
+    },
+    {
+      "id": "purge_includes_entity_conflicts",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "'outbox',\n      'sync_cursors',\n      'entity_conflicts',\n      'blobs_local'",
+      "replace": "'outbox', 'sync_cursors', 'blobs_local'",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "rejoin_purges_then_pulls_from_zero"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name rejoin_purges_then_pulls_from_zero",
+      "find_regex": "'outbox'\\s*,\\s*'sync_cursors'\\s*,\\s*'entity_conflicts'\\s*,\\s*'blobs_local'"
+    },
+    {
+      "id": "purge_includes_blobs_local",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "'outbox',\n      'sync_cursors',\n      'entity_conflicts',\n      'blobs_local'",
+      "replace": "'outbox', 'sync_cursors', 'entity_conflicts'",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "rejoin_purges_then_pulls_from_zero"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name rejoin_purges_then_pulls_from_zero",
+      "find_regex": "'outbox'\\s*,\\s*'sync_cursors'\\s*,\\s*'entity_conflicts'\\s*,\\s*'blobs_local'"
+    },
+    {
+      "id": "rejoin_resets_cursor",
+      "file": "client/app/lib/data/sync/membership_reconciler.dart",
+      "find": "await store.purgeSpace(spaceId);",
+      "replace": "final oldCursor = await store.cursor(spaceId);\n          await store.purgeSpace(spaceId);\n          await store.setCursor(spaceId, oldCursor);",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "rejoin_purges_then_pulls_from_zero"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name rejoin_purges_then_pulls_from_zero",
+      "find_regex": "await\\s*store\\s*\\.\\s*purgeSpace\\s*\\(\\s*spaceId\\s*(?:,\\s*)?\\)\\s*;"
+    },
+    {
+      "id": "epoch_response_fence",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "current.joinEpoch == captured.joinEpoch &&",
+      "replace": "",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/additional_sync_test.dart",
+      "test_names": [
+        "local_request_fence_rejects_epoch_change"
+      ],
+      "command": "flutter test test/data/additional_sync_test.dart --plain-name local_request_fence_rejects_epoch_change",
+      "find_regex": "current\\s*\\.\\s*joinEpoch\\s*=\\s*=\\s*captured\\s*\\.\\s*joinEpoch\\s*\\&\\s*\\&"
+    },
+    {
+      "id": "activation_response_fence",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "current.generation == captured.generation &&",
+      "replace": "",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/additional_sync_test.dart",
+      "test_names": [
+        "local_request_fence_rejects_a_b_a_generation"
+      ],
+      "command": "flutter test test/data/additional_sync_test.dart --plain-name local_request_fence_rejects_a_b_a_generation",
+      "find_regex": "current\\s*\\.\\s*generation\\s*=\\s*=\\s*captured\\s*\\.\\s*generation\\s*\\&\\s*\\&"
+    },
+    {
+      "id": "late_pull_fence",
+      "file": "client/app/lib/data/sync/sync_engine.dart",
+      "find": "if (!await _active(owner, generation) ||\n                !await store.accepts(fence)) {\n              return;\n            }",
+      "replace": "if (!await _active(owner, generation)) { return; }",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "late_pull_cannot_restore_purged_rows_or_cursor"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name late_pull_cannot_restore_purged_rows_or_cursor",
+      "find_regex": "if\\s*\\(\\s*!\\s*await\\s*_active\\s*\\(\\s*owner\\s*,\\s*generation\\s*(?:,\\s*)?\\)\\s*\\|\\s*\\|\\s*!\\s*await\\s*store\\s*\\.\\s*accepts\\s*\\(\\s*fence\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*\\{\\s*return\\s*;\\s*\\}"
+    },
+    {
+      "id": "round_lease_compare_and_set",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "'AND authenticated = 1 AND (round_owner IS NULL '\n              'OR round_lease_until <= ?)'",
+      "replace": "'AND authenticated = 1 AND ? >= 0'",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/partition_and_lease_test.dart",
+      "test_names": [
+        "two_isolates_cannot_upload_same_entity"
+      ],
+      "command": "flutter test test/data/partition_and_lease_test.dart --plain-name two_isolates_cannot_upload_same_entity",
+      "find_regex": "'AND authenticated = 1 AND \\(round_owner IS NULL '\\s*'OR round_lease_until <= \\?\\)'"
+    },
+    {
+      "id": "outbox_sending_lease",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "['sending', jsonEncode(payload), until, op.spaceId, op.id]",
+      "replace": "['pending', jsonEncode(payload), until, op.spaceId, op.id]",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/partition_and_lease_test.dart",
+      "test_names": [
+        "two_isolates_cannot_upload_same_entity"
+      ],
+      "command": "flutter test test/data/partition_and_lease_test.dart --plain-name two_isolates_cannot_upload_same_entity",
+      "find_regex": "\\[\\s*'sending'\\s*,\\s*jsonEncode\\s*\\(\\s*payload\\s*(?:,\\s*)?\\)\\s*,\\s*until\\s*,\\s*op\\s*\\.\\s*spaceId\\s*,\\s*op\\s*\\.\\s*id\\s*(?:,\\s*)?\\]"
+    },
+    {
+      "id": "in_flight_writeback",
+      "file": "client/app/lib/data/sync/conflict_service.dart",
+      "find": "remaining && local != null ? local.data : server",
+      "replace": "server",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/sync_test.dart",
+      "test_names": [
+        "upload_in_flight_edit_keeps_latest_content"
+      ],
+      "command": "flutter test test/data/sync_test.dart --plain-name upload_in_flight_edit_keeps_latest_content",
+      "find_regex": "remaining\\s*\\&\\s*\\&\\s*local\\s*!\\s*=\\s*null\\s*\\?\\s*local\\s*\\.\\s*data\\s*:\\s*server"
+    },
+    {
+      "id": "resolution_before_refund",
+      "file": "client/app/lib/data/sync/conflict_service.dart",
+      "find": "await store.deferDependents(spaceId, key);",
+      "replace": "await store.outbox(spaceId);",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/conflict_test.dart",
+      "test_names": [
+        "restoring_mine_keeps_refund_behind_restore_and_update"
+      ],
+      "command": "flutter test test/data/conflict_test.dart --plain-name restoring_mine_keeps_refund_behind_restore_and_update",
+      "find_regex": "await\\s*store\\s*\\.\\s*deferDependents\\s*\\(\\s*spaceId\\s*,\\s*key\\s*(?:,\\s*)?\\)\\s*;"
+    },
+    {
+      "id": "late_spaces_snapshot",
+      "file": "client/app/lib/data/sync/sync_engine.dart",
+      "find": "if (!await store.accepts(fence)) {\n              return;\n            }",
+      "replace": "if (fence.spaceId.isEmpty) { return; }",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/additional_sync_test.dart",
+      "test_names": [
+        "late_spaces_response_does_not_remove_rejoined_space"
+      ],
+      "command": "flutter test test/data/additional_sync_test.dart --plain-name late_spaces_response_does_not_remove_rejoined_space",
+      "find_regex": "if\\s*\\(\\s*!\\s*await\\s*store\\s*\\.\\s*accepts\\s*\\(\\s*fence\\s*\\)\\s*\\)\\s*\\{\\s*return\\s*;\\s*\\}"
+    }
+  ]
+}

@@ -85,5 +85,60 @@
     }
   },
   "handE4Amount": "¥1,842.60",
-  "handE4Negative": "−¥180.00"
+  "handE4Negative": "−¥180.00",
+  "authServerTitle": "服务端地址",
+  "authServerAddress": "服务端地址",
+  "authContinue": "继续",
+  "authLoginTitle": "登录家簿",
+  "authUsername": "用户名",
+  "authPassword": "密码",
+  "authLogin": "登录",
+  "authChangeServer": "切换服务端或账号",
+  "authChangePassword": "修改密码",
+  "authTemporaryPassword": "你正在使用临时密码，请先修改密码。返回将退出登录。",
+  "authCurrentPassword": "当前密码",
+  "authNewPassword": "新密码",
+  "authRepeatPassword": "再次输入新密码",
+  "authSavePassword": "保存密码",
+  "authLogout": "退出登录",
+  "authBack": "返回",
+  "authSignedIn": "已登录",
+  "authInvalidAddress": "请输入以 http:// 或 https:// 开头的有效服务端地址。",
+  "authCredentialsRequired": "请输入用户名和密码。",
+  "authInvalidCredentials": "用户名或密码不正确。",
+  "authRateLimited": "尝试过于频繁，请稍后重试。",
+  "authPasswordValidation": "新密码至少 8 字节，最多 1024 字节，两次输入须一致。",
+  "authOffline": "暂时无法连接服务端，本机内容会保留。",
+  "authSessionExpired": "登录已失效，请重新登录。本机内容会保留。",
+  "authRequestFailed": "操作未完成，请稍后重试。",
+  "authClientTooOld": "当前 App 版本过低，同步和新增记录已暂停，请更新 App。",
+  "authServerTooOld": "服务端版本过低，请联系管理员升级。同步已暂停。",
+  "authContinueSwitch": "继续切换",
+  "authCancel": "取消",
+  "authPendingSwitch": "还有 {count} 条没上传，切回这个账号后会继续上传。",
+  "@authPendingSwitch": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "authSpaceCleared": "空间成员关系发生变化，对应本机内容（含 {count} 条未上传内容）已清除。",
+  "@authSpaceCleared": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "authAdminReset": "你的密码在 {time} 被管理员重置。",
+  "@authAdminReset": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "authDismissNotice": "知道了",
+  "authAccountDisabled": "账号已停用，请联系管理员。本机内容会保留。"
 }

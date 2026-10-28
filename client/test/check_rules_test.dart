@@ -309,4 +309,41 @@ final color = context.jiabu.accent;
     write('tool/allowed_deps.yaml', 'packages: [\n');
     expect(violationsFor(7), isNotEmpty);
   });
+
+  test('technical Duration exception is limited to sync_policy', () {
+    write(
+      'app/lib/data/sync/sync_policy.dart',
+      'const ttl = Duration(hours: 1);',
+    );
+    expect(violationsFor(1), isEmpty);
+    write('app/lib/data/sync/other.dart', 'const ttl = Duration(hours: 1);');
+    expect(violationsFor(1), hasLength(1));
+    write(
+      'app/lib/features/auth/view/login_screen.dart',
+      'const ttl = Duration(hours: 1);',
+    );
+    expect(violationsFor(1), hasLength(2));
+  });
+
+  test('sync_policy still rejects colors and fonts', () {
+    write(
+      'app/lib/data/sync/sync_policy.dart',
+      "final c = Colors.red; final s = TextStyle(fontFamily: 'Example');",
+    );
+    expect(violationsFor(1), hasLength(2));
+  });
+
+  test('database calls cannot escape scoped DAO boundary', () {
+    write(
+      'app/lib/data/repositories/example.dart',
+      "db.customSelect('SELECT * FROM records');",
+    );
+    expect(violationsFor(9), hasLength(1));
+    write(
+      'app/lib/data/db/daos/example.dart',
+      "db.customSelect('SELECT * FROM records WHERE space_id = ?', "
+          'variables: args);',
+    );
+    expect(violationsFor(9), hasLength(1));
+  });
 }

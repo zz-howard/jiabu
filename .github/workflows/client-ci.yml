@@ -44,6 +44,14 @@ jobs:
           PYTHON
       - name: Resolve workspace
         run: flutter pub get
+      - name: Generate client sources and verify committed output
+        working-directory: client/app
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+          dart run drift_dev schema dump lib/data/db/database.dart test/drift_schemas
+          dart run drift_dev schema generate test/drift_schemas test/generated_migrations
+          git diff --exit-code -- lib test/drift_schemas test/generated_migrations
+          test -z "$(git ls-files --others --exclude-standard -- 'lib/**/*.g.dart' 'lib/**/*.freezed.dart' test/drift_schemas test/generated_migrations)"
       - name: Format
         run: dart format --set-exit-if-changed .
       - name: Analyze

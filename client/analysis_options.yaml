@@ -10,8 +10,11 @@ analyzer:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
     - "**/build/**"
+    - "**/generated_migrations/**"
 plugins:
   riverpod_lint: ^3.1.9
 linter:
   rules:
     public_member_api_docs: false
+    # Traditional declarations are required by dart format and freezed.
+    unnecessary_type_name_in_constructor: false

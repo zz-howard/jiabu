@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 class BlankScreen extends StatelessWidget {
-  const new({super.key});
+  const BlankScreen({super.key});
 
   @override
   Widget build(BuildContext context) => Scaffold(

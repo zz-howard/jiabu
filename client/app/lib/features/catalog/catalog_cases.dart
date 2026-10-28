@@ -4,7 +4,7 @@ import 'package:jiabu_design/jiabu_design.dart';
 
 @immutable
 class CatalogCase {
-  const new(this.component, this.state, this.builder);
+  const CatalogCase(this.component, this.state, this.builder);
 
   final String component;
   final String state;

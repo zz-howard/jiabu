@@ -5,7 +5,7 @@ import 'package:yaml/yaml.dart';
 
 /// A source or dependency policy violation.
 class Violation {
-  const new(this.file, this.line, this.rule, this.message);
+  const Violation(this.file, this.line, this.rule, this.message);
 
   final String file;
   final int line;
@@ -231,9 +231,7 @@ final _colorLiteral = RegExp(
   r'\bColor\s*\.\s*(?:fromARGB|fromRGBO|from)\s*\(|'
   r'\bColors\s*\.',
 );
-final _appLiteral = RegExp(
-  r'\bColor\s*[.(]|\bColors\s*\.|\bfontFamily\s*:|\bDuration\s*\(',
-);
+final _appLiteral = RegExp(r'\bColor\s*[.(]|\bColors\s*\.|\bfontFamily\s*:');
 final _rotation = RegExp(
   r'\bTransform\s*\.\s*rotate\b|\bRotationTransition\b|'
   r'\bMatrix4\s*\.\s*rotationZ\b|\bRotatedBox\b|'
@@ -270,6 +268,19 @@ void _checkSource(
     // tokens: AGENTS.md forbids Color/Colors/fontFamily/Duration literals.
     for (final match in _appLiteral.allMatches(source)) {
       report(1, match.start, 'Use design tokens instead of UI literals.');
+    }
+  }
+  if (!isDesign && file != 'app/lib/data/sync/sync_policy.dart') {
+    for (final match in RegExp(r'\bDuration\s*\(').allMatches(source)) {
+      report(1, match.start, 'Technical durations belong in sync_policy.dart.');
+    }
+  }
+  if (!file.startsWith('app/lib/data/db/')) {
+    for (final match in RegExp(
+      r'\b(?:customSelect|customStatement|customUpdate|customInsert|selectOnly)'
+      r'\s*\(',
+    ).allMatches(source)) {
+      report(9, match.start, 'Database access belongs in scoped DAOs.');
     }
   }
   if (file != 'packages/jiabu_design/lib/src/components/tilt.dart' &&

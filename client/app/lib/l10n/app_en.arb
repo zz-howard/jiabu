@@ -85,5 +85,60 @@
     }
   },
   "handE4Amount": "¥1,842.60",
-  "handE4Negative": "−¥180.00"
+  "handE4Negative": "−¥180.00",
+  "authServerTitle": "Server address",
+  "authServerAddress": "Server address",
+  "authContinue": "Continue",
+  "authLoginTitle": "Sign in to Jiabu",
+  "authUsername": "Username",
+  "authPassword": "Password",
+  "authLogin": "Sign in",
+  "authChangeServer": "Switch server or account",
+  "authChangePassword": "Change password",
+  "authTemporaryPassword": "You are using a temporary password. Change it to continue. Going back signs you out.",
+  "authCurrentPassword": "Current password",
+  "authNewPassword": "New password",
+  "authRepeatPassword": "Repeat new password",
+  "authSavePassword": "Save password",
+  "authLogout": "Sign out",
+  "authBack": "Back",
+  "authSignedIn": "Signed in",
+  "authInvalidAddress": "Enter a valid address starting with http:// or https://.",
+  "authCredentialsRequired": "Enter your username and password.",
+  "authInvalidCredentials": "The username or password is incorrect.",
+  "authRateLimited": "Too many attempts. Try again later.",
+  "authPasswordValidation": "The new password must be 8–1024 bytes and both entries must match.",
+  "authOffline": "The server is unreachable. Your local content is kept.",
+  "authSessionExpired": "Your session has expired. Sign in again. Your local content is kept.",
+  "authRequestFailed": "The request could not be completed. Try again later.",
+  "authClientTooOld": "This app is too old. Sync and new entries are paused. Update the app.",
+  "authServerTooOld": "The server is too old. Ask the administrator to upgrade. Sync is paused.",
+  "authContinueSwitch": "Continue switching",
+  "authCancel": "Cancel",
+  "authPendingSwitch": "{count, plural, one{1 item is waiting to upload. Uploading will resume when you return to this account.} other{{count} items are waiting to upload. Uploading will resume when you return to this account.}}",
+  "@authPendingSwitch": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "authSpaceCleared": "Space membership changed. The affected local content has been cleared, including {count, plural, one{1 unuploaded item} other{{count} unuploaded items}}.",
+  "@authSpaceCleared": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "authAdminReset": "An administrator reset your password at {time}.",
+  "@authAdminReset": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "authDismissNotice": "Got it",
+  "authAccountDisabled": "This account is disabled. Contact the administrator. Your local content is kept."
 }

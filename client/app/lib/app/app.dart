@@ -4,7 +4,7 @@ import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 class JiabuApp extends StatelessWidget {
-  const new({this.home, super.key});
+  const JiabuApp({this.home, super.key});
 
   final Widget? home;
 
