@@ -30,6 +30,63 @@ fn encrypted() -> EncryptedSecret {
     }
 }
 #[tokio::test]
+async fn clear_and_relogin_never_reuse_revision_or_accept_stale_refresh_or_invalidation()
+-> Result<()> {
+    let fixture = support::TestDb::new().await?;
+    let admin = fixture.admin().await?;
+    admin
+        .ai_write(
+            ConfigWrite::Provider {
+                config: provider(),
+                create: true,
+            },
+            "test",
+        )
+        .await?;
+    admin
+        .ai_set_secret("synthetic", "oauth", Some(&encrypted()), "test")
+        .await?;
+    let db = AppDb::connect(&fixture.app_url).await?;
+    let tx = SystemTx::begin(&db).await?;
+    let old = tx.ai_secret("synthetic").await?.unwrap();
+    tx.commit().await?;
+    admin
+        .ai_set_secret("synthetic", "oauth", None, "test")
+        .await?;
+    let tx = SystemTx::begin(&db).await?;
+    let tombstone = tx.ai_secret("synthetic").await?.unwrap();
+    assert_eq!(tombstone.revision, old.revision + 1);
+    assert!(!tombstone.usable);
+    assert!(tombstone.ciphertext.is_empty() && tombstone.nonce.is_empty());
+    assert!(
+        !tx.rotate_ai_secret("synthetic", tombstone.revision, &encrypted(), 3600)
+            .await?
+    );
+    assert!(
+        !tx.invalidate_ai_secret("synthetic", tombstone.revision)
+            .await?
+    );
+    tx.commit().await?;
+    let mut login = encrypted();
+    login.ciphertext = vec![9; 32];
+    admin
+        .ai_save_oauth("synthetic", &login, "synthetic-client", 7200, "test")
+        .await?;
+    let tx = SystemTx::begin(&db).await?;
+    assert!(
+        !tx.rotate_ai_secret("synthetic", old.revision, &encrypted(), 3600)
+            .await?
+    );
+    assert!(!tx.invalidate_ai_secret("synthetic", old.revision).await?);
+    let stored = tx.ai_secret("synthetic").await?.unwrap();
+    assert_eq!(stored.revision, old.revision + 2);
+    assert!(stored.usable);
+    assert_eq!(stored.ciphertext, login.ciphertext);
+    tx.commit().await?;
+    db.close().await?;
+    Ok(())
+}
+#[tokio::test]
 async fn refresh_cas_two_concurrent_rotations_have_exactly_one_winner_and_narrow_grants()
 -> Result<()> {
     let fixture = support::TestDb::new().await?;

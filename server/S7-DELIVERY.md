@@ -27,6 +27,11 @@
 9. ProviderBlob 限提供方 / 模型 / 账号完全匹配才发送；无关 scope 被过滤。PR ② 负责消费 Note、原子落 model_turn / journal、保存前缀计量上下文；本 PR 不建立任何 agent worker。
 10. 非 SIWC 的真实付费适配器按范围不实现。配置能力与付费开关已存在，Mock 覆盖付费降级。ChatWeave 依赖、dispatcher 授权接线与通用后续项均在 PR ② 处理。
 
+11. clear-secret 清空密文、nonce、key_id 和 last4，但保留墓碑并递增 revision；重新登录在同一行再次递增，刷新和失效 CAS 都要求 revision 匹配且 usable，旧登录请求不能覆盖或禁用新登录。
+12. OAuth 刷新仅在令牌端点 400/401 且明确返回 invalid_grant / invalid_client / unauthorized_client 时永久失效；网络、超时、429、5xx 和其他异常按可重试错误处理，固定退避 5 秒，期间未过期的访问令牌继续使用，过期则 available 暂时为 false，退避结束重新开放刷新。
+13. router 跟踪已送往 sink 的非空文字、工具调用及 Note；已部分输出后的失败返回带原始错误的 PartialOutput，停止同一 sink 上的透明重试和降级，PR ② 据此保留已有文字并另起一块。
+14. 半开探测由 RAII 许可持有，提前返回或取消均按失败释放；包含重试及 observer / sink 等待的单提供方调用总时限为 300 秒，过期探测在额外冷却后可回收，许可代次隔离过期探测的迟到收尾。
+
 ## CLI 输入例子（全部虚构）
 
 `admin provider add --file provider.json`：

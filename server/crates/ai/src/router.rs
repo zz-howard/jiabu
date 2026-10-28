@@ -7,6 +7,51 @@ use std::{
     time::Instant,
 };
 type Breakers = Arc<Mutex<BTreeMap<String, Breaker>>>;
+/// Owns the half-open claim across every await, early return and cancellation.
+struct ProbePermit {
+    breakers: Breakers,
+    provider: String,
+    generation: u64,
+    config: jiabu_domain::ai::BreakerConfig,
+    finished: bool,
+}
+impl ProbePermit {
+    fn finish(&mut self, success: bool) {
+        if let Ok(mut breakers) = self.breakers.lock() {
+            breakers.entry(self.provider.clone()).or_default().finish(
+                self.generation,
+                success,
+                Instant::now(),
+                &self.config,
+            );
+        }
+        self.finished = true;
+    }
+}
+impl Drop for ProbePermit {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.finish(false);
+        }
+    }
+}
+struct OutputSink<'a> {
+    inner: &'a mut dyn TurnSink,
+    visible: bool,
+}
+#[async_trait::async_trait]
+impl TurnSink for OutputSink<'_> {
+    async fn emit(&mut self, event: TurnEvent) -> Result<(), ProviderError> {
+        let visible = match &event {
+            TurnEvent::TextDelta(text) => !text.is_empty(),
+            TurnEvent::ToolCall { .. } | TurnEvent::Note(_) => true,
+            _ => false,
+        };
+        // Mark before awaiting: a sink may publish output and then fail persistence.
+        self.visible |= visible;
+        self.inner.emit(event).await
+    }
+}
 pub struct AiRouter {
     pub config: AiConfig,
     providers: BTreeMap<String, Arc<dyn ModelProvider>>,
@@ -127,52 +172,83 @@ impl AiRouter {
             {
                 continue;
             }
-            {
+            let generation = {
                 let mut breakers = self.breakers.lock().map_err(|_| ProviderError::Transport)?;
-                if !breakers
+                let Some(generation) = breakers
                     .entry(provider.id().into())
                     .or_default()
                     .claim(Instant::now(), &self.config.breaker)
-                {
+                else {
                     continue;
-                }
-            }
+                };
+                generation
+            };
+            let mut permit = ProbePermit {
+                breakers: self.breakers.clone(),
+                provider: provider.id().into(),
+                generation,
+                config: self.config.breaker.clone(),
+                finished: false,
+            };
+            let mut output = OutputSink {
+                inner: sink,
+                visible: false,
+            };
             let mut request = req.clone();
             request.snapshot.model = model.model.clone();
             let mut retried_blob = false;
             let mut retried_format = false;
-            let result = loop {
-                let result =
-                    measured_attempt(provider.as_ref(), task, &request, sink, observer).await;
-                if result == Err(ProviderError::BlobRejected)
-                    && !retried_blob
-                    && !request.provider_blobs.is_empty()
-                {
-                    retried_blob = true;
-                    request.provider_blobs.clear();
-                    sink.emit(TurnEvent::Note(
-                        "Encrypted reasoning was unavailable; continuing from recorded results."
-                            .into(),
-                    ))
-                    .await?;
-                    request.items.push(RequestItem::Message { role: "developer".into(), text: "Continue using the recorded results; encrypted reasoning was unavailable.".into(), images: vec![] });
-                    continue;
+            let result = tokio::time::timeout(crate::breaker::CALL_TIMEOUT, async {
+                loop {
+                    let result = measured_attempt(
+                        provider.as_ref(), task, &request, &mut output, observer,
+                    ).await;
+                    if output.visible && result.is_err() {
+                        break result;
+                    }
+                    if result == Err(ProviderError::BlobRejected)
+                        && !retried_blob
+                        && !request.provider_blobs.is_empty()
+                    {
+                        retried_blob = true;
+                        request.provider_blobs.clear();
+                        output.emit(TurnEvent::Note(
+                            "Encrypted reasoning was unavailable; continuing from recorded results."
+                                .into(),
+                        )).await?;
+                        request.items.push(RequestItem::Message {
+                            role: "developer".into(),
+                            text: "Continue using the recorded results; encrypted reasoning was unavailable.".into(),
+                            images: vec![],
+                        });
+                        continue;
+                    }
+                    if result == Err(ProviderError::InvalidOutput) && !retried_format {
+                        retried_format = true;
+                        continue;
+                    }
+                    break result;
                 }
-                if result == Err(ProviderError::InvalidOutput) && !retried_format {
-                    retried_format = true;
-                    continue;
-                }
-                break result;
+            })
+            .await
+            .unwrap_or(Err(ProviderError::Timeout));
+            permit.finish(result.is_ok());
+            let result = if output.visible {
+                result.map_err(|error| ProviderError::PartialOutput {
+                    source: Box::new(error),
+                })
+            } else {
+                result
             };
-            self.breakers
-                .lock()
-                .map_err(|_| ProviderError::Transport)?
-                .entry(provider.id().into())
-                .or_default()
-                .finish(result.is_ok(), Instant::now(), &self.config.breaker);
             match result {
                 Ok(()) => return Ok(()),
-                Err(e @ (ProviderError::Sink | ProviderError::Meter)) => return Err(e),
+                Err(
+                    e @ (ProviderError::Sink
+                    | ProviderError::Meter
+                    | ProviderError::PartialOutput { .. }),
+                ) => {
+                    return Err(e);
+                }
                 Err(e) => last = e,
             }
         }

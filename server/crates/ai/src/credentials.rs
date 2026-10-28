@@ -36,6 +36,7 @@ pub struct CredentialManager {
     oauth: OAuthClient,
     refresh: Arc<Mutex<()>>,
     available: AtomicBool,
+    retry: std::sync::Mutex<Option<(i64, std::time::Instant, i64)>>,
 }
 impl CredentialManager {
     pub async fn new(store: Arc<dyn TokenStore>, oauth: OAuthClient) -> Self {
@@ -56,25 +57,50 @@ impl CredentialManager {
             oauth,
             refresh,
             available: AtomicBool::new(available),
+            retry: std::sync::Mutex::new(None),
         }
     }
     pub fn available(&self) -> bool {
+        if let Ok(retry) = self.retry.lock()
+            && let Some((_, at, expires_at)) = *retry
+        {
+            return chrono::Utc::now().timestamp() < expires_at || std::time::Instant::now() >= at;
+        }
         self.available.load(Ordering::Acquire)
     }
+
     pub async fn access(&self) -> Result<OAuthCredentials, ProviderError> {
         let _guard = self.refresh.lock().await;
         let current = match self.store.load().await {
             Ok(v) => v,
             Err(e) => {
+                *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
                 self.available.store(false, Ordering::Release);
                 return Err(e);
             }
         };
         if !current.usable || !current.credentials.refreshable() {
+            *self.retry.lock().map_err(|_| ProviderError::Transport)? = None;
             self.available.store(false, Ordering::Release);
             return Err(ProviderError::Auth);
         }
-        if current.credentials.expires_at > chrono::Utc::now().timestamp() + 60 {
+        let now = chrono::Utc::now().timestamp();
+        {
+            let mut retry = self.retry.lock().map_err(|_| ProviderError::Transport)?;
+            if retry.as_ref().is_some_and(|(revision, at, _)| {
+                *revision == current.revision && std::time::Instant::now() < *at
+            }) {
+                return if current.credentials.expires_at > now {
+                    Ok(current.credentials)
+                } else {
+                    self.available.store(false, Ordering::Release);
+                    Err(ProviderError::Transport)
+                };
+            }
+            *retry = None;
+        }
+        if current.credentials.expires_at > now + 60 {
+            self.available.store(true, Ordering::Release);
             return Ok(current.credentials);
         }
         match self.oauth.refresh(&current.credentials).await {
@@ -99,6 +125,20 @@ impl CredentialManager {
                     } else {
                         Err(ProviderError::Auth)
                     }
+                }
+            }
+            Err(error) if error != ProviderError::Auth => {
+                *self.retry.lock().map_err(|_| ProviderError::Transport)? = Some((
+                    current.revision,
+                    std::time::Instant::now() + std::time::Duration::from_secs(5),
+                    current.credentials.expires_at,
+                ));
+                let usable = current.credentials.expires_at > chrono::Utc::now().timestamp();
+                self.available.store(usable, Ordering::Release);
+                if usable {
+                    Ok(current.credentials)
+                } else {
+                    Err(error)
                 }
             }
             Err(_) => {
@@ -126,6 +166,9 @@ impl CredentialManager {
                 return;
             }
             let _ = self.store.invalidate(current.revision).await;
+        }
+        if let Ok(mut retry) = self.retry.lock() {
+            *retry = None;
         }
         self.available.store(false, Ordering::Release);
     }

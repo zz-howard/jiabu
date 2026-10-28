@@ -176,9 +176,11 @@ impl OAuthClient {
             ])
             .await?;
         if let Some(id) = &token.id_token {
-            let claims = self.claims(id, &old.client_id, None)?;
-            if claims.account_id()? != old.account_id {
-                return Err(ProviderError::Auth);
+            let claims = self
+                .claims(id, &old.client_id, None)
+                .map_err(|_| ProviderError::Transport)?;
+            if claims.account_id().map_err(|_| ProviderError::Transport)? != old.account_id {
+                return Err(ProviderError::Transport);
             }
         }
         Ok(OAuthCredentials {
@@ -189,7 +191,7 @@ impl OAuthClient {
                 .unwrap_or_else(|| old.refresh_token.clone()),
             client_id: old.client_id.clone(),
             account_id: old.account_id.clone(),
-            expires_at: expiry(token.expires_in)?,
+            expires_at: expiry(token.expires_in).map_err(|_| ProviderError::Transport)?,
             host_id: old.host_id,
         })
     }
@@ -200,13 +202,36 @@ impl OAuthClient {
             .form(params)
             .send()
             .await
-            .map_err(|_| ProviderError::Auth)?;
-        if !response.status().is_success() {
-            return Err(ProviderError::Auth);
+            .map_err(|e| {
+                if e.is_timeout() {
+                    ProviderError::Timeout
+                } else {
+                    ProviderError::Transport
+                }
+            })?;
+        let status = response.status();
+        if !status.is_success() {
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                return Err(ProviderError::RateLimited { retry_after: None });
+            }
+            if matches!(status.as_u16(), 400 | 401) {
+                // Only an explicit OAuth rejection permanently revokes credentials.
+                let body: serde_json::Value = response.json().await.unwrap_or_default();
+                if matches!(
+                    body.get("error").and_then(|v| v.as_str()),
+                    Some("invalid_grant" | "invalid_client" | "unauthorized_client")
+                ) {
+                    return Err(ProviderError::Auth);
+                }
+            }
+            return Err(ProviderError::Transport);
         }
-        let token: TokenResponse = response.json().await.map_err(|_| ProviderError::Auth)?;
+        let token: TokenResponse = response
+            .json()
+            .await
+            .map_err(|_| ProviderError::Transport)?;
         if token.access_token.is_empty() || !token.token_type.eq_ignore_ascii_case("bearer") {
-            return Err(ProviderError::Auth);
+            return Err(ProviderError::Transport);
         }
         Ok(token)
     }

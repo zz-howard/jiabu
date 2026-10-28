@@ -3,6 +3,9 @@ use async_trait::async_trait;
 use std::time::{Duration, Instant};
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ProviderError {
+    /// Output already reached the sink; callers must retain it and start a new block.
+    #[error("partial output: {source}")]
+    PartialOutput { source: Box<ProviderError> },
     #[error("rate limited")]
     RateLimited { retry_after: Option<Duration> },
     #[error("quota exhausted")]
@@ -27,6 +30,7 @@ pub enum ProviderError {
 impl ProviderError {
     pub fn kind(&self) -> &'static str {
         match self {
+            Self::PartialOutput { .. } => "partial_output",
             Self::RateLimited { .. } => "rate_limited",
             Self::QuotaExhausted => "quota",
             Self::Auth => "auth",

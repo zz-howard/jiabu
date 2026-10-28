@@ -146,7 +146,7 @@ async fn refresh_rotation_saves_new_refresh_token_and_failure_disables_availabil
     assert_eq!(tokens.load().await.unwrap().revision, 2);
     server.reset().await;
     Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(401))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error":"invalid_grant"})))
         .mount(&server)
         .await;
     {
@@ -193,4 +193,95 @@ async fn reload_generations_share_refresh_gate_and_do_not_reuse_rotated_token() 
     let (a, b) = tokio::join!(first.access(), next.access());
     assert!(a.is_ok() && b.is_ok());
     assert_eq!(tokens.load().await.unwrap().revision, 2);
+}
+
+#[tokio::test]
+async fn temporary_refresh_failure_recovers_without_login_and_observes_backoff() {
+    for still_valid in [false, true] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let tokens = Tokens::new(if still_valid {
+            chrono::Utc::now().timestamp() + 30
+        } else {
+            1
+        });
+        let manager =
+            CredentialManager::new(tokens.clone(), OAuthClient::at(&server.uri()).unwrap()).await;
+        let result = manager.access().await;
+        if still_valid {
+            assert_eq!(result.unwrap().access_token, "synthetic-access");
+        } else {
+            assert!(matches!(result, Err(ProviderError::Transport)));
+        }
+        assert_eq!(manager.available(), still_valid);
+        assert!(tokens.load().await.unwrap().usable);
+        assert_eq!(tokens.load().await.unwrap().revision, 1);
+        assert_eq!(manager.access().await.is_ok(), still_valid);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        server.reset().await;
+        Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-recovered","expires_in":3600,"token_type":"Bearer"}))).expect(1).mount(&server).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        assert!(manager.available());
+        assert_eq!(
+            manager.access().await.unwrap().access_token,
+            "synthetic-recovered"
+        );
+        assert!(tokens.load().await.unwrap().usable);
+        assert_eq!(tokens.load().await.unwrap().revision, 2);
+    }
+}
+#[tokio::test]
+async fn only_explicit_oauth_rejection_is_permanent() {
+    for (status, body, permanent) in [
+        (400, json!({"error":"invalid_grant"}), true),
+        (401, json!({"error":"invalid_client"}), true),
+        (401, json!({"error":"unknown"}), false),
+        (400, json!({"error":"temporarily_unavailable"}), false),
+        (429, json!({"error":"invalid_grant"}), false),
+        (503, json!({"error":"invalid_grant"}), false),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(status).set_body_json(body))
+            .mount(&server)
+            .await;
+        let tokens = Tokens::new(1);
+        let manager =
+            CredentialManager::new(tokens.clone(), OAuthClient::at(&server.uri()).unwrap()).await;
+        let error = manager.access().await.err().unwrap();
+        assert_eq!(error == ProviderError::Auth, permanent);
+        assert_eq!(!tokens.load().await.unwrap().usable, permanent);
+        if permanent {
+            assert!(matches!(manager.access().await, Err(ProviderError::Auth)));
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+            assert!(!manager.available());
+        }
+    }
+}
+
+#[tokio::test]
+async fn old_access_expiring_during_refresh_backoff_temporarily_removes_availability() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(503))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 2);
+    let manager =
+        CredentialManager::new(tokens.clone(), OAuthClient::at(&server.uri()).unwrap()).await;
+    assert!(manager.access().await.is_ok());
+    assert!(manager.available());
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    assert!(!manager.available());
+    assert!(matches!(
+        manager.access().await,
+        Err(ProviderError::Transport)
+    ));
+    assert!(tokens.load().await.unwrap().usable);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }

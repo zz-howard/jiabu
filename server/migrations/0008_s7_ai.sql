@@ -43,6 +43,8 @@ for each statement execute function ai_configuration_changed();
 create trigger ai_secret_changed after insert or update or delete on secrets
 for each statement execute function ai_configuration_changed();
 
+-- Cleared secrets remain tombstones: clear and subsequent login each increment
+-- revision on the same row, so neither refresh nor invalidation can match an old login.
 -- Only an existing provider OAuth row may rotate. No insert, owner reassignment,
 -- field reassignment, source changes, key deletion or general secret update grant.
 create function ai_refresh_oauth(p_provider text, p_revision bigint, p_key_id text,
@@ -74,7 +76,7 @@ declare changed int;
 begin
  perform 1 from public.ai_settings where id for update;
  update public.secrets set usable=false,revision=revision+1,updated_at=now()
- where owner_kind='provider' and owner_id=p_provider and field='oauth' and revision=p_revision;
+ where owner_kind='provider' and owner_id=p_provider and field='oauth' and revision=p_revision and usable;
  get diagnostics changed = row_count;
  return changed=1;
 end $$;

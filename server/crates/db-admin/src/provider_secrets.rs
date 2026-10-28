@@ -65,7 +65,7 @@ impl AdminDb {
             sqlx::query("update ai_providers set secret_source='db',version=version+1,updated_at=now() where id=$1").bind(provider).execute(&mut *tx).await?;
         } else {
             sqlx::query(
-                "delete from secrets where owner_kind='provider' and owner_id=$1 and field=$2",
+                "update secrets set key_id='',nonce=''::bytea,ciphertext=''::bytea,last4='',revision=revision+1,usable=false,updated_at=now() where owner_kind='provider' and owner_id=$1 and field=$2",
             )
             .bind(provider)
             .bind(field)

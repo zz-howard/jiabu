@@ -84,12 +84,12 @@ async fn reload_preserves_open_breaker_until_successful_single_half_open_probe()
         failures: 1,
         cool_down_secs: 60,
     };
-    assert!(breaker.claim(now, &cfg));
-    breaker.finish(false, now, &cfg);
-    assert!(!breaker.claim(now + Duration::from_secs(59), &cfg));
-    assert!(breaker.claim(now + Duration::from_secs(60), &cfg));
-    assert!(!breaker.claim(now + Duration::from_secs(60), &cfg));
-    breaker.finish(true, now + Duration::from_secs(61), &cfg);
+    let permit = breaker.claim(now, &cfg).unwrap();
+    breaker.finish(permit, false, now, &cfg);
+    assert!(breaker.claim(now + Duration::from_secs(59), &cfg).is_none());
+    let permit = breaker.claim(now + Duration::from_secs(60), &cfg).unwrap();
+    assert!(breaker.claim(now + Duration::from_secs(60), &cfg).is_none());
+    breaker.finish(permit, true, now + Duration::from_secs(61), &cfg);
     assert!(breaker.available(now + Duration::from_secs(61), &cfg));
 }
 #[tokio::test]
@@ -148,7 +148,217 @@ async fn a_second_blob_rejection_does_not_loop() {
                 &Meter::default()
             )
             .await,
-        Err(ProviderError::BlobRejected)
+        Err(ProviderError::PartialOutput {
+            source: Box::new(ProviderError::BlobRejected)
+        })
     );
+    assert_eq!(mock.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn visible_output_prevents_both_retry_and_fallback() {
+    for event in [
+        TurnEvent::TextDelta("已记录。".into()),
+        TurnEvent::ToolCall {
+            call_id: "synthetic".into(),
+            name: "fake".into(),
+            args_raw: "{}".into(),
+        },
+    ] {
+        let primary = Arc::new(MockProvider::scripted(
+            "fake-1",
+            capabilities(),
+            vec![vec![
+                MockStep::Emit(event),
+                MockStep::Fail(ProviderError::InvalidOutput),
+            ]],
+        ));
+        let fallback = Arc::new(MockProvider::scripted("fake-2", capabilities(), vec![]));
+        let mut cfg = config();
+        cfg.allow_paid_fallback = true;
+        let router = AiRouter::new(cfg, vec![primary.clone(), fallback.clone()]);
+        let mut sink = Sink::default();
+        assert_eq!(
+            router
+                .run_turn(TaskKind::Chat, &request(), &mut sink, &Meter::default())
+                .await,
+            Err(ProviderError::PartialOutput {
+                source: Box::new(ProviderError::InvalidOutput)
+            })
+        );
+        assert_eq!(sink.0.len(), 1);
+        assert_eq!(primary.requests().len(), 1);
+        assert!(fallback.requests().is_empty());
+    }
+}
+#[tokio::test]
+async fn failure_without_output_still_falls_back() {
+    let primary = Arc::new(MockProvider::scripted(
+        "fake-1",
+        capabilities(),
+        vec![vec![MockStep::Fail(ProviderError::Transport)]],
+    ));
+    let fallback = Arc::new(MockProvider::scripted(
+        "fake-2",
+        capabilities(),
+        vec![vec![MockStep::Emit(TurnEvent::Done {
+            usage: Usage::default(),
+        })]],
+    ));
+    let mut cfg = config();
+    cfg.allow_paid_fallback = true;
+    let router = AiRouter::new(cfg, vec![primary.clone(), fallback.clone()]);
+    router
+        .run_turn(
+            TaskKind::Chat,
+            &request(),
+            &mut Sink::default(),
+            &Meter::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(primary.requests().len(), 1);
+    assert_eq!(fallback.requests().len(), 1);
+}
+struct RejectNote;
+#[async_trait::async_trait]
+impl TurnSink for RejectNote {
+    async fn emit(&mut self, _: TurnEvent) -> Result<(), ProviderError> {
+        Err(ProviderError::Sink)
+    }
+}
+#[tokio::test]
+async fn half_open_note_sink_failure_and_cancelled_future_release_probe() {
+    for cancel in [false, true] {
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let probe = if cancel {
+            vec![
+                MockStep::Barrier(barrier.clone()),
+                MockStep::Delay(Duration::from_secs(600)),
+            ]
+        } else {
+            vec![MockStep::Fail(ProviderError::BlobRejected)]
+        };
+        let mock = Arc::new(MockProvider::scripted(
+            "fake-1",
+            capabilities(),
+            vec![
+                vec![MockStep::Fail(ProviderError::Transport)],
+                probe,
+                vec![MockStep::Emit(TurnEvent::Done {
+                    usage: Usage::default(),
+                })],
+            ],
+        ));
+        let mut cfg = config();
+        cfg.breaker = BreakerConfig {
+            failures: 1,
+            cool_down_secs: 1,
+        };
+        let router = Arc::new(AiRouter::new(cfg, vec![mock.clone()]));
+        assert!(
+            router
+                .run_turn(
+                    TaskKind::Chat,
+                    &request(),
+                    &mut Sink::default(),
+                    &Meter::default()
+                )
+                .await
+                .is_err()
+        );
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let mut req = request();
+        req.provider_blobs.push(ProviderBlob {
+            provider_id: "fake-1".into(),
+            model: "model-1".into(),
+            account_id: "synthetic".into(),
+            item: serde_json::json!({}),
+        });
+        if cancel {
+            let task_router = router.clone();
+            let task = tokio::spawn(async move {
+                task_router
+                    .run_turn(
+                        TaskKind::Chat,
+                        &req,
+                        &mut Sink::default(),
+                        &Meter::default(),
+                    )
+                    .await
+            });
+            barrier.wait().await;
+            assert!(!router.availability(TaskKind::Chat).available);
+            task.abort();
+            assert!(task.await.unwrap_err().is_cancelled());
+        } else {
+            assert_eq!(
+                router
+                    .run_turn(TaskKind::Chat, &req, &mut RejectNote, &Meter::default())
+                    .await,
+                Err(ProviderError::PartialOutput {
+                    source: Box::new(ProviderError::Sink)
+                })
+            );
+        }
+        assert!(!router.availability(TaskKind::Chat).available);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(router.availability(TaskKind::Chat).available);
+        router
+            .run_turn(
+                TaskKind::Chat,
+                &request(),
+                &mut Sink::default(),
+                &Meter::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(mock.requests().len(), 3);
+    }
+}
+#[test]
+fn overdue_probe_is_reclaimed_and_old_completion_cannot_finish_replacement() {
+    let mut breaker = jiabu_ai::breaker::Breaker::default();
+    let cfg = BreakerConfig {
+        failures: 1,
+        cool_down_secs: 1,
+    };
+    let now = Instant::now();
+    let first = breaker.claim(now, &cfg).unwrap();
+    breaker.finish(first, false, now, &cfg);
+    let old = breaker.claim(now + Duration::from_secs(1), &cfg).unwrap();
+    let deadline = now + Duration::from_secs(1) + jiabu_ai::breaker::CALL_TIMEOUT;
+    assert!(!breaker.available(deadline, &cfg));
+    let next = breaker
+        .claim(deadline + Duration::from_secs(1), &cfg)
+        .unwrap();
+    breaker.finish(old, true, deadline + Duration::from_secs(1), &cfg);
+    assert!(!breaker.available(deadline + Duration::from_secs(1), &cfg));
+    breaker.finish(next, true, deadline + Duration::from_secs(2), &cfg);
+    assert!(breaker.available(deadline + Duration::from_secs(2), &cfg));
+}
+
+#[tokio::test]
+async fn invalid_output_without_visible_events_still_retries_once() {
+    let mock = Arc::new(MockProvider::scripted(
+        "fake-1",
+        capabilities(),
+        vec![
+            vec![MockStep::Fail(ProviderError::InvalidOutput)],
+            vec![MockStep::Emit(TurnEvent::Done {
+                usage: Usage::default(),
+            })],
+        ],
+    ));
+    let router = AiRouter::new(config(), vec![mock.clone()]);
+    router
+        .run_turn(
+            TaskKind::Chat,
+            &request(),
+            &mut Sink::default(),
+            &Meter::default(),
+        )
+        .await
+        .unwrap();
     assert_eq!(mock.requests().len(), 2);
 }
