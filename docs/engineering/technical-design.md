@@ -420,6 +420,46 @@ create unique index blob_refs_module on blob_refs (space_id, module, sha256) whe
 
 AI 把聊天里的照片挂到记录或资料上时（`attachments`、资料的 `image` 值），工具在同一事务里为目标模块补一条 `blob_refs`（只允许引用调用者本人有引用的 `chat` 图，或本空间该模块已有的图），之后空间里有该模块读权限的成员都能看到原图。
 
+**编辑时去掉照片（P67）**：`update_record` 让 `attachments` 少了某个哈希、`update_document` 让资料内容里少了某个 `image` 值时，工具在同一个写事务里（已持有空间锁）检查：本空间还有没有任何记录的 `attachments`（含 `status = 'voided'` 的）或任何资料的 `image` 值（含已作废的）引用这个哈希；`ledger` 与 `documents` 分开看，各自都没有了就删掉该模块的那条 `blob_refs`。删除触发 S4 的生命周期触发器：这张图在全服务器都没有引用时开始计时，1 天后由原图清理任务删掉文件（3.11）。
+
+- **撤销 / 作废不删引用**：撤销的记录、作废的资料还能恢复（`restore_record` 等），照片要跟着回来，所以 `void_*` 工具不碰 `blob_refs`。
+- **聊天的引用不受影响**：聊天记录不会删除，成员自己聊天里的图（`chat` 引用）一直保留；所以从聊天挂到账上、又从账上去掉的照片，在那位成员的聊天里仍然能看。
+- **变更记录**：`entity_events` 的前后快照里仍有这个哈希；手机显示为“移除了一张照片”，不提供打开。之后如果下载，引用已经没有了就是 404，与“无权”相同。
+- **再挂回去**：编辑时重新加上这张图，与第一次一样要求本空间该模块有引用，所以手机要先重新上传（5.8，响应与第一次相同）。
+
+#### 3.7.1 照片占用（P68、S40）
+
+`blobs` 加一列 `stored_bytes bigint not null`：原图和两个派生尺寸三个文件的字节数之和，上传时生成派生尺寸后写入（5.8）。已有的行由迁移后的一次性任务按文件大小补齐。
+
+**一个空间的占用** = 本空间所有 `blob_refs`（不分模块、不分成员）引用到的**不同**照片的 `stored_bytes` 之和：
+
+```sql
+select count(*) as files, coalesce(sum(b.stored_bytes), 0) as bytes
+from (select distinct sha256 from blob_refs where space_id = $1) r
+join blobs b using (sha256);
+```
+
+同一张图在本空间被账、资料和几位成员的聊天同时引用，只算一次；别的空间有没有这张图不影响本空间的数字（跨空间各算各的，否则数字的变化会泄露别的空间的内容）。数据库里的记录不算。
+
+```sql
+-- 每天每个空间一行；同一天重跑覆盖（ON CONFLICT (space_id, day) DO UPDATE）
+create table space_storage_daily (
+  space_id uuid not null references spaces,
+  day date not null,                 -- UTC 日期
+  files int not null,                -- 不同照片的张数
+  bytes bigint not null,             -- 原图 + 两个派生尺寸
+  measured_at timestamptz not null,
+  primary key (space_id, day));
+-- 全服务器实际占用：所有 blobs 的 stored_bytes 之和（同一张图只存一份；含还在等清理的）
+create table storage_daily_totals (
+  day date primary key, files int not null, bytes bigint not null, measured_at timestamptz not null);
+```
+
+- **快照任务**：每天一次，在原图清理之后跑（10.4），用 `SystemTx` 对每个未删除的空间算一次、写一行，再写全服务器一行。停机错过的日子不补（补不回当天的真实数字），将来计费按有记录的日子折算。已删除的空间不再写新行，旧行保留。
+- **两张快照表只有 ID、日期和数字**，没有任何内容：`jiabu_admin` 只能 `SELECT` 这两张表（服务端 9.2），仍然读不到 `blobs` / `blob_refs`，管理侧“看不到内容”的保证不变。
+- **App 里的数字是实时的**：`GET /spaces/{id}/storage` 在 `SpaceTx`（只读）里跑上面的查询，返回 `{files, bytes}`；空间的活跃成员都能看（不按模块权限拆，只给总数，不按模块或成员细分）。总数里含其他成员聊天里的图，这只是一个合计数字，接受这一点。
+- 首版只统计和展示，不收费、不设上限（P68）。
+
 ### 3.8 聊天与 AI 运行
 
 - `chat_entries`、`chat_stream_events`、`chat_actions`：照服务端 5.1，改动：`chat_entries` 去掉 `module` / `visibility`（13 节第 6 条）；三张表都有 `space_id uuid not null` 和 `member_id uuid not null`（会话所属成员，冗余一份给 RLS 和同步过滤用；服务端 5.1 的 `chat_stream_events` 原来只有 `message_id`，这里补上两列）；助手消息加 `reply_to_id uuid`（回答的是哪条用户消息，供“重试”用）。
@@ -484,7 +524,8 @@ create table app_releases (
 | `idempotency` | 90 天（outbox 里放更久的写入仍安全：新建靠客户端 ID 去重，修改靠 `expected_version`） | 每天 |
 | `api_key_audit` | 180 天（服务端 3.3） | 每天 |
 | 过期会话 | 到期即删 | 每天 |
-| 没有引用的原图 | 最后一个引用消失 1 天后 | 每天 |
+| 没有引用的原图 | 最后一个引用消失 1 天后（编辑时去掉照片会让引用消失，3.7） | 每天 |
+| `space_storage_daily`、`storage_daily_totals` | 不过期（将来计费的依据，3.7.1） | — |
 | 删除空间的内容 | 立即（3.10） | 删除后的后台任务 |
 | 其余业务数据、`entity_events`、`ai_calls` | 不过期 | — |
 
@@ -674,7 +715,7 @@ stateDiagram-v2
 ### 5.8 原图上传
 
 - 手机先把图转成 JPEG、算 SHA-256、存进分区的原图目录（9.4），再排一条 `blob` 条目，引用它的 `chat_send` / `tool` 条目排在后面。
-- `PUT /spaces/{space_id}/blobs/{sha256}?module=ledger|documents|chat`，请求体是 JPEG（≤ 20 MB）。聊天里发的图用 `chat`，记录详情、资料编辑里加的图用对应模块。服务端校验：成员 + `X-Jiabu-Join-Epoch`（5.6）+ `authorize(module, Write)`（`chat` 只要求是活跃成员）；`infer` 嗅探确实是 JPEG；内容的 SHA-256 等于路径里的值。之后写文件（已存在就跳过写盘）、生成两个派生尺寸、按 3.7 写 `blob_refs`（`chat` 是本人的引用）`ON CONFLICT DO NOTHING`。
+- `PUT /spaces/{space_id}/blobs/{sha256}?module=ledger|documents|chat`，请求体是 JPEG（≤ 20 MB）。聊天里发的图用 `chat`，记录详情、资料编辑里加的图用对应模块。服务端校验：成员 + `X-Jiabu-Join-Epoch`（5.6）+ `authorize(module, Write)`（`chat` 只要求是活跃成员）；`infer` 嗅探确实是 JPEG；内容的 SHA-256 等于路径里的值。之后写文件（已存在就跳过写盘）、生成两个派生尺寸、写 `blobs`（含三个文件的字节数之和 `stored_bytes`，3.7.1）、按 3.7 写 `blob_refs`（`chat` 是本人的引用）`ON CONFLICT DO NOTHING`。
 - **总是要求上传完整内容**，即使这张图在服务器上已经存在（例如另一个空间传过）：如果允许“已存在就跳过上传”，就等于告诉上传者“某个空间里有一张一模一样的图”，违反空间隔离。响应对“新图”和“已有的图”完全相同。
 - 下载 `GET /spaces/{space_id}/blobs/{sha256}?variant=thumb|display|original`：本空间要有一条请求者能读的 `blob_refs`（`ledger` / `documents` 经 `authorize(module, Read)`，`chat` 要求有一条本人的引用），否则 404。
 
@@ -748,6 +789,7 @@ problem+json（RFC 9457）加一个机器可读的 `code`，App 按 `code` 显�
 | | `POST /spaces/{id}/tools/{tool}` | R / W | 每个开放的工具一条路由（6.4） |
 | 资料模板 | `GET /templates` | R | 服务端已加载的全部模板（带 `ETag`），手机缓存（第 8 节） |
 | 原图 | `PUT` / `GET /spaces/{id}/blobs/{sha256}` | W / R | 5.8 |
+| | `GET /spaces/{id}/storage` | R | 本空间照片占用 `{files, bytes}`，实时计算（3.7.1，P68） |
 | 聊天 | `POST /spaces/{id}/chat/messages` | ❌ | 发消息：`{id, text?, images?}` → ChatWeave `startResponse`（`{userMessageId, messageId}`，同一个 `id` 重放返回同一个 `messageId`） |
 | | `GET /spaces/{id}/chat/messages/{message_id}/stream` | ❌ | SSE（服务端 4.2） |
 | | `POST /spaces/{id}/chat/actions` | ❌ | 回答 / 确认（服务端 4.2） |
@@ -1177,6 +1219,7 @@ v1 只用本地磁盘（`object_store::local::LocalFileSystem`）。以后需要
 | 每月拨入 | 每小时 | 3.4 |
 | 安装包拉取 | 每 6 小时 + 管理侧“立即检查” | 10.5 |
 | 清理 | 每分钟（事件日志）/ 每天（其余） | 3.11 |
+| 照片占用快照 | 每天（原图清理之后） | 3.7.1 |
 | 删除空间的内容 | 删除后立即 | 3.10 |
 | AI 配置热加载 | `LISTEN ai_config` + 60 秒比对 | AI 层第 7 节 |
 
