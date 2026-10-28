@@ -84,7 +84,7 @@ final class LocalMutationsRepository {
       return Ok(id);
     });
     if (result is Ok<String>) {
-      onEnqueued?.call();
+      store.afterCommit(onEnqueued);
     }
     return result;
   }
@@ -97,7 +97,7 @@ final class LocalMutationsRepository {
         }
       }
     });
-    onEnqueued?.call();
+    store.afterCommit(onEnqueued);
     return const Ok(null);
   }
 }

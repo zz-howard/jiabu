@@ -13,11 +13,13 @@ final class ConflictService {
     this.store, {
     DateTime Function()? now,
     String Function()? newId,
+    this.onEnqueued,
   }) : now = now ?? DateTime.now,
        newId = newId ?? const Uuid().v7;
   final LocalStore store;
   final DateTime Function() now;
   final String Function() newId;
+  final void Function()? onEnqueued;
 
   Future<void> applySuccess(
     String spaceId,
@@ -184,6 +186,7 @@ final class ConflictService {
     }
     await store.removeConflict(spaceId, kind, id);
     await unblockResolvedDependents(spaceId);
+    store.afterCommit(onEnqueued);
     return const Ok<void>(null);
   });
 

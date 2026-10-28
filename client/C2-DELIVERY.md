@@ -861,3 +861,52 @@ nice -n 19 ionice -c3 flutter test test/data/runtime_auth_test.dart test/data/au
 nice -n 19 ionice -c3 flutter test test/data/runtime_auth_test.dart --plain-name resume_authenticated_before_relogin_cannot_adopt_new_generation
 nice -n 19 ionice -c3 flutter test test/data/auth_repository_test.dart --plain-name logout_dispatches_outside_transaction_with_captured_token
 ```
+
+### 第六轮评审修正
+
+上一轮两处修复已由评审确认且 CI 已绿。本轮在当前工作树修复新增的两条中严重度问题；未提交 git，未修改 docs/、server/、生成文件、PNG 或依赖。两条主回归测试均先写入，再修改生产实现；受执行环境限制，本轮尚无实际修前红 / 修后绿记录。
+
+1. **入队通知必须等最外层事务提交。** `LocalStore.transaction` 为每层事务在 Zone 中保存独立的提交后回调集合。内层成功只向父层合并；回滚丢弃自己的集合；最外层成功提交后，在其调用方 Zone 中派发。`afterCommit` 对无外层事务的调用立即执行，同一回调在同一事务内去重。这样 RecordsRepository 的 create / update 及调用方再套的事务都受保护，无须各仓库猜测自己是否最外层，也不跳到根 Zone 丢失调用方的错误处理。
+   - LocalMutationsRepository 的 enqueueTool / retryFailed、MediaService 的图片入队通知全部改用 `store.afterCommit(onEnqueued)`。RecordsRepository 保留原有原子写入事务。
+   - 已扫描 app/lib 下所有 onEnqueued、enqueued、Timer、runRound 及事务入口。生产代码的 drift 事务均经过 LocalStore，没有其他直接 db.transaction 调用绕过该机制。SyncTriggers 的 outbox 订阅、生命周期、网络及数据库轮询在 runtime 初始化 / 事务外的回调中建立；SyncEngine 心跳由事务外启动的轮次建立；onMembershipsRefreshed 在 reconcile 事务提交后调用。未发现其余相同入口。后续新增事务也必须使用 LocalStore 入口；直接绕过它的数据库事务不属于该队列的提交边界。
+2. **解决冲突后主动唤醒被解除阻塞的条目。** ConflictService 新增可选 onEnqueued，成功解决冲突、删除冲突并解除依赖阻塞后，在同一事务中登记 afterCommit。AppRuntime 为冲突服务、普通写入和图片入队接上同一个 notifyEnqueued 回调；提交后调用 SyncTriggers.enqueued，同时建立一秒防抖和登记后台任务。失败或外层回滚均不通知；选服务器版本、“用我的”重建为空操作和正常重建均覆盖。
+   - 选择显式提交后通知，不改成监听 pending 数量。冲突解决有明确的提交边界，而 pending 数量还随领取、重试退避等状态变化，可能引入多余唤醒；显式通知也不依赖订阅是否已收到第一次结果。原总数监听保留既有的额外触发保护。
+
+新增 `app/test/data/post_commit_sync_test.dart`，通过真实 AppRuntime 的仓库、冲突服务和回调接线，以及真实 SQLite / 同步引擎 / Dio 客户端，配合假 HTTP 服务及受控平台触发器。手动计时器用 bindCallbackGuarded 保留真实 Timer 的 Zone 继承语义，验证一秒时长；测试框架正常接收未处理错误，没有吞掉事务异常。
+
+- `records_create_debounce_leaves_outer_transaction_zone`
+- `records_update_debounce_leaves_outer_transaction_zone`
+  - 在调用方外层事务内经 RecordsRepository 写入，断言提交前没有定时器或后台任务；提交后定时器及后台任务均在调用方 Zone，区别于事务 Zone。写入后才开始 outbox 订阅，使第一次结果已经包含该条目，不能靠计数增加重建定时器掩盖错误。推进计时器后断言实际上传、服务端金额正确、同步为 idle，且请求也在调用方 Zone。修前应在事务内已有定时器的断言处失败。
+- `rolled_back_record_write_does_not_schedule_sync`：外层回滚后 outbox 为空，无定时器或后台登记。
+- `nested_writes_notify_once_and_discard_rolled_back_savepoint`：同一事务 create / update 只通知一次，嵌套 savepoint 回滚的记录不留在数据库或上传。
+- `server_resolution_automatically_uploads_unblocked_refund`
+- `mine_noop_resolution_automatically_uploads_unblocked_refund`
+  - R 已冲突、F 已 blocked，先前轮次已结束、没有遗留定时器。先验证外层回滚保留冲突及阻塞且不登记任务，再成功解决，断言 F 保持原 op ID、队列总数仍为 1、变为 pending，提交后新增后台登记和调用方 Zone 的定时器。解决后不再调用 runRound / foreground / networkChanged，仅推进通知产生的定时器，断言 F 上传、队列清空、状态 synced。修前应在后台登记未增加的断言处失败。“用我的”双方可写字段相同，确保重建操作为空，不靠新增操作增加总数。
+
+新增负对照，清单合计 29 条；路径相对仓库根，命令 cwd 为 client/app，均 expected_occurrences=1，另有兼容格式化的 find_regex。必须逐条要求断言失败，编译失败不计作负对照成功。
+
+1. `enqueue_notification_waits_for_outer_commit`，文件 `client/app/lib/data/repositories/local_mutations_repository.dart`：
+   - find（JSON 中保存精确换行 / 缩进）：`if (result is Ok<String>) {\n      store.afterCommit(onEnqueued);\n    }`
+   - replace：`if (result is Ok<String>) {\n      onEnqueued?.call();\n    }`
+   - 命令：`flutter test test/data/post_commit_sync_test.dart --name '^records_(create|update)_debounce_leaves_outer_transaction_zone$'`。恢复旧通知方式，预期事务内“无定时器”的断言失败。
+2. `conflict_resolution_notifies_after_commit`，文件 `client/app/lib/data/sync/conflict_service.dart`：
+   - find：`store.afterCommit(onEnqueued);`
+   - replace：`// Negative control: omit the resolution notification.`
+   - 命令：`flutter test test/data/post_commit_sync_test.dart --name '^(server|mine_noop)_resolution_automatically_uploads_unblocked_refund$'`。删除解决通知，预期后台登记次数未增加的断言失败。
+
+本轮修改 8 个文件（相对 client/）：`app/lib/data/db/daos/local_store.dart`、`app/lib/data/repositories/local_mutations_repository.dart`、`app/lib/data/services/media_service.dart`、`app/lib/data/sync/conflict_service.dart`、`app/lib/app/runtime.dart`、`app/test/data/post_commit_sync_test.dart`（新增）、`tool/c2-negative-controls.json`、`C2-DELIVERY.md`。
+
+验证与拿不准的地方：
+
+- 已通过规则检查（直接用缓存依赖运行 check_rules.dart）、全部 29 条负对照 JSON 解析 / ID 唯一性 / 精确和正则锚点唯一性 / 测试路径检查、6 个改动 Dart 文件及两条新负对照替换结果的 analyzer 语法解析、git diff --check。新测试已使用缓存 dart_style 3.1.7 格式化；生产文件只保留必要改动，未带入格式化器对旧代码的无关重排。
+- 本机为 aarch64；client/AGENTS.md 要求 build / test / golden 仅在 x86_64 Linux 构建机执行。两次 SSH 尝试均被沙箱拒绝（`socket: Operation not permitted`），无法上传新测试或执行修前命令。本轮 **未实际执行 Flutter 测试、修前失败、修后通过、负对照断言失败、完整 dart format 或 flutter analyze**。缓存格式化器还提示无法解析 very_good_analysis 配置，因此语法 / 局部格式检查不能代替完整 CI。
+- 实现与测试已完成静态核对；动态执行结果及稳定性尚待构建机确认。没有其他待定产品语义。
+
+构建机应先在隔离副本保留新测试、恢复本轮修前生产源码，确认主回归为断言失败；再恢复修复、通过以下定向回归，分别应用两条负对照并确认断言失败，恢复后复跑。重任务串行并加 nice / ionice；不要运行生成器或更新 PNG。
+
+```bash
+cd client/app
+nice -n 19 ionice -c3 flutter test test/data/post_commit_sync_test.dart test/data/sync_triggers_test.dart test/data/conflict_test.dart test/data/sync_test.dart test/data/media_and_logs_test.dart test/data/runtime_auth_test.dart test/data/auth_repository_test.dart
+```
+
+随后按仓库既有 CI 执行 format / analyze / check_rules，以及 workspace、app、jiabu_design 三处 flutter test，不把历史 CI 绿当成本轮新测试已通过的证据。

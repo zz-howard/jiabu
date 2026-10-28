@@ -352,6 +352,34 @@
       ],
       "command": "flutter test test/data/runtime_auth_test.dart --plain-name resume_authenticated_before_relogin_cannot_adopt_new_generation",
       "find_regex": "final\\s+generation\\s*=\\s*session\\s*\\.\\s*generation\\s*;"
+    },
+    {
+      "id": "enqueue_notification_waits_for_outer_commit",
+      "file": "client/app/lib/data/repositories/local_mutations_repository.dart",
+      "find": "if (result is Ok<String>) {\n      store.afterCommit(onEnqueued);\n    }",
+      "replace": "if (result is Ok<String>) {\n      onEnqueued?.call();\n    }",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/post_commit_sync_test.dart",
+      "test_names": [
+        "records_create_debounce_leaves_outer_transaction_zone",
+        "records_update_debounce_leaves_outer_transaction_zone"
+      ],
+      "command": "flutter test test/data/post_commit_sync_test.dart --name '^records_(create|update)_debounce_leaves_outer_transaction_zone$'",
+      "find_regex": "if\\s*\\(\\s*result\\s+is\\s+Ok\\s*<\\s*String\\s*>\\s*\\)\\s*\\{\\s*store\\s*\\.\\s*afterCommit\\s*\\(\\s*onEnqueued\\s*,?\\s*\\)\\s*;\\s*\\}"
+    },
+    {
+      "id": "conflict_resolution_notifies_after_commit",
+      "file": "client/app/lib/data/sync/conflict_service.dart",
+      "find": "store.afterCommit(onEnqueued);",
+      "replace": "// Negative control: omit the resolution notification.",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/post_commit_sync_test.dart",
+      "test_names": [
+        "server_resolution_automatically_uploads_unblocked_refund",
+        "mine_noop_resolution_automatically_uploads_unblocked_refund"
+      ],
+      "command": "flutter test test/data/post_commit_sync_test.dart --name '^(server|mine_noop)_resolution_automatically_uploads_unblocked_refund$'",
+      "find_regex": "store\\s*\\.\\s*afterCommit\\s*\\(\\s*onEnqueued\\s*,?\\s*\\)\\s*;"
     }
   ]
 }

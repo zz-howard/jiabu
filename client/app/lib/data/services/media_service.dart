@@ -207,7 +207,7 @@ final class MediaService {
         return Ok(hash);
       });
       if (result is Ok<String>) {
-        onEnqueued?.call();
+        store.afterCommit(onEnqueued);
       }
       return result;
     } on FormatException {

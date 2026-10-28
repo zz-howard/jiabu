@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
@@ -20,9 +21,41 @@ Variable<Object> _variable(Object? value) => switch (value) {
 final class LocalStore {
   LocalStore(this.db);
   final JiabuDatabase db;
+  final _afterCommitKey = Object();
 
-  Future<T> transaction<T>(Future<T> Function() action) =>
-      db.transaction(action);
+  Future<T> transaction<T>(Future<T> Function() action) async {
+    final parent = Zone.current[_afterCommitKey] as Set<void Function()>?;
+    final callbacks = <void Function()>{};
+    final result = await runZoned(
+      () => db.transaction(action),
+      zoneValues: {_afterCommitKey: callbacks},
+    );
+    // An exception skips this merge, discarding notifications on rollback.
+    // Await resumes in the caller's Zone, outside the transaction we opened.
+    if (parent != null) {
+      parent.addAll(callbacks);
+    } else {
+      for (final callback in callbacks) {
+        callback();
+      }
+    }
+    return result;
+  }
+
+  /// Dispatch once the outermost LocalStore transaction commits. Keep timers
+  /// and unawaited sync work in that transaction's caller Zone, preserving its
+  /// error handling. Nested transactions merge callbacks only on success.
+  void afterCommit(void Function()? action) {
+    if (action == null) {
+      return;
+    }
+    final callbacks = Zone.current[_afterCommitKey] as Set<void Function()>?;
+    if (callbacks == null) {
+      action();
+    } else {
+      callbacks.add(action);
+    }
+  }
 
   Set<TableInfo<Table, Object?>> _tables(String name) =>
       db.allTables.where((table) => table.actualTableName == name).toSet();

@@ -234,7 +234,8 @@ final class AppRuntime {
     if (capturedRevision != revision) {
       return;
     }
-    final conflictService = ConflictService(store);
+    void notifyEnqueued() => triggers?.enqueued();
+    final conflictService = ConflictService(store, onEnqueued: notifyEnqueued);
     conflicts = conflictService;
     final memberships = MembershipReconciler(
       store,
@@ -304,7 +305,7 @@ final class AppRuntime {
     final mutations = LocalMutationsRepository(
       store,
       canWrite: () => status != SyncStatus.clientTooOld,
-      onEnqueued: () => triggers?.enqueued(),
+      onEnqueued: notifyEnqueued,
     );
     records = RecordsRepository(store, mutations);
     media = MediaService(
@@ -312,7 +313,7 @@ final class AppRuntime {
       directory: handle.blobs,
       picker: PlatformImagePicker(),
       compressor: PlatformImageCompressor(),
-      onEnqueued: () => triggers?.enqueued(),
+      onEnqueued: notifyEnqueued,
     );
     if (capturedRevision != revision) {
       return;
