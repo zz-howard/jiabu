@@ -134,5 +134,28 @@ for key in ('JIABU_IT_URL', 'JIABU_IT_URL_B'):
         raise SystemExit('Integration-test server did not become healthy')
 PY
 kill -0 "$SERVER_PID" "$SERVER_PID_B"
+# C3 uses real calendar paths in UTC and Asia/Shanghai. If either space is
+# within ten minutes of midnight, wait across that boundary before recording
+# dates. Never alter plan dates or records in PostgreSQL.
+# Wait until neither test time zone is within 10 minutes of midnight, then
+# record each zone's date. Uses date(1) so the host needs no tz database module.
+c3_seconds_to_midnight() {
+  local h m s
+  read -r h m s < <(TZ=$1 date +'%-H %-M %-S')
+  echo $((86400 - h * 3600 - m * 60 - s))
+}
+while :; do
+  c3_wait=0
+  for c3_zone in UTC Asia/Shanghai; do
+    c3_left=$(c3_seconds_to_midnight "$c3_zone")
+    if ((c3_left < 600)); then c3_wait=$((c3_left + 1)); fi
+  done
+  ((c3_wait == 0)) && break
+  sleep $((c3_wait < 60 ? c3_wait : 60))
+done
+JIABU_IT_SPACE_DATE_UTC=$(TZ=UTC date +%F)
+JIABU_IT_SPACE_DATE_SHANGHAI=$(TZ=Asia/Shanghai date +%F)
+export JIABU_IT_SPACE_DATE_UTC JIABU_IT_SPACE_DATE_SHANGHAI
+printf 'C3 space dates: UTC=%s; Asia/Shanghai=%s\n' "$JIABU_IT_SPACE_DATE_UTC" "$JIABU_IT_SPACE_DATE_SHANGHAI"
 cd "$CLIENT_DIR/app"
 flutter test --tags server --run-skipped

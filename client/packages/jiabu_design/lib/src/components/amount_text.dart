@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
-
 import 'package:jiabu_design/src/theme_context.dart';
 import 'package:jiabu_design/src/tokens/type.dart';
 
@@ -10,11 +9,15 @@ enum AmountRole { hero, detail, record, balance, list, inline }
 
 /// Amounts enter as integer minor units, never binary floating point.
 class AmountText extends StatelessWidget {
-  const new({
+  const AmountText({
     required this.minorUnits,
     required this.semanticLabel,
     this.role = AmountRole.record,
     this.highlighted = false,
+    this.currencySymbol = '¥',
+    this.decimalDigits = 2,
+    this.groupSeparator = ',',
+    this.decimalSeparator = '.',
     super.key,
   });
 
@@ -22,6 +25,10 @@ class AmountText extends StatelessWidget {
   final String semanticLabel;
   final AmountRole role;
   final bool highlighted;
+  final String currencySymbol;
+  final String groupSeparator;
+  final String decimalSeparator;
+  final int decimalDigits;
 
   @override
   Widget build(BuildContext context) {
@@ -35,9 +42,10 @@ class AmountText extends StatelessWidget {
       AmountRole.inline => t.inlineAmount,
     };
     final magnitude = minorUnits.abs();
-    final whole = (magnitude ~/ 100).toString().replaceAllMapped(
+    final scale = decimalDigits == 0 ? 1 : 100;
+    final whole = (magnitude ~/ scale).toString().replaceAllMapped(
       RegExp(r'(\d)(?=(\d{3})+$)'),
-      (match) => '${match[1]},\u200B',
+      (match) => '${match[1]}$groupSeparator\u200B',
     );
     final decimals = (magnitude % 100).toString().padLeft(2, '0');
     final factor = role == AmountRole.list ? .72 : .55;
@@ -55,9 +63,10 @@ class AmountText extends StatelessWidget {
             TextSpan(
               children: [
                 if (minorUnits < 0) const TextSpan(text: '−'),
-                TextSpan(text: '¥', style: small),
+                TextSpan(text: currencySymbol, style: small),
                 TextSpan(text: whole),
-                TextSpan(text: '.$decimals', style: small),
+                if (decimalDigits != 0)
+                  TextSpan(text: '$decimalSeparator$decimals', style: small),
               ],
             ),
             textAlign: TextAlign.right,
@@ -76,7 +85,7 @@ class AmountText extends StatelessWidget {
 }
 
 class _HighlightPainter extends CustomPainter {
-  const new(this.color);
+  const _HighlightPainter(this.color);
   final Color color;
 
   @override

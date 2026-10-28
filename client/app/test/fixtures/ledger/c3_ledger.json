@@ -1,0 +1,20 @@
+{
+  "currency": "CNY",
+  "accounts": [
+    {"id":"real-a","kind":"real","name":"账户A","opening_balance_minor":100000,"opening_on":"2026-10-01"},
+    {"id":"real-b","kind":"real","name":"账户B","opening_balance_minor":0,"opening_on":"2026-10-01"},
+    {"id":"purpose-a","kind":"purpose","name":"用途A","opening_balance_minor":20000,"opening_on":"2026-10-01"},
+    {"id":"purpose-b","kind":"purpose","name":"用途B","is_reserve":true,"opening_balance_minor":10000,"opening_on":"2026-10-01"}
+  ],
+  "operations": [
+    {"id":"expense-a","kind":"expense","amount_minor":5000,"account_id":"real-a","purpose_id":"purpose-a","occurred_on":"2026-10-02","note":"虚构午餐"},
+    {"id":"income-a","kind":"income","amount_minor":20000,"account_id":"real-a","occurred_on":"2026-10-03"},
+    {"id":"transfer-a","kind":"transfer","amount_minor":15000,"account_id":"real-a","to_account_id":"real-b","occurred_on":"2026-10-03"},
+    {"id":"reallocation-a","kind":"reallocation","amount_minor":3000,"purpose_id":"purpose-b","to_purpose_id":"purpose-a","occurred_on":"2026-10-03"},
+    {"id":"refund-a","kind":"refund","amount_minor":1200,"account_id":"real-a","purpose_id":"purpose-a","refund_of_id":"expense-a","occurred_on":"2026-10-04"},
+    {"id":"voided-a","kind":"expense","amount_minor":777,"account_id":"real-b","purpose_id":"purpose-b","occurred_on":"2026-10-04","status":"voided"}
+  ],
+  "allocation": {"account":"purpose-a","amount_minor":4000},
+  "expected_before_allocation": {"real-a":101200,"real-b":15000,"purpose-a":19200,"purpose-b":7000},
+  "expected": {"real-a":101200,"real-b":15000,"purpose-a":23200,"purpose-b":7000}
+}

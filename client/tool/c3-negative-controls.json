@@ -1,0 +1,200 @@
+{
+  "instructions": "Build host only; cwd client/app. Apply ONE control, require assertion failure (compiler failure is not success), restore before the next. Files are repository-relative. Require exactly one find/find_regex match. Regex replacement uses a lambda to preserve literals. Never commit the mutations.",
+  "controls": [
+    {
+      "id": "real_outflow_sign",
+      "file": "client/app/lib/domain/ledger_balance.dart",
+      "find": "if (const ['expense', 'transfer'].contains(kind)) {\n            sign = -1;\n          }",
+      "replace": "if (const ['expense', 'transfer'].contains(kind)) {\n            sign = 1;\n          }",
+      "expected_occurrences": 1,
+      "find_regex": "if\\s*\\(\\s*const\\s*\\[\\s*'expense'\\s*,\\s*'transfer'\\s*(?:,\\s*)?\\s*\\]\\s*\\.\\s*contains\\s*\\(\\s*kind\\s*(?:,\\s*)?\\s*\\)\\s*(?:,\\s*)?\\s*\\)\\s*\\{\\s*sign\\s*=\\s*\\-\\s*1\\s*;\\s*(?:,\\s*)?\\s*\\}",
+      "test_file": "client/app/test/domain/ledger_balance_test.dart",
+      "test_names": [
+        "ledger_fixture_matches_expected_balances"
+      ],
+      "command": "flutter test test/domain/ledger_balance_test.dart --plain-name ledger_fixture_matches_expected_balances"
+    },
+    {
+      "id": "purpose_outflow_sign",
+      "file": "client/app/lib/domain/ledger_balance.dart",
+      "find": "if (const ['expense', 'reallocation'].contains(kind)) {\n            sign = -1;\n          }",
+      "replace": "if (const ['expense', 'reallocation'].contains(kind)) {\n            sign = 1;\n          }",
+      "expected_occurrences": 1,
+      "find_regex": "if\\s*\\(\\s*const\\s*\\[\\s*'expense'\\s*,\\s*'reallocation'\\s*(?:,\\s*)?\\s*\\]\\s*\\.\\s*contains\\s*\\(\\s*kind\\s*(?:,\\s*)?\\s*\\)\\s*(?:,\\s*)?\\s*\\)\\s*\\{\\s*sign\\s*=\\s*\\-\\s*1\\s*;\\s*(?:,\\s*)?\\s*\\}",
+      "test_file": "client/app/test/domain/ledger_balance_test.dart",
+      "test_names": [
+        "ledger_fixture_matches_expected_balances"
+      ],
+      "command": "flutter test test/domain/ledger_balance_test.dart --plain-name ledger_fixture_matches_expected_balances"
+    },
+    {
+      "id": "voided_records_excluded",
+      "file": "client/app/lib/domain/ledger_balance.dart",
+      "find": "record.text('space_id') != snapshot.spaceId || !record.active",
+      "replace": "record.text('space_id') != snapshot.spaceId",
+      "expected_occurrences": 1,
+      "find_regex": "record\\s*\\.\\s*text\\s*\\(\\s*'space_id'\\s*(?:,\\s*)?\\s*\\)\\s*!\\s*=\\s*snapshot\\s*\\.\\s*spaceId\\s*\\|\\s*\\|\\s*!\\s*record\\s*\\.\\s*active",
+      "test_file": "client/app/test/domain/ledger_balance_test.dart",
+      "test_names": [
+        "ledger_fixture_matches_expected_balances"
+      ],
+      "command": "flutter test test/domain/ledger_balance_test.dart --plain-name ledger_fixture_matches_expected_balances"
+    },
+    {
+      "id": "safe_aggregate_range",
+      "file": "client/app/lib/domain/ledger_balance.dart",
+      "find": "amount.abs() > BigInt.from(9007199254740991)",
+      "replace": "amount.abs() > BigInt.from(9223372036854775807)",
+      "expected_occurrences": 1,
+      "find_regex": "amount\\s*\\.\\s*abs\\s*\\(\\s*(?:,\\s*)?\\s*\\)\\s*>\\s*BigInt\\s*\\.\\s*from\\s*\\(\\s*9007199254740991\\s*(?:,\\s*)?\\s*\\)",
+      "test_file": "client/app/test/domain/ledger_balance_test.dart",
+      "test_names": [
+        "aggregate_range_and_cancellation_remain_exact"
+      ],
+      "command": "flutter test test/domain/ledger_balance_test.dart --plain-name aggregate_range_and_cancellation_remain_exact"
+    },
+    {
+      "id": "conflict_uses_server_balance",
+      "file": "client/app/lib/domain/ledger_balance.dart",
+      "find": "for (final record in snapshot.records) {",
+      "replace": "for (final serverRecord in snapshot.records) { final record = snapshot.mine('record', serverRecord.id) ?? serverRecord;",
+      "expected_occurrences": 1,
+      "find_regex": "for\\s*\\(\\s*final\\s*record\\s*in\\s*snapshot\\s*\\.\\s*records\\s*(?:,\\s*)?\\s*\\)\\s*\\{",
+      "test_file": "client/app/test/domain/ledger_balance_test.dart",
+      "test_names": [
+        "unresolved_conflict_uses_server_balance"
+      ],
+      "command": "flutter test test/domain/ledger_balance_test.dart --plain-name unresolved_conflict_uses_server_balance"
+    },
+    {
+      "id": "explicit_restore_only",
+      "file": "client/app/lib/data/sync/conflict_service.dart",
+      "find": "_resolve(spaceId, kind, id, useMine: true, restore: false);",
+      "replace": "_resolve(spaceId, kind, id, useMine: true, restore: true);",
+      "expected_occurrences": 1,
+      "find_regex": "_resolve\\s*\\(\\s*spaceId\\s*,\\s*kind\\s*,\\s*id\\s*,\\s*useMine\\s*:\\s*true\\s*,\\s*restore\\s*:\\s*false\\s*(?:,\\s*)?\\s*\\)\\s*;",
+      "test_file": "client/app/test/data/c3_ledger_repository_test.dart",
+      "test_names": [
+        "ordinary_mine_cannot_restore_server_voided_record"
+      ],
+      "command": "flutter test test/data/c3_ledger_repository_test.dart --plain-name ordinary_mine_cannot_restore_server_voided_record"
+    },
+    {
+      "id": "history_current_space_only",
+      "file": "client/app/lib/domain/history_filter.dart",
+      "find": "row.text('space_id') != snapshot.spaceId",
+      "replace": "row.text('space_id').isEmpty",
+      "expected_occurrences": 1,
+      "find_regex": "row\\s*\\.\\s*text\\s*\\(\\s*'space_id'\\s*(?:,\\s*)?\\s*\\)\\s*!\\s*=\\s*snapshot\\s*\\.\\s*spaceId",
+      "test_file": "client/app/test/domain/history_filter_test.dart",
+      "test_names": [
+        "history_never_returns_other_space_records_or_options"
+      ],
+      "command": "flutter test test/domain/history_filter_test.dart --plain-name history_never_returns_other_space_records_or_options"
+    },
+    {
+      "id": "refund_remaining_limit",
+      "file": "client/app/lib/domain/ledger_validation.dart",
+      "find": "refundedMinor(snapshot, parent.id, excluding: editing) + amount >\n        parent.number('amount_minor')",
+      "replace": "refundedMinor(snapshot, parent.id, excluding: editing) + amount > parent.number('amount_minor') + 1",
+      "expected_occurrences": 1,
+      "find_regex": "refundedMinor\\s*\\(\\s*snapshot\\s*,\\s*parent\\s*\\.\\s*id\\s*,\\s*excluding\\s*:\\s*editing\\s*(?:,\\s*)?\\s*\\)\\s*\\+\\s*amount\\s*>\\s*parent\\s*\\.\\s*number\\s*\\(\\s*'amount_minor'\\s*(?:,\\s*)?\\s*\\)",
+      "test_file": "client/app/test/domain/ledger_validation_test.dart",
+      "test_names": [
+        "refund_rejects_one_minor_unit_above_remaining"
+      ],
+      "command": "flutter test test/domain/ledger_validation_test.dart --plain-name refund_rejects_one_minor_unit_above_remaining"
+    },
+    {
+      "id": "transfer_distinct_endpoints",
+      "file": "client/app/lib/domain/ledger_validation.dart",
+      "find": "kind == 'transfer' && values['account_id'] == values['to_account_id']",
+      "replace": "kind == 'transfer' && false",
+      "expected_occurrences": 1,
+      "find_regex": "kind\\s*=\\s*=\\s*'transfer'\\s*\\&\\s*\\&\\s*values\\s*\\[\\s*'account_id'\\s*(?:,\\s*)?\\s*\\]\\s*=\\s*=\\s*values\\s*\\[\\s*'to_account_id'\\s*(?:,\\s*)?\\s*\\]",
+      "test_file": "client/app/test/domain/ledger_validation_test.dart",
+      "test_names": [
+        "transfer_same_endpoints_is_rejected_before_enqueue"
+      ],
+      "command": "flutter test test/domain/ledger_validation_test.dart --plain-name transfer_same_endpoints_is_rejected_before_enqueue"
+    },
+    {
+      "id": "reallocation_distinct_endpoints",
+      "file": "client/app/lib/domain/ledger_validation.dart",
+      "find": "kind == 'reallocation' &&\n      values['purpose_id'] == values['to_purpose_id']",
+      "replace": "kind == 'reallocation' && false",
+      "expected_occurrences": 1,
+      "find_regex": "kind\\s*=\\s*=\\s*'reallocation'\\s*\\&\\s*\\&\\s*values\\s*\\[\\s*'purpose_id'\\s*(?:,\\s*)?\\s*\\]\\s*=\\s*=\\s*values\\s*\\[\\s*'to_purpose_id'\\s*(?:,\\s*)?\\s*\\]",
+      "test_file": "client/app/test/domain/ledger_validation_test.dart",
+      "test_names": [
+        "reallocation_same_endpoints_is_rejected_before_enqueue"
+      ],
+      "command": "flutter test test/domain/ledger_validation_test.dart --plain-name reallocation_same_endpoints_is_rejected_before_enqueue"
+    },
+    {
+      "id": "refund_void_before_expense",
+      "file": "client/app/lib/data/sync/tool_dependencies.dart",
+      "find": "for (final id in refundIds) EntityRef('record', id).key,",
+      "replace": "for (final id in refundIds.where((_) => false)) EntityRef('record', id).key,",
+      "expected_occurrences": 1,
+      "find_regex": "for\\s*\\(\\s*final\\s*id\\s*in\\s*refundIds\\s*(?:,\\s*)?\\s*\\)\\s*EntityRef\\s*\\(\\s*'record'\\s*,\\s*id\\s*(?:,\\s*)?\\s*\\)\\s*\\.\\s*key\\s*,",
+      "test_file": "client/app/test/data/c3_ledger_repository_test.dart",
+      "test_names": [
+        "expense_void_waits_for_refund_void_ack"
+      ],
+      "command": "flutter test test/data/c3_ledger_repository_test.dart --plain-name expense_void_waits_for_refund_void_ack"
+    },
+    {
+      "id": "refund_void_parent_reference",
+      "file": "client/app/lib/data/sync/tool_dependencies.dart",
+      "find": "tool == 'restore_record' || tool == 'void_record'",
+      "replace": "tool == 'restore_record' || tool == 'void_record_disabled'",
+      "expected_occurrences": 1,
+      "find_regex": "tool\\s*==\\s*'restore_record'\\s*\\|\\|\\s*tool\\s*==\\s*'void_record'",
+      "test_file": "client/app/test/data/c3_ledger_repository_test.dart",
+      "test_names": [
+        "refund_void_backoff_blocks_expense_edit"
+      ],
+      "command": "flutter test test/data/c3_ledger_repository_test.dart --plain-name refund_void_backoff_blocks_expense_edit"
+    },
+    {
+      "id": "expense_edit_refund_conflict_reference",
+      "file": "client/app/lib/data/repositories/ledger_repository.dart",
+      "find": "    return await records.update(\n      spaceId,\n      id,\n      changes,\n      dependsOn: refundVoidDependencies(refundIds),\n    );",
+      "replace": "    return await records.update(\n      spaceId,\n      id,\n      changes,\n      dependsOn: refundVoidDependencies(refundIds.where((_) => false)),\n    );",
+      "expected_occurrences": 1,
+      "find_regex": "\\s*return\\s*await\\s*records\\.update\\(\\s*spaceId,\\s*id,\\s*changes,\\s*dependsOn:\\s*refundVoidDependencies\\(refundIds\\),\\s*\\);",
+      "test_file": "client/app/test/data/c3_ledger_repository_test.dart",
+      "test_names": [
+        "refund_void_conflict_blocks_expense_edit"
+      ],
+      "command": "flutter test test/data/c3_ledger_repository_test.dart --plain-name refund_void_conflict_blocks_expense_edit"
+    },
+    {
+      "id": "edit_only_changed_fields",
+      "file": "client/app/lib/domain/record_edit.dart",
+      "find": "if (jsonEncode(entry.value) != jsonEncode(baseline[entry.key]))",
+      "replace": "if (true)",
+      "expected_occurrences": 1,
+      "find_regex": "if\\s*\\(jsonEncode\\(entry\\.value\\)\\s*!=\\s*jsonEncode\\(baseline\\[entry\\.key\\]\\)\\)",
+      "test_file": "client/app/test/features/c3_review_regression_test.dart",
+      "test_names": [
+        "edit_note_submits_only_note"
+      ],
+      "command": "flutter test test/features/c3_review_regression_test.dart --plain-name edit_note_submits_only_note"
+    },
+    {
+      "id": "edit_opened_version_refresh",
+      "file": "client/app/lib/data/repositories/ledger_repository.dart",
+      "find": "openedVersion != null && old.number('version') != openedVersion",
+      "replace": "false",
+      "expected_occurrences": 1,
+      "find_regex": "openedVersion\\s*!=\\s*null\\s*\\&\\&\\s*old\\.number\\('version'\\)\\s*!=\\s*openedVersion",
+      "test_file": "client/app/test/data/c3_ledger_repository_test.dart",
+      "test_names": [
+        "edit_save_rejects_stale_database_version"
+      ],
+      "command": "flutter test test/data/c3_ledger_repository_test.dart --plain-name edit_save_rejects_stale_database_version"
+    }
+  ]
+}

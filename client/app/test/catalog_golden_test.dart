@@ -7,7 +7,10 @@ import 'package:jiabu/features/catalog/catalog_cases.dart';
 import 'support/catalog_harness.dart';
 
 void main() {
-  for (final sample in catalogCases()) {
+  // C3 uses its explicitly budgeted matrix in c3_golden_test.dart.
+  for (final sample in catalogCases().where(
+    (sample) => sample.component != 'c3',
+  )) {
     for (final width in [360.0, 430.0]) {
       for (final scale in [1.0, 2.0]) {
         final name =

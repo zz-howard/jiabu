@@ -57,8 +57,9 @@ final class RecordsRepository {
   Future<Result<String>> update(
     String spaceId,
     String id,
-    Map<String, Object?> changes,
-  ) => store.transaction(() async {
+    Map<String, Object?> changes, {
+    Set<String> dependsOn = const {},
+  }) => store.transaction(() async {
     final amount = changes['amount_minor'];
     if (changes.containsKey('amount_minor') &&
         (amount is! int || amount <= 0)) {
@@ -71,6 +72,7 @@ final class RecordsRepository {
     return await mutations.enqueueTool(
       spaceId: spaceId,
       tool: 'update_record',
+      dependsOn: dependsOn,
       args: {'id': id, 'changes': changes},
       entityKind: 'record',
       entityId: id,

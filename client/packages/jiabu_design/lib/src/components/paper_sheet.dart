@@ -5,35 +5,43 @@ import 'package:jiabu_design/src/components/tape.dart';
 import 'package:jiabu_design/src/theme_context.dart';
 
 class PaperSheet extends StatelessWidget {
-  const new({required this.child, super.key});
+  const PaperSheet({required this.child, this.footer, super.key});
 
   final Widget child;
+  final Widget? footer;
 
   static Future<T?> show<T>({
     required BuildContext context,
     required WidgetBuilder builder,
-  }) => showModalBottomSheet<T>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: context.jiabu.colors.paper,
-    barrierColor: context.jiabu.colors.scrim,
-    sheetAnimationStyle: AnimationStyle(
-      duration: context.jiabu.motion.sheet,
-      reverseDuration: context.jiabu.motion.sheet,
-      curve: context.jiabu.motion.sheetCurve,
-      reverseCurve: context.jiabu.motion.sheetCurve.flipped,
-    ),
-    builder: (sheetContext) => PaperSheet(child: builder(sheetContext)),
-  );
+    WidgetBuilder? footerBuilder,
+    Widget Function(BuildContext, Widget)? wrapperBuilder,
+  }) {
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    return showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.jiabu.colors.paper,
+      barrierColor: context.jiabu.colors.scrim,
+      sheetAnimationStyle: AnimationStyle(
+        duration: context.jiabu.motion.sheet,
+        reverseDuration: context.jiabu.motion.sheet,
+        curve: context.jiabu.motion.sheetCurve,
+        reverseCurve: context.jiabu.motion.sheetCurve.flipped,
+      ),
+      builder: (sheetContext) {
+        final sheet = PaperSheet(
+          footer: footerBuilder?.call(sheetContext),
+          child: builder(sheetContext),
+        );
+        return wrapperBuilder?.call(sheetContext, sheet) ?? sheet;
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Container(
     constraints: BoxConstraints(
-      maxHeight: math.max(
-        0,
-        MediaQuery.sizeOf(context).height * .88 -
-            MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      maxHeight: math.max(0, MediaQuery.sizeOf(context).height * .88),
     ),
     decoration: BoxDecoration(
       color: context.jiabu.colors.paper,
@@ -48,24 +56,36 @@ class PaperSheet extends StatelessWidget {
         padding: EdgeInsets.only(
           bottom: MediaQuery.viewInsetsOf(context).bottom,
         ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 10, bottom: 12),
-                child: Tape(
-                  degrees: 0,
-                  width: context.jiabu.decor.handleWidth,
-                  height: context.jiabu.decor.handleHeight,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10, bottom: 12),
+                      child: Tape(
+                        degrees: 0,
+                        width: context.jiabu.decor.handleWidth,
+                        height: context.jiabu.decor.handleHeight,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+                      child: child,
+                    ),
+                  ],
                 ),
               ),
+            ),
+            if (footer != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
-                child: child,
+                padding: EdgeInsets.all(context.jiabu.decor.cardInset),
+                child: footer,
               ),
-            ],
-          ),
+          ],
         ),
       ),
     ),

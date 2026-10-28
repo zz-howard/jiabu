@@ -17,7 +17,7 @@ Set<String> toolDependencies(
   final refundDependencies = <String>{
     if (refundOf is String) EntityRef('record', refundOf).key,
   };
-  if (tool == 'restore_record') {
+  if (tool == 'restore_record' || tool == 'void_record') {
     return refundDependencies;
   }
   if (tool != 'create_record' && tool != 'update_record') {
@@ -44,3 +44,9 @@ Set<String> toolDependencies(
       if (!retained.contains(hash)) EntityRef.blob('ledger', hash as String),
   };
 }
+
+/// An expense void follows refund void acknowledgements, even when the refunds
+/// already look voided locally. Ordinary record refs use C2's FIFO scheduler.
+Set<String> refundVoidDependencies(Iterable<String> refundIds) => {
+  for (final id in refundIds) EntityRef('record', id).key,
+};

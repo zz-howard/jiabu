@@ -302,6 +302,42 @@ final class LocalStore {
         );
   }
 
+  /// A committed change signal for C3. The revision also changes when a failed
+  /// operation changes state without changing the queue count. C2 invalidates
+  /// these tables after observing writes from the background connection.
+  Stream<void> watchLedgerChanges(String spaceId) {
+    const sql =
+        'SELECT spaces.space_id, sync_runtime.change_revision FROM spaces '
+        'CROSS JOIN sync_runtime WHERE space_id = ? AND sync_runtime.id = 1';
+    DaoScope.verify(sql);
+    return db
+        .customSelect(
+          sql,
+          variables: [Variable<String>(spaceId)],
+          readsFrom: {
+            for (final name in [
+              'spaces',
+              'space_members',
+              'accounts',
+              'records',
+              'tags',
+              'allocation_plans',
+              'entity_events',
+              'outbox',
+              'entity_conflicts',
+              'blobs_local',
+              'sync_runtime',
+            ])
+              ..._tables(name),
+          },
+        )
+        .watch()
+        .map((_) {});
+  }
+
+  Future<List<Map<String, Object?>>> conflicts(String spaceId) =>
+      _read('SELECT * FROM entity_conflicts WHERE space_id = ?', [spaceId]);
+
   Future<void> putEntity(
     String spaceId,
     String kind,

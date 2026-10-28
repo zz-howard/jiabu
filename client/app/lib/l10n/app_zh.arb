@@ -140,5 +140,223 @@
     }
   },
   "authDismissNotice": "知道了",
-  "authAccountDisabled": "账号已停用，请联系管理员。本机内容会保留。"
+  "authAccountDisabled": "账号已停用，请联系管理员。本机内容会保留。",
+  "ledgerChat": "聊天",
+  "ledgerOverview": "总览",
+  "ledgerHistory": "历史",
+  "ledgerSettings": "设置",
+  "ledgerMySettings": "我的设置",
+  "ledgerChatPlaceholder": "聊天将在后续版本开放",
+  "ledgerManual": "记一笔",
+  "ledgerManualSemantics": "手动记一笔",
+  "ledgerAccounts": "账户",
+  "ledgerReal": "真实资金账户",
+  "ledgerPurpose": "用途账户",
+  "ledgerRecent": "近期变化",
+  "ledgerPending": "待处理",
+  "ledgerNoAccounts": "还没有账户，先去设置里新建",
+  "ledgerNoPending": "没有待处理条目",
+  "ledgerExpense": "支出",
+  "ledgerIncome": "收入",
+  "ledgerTransfer": "转账",
+  "ledgerReallocation": "调拨",
+  "ledgerRefund": "退款",
+  "ledgerAllocation": "计划拨入",
+  "ledgerAmount": "金额",
+  "ledgerDate": "日期",
+  "ledgerNote": "说明",
+  "ledgerPayAccount": "付款账户",
+  "ledgerReceiveAccount": "收款账户",
+  "ledgerFrom": "转出方",
+  "ledgerTo": "转入方",
+  "ledgerPurposeField": "用途",
+  "ledgerTags": "标签",
+  "ledgerNewTag": "新建标签",
+  "ledgerName": "名称",
+  "ledgerSave": "保存",
+  "ledgerCancel": "取消",
+  "ledgerEdit": "编辑",
+  "ledgerVoid": "撤销",
+  "ledgerRestore": "恢复",
+  "ledgerRecorded": "已记录",
+  "ledgerVoided": "已撤销 · 余额已恢复",
+  "ledgerUpload": "待上传 · 已存在本机",
+  "ledgerFailed": "上传失败",
+  "ledgerConflict": "有冲突",
+  "ledgerChanged": "后来改过",
+  "ledgerLoading": "记录同步中",
+  "ledgerDenied": "此内容你已无权查看",
+  "ledgerRetry": "重试",
+  "ledgerLeft": "已退出",
+  "ledgerMember": "记录人",
+  "ledgerSystem": "系统",
+  "ledgerDetails": "记录详情",
+  "ledgerEvents": "变更记录",
+  "ledgerEventsPending": "变更记录尚未同步",
+  "ledgerImageMissing": "原图不在本机，点按查看",
+  "ledgerOriginal": "原图",
+  "ledgerSearch": "搜索备注、类型、账户或标签",
+  "ledgerMembers": "成员",
+  "ledgerTypes": "类型",
+  "ledgerPeriod": "时间",
+  "ledgerClear": "清除筛选",
+  "handLedgerEmpty": "没有找到符合条件的记录",
+  "ledgerAll": "全部",
+  "ledgerServer": "用服务器的",
+  "ledgerMine": "用我的",
+  "ledgerServerVersion": "服务器版本",
+  "ledgerMyVersion": "我的版本",
+  "ledgerAlreadyVoided": "这笔已被撤销",
+  "ledgerRestoreMine": "恢复并改成我的版本",
+  "ledgerAcknowledge": "知道了",
+  "ledgerNewAccount": "新建账户",
+  "ledgerRename": "改名",
+  "ledgerArchive": "归档",
+  "ledgerArchived": "已归档",
+  "ledgerOpening": "起始余额",
+  "ledgerOpeningOn": "起始日期",
+  "ledgerCurrency": "币种（随空间）",
+  "ledgerReserve": "设为备用金",
+  "ledgerPlan": "每月拨入计划",
+  "ledgerEnabled": "自动执行",
+  "ledgerDay": "每月几号（1–31）",
+  "ledgerTimezone": "空间时区",
+  "ledgerPlanRules": "小月取月末；按空间时区执行，每月最多一次。首次设置或重新启用从下一个拨入日开始，不补之前月份。",
+  "ledgerPlanEditRules": "持续启用的计划修改时会先补齐旧计划已到期的拨入；本月尚未拨入且新日期已到时，可能立即拨入。停用不补拨。",
+  "ledgerPlanPending": "待上传，执行日期由服务器确认",
+  "ledgerPlanNext": "上次确认的下一拨入日",
+  "ledgerHasRefunds": "这笔支出还有有效退款。请先逐笔撤销退款，再撤销支出。",
+  "ledgerArchiveGuide": "余额须先清零，再归档。正余额转出，负余额需转入补足。",
+  "ledgerArchiveUnavailable": "此归档账户因旧账更正重新出现余额。当前服务端暂不支持从归档账户转走余额，请核查旧账。",
+  "ledgerMoveBalance": "去记一笔",
+  "ledgerOverdrawn": "超支",
+  "ledgerReallocationHint": "调拨 · 不动真钱",
+  "ledgerRefundRemaining": "可退余额",
+  "ledgerInvalid": "请检查必填项、金额和日期",
+  "ledgerSameEndpoints": "转出方与转入方不能相同",
+  "ledgerRefundExceeded": "退款金额超过可退余额",
+  "ledgerParentVoided": "原支出已撤销，不能记退款",
+  "ledgerResolveFirst": "请先解决这条记录的冲突",
+  "ledgerUnsupportedUnarchive": "服务端暂不支持恢复已归档账户，冲突已保留",
+  "ledgerUnsupportedTag": "服务端暂不支持恢复已删除标签，冲突已保留",
+  "ledgerGenericError": "操作未完成，内容仍保存在本机",
+  "ledgerArchivedChoice": "此账户已归档，请选择有效账户",
+  "ledgerNoSpace": "正在同步当前空间",
+  "ledgerLocalPending": "本机修改待上传",
+  "ledgerRemovedPhotos": "移除了原图（不再提供查看）",
+  "ledgerEventCreate": "新建",
+  "ledgerEventUpdate": "修改",
+  "ledgerEventVoid": "撤销",
+  "ledgerEventRestore": "恢复",
+  "ledgerEventArchive": "归档",
+  "ledgerSelectAccount": "请先新建所需账户",
+  "ledgerFromDate": "开始日期",
+  "ledgerThroughDate": "结束日期",
+  "ledgerPendingBlocked": "等待关联条目处理",
+  "ledgerNoPlan": "尚未设置拨入计划",
+  "ledgerArchivedAccounts": "归档账户",
+  "ledgerBack": "返回",
+  "ledgerLocalReadFailed": "暂时无法读取本机账本",
+  "ledgerArchiveConfirm": "归档后保留历史记录，并停用拨入计划",
+  "ledgerVoidConfirm": "撤销这笔记录？可以随后恢复。",
+  "ledgerEntrySaved": "已保存在本机，等待上传",
+  "ledgerRestored": "已恢复，等待上传",
+  "ledgerApiKey": "通过 API key：{name}",
+  "@ledgerApiKey": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "ledgerResultCount": "{count} 条结果",
+  "@ledgerResultCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ledgerBalanceLabel": "{name}，余额 {amount}",
+  "@ledgerBalanceLabel": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "ledgerAmountLabel": "{kind} {amount}",
+  "@ledgerAmountLabel": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "ledgerTagFood": "餐饮",
+  "ledgerTagGroceries": "买菜",
+  "ledgerTagTransport": "交通",
+  "ledgerTagShopping": "购物",
+  "ledgerTagHousing": "居住",
+  "ledgerTagDaily": "日用",
+  "ledgerTagMedical": "医疗",
+  "ledgerTagEducation": "教育",
+  "ledgerTagEntertainment": "娱乐",
+  "ledgerTagGifts": "人情",
+  "ledgerTagOther": "其他",
+  "ledgerRemovedPhotoCount": "移除了 {count} 张原图（不再提供查看）",
+  "@ledgerRemovedPhotoCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ledgerPlanDisabled": "已停用",
+  "ledgerAggregateRange": "金额合计超出支持范围，请核查记录",
+  "ledgerRealField": "真实账户",
+  "ledgerPurposeBalance": "用途余额",
+  "ledgerResolve": "去处理",
+  "ledgerAddTag": "+ 新建",
+  "ledgerNegativeTitle": "{account} 当前为 {amount}",
+  "ledgerNegativeBody": "调拨用途余额，让这笔超支归位。",
+  "ledgerNegativeTransferBody": "转入资金，让账户余额回到零。",
+  "ledgerReserveCover": "从备用金调拨 {amount}",
+  "ledgerGoReallocate": "去调拨",
+  "ledgerPlanSchedule": "每月 {day} 日拨入；小月按月末。",
+  "ledgerPlanStartHint": "首次设置从下一个拨入日开始，不补之前的月份。",
+  "@ledgerNegativeTitle": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "@ledgerReserveCover": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "@ledgerPlanSchedule": {
+    "placeholders": {
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "ledgerRecentlyChanged": "这笔刚被别处改过，已刷新，请重新确认。",
+  "ledgerAccountNameTaken": "已有同类同名账户，请换一个名称。",
+  "ledgerReserveExists": "已有备用金，不能重复创建。",
+  "ledgerAccountCreateRejected": "服务器拒绝创建，可能已有同名账户或备用金；需删除后重建，本版暂不支持删除未上传账户。"
 }
