@@ -411,7 +411,7 @@ create table api_key_audit (id bigint generated always as identity primary key,
 ### 5.3 原图存储
 
 - v1：`object_store::local::LocalFileSystem` 存原图到 `<data_dir>/blobs/{sha256 前 2 位}/{sha256}.{orig|1600|512}.jpg`（内容寻址，物理文件只存一份），数据库存元数据（大小、MIME、宽高）以及逻辑引用 `blob_refs`（按模块 `ledger` / `documents` / `chat`；聊天的图每位成员各一条、只有本人能读，业务模块每个空间每张图一条，[技术方案 3.7](technical-design.md#37-原图)）。上传总是要求完整内容，响应对新图和已有的图完全相同（技术方案 5.8）。以后换 S3 兼容服务只换构造函数。
-- 处理：`infer` 嗅探真实类型（不信任客户端 Content-Type）；`image` 生成 1600px 显示版和 512px 缩略图；按 EXIF 方向转正；对外下发的图片重新编码以去掉 GPS 等 EXIF（原图保留供 AI 和核对）。
+- 处理：`infer` 嗅探真实类型（不信任客户端 Content-Type）；`image` 生成 1600px 显示版和 512px 缩略图；按 EXIF 方向转正；派生尺寸重新编码、不带 EXIF；原图写盘前去掉 GPS、XMP / APP13 和图像结束标记之后的附加内容（“实况照片”视频、MPF），画质不动（P70，技术方案 3.7）。原图供 AI 和核对。
 - 下载：本空间要有一条请求者能读的引用（`ledger` / `documents` 按模块读权限，`chat` 要求本人的引用），否则 404；之后流式返回（`tokio_util::io::ReaderStream`），不开放静态目录。
 
 ### 5.4 中间件、配置、错误、校验

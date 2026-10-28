@@ -418,6 +418,8 @@ create unique index blob_refs_module on blob_refs (space_id, module, sha256) whe
 
 文件布局 `<data_dir>/blobs/{前 2 位}/{sha256}.{orig|1600|512}.jpg`：原图、给 AI 和详情页的 1600px 版、512px 缩略图，后两者去掉 EXIF。
 
+**原图存的是照片本身**（P70）：服务端写盘前清理一遍 JPEG——只保留到第一个图像结束标记为止（“实况照片”的小视频、MPF 嵌入的其他图片都在它后面，一律丢掉）；去掉 XMP、扩展 XMP 和 APP13（IPTC）段；EXIF 里去掉 GPS 后重写，重写失败就整段去掉（已读出的方向照用）。画质不动：不缩小、不重新压缩。哈希按手机上传的内容算（5.8 校验的是上传内容），存下的文件是清理后的版本；同一张图无论谁传、传几次，清理结果相同。
+
 AI 把聊天里的照片挂到记录或资料上时（`attachments`、资料的 `image` 值），工具在同一事务里为目标模块补一条 `blob_refs`（只允许引用调用者本人有引用的 `chat` 图，或本空间该模块已有的图），之后空间里有该模块读权限的成员都能看到原图。
 
 **编辑时去掉照片（P67）**：`update_record` 让 `attachments` 少了某个哈希、`update_document` 让资料内容里少了某个 `image` 值时，工具在同一个写事务里（已持有空间锁）检查：本空间还有没有任何记录的 `attachments`（含 `status = 'voided'` 的）或任何资料的 `image` 值（含已作废的）引用这个哈希；`ledger` 与 `documents` 分开看，各自都没有了就删掉该模块的那条 `blob_refs`。删除触发 S4 的生命周期触发器：这张图在全服务器都没有引用时开始计时，1 天后由原图清理任务删掉文件（3.11）。
@@ -927,7 +929,23 @@ worker 每次领取后、做任何事之前，在运行空间的 `SpaceTx` 里�
 
 **空间上下文**（AI 层 15.2 的第③段，运行开始时渲染一次）包含：空间币种与时区、账户名单（种类、名称、是否备用金、是否归档）、标签（见下）、对象名单、成员显示名、本人界面语言。**不含余额和任何金额**：余额每记一笔就变，放进去会让同一会话后续每一轮的缓存都失效；需要时模型调用 `query_balance`。
 
-- **预置分类的固定身份**：`domain::presets` 是一张固定表：`preset_key`、中英文名、中英文别名，例如 `dining`：餐饮 / Dining；别名 吃饭、午饭、晚饭、早饭、外卖、lunch、dinner、breakfast、food。上下文里每个标签渲染成 `[tag_id] 显示名（未改名时同时给中英文名）· 别名…`，模型输出的永远是 `tag_id`，不靠名字匹配。用户自建的标签没有别名。
+- **预置分类的固定身份**：`domain::presets` 是一张固定表：`preset_key`、中英文名、中英文别名。v1 共 11 个（P69），新建空间时在同一事务里各建一条 `tags`（`preset_key` 非空、`name` 为空）：
+
+  | `preset_key` | 中文 | English |
+  |---|---|---|
+  | `dining` | 餐饮 | Dining |
+  | `groceries` | 买菜 | Groceries |
+  | `transport` | 交通 | Transport |
+  | `shopping` | 购物 | Shopping |
+  | `housing` | 居住 | Housing |
+  | `daily` | 日用 | Household |
+  | `medical` | 医疗 | Medical |
+  | `education` | 教育 | Education |
+  | `entertainment` | 娱乐 | Entertainment |
+  | `social` | 人情 | Gifts & social |
+  | `other` | 其他 | Other |
+
+  别名举例：`dining`：别名 吃饭、午饭、晚饭、早饭、外卖、lunch、dinner、breakfast、food。上下文里每个标签渲染成 `[tag_id] 显示名（未改名时同时给中英文名）· 别名…`，模型输出的永远是 `tag_id`，不靠名字匹配。用户自建的标签没有别名。
 - **资料模板**：标签、字段名都有中英文（第 8 节），模板目录渲染进第①段（静态指令），模板文件变化时快照哈希随之变化。
 - **回答语言**：静态指令要求“用用户这条消息的语言回答；判断不出时用 `{locale}`”，`locale` 放在第⑤段（本轮输入），不放进第①段（P48）。
 - **含糊的日期**：`create_record` / `create_document` 的日期参数是 `YYYY-MM-DD`；静态指令要求“`03/04` 这类无法确定月日顺序、或者相对日期无法确定的，先 `ask_user`，不猜”（P2）。评测集（AI 层第 9 节）加中英文各 10 条含糊日期样例，验收追问触发的召回率。
