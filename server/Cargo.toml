@@ -75,3 +75,32 @@ default-features = false
 # MIT / Apache-2.0; reuse Cargo.lock's existing package.
 [workspace.dependencies.unicode-normalization]
 version = "0.1.26"
+
+# S7: MIT / Apache-2.0 unless noted; lockfile generated on the build host.
+[workspace.dependencies.async-openai]
+version = "0.42"
+default-features = false
+features = ["responses"] # TODO(luna): verify 0.42 feature spelling on build host.
+[workspace.dependencies.oauth2]
+version = "5"
+default-features = false
+[workspace.dependencies.reqwest]
+version = "0.13" # TODO(luna): align with async-openai 0.42's resolved reqwest.
+default-features = false
+features = ["json", "form", "stream", "rustls"]
+[workspace.dependencies.async-trait]
+version = "0.1"
+[workspace.dependencies.arc-swap]
+version = "1"
+[workspace.dependencies.chacha20poly1305]
+version = "0.11.0"
+[workspace.dependencies.zeroize]
+version = "1.9.1"
+[workspace.dependencies.base64]
+version = "0.22"
+[workspace.dependencies.wiremock]
+version = "0.6"
+# Apache-2.0
+[workspace.dependencies.insta]
+version = "1.49"
+features = ["json"]

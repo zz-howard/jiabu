@@ -12,6 +12,10 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary")]
     pub breaker: Json,
     pub config_version: i64,
+    pub host_id: Uuid,
+    pub retry_initial_secs: i32,
+    pub retry_max_secs: i32,
+    pub waiting_timeout_secs: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

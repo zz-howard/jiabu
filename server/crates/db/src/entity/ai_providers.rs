@@ -20,6 +20,9 @@ pub struct Model {
     pub version: i32,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub oauth_client_id: Option<String>,
+    pub oauth_expires_at: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

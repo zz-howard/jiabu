@@ -43,6 +43,8 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub error_kind: Option<String>,
     pub at: DateTimeWithTimeZone,
+    pub completed_at: Option<DateTimeWithTimeZone>,
+    pub attempt_token: Option<Uuid>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

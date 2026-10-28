@@ -26,12 +26,17 @@ secrecy.workspace = true
 
 jiabu-storage.workspace = true
 chrono.workspace = true
-[dev-dependencies]
-jiabu-admin.workspace = true
 jiabu-domain.workspace = true
-sqlx.workspace = true
 uuid.workspace = true
 serde_json.workspace = true
+jiabu-ai.workspace = true
+async-trait.workspace = true
+zeroize.workspace = true
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+jiabu-admin.workspace = true
+sqlx.workspace = true
 image.workspace = true
 bytes.workspace = true
 sha2.workspace = true
+wiremock.workspace = true

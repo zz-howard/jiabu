@@ -1,3 +1,4 @@
+mod ai_commands;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::{io::Read, path::PathBuf};
@@ -11,6 +12,26 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    Provider {
+        #[command(subcommand)]
+        command: ai_commands::ProviderCommand,
+    },
+    Model {
+        #[command(subcommand)]
+        command: ai_commands::ModelCommand,
+    },
+    Route {
+        #[command(subcommand)]
+        command: ai_commands::RouteCommand,
+    },
+    Price {
+        #[command(subcommand)]
+        command: ai_commands::PriceCommand,
+    },
+    Settings {
+        #[command(subcommand)]
+        command: ai_commands::SettingsCommand,
+    },
     Openapi {
         #[command(subcommand)]
         command: OpenapiCommand,
@@ -78,6 +99,26 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let mut emitted = false;
     match cli.command {
+        Command::Provider { command } => {
+            ai_commands::provider(command, cli.json).await?;
+            emitted = true;
+        }
+        Command::Model { command } => {
+            ai_commands::model(command, cli.json).await?;
+            emitted = true;
+        }
+        Command::Route { command } => {
+            ai_commands::route(command, cli.json).await?;
+            emitted = true;
+        }
+        Command::Price { command } => {
+            ai_commands::price(command, cli.json).await?;
+            emitted = true;
+        }
+        Command::Settings { command } => {
+            ai_commands::settings(command, cli.json).await?;
+            emitted = true;
+        }
         Command::Openapi {
             command: OpenapiCommand::Export { admin, out },
         } => {

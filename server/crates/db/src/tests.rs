@@ -421,3 +421,6 @@ mod spaces;
 mod blobs;
 #[path = "tests/sync.rs"]
 mod sync;
+
+#[path = "tests/ai.rs"]
+mod ai;

@@ -1,3 +1,4 @@
+mod ai_runtime;
 mod config;
 mod tasks;
 mod templates;
@@ -38,6 +39,7 @@ async fn main() -> Result<()> {
             jiabu_tools::api_key::ApiKeyLimiter::configured(settings.api_keys),
         ))
         .map_err(anyhow::Error::msg)?;
+    let ai_task = ai_runtime::start(state.db.clone(), state.ai.clone(), app_url).await?;
     if templates::load(&state.db, &state.templates, &settings.data_dir)
         .await
         .is_err()
@@ -73,6 +75,7 @@ async fn main() -> Result<()> {
     .context("HTTP server failed");
     #[cfg(unix)]
     template_task.abort();
+    ai_task.abort();
     purge_task.abort();
     allocation_task.abort();
     cleanup_task.abort();

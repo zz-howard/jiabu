@@ -16,3 +16,5 @@ pub mod ledger;
 
 pub mod documents;
 pub mod templates;
+
+pub mod ai;

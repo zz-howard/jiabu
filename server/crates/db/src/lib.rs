@@ -32,3 +32,6 @@ pub mod sync;
 
 pub mod documents;
 pub mod template_snapshots;
+
+pub mod ai_config;
+pub mod ai_metering;

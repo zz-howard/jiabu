@@ -22,3 +22,6 @@ tokio.workspace = true
 secrecy.workspace = true
 jiabu-db-admin.workspace = true
 uuid.workspace = true
+jiabu-ai.workspace = true
+jiabu-domain.workspace = true
+zeroize.workspace = true

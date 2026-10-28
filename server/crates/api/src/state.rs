@@ -7,6 +7,7 @@ pub(crate) const CLIENT_LOG_BATCHES_PER_MINUTE: usize = 10;
 #[derive(Clone)]
 pub struct AppState {
     pub db: AppDb,
+    pub ai: Arc<jiabu_ai::RouterStore>,
     pub tools: Arc<jiabu_tools::ToolRegistry>,
     pub templates: Arc<jiabu_tools::templates::TemplateStore>,
     pub clock: Arc<dyn jiabu_db::ledger::Clock>,
@@ -57,6 +58,7 @@ impl AppState {
                 .map_err(|_| "tool initialization failed".to_owned())?,
         );
         Ok(Self {
+            ai: Arc::new(jiabu_ai::RouterStore::default()),
             db,
             api_keys: tools.api_keys.clone(),
             tools,
