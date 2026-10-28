@@ -20,7 +20,7 @@
 2. 动态客户端首次使用 `dynamic_agent_client`；令牌响应有 client_id 时按它核对 audience，否则要求直接令牌响应的 audience 是单个 `oaiapp_…` 应用 ID，保存后用于后续登录和刷新。真实 SIWC 响应形状需由 luna.coco 的在线测试验证。scope 在令牌响应中存在时逐项检查；省略时沿用本次申请范围，并用 `/v1/models` 再验证访问。
 3. 主机 ID 存在 ai_settings 的单例行中，适用于 v1 单主机部署，不是每次进程启动生成。首次 `provider login chatgpt` 可创建订阅 SIWC 提供方；模型与路由由管理员从返回的账号模型列表配置。
 4. 管理配置 add/update 和 price/settings set 使用 `--file <JSON>`，提供方 / 模型 update 是完整替换元数据。模型 add 缺 id 时生成 UUIDv7；provider.version 默认 1，但更新版本只由数据库递增。secret 只接受 `--stdin` / `--file`，不接受 argv 明文。价格为十进制字符串；`cache_write` 的费率值也用字符串，`long_context` 的阈值用整数、费率用字符串。
-5. 文件凭据结构是 `{revision, usable, credentials: {access_token, refresh_token, client_id, account_id, expires_at, host_id}}`。env 来源是其中 credentials 本体 JSON，由外部系统更新；环境变量无法原子写回，刷新若无法保存便在本进程保留新凭据并退避重试保存，建议使用数据库或文件实现自动轮换。file/env 来源不由本 CLI 覆盖。
+5. 文件凭据结构是 `{revision, usable, credentials: {access_token, refresh_token, client_id, account_id, expires_at, host_id}}`。env 来源是其中 credentials 本体 JSON，由外部系统更新；环境变量无法原子写回，刷新结果只保存在共享 pending 中，到期或被拒后继续用最新 refresh token 刷新。env 来源建议只用于短期调试，轮换后的令牌不会持久化，进程重启后需外部更新。建议使用数据库或文件实现自动轮换。file/env 来源不由本 CLI 覆盖。
 6. 缓存写入用量目前没有 TTL：价格表存在 default 时使用 default；只有一个 TTL 费率时使用该费率；多个 TTL 且无 default 时，不猜测费率，成本保持 NULL。长上下文按 input_tokens 阈值选价。价格缺失不阻止调用，历史价格不重算。
 7. 配置一次管理操作可以触发多次版本递增；约定是单调递增，不保证正好 +1。所有正常配置写入与 OAuth 函数先锁 settings 行，避免密钥行 / 提供方行之间的锁反转。刷新 CAS 只允许当前启用的 SIWC 数据库 OAuth 行，刷新失败的失效写入也绑定 revision；旧请求的认证失败不撤销已经轮换的新令牌。单进程内还按 provider ID 跨配置代共享刷新锁，避免热替换期间两个适配器同时使用旧 refresh token。
 8. 运行等待退避的 5 秒初值 / 60 秒上限 / 600 秒硬上限在本 PR 提供可配置字段；实际等待状态机留 PR ②。路由的 5 分钟总调用超时和 SIWC 的 60 秒流空闲超时已经接入。
@@ -155,3 +155,12 @@
 - OAuth 刷新成功后在下一次 await 前写入共享 pending，CAS 成功后清除，CAS 等待被取消仍保留 R1；补充挂起 CAS 后 drop future 再次 access 的回归测试。
 - 完成项 refusal 文本与 output_text 一样发送给 sink，response.refusal.delta 复用文字增量与完成项前缀去重规则；补充无增量、部分增量和完整增量拒答流测试。
 - response.completed 的 usage 在发布其他事件前同步交给 AttemptSink 计量，后续 ToolCall sink 失败仍独立 finish；补充 observer 与 ai_calls token、成本、失败结果断言（本轮未编译或运行测试，未联网）。
+
+
+第五轮独立评审修复：
+
+- 当前凭据统一为 pending（包含最新凭据和原 CAS revision），没有 pending 时采用库中凭据；到期或被拒均走同一刷新路径，多次刷新替换 pending 但不改变 CAS 基准。删除 pending 独立的“只重试保存”分支。
+- access 与 reload 每次成功读到权威版本时，revision 改变或墓碑立即清除 pending 和旧退避；读取失败才保留 pending。清除和重新登录在保存退避期间也立即生效。
+- 401 / invalid_token 将当前凭据的 expires_at 设为 now 并发布到共享 pending，刷新 503 时 available 为 false，普通 access 不再返回旧令牌；同来源 reload 保留此过期标记，pending 刷新成功前保持不可用；普通 access 在退避结束后继续刷新。没有 pending 的读取 / 刷新故障保留原有退避后探测恢复行为。
+- 可用性改为 gate 中共享的 available_until，删除各 manager 的 AtomicBool 与 retry 元组中的重复 expires_at。保留单个 pending、统一的 revision / deadline 退避及跨代刷新锁。
+- 新增三项回归：清除 / 重新登录在 access 与 reload 中淘汰 pending；env 的 A1 到期后用 R1 刷新为 A2/R2；401 后刷新 503 导致不可用且无旧令牌重发。原凭据测试均保留。本轮遵照不编译、不联网要求，未执行 Rust 测试，待构建机运行 oauth 与 siwc 测试及已有检查。

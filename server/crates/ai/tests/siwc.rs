@@ -593,3 +593,81 @@ async fn completed_usage_reaches_observer_before_tool_call_sink_failure() {
     );
     assert_eq!(*meter.results.lock().unwrap(), vec![Some("sink".into())]);
 }
+
+#[tokio::test]
+async fn rejected_access_token_is_unavailable_and_never_resent_after_refresh_503() {
+    let server = MockServer::start().await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 3600);
+    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+    let manager = Arc::new(
+        CredentialManager::with_gate(
+            tokens.clone(),
+            OAuthClient::at(&server.uri()).unwrap(),
+            gate.clone(),
+        )
+        .await,
+    );
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .and(header("authorization", "Bearer synthetic-access"))
+        .respond_with(ResponseTemplate::new(401))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let failed_refresh = Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(503))
+        .expect(1)
+        .mount_as_scoped(&server)
+        .await;
+    let provider = SiwcProvider::at(
+        "synthetic".into(),
+        capabilities(),
+        manager.clone(),
+        &format!("{}/v1/responses", server.uri()),
+    )
+    .unwrap();
+    assert_eq!(
+        provider.run_turn(&request(), &mut Sink::default()).await,
+        Err(ProviderError::Transport)
+    );
+    assert!(!manager.available());
+    assert!(matches!(
+        manager.access().await,
+        Err(ProviderError::Transport)
+    ));
+    assert_eq!(
+        provider.run_turn(&request(), &mut Sink::default()).await,
+        Err(ProviderError::Transport)
+    );
+    let reloaded =
+        CredentialManager::with_gate(tokens, OAuthClient::at(&server.uri()).unwrap(), gate).await;
+    assert!(!reloaded.available());
+    assert!(matches!(
+        reloaded.access().await,
+        Err(ProviderError::Transport)
+    ));
+    assert!(!manager.available());
+    // Exactly one rejected model request and one refresh; no old-token resend.
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    assert!(!manager.available());
+    assert!(!reloaded.available());
+    drop(failed_refresh);
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token":"synthetic-recovered", "refresh_token":"synthetic-recovered-refresh",
+            "expires_in":3600, "token_type":"Bearer"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        reloaded.access().await.unwrap().access_token,
+        "synthetic-recovered"
+    );
+    assert!(manager.available());
+    assert!(reloaded.available());
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+}

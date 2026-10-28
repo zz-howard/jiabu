@@ -530,3 +530,151 @@ async fn dropping_refresh_during_cas_retains_rotated_credentials() {
     assert_eq!(store.tokens.load().await.unwrap().revision, 2);
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn authoritative_clear_or_login_discards_pending_on_access_and_reload() {
+    for reload in [false, true] {
+        for login in [false, true] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/oauth/token"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "access_token":"synthetic-pending", "refresh_token":"synthetic-pending-refresh",
+                    "expires_in":3600, "token_type":"Bearer"
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let store = Arc::new(FlakyWrite {
+                tokens: Tokens::new(1),
+                fail: std::sync::atomic::AtomicBool::new(true),
+                committed: false,
+            });
+            let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+            let first = CredentialManager::with_gate(
+                store.clone(),
+                OAuthClient::at(&server.uri()).unwrap(),
+                gate.clone(),
+            )
+            .await;
+            assert_eq!(
+                first.access().await.unwrap().access_token,
+                "synthetic-pending"
+            );
+            if login {
+                let mut credentials = store.tokens.load().await.unwrap().credentials;
+                credentials.access_token = "synthetic-login".into();
+                credentials.refresh_token = "synthetic-login-refresh".into();
+                credentials.expires_at = chrono::Utc::now().timestamp() + 3600;
+                assert!(
+                    store
+                        .tokens
+                        .compare_exchange(1, &credentials)
+                        .await
+                        .unwrap()
+                );
+            } else {
+                assert!(store.tokens.invalidate(1).await.unwrap());
+            }
+            let manager = if reload {
+                CredentialManager::with_gate(
+                    store.clone(),
+                    OAuthClient::at(&server.uri()).unwrap(),
+                    gate,
+                )
+                .await
+            } else {
+                first
+            };
+            // No backoff wait: authoritative changes must take effect immediately.
+            if login {
+                assert_eq!(
+                    manager.access().await.unwrap().access_token,
+                    "synthetic-login"
+                );
+                assert!(manager.available());
+            } else {
+                if reload {
+                    assert!(!manager.available());
+                }
+                assert!(matches!(manager.access().await, Err(ProviderError::Auth)));
+                assert!(!manager.available());
+            }
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        }
+    }
+}
+
+// Same contract as env: each load returns the external JSON, CAS cannot write it.
+struct EnvironmentSnapshot(String);
+#[async_trait::async_trait]
+impl TokenStore for EnvironmentSnapshot {
+    async fn load(&self) -> Result<jiabu_ai::credentials::VersionedToken, ProviderError> {
+        Ok(jiabu_ai::credentials::VersionedToken {
+            revision: 0,
+            usable: true,
+            credentials: serde_json::from_str(&self.0).unwrap(),
+        })
+    }
+    async fn compare_exchange(
+        &self,
+        revision: i64,
+        _next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        assert_eq!(revision, 0);
+        Err(ProviderError::Auth)
+    }
+    async fn invalidate(&self, _revision: i64) -> Result<bool, ProviderError> {
+        Ok(true)
+    }
+}
+#[tokio::test]
+async fn env_pending_expiry_refreshes_with_latest_refresh_token_and_original_cas_base() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-refresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token":"synthetic-A1", "refresh_token":"synthetic-R1",
+            "expires_in":1, "token_type":"Bearer"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-R1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token":"synthetic-A2", "refresh_token":"synthetic-R2",
+            "expires_in":3600, "token_type":"Bearer"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let store = Arc::new(EnvironmentSnapshot(
+        serde_json::to_string(&Tokens::new(1).load().await.unwrap().credentials).unwrap(),
+    ));
+    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+    let manager = CredentialManager::with_gate(
+        store.clone(),
+        OAuthClient::at(&server.uri()).unwrap(),
+        gate.clone(),
+    )
+    .await;
+    assert_eq!(manager.access().await.unwrap().access_token, "synthetic-A1");
+    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+    let manager =
+        CredentialManager::with_gate(store.clone(), OAuthClient::at(&server.uri()).unwrap(), gate)
+            .await;
+    assert_eq!(manager.access().await.unwrap().access_token, "synthetic-A2");
+    assert_eq!(
+        manager.access().await.unwrap().refresh_token,
+        "synthetic-R2"
+    );
+    assert!(manager.available());
+    assert_eq!(
+        store.load().await.unwrap().credentials.refresh_token,
+        "synthetic-refresh"
+    );
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
