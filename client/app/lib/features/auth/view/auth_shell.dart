@@ -11,7 +11,8 @@ import 'package:jiabu/features/auth/view_model/auth_view_model.dart';
 import 'package:jiabu/features/auth/widgets/switch_partition_prompt.dart';
 
 class AuthShell extends ConsumerStatefulWidget {
-  const AuthShell({super.key});
+  const AuthShell({this.signedInChild, super.key});
+  final Widget? signedInChild;
   @override
   ConsumerState<AuthShell> createState() => _AuthShellState();
 }
@@ -70,19 +71,21 @@ class _AuthShellState extends ConsumerState<AuthShell> {
         },
         onBack: model.backFromPassword,
       ),
-      AuthPage.session => SessionStatusScreen(
-        state: state,
-        onPassword: model.showPassword,
-        onSwitch: () {
-          unawaited(model.requestSwitch());
-        },
-        onDismissNotice: () {
-          unawaited(model.dismissNotice());
-        },
-        onLogout: () {
-          unawaited(model.logout());
-        },
-      ),
+      AuthPage.session =>
+        widget.signedInChild ??
+            SessionStatusScreen(
+              state: state,
+              onPassword: model.showPassword,
+              onSwitch: () {
+                unawaited(model.requestSwitch());
+              },
+              onDismissNotice: () {
+                unawaited(model.dismissNotice());
+              },
+              onLogout: () {
+                unawaited(model.logout());
+              },
+            ),
     };
   }
 }

@@ -7,6 +7,7 @@ import 'package:jiabu/data/api/api_client.dart';
 import 'package:jiabu/data/api/dio_api_client.dart';
 import 'package:jiabu/data/db/database_manager.dart';
 import 'package:jiabu/data/repositories/auth_repository.dart';
+import 'package:jiabu/data/repositories/ledger_repository.dart';
 import 'package:jiabu/data/repositories/local_mutations_repository.dart';
 import 'package:jiabu/data/repositories/records_repository.dart';
 import 'package:jiabu/data/services/app_settings_service.dart';
@@ -23,6 +24,7 @@ import 'package:jiabu/data/sync/outbox_processor.dart';
 import 'package:jiabu/data/sync/pull_applier.dart';
 import 'package:jiabu/data/sync/sync_engine.dart';
 import 'package:jiabu/data/sync/sync_triggers.dart';
+import 'package:jiabu/domain/ledger.dart';
 import 'package:jiabu/domain/partition.dart';
 import 'package:jiabu/domain/required_value.dart';
 import 'package:jiabu/domain/sync_state.dart';
@@ -72,6 +74,7 @@ final class AppRuntime {
   SyncEngine? engine;
   SyncTriggers? triggers;
   RecordsRepository? records;
+  LedgerRepository? ledger;
   MediaService? media;
   ConflictService? conflicts;
   FileLogSink? _logs;
@@ -182,6 +185,7 @@ final class AppRuntime {
     triggers = null;
     engine = null;
     records = null;
+    ledger = null;
     media = null;
     conflicts = null;
     notify();
@@ -307,7 +311,15 @@ final class AppRuntime {
       canWrite: () => status != SyncStatus.clientTooOld,
       onEnqueued: notifyEnqueued,
     );
-    records = RecordsRepository(store, mutations);
+    final recordRepository = RecordsRepository(store, mutations);
+    records = recordRepository;
+    ledger = LocalLedgerRepository(
+      store,
+      mutations,
+      recordRepository,
+      conflictService,
+      api: client,
+    );
     media = MediaService(
       store: store,
       directory: handle.blobs,

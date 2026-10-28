@@ -13,6 +13,7 @@ import 'package:jiabu/data/api/dto/spaces_dto.dart';
 import 'package:jiabu/data/api/dto/sync_dto.dart';
 import 'package:jiabu/data/db/database_manager.dart';
 import 'package:jiabu/data/repositories/auth_repository.dart';
+import 'package:jiabu/data/repositories/ledger_repository.dart';
 import 'package:jiabu/data/repositories/local_mutations_repository.dart';
 import 'package:jiabu/data/repositories/records_repository.dart';
 import 'package:jiabu/data/services/app_settings_service.dart';
@@ -24,11 +25,13 @@ import 'package:jiabu/data/sync/membership_reconciler.dart';
 import 'package:jiabu/data/sync/outbox_processor.dart';
 import 'package:jiabu/data/sync/pull_applier.dart';
 import 'package:jiabu/data/sync/sync_engine.dart';
+import 'package:jiabu/domain/ledger_balance.dart';
 import 'package:jiabu/domain/required_value.dart';
 import 'package:jiabu/domain/result.dart';
 import 'package:uuid/uuid.dart';
 
 import '../fixtures/jpeg_fixture.dart';
+import '../support/ledger_fixture.dart';
 import '../support/memory_stores.dart';
 import '../support/sync_harness.dart';
 
@@ -257,6 +260,391 @@ void main() {
   tearDown(() async {
     await f.close();
   });
+
+  LocalLedgerRepository ledger() => LocalLedgerRepository(
+    f.h.store,
+    f.h.mutations,
+    f.h.records,
+    f.h.conflicts,
+    api: f.b,
+  );
+
+  Map<String, int> balancesOf(Map<String, Object?> response) {
+    final rows = (response['balances']! as List<Object?>)
+        .cast<Map<String, Object?>>();
+    return {
+      for (final row in rows)
+        requireValue<String>(row['account_id']): requireValue<int>(
+          row['balance_minor'],
+        ),
+    };
+  }
+
+  Future<Map<String, String>> writeSharedFixture({
+    bool allocation = true,
+  }) async {
+    final fixture = readLedgerFixture();
+    final ids = <String, String>{};
+    for (final value in fixture['accounts']! as List<Object?>) {
+      final account = Map<String, Object?>.from(value! as Map<String, Object?>);
+      final logical = account['id']! as String;
+      final id = uuid();
+      ids[logical] = id;
+      await f.tool(f.a, 'create_account', {...account, 'id': id});
+    }
+    for (final value in fixture['operations']! as List<Object?>) {
+      final record = Map<String, Object?>.from(value! as Map<String, Object?>);
+      final logical = record.remove('id')! as String;
+      final status = record.remove('status');
+      final id = uuid();
+      ids[logical] = id;
+      for (final key in [
+        'account_id',
+        'to_account_id',
+        'purpose_id',
+        'to_purpose_id',
+        'refund_of_id',
+      ]) {
+        if (record[key] case final String logicalId) {
+          record[key] = ids[logicalId];
+        }
+      }
+      await f.tool(f.a, 'create_record', {'id': id, ...record});
+      if (status == 'voided') {
+        await f.tool(f.a, 'void_record', {'id': id, 'expected_version': 1});
+      }
+    }
+    if (allocation) {
+      final today = DateTime.parse(env('JIABU_IT_SPACE_DATE_SHANGHAI'));
+      // First_run(day=1) is strictly next month. The continuously enabled edit
+      // to today's day runs this month's allocation through the REAL tool.
+      final first = await f.tool(f.a, 'set_allocation_plan', {
+        'account_id': ids['purpose-a'],
+        'amount_minor': 4000,
+        'day_of_month': 1,
+        'enabled': true,
+      });
+      await f.tool(f.a, 'set_allocation_plan', {
+        'account_id': ids['purpose-a'],
+        'expected_version': first['version'],
+        'amount_minor': 4000,
+        'day_of_month': today.day,
+        'enabled': true,
+      });
+    }
+    return ids;
+  }
+
+  Future<void> compareServerAndLocal(
+    Map<String, String> ids,
+    Map<String, Object?> expected,
+  ) async {
+    await f.h.engine.runRound();
+    final server = await f.tool(f.a, 'query_balance', {});
+    final local = ledgerBalances(await ledger().snapshot(f.space));
+    expect(local, isA<Ok<Map<String, int>>>());
+    final remote = balancesOf(server);
+    for (final entry in expected.entries) {
+      expect(
+        remote[ids[entry.key]],
+        entry.value,
+        reason: 'server ${entry.key}',
+      );
+      expect(
+        (local as Ok<Map<String, int>>).value[ids[entry.key]],
+        entry.value,
+        reason: 'client ${entry.key}',
+      );
+    }
+  }
+
+  test('c3_server_shared_fixture_matches_client_balances', () async {
+    final ids = await writeSharedFixture();
+    await compareServerAndLocal(
+      ids,
+      readLedgerFixture()['expected']! as Map<String, Object?>,
+    );
+  });
+
+  test('c3_server_cny_and_jpy_spaces_keep_minor_units_separate', () async {
+    final jpy = uuid();
+    await f.post(f.b, 'v1/spaces', {
+      'id': jpy,
+      'name': '虚构JPY空间',
+      'accent_color': 'indigo',
+      'currency': 'JPY',
+      'timezone': 'UTC',
+    });
+    final account = uuid();
+    await f.post(f.b, 'v1/spaces/$jpy/tools/create_account', {
+      'id': account,
+      'kind': 'real',
+      'name': '虚构日元账户',
+      'opening_balance_minor': 123,
+      'opening_on': env('JIABU_IT_SPACE_DATE_UTC'),
+    });
+    final remote = await f.post(f.b, 'v1/spaces/$jpy/tools/query_balance', {});
+    expect(remote['currency'], 'JPY');
+    expect((remote['balances']! as List<Object?>).single, {
+      'account_id': account,
+      'balance_minor': 123,
+    });
+    final memberships = await f.b.spaces();
+    await f.h.memberships.reconcile(memberships);
+    await f.h.engine.runRound();
+    final snapshot = await ledger().snapshot(jpy);
+    expect(snapshot.currency, 'JPY');
+    expect(
+      (ledgerBalances(snapshot) as Ok<Map<String, int>>).value[account],
+      123,
+    );
+    expect((await f.tool(f.a, 'query_balance', {}))['currency'], 'CNY');
+    expect(
+      (await ledger().snapshot(f.space)).accounts
+          .any((row) => row.id == account),
+      isFalse,
+    );
+  });
+
+  test('c3_server_zero_setup_offline_then_uploads_all_tools', () async {
+    final space = uuid();
+    await f.post(f.b, 'v1/spaces', {
+      'id': space,
+      'name': '虚构从零建账',
+      'accent_color': 'pine',
+      'currency': 'CNY',
+      'timezone': 'Asia/Shanghai',
+    });
+    // Prepare membership online, then all content writes stay offline in C2.
+    await f.h.memberships.reconcile(await f.b.spaces());
+    final local = LocalLedgerRepository(
+      f.h.store,
+      f.h.mutations,
+      f.h.records,
+      f.h.conflicts,
+      api: f.b,
+    );
+    for (final spec in [
+      ('用户A银行卡', 'real', 10000),
+      ('用户B银行卡', 'real', 0),
+      ('虚构日常', 'purpose', 5000),
+      ('虚构备用', 'purpose', 2000),
+    ]) {
+      expect(
+        await local.createAccount(space, {
+          'kind': spec.$2,
+          'name': spec.$1,
+          'opening_balance_minor': spec.$3,
+          'opening_on': '2026-10-01',
+        }),
+        isA<Ok<String>>(),
+      );
+    }
+    final snapshot = await local.snapshot(space);
+    expect(snapshot.records, isEmpty);
+    final accounts = snapshot.accounts;
+    String id(String name) =>
+        accounts.singleWhere((row) => row.text('name') == name).id;
+    final a = id('用户A银行卡');
+    final b = id('用户B银行卡');
+    final p = id('虚构日常');
+    final q = id('虚构备用');
+    expect(
+      await local.setPlan(space, p, {
+        'amount_minor': 1000,
+        'day_of_month': 1,
+        'enabled': true,
+      }),
+      isA<Ok<String>>(),
+    );
+    for (final values in [
+      {
+        'kind': 'expense',
+        'amount_minor': 100,
+        'account_id': a,
+        'purpose_id': p,
+      },
+      {'kind': 'income', 'amount_minor': 500, 'account_id': a},
+      {
+        'kind': 'transfer',
+        'amount_minor': 200,
+        'account_id': a,
+        'to_account_id': b,
+      },
+      {
+        'kind': 'reallocation',
+        'amount_minor': 300,
+        'purpose_id': q,
+        'to_purpose_id': p,
+      },
+    ]) {
+      expect(
+        await local.createRecord(space, {
+          'occurred_on': '2026-10-02',
+          ...values,
+        }),
+        isA<Ok<String>>(),
+      );
+    }
+    expect((await f.h.store.outbox(space)).length, 9);
+    final before = (ledgerBalances(
+      await local.snapshot(space),
+    ) as Ok<Map<String, int>>).value;
+    expect(before, {a: 10200, b: 200, p: 5200, q: 1700});
+    // The same B membership and API own both offline writes and upload.
+    await f.h.engine.runRound();
+    expect(await f.h.store.outbox(space), isEmpty);
+    final remote = await f.post(
+      f.b,
+      'v1/spaces/$space/tools/query_balance',
+      {},
+    );
+    expect(balancesOf(remote), before);
+  });
+
+  test(
+    'c3_server_rejected_refund_void_transfer_and_archive_are_preserved',
+    () async {
+      final parent = await f.tool(f.a, 'create_record', f.expense(uuid()));
+      await f.tool(f.a, 'create_record', {
+        'id': uuid(),
+        'kind': 'refund',
+        'amount_minor': 60,
+        'occurred_on': '2026-10-01',
+        'refund_of_id': parent['id'],
+      });
+      await f.h.engine.runRound();
+      // Bypass the form to verify C2 preserves each server rejection.
+      final otherParent = await f.tool(f.a, 'create_record', f.expense(uuid()));
+      await f.tool(f.a, 'create_record', {
+        'id': uuid(),
+        'kind': 'refund',
+        'amount_minor': 1,
+        'occurred_on': '2026-10-01',
+        'refund_of_id': otherParent['id'],
+      });
+      final transferAccount = uuid();
+      final archiveAccount = uuid();
+      for (final id in [transferAccount, archiveAccount]) {
+        await f.tool(f.a, 'create_account', {
+          'id': id,
+          'kind': 'real',
+          'name': id == transferAccount ? '虚构转账账户' : '虚构归档账户',
+          'opening_balance_minor': 100,
+          'opening_on': '2026-10-01',
+        });
+      }
+      await f.h.engine.runRound();
+      final attempts = <(String, Map<String, Object?>, String, String)>[
+        (
+          'create_record',
+          {
+            'id': uuid(),
+            'kind': 'refund',
+            'amount_minor': 41,
+            'occurred_on': '2026-10-01',
+            'refund_of_id': parent['id'],
+            'account_id': f.account,
+            'purpose_id': f.purpose,
+          },
+          'record',
+          'refund_exceeds_original',
+        ),
+        ('void_record', {'id': otherParent['id']}, 'record', 'has_refunds'),
+        (
+          'create_record',
+          {
+            'id': uuid(),
+            'kind': 'transfer',
+            'amount_minor': 1,
+            'occurred_on': '2026-10-01',
+            'account_id': transferAccount,
+            'to_account_id': transferAccount,
+          },
+          'record',
+          'validation_failed',
+        ),
+        (
+          'archive_account',
+          {'id': archiveAccount},
+          'account',
+          'balance_not_zero',
+        ),
+      ];
+      for (final attempt in attempts) {
+        final id = attempt.$2['id']! as String;
+        final old = await f.h.store.entity(f.space, attempt.$3, id);
+        expect(
+          await f.h.mutations.enqueueTool(
+            spaceId: f.space,
+            tool: attempt.$1,
+            args: attempt.$2,
+            entityKind: attempt.$3,
+            entityId: id,
+            optimistic:
+                old?.data ??
+                {
+                  ...attempt.$2,
+                  'space_id': f.space,
+                  'status': 'active',
+                  'version': 0,
+                },
+          ),
+          isA<Ok<String>>(),
+        );
+      }
+      await f.h.engine.runRound();
+      final failed = (await f.h.store.outbox(f.space))
+          .where((op) => op.state == 'failed')
+          .toList();
+      expect(failed.length, 4);
+      expect(
+        failed.map((op) => op.lastError?['code']),
+        containsAll([
+          'refund_exceeds_original',
+          'has_refunds',
+          'balance_not_zero',
+        ]),
+      );
+    },
+  );
+
+  test(
+    'c3_server_continuing_plan_allocates_today_once_and_can_be_undone',
+    () async {
+      final ids = await writeSharedFixture();
+      await compareServerAndLocal(
+        ids,
+        readLedgerFixture()['expected']! as Map<String, Object?>,
+      );
+      final search = await f.tool(f.a, 'search_records', {
+        'filters': {
+          'purpose_id': ids['purpose-a'],
+          'kinds': ['allocation'],
+        },
+      });
+      final allocation =
+          (search['records']! as List<Object?>).single! as Map<String, Object?>;
+      expect(allocation['amount_minor'], 4000);
+      await f.tool(f.a, 'void_record', {
+        'id': allocation['id'],
+        'expected_version': allocation['version'],
+      });
+      await compareServerAndLocal(
+        ids,
+        readLedgerFixture()['expected_before_allocation']!
+            as Map<String, Object?>,
+      );
+      await f.tool(f.a, 'restore_record', {
+        'id': allocation['id'],
+        'expected_version': (allocation['version']! as int) + 1,
+      });
+      await compareServerAndLocal(
+        ids,
+        readLedgerFixture()['expected']! as Map<String, Object?>,
+      );
+    },
+  );
 
   test('server_offline_three_records_blob_and_refund_order', () async {
     final expense = uuid();

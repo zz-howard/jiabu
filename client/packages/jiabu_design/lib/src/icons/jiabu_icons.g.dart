@@ -379,6 +379,15 @@ abstract final class JiabuIcons {
       JiabuIconShape(_uiInfo_1, fill: false),
     ],
   );
+  static const uiKey = JiabuIconData(
+    name: 'uiKey', category: 'ui',
+    width: 24, height: 24,
+    strokeWidth: 1.85,
+    shapes: [
+      JiabuIconShape(_uiKey_0, fill: false),
+      JiabuIconShape(_uiKey_1, fill: true),
+    ],
+  );
   static const uiLock = JiabuIconData(
     name: 'uiLock', category: 'ui',
     width: 24, height: 24,
@@ -609,6 +618,7 @@ abstract final class JiabuIcons {
     'uiImage': uiImage,
     'uiIncome': uiIncome,
     'uiInfo': uiInfo,
+    'uiKey': uiKey,
     'uiLock': uiLock,
     'uiMic': uiMic,
     'uiMore': uiMore,
@@ -1170,6 +1180,28 @@ Path _uiInfo_1() => Path()
   ..lineTo(12, 12)
   ..moveTo(12, 8)
   ..lineTo(12.01, 8);
+
+Path _uiKey_0() => Path()
+  ..moveTo(2.586, 17.414)
+  ..arcToPoint(Offset(2, 18.828), radius: Radius.elliptical(2, 2), rotation: 0, largeArc: false, clockwise: false)
+  ..lineTo(2, 21)
+  ..arcToPoint(Offset(3, 22), radius: Radius.elliptical(1, 1), rotation: 0, largeArc: false, clockwise: false)
+  ..lineTo(6, 22)
+  ..arcToPoint(Offset(7, 21), radius: Radius.elliptical(1, 1), rotation: 0, largeArc: false, clockwise: false)
+  ..lineTo(7, 20)
+  ..arcToPoint(Offset(8, 19), radius: Radius.elliptical(1, 1), rotation: 0, largeArc: false, clockwise: true)
+  ..lineTo(9, 19)
+  ..arcToPoint(Offset(10, 18), radius: Radius.elliptical(1, 1), rotation: 0, largeArc: false, clockwise: false)
+  ..lineTo(10, 17)
+  ..arcToPoint(Offset(11, 16), radius: Radius.elliptical(1, 1), rotation: 0, largeArc: false, clockwise: true)
+  ..lineTo(11.172, 16)
+  ..arcToPoint(Offset(12.586, 15.414), radius: Radius.elliptical(2, 2), rotation: 0, largeArc: false, clockwise: false)
+  ..lineTo(13.4, 14.6)
+  ..arcToPoint(Offset(9.4, 10.6), radius: Radius.elliptical(6.5, 6.5), rotation: 0, largeArc: true, clockwise: false)
+  ..close();
+
+Path _uiKey_1() => Path()
+  ..addOval(Rect.fromCircle(center: Offset(16.5, 7.5), radius: 0.5));
 
 Path _uiLock_0() => Path()
   ..addRRect(RRect.fromRectAndRadius(Rect.fromLTWH(4, 11, 16, 10), Radius.elliptical(2, 2)));

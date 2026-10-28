@@ -75,7 +75,17 @@ void main() {
       final json = jsonDecode(
         File('tool/icons/icons.json').readAsStringSync(),
       ) as Map<String, Object?>;
-      expect((json['icons']! as Map<String, Object?>).length, 60);
+      final icons = json['icons']! as Map<String, Object?>;
+      expect(icons.length, 61);
+      final key = icons['uiKey']! as Map<String, Object?>;
+      expect(key['category'], 'ui');
+      expect(key['strokeWidth'], 1.85);
+      expect(json['source'], contains('Lucide ISC'));
+      expect(
+        File('packages/jiabu_design/assets/licenses/LUCIDE-LICENSE.txt')
+            .readAsStringSync(),
+        contains('ISC'),
+      );
       expect(
         generateIcons(json),
         File('packages/jiabu_design/lib/src/icons/jiabu_icons.g.dart')

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:jiabu/features/catalog/c3_cases.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
@@ -15,6 +16,14 @@ class CatalogCase {
 
 /// The dev catalog and all visual tests consume this same exhaustive registry.
 List<CatalogCase> catalogCases() => [
+  // PaperRow is exercised by the existing C3 settings, pending-record and
+  // allocation-plan states on their real decorated paper surfaces.
+  for (final state in c3States)
+    CatalogCase(
+      'c3',
+      state,
+      (_) => SizedBox(height: 720, child: C3Preview(state: state)),
+    ),
   for (final degrees in [-5.0, 0.0, 5.0])
     CatalogCase(
       'tilt',

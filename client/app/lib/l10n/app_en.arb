@@ -140,5 +140,219 @@
     }
   },
   "authDismissNotice": "Got it",
-  "authAccountDisabled": "This account is disabled. Contact the administrator. Your local content is kept."
+  "authAccountDisabled": "This account is disabled. Contact the administrator. Your local content is kept.",
+  "ledgerChat": "Chat",
+  "ledgerOverview": "Overview",
+  "ledgerHistory": "History",
+  "ledgerSettings": "Settings",
+  "ledgerMySettings": "My settings",
+  "ledgerChatPlaceholder": "Chat will be available in a later version",
+  "ledgerManual": "Add entry",
+  "ledgerManualSemantics": "Add an entry manually",
+  "ledgerAccounts": "Accounts",
+  "ledgerReal": "Real accounts",
+  "ledgerPurpose": "Purpose accounts",
+  "ledgerRecent": "Recent changes",
+  "ledgerPending": "Pending items",
+  "ledgerNoAccounts": "No accounts yet. Create one in settings.",
+  "ledgerNoPending": "No pending items",
+  "ledgerExpense": "Expense",
+  "ledgerIncome": "Income",
+  "ledgerTransfer": "Transfer",
+  "ledgerReallocation": "Reallocation",
+  "ledgerRefund": "Refund",
+  "ledgerAllocation": "Scheduled allocation",
+  "ledgerAmount": "Amount",
+  "ledgerDate": "Date",
+  "ledgerNote": "Note",
+  "ledgerPayAccount": "Payment account",
+  "ledgerReceiveAccount": "Receiving account",
+  "ledgerFrom": "From",
+  "ledgerTo": "To",
+  "ledgerPurposeField": "Purpose",
+  "ledgerTags": "Tags",
+  "ledgerNewTag": "New tag",
+  "ledgerName": "Name",
+  "ledgerSave": "Save",
+  "ledgerCancel": "Cancel",
+  "ledgerEdit": "Edit",
+  "ledgerVoid": "Undo",
+  "ledgerRestore": "Restore",
+  "ledgerRecorded": "Recorded",
+  "ledgerVoided": "Undone · Balance restored",
+  "ledgerUpload": "Pending upload · Saved locally",
+  "ledgerFailed": "Upload failed",
+  "ledgerConflict": "Conflict",
+  "ledgerChanged": "Edited later",
+  "ledgerLoading": "Syncing entry",
+  "ledgerDenied": "You no longer have access to this content",
+  "ledgerRetry": "Retry",
+  "ledgerLeft": "Left",
+  "ledgerMember": "Created by",
+  "ledgerSystem": "System",
+  "ledgerDetails": "Entry details",
+  "ledgerEvents": "Change history",
+  "ledgerEventsPending": "Change history has not synced yet",
+  "ledgerImageMissing": "Original is not on this device. Tap to view.",
+  "ledgerOriginal": "Original image",
+  "ledgerSearch": "Search notes, types, accounts or tags",
+  "ledgerMembers": "Members",
+  "ledgerTypes": "Type",
+  "ledgerPeriod": "Dates",
+  "ledgerClear": "Clear filters",
+  "handLedgerEmpty": "No matching entries",
+  "ledgerAll": "All",
+  "ledgerServer": "Use server version",
+  "ledgerMine": "Use my version",
+  "ledgerServerVersion": "Server version",
+  "ledgerMyVersion": "My version",
+  "ledgerAlreadyVoided": "This entry was undone",
+  "ledgerRestoreMine": "Restore and apply my version",
+  "ledgerAcknowledge": "Got it",
+  "ledgerNewAccount": "Create account",
+  "ledgerRename": "Rename",
+  "ledgerArchive": "Archive",
+  "ledgerArchived": "Archived",
+  "ledgerOpening": "Opening balance",
+  "ledgerOpeningOn": "Opening date",
+  "ledgerCurrency": "Currency (from space)",
+  "ledgerReserve": "Use as reserve",
+  "ledgerPlan": "Monthly allocation plan",
+  "ledgerEnabled": "Automatic allocation",
+  "ledgerDay": "Day of month (1–31)",
+  "ledgerTimezone": "Space timezone",
+  "ledgerPlanRules": "Short months use the last day. Runs in the space timezone, at most once per month. First setup and re-enabling start on the next due date without backfilling earlier months.",
+  "ledgerPlanEditRules": "Editing an enabled plan first catches up allocations due under the old settings. If this month is unpaid and the new day is due, allocation may happen immediately. Disabling does not catch up.",
+  "ledgerPlanPending": "Pending upload. Server will confirm the execution date.",
+  "ledgerPlanNext": "Last confirmed next allocation date",
+  "ledgerHasRefunds": "This expense has active refunds. Undo each refund before undoing the expense.",
+  "ledgerArchiveGuide": "Clear the balance before archiving. Transfer positive balances out or cover negative balances with a transfer in.",
+  "ledgerArchiveUnavailable": "Changes to old entries left a balance on this archived account. The server cannot transfer it from an archived account yet. Review the old entries.",
+  "ledgerMoveBalance": "Open manual entry",
+  "ledgerOverdrawn": "Negative balance",
+  "ledgerReallocationHint": "Reallocation · No bank transfer",
+  "ledgerRefundRemaining": "Refund remaining",
+  "ledgerInvalid": "Check required fields, amount and date",
+  "ledgerSameEndpoints": "From and to must be different",
+  "ledgerRefundExceeded": "Refund exceeds the remaining amount",
+  "ledgerParentVoided": "The original expense was undone. Refund is unavailable.",
+  "ledgerResolveFirst": "Resolve this entry’s conflict first",
+  "ledgerUnsupportedUnarchive": "The server cannot restore archived accounts yet. The conflict is preserved.",
+  "ledgerUnsupportedTag": "The server cannot restore deleted tags yet. The conflict is preserved.",
+  "ledgerGenericError": "Could not complete the action. Your content is still saved locally.",
+  "ledgerArchivedChoice": "This account is archived. Choose an active account.",
+  "ledgerNoSpace": "Syncing the current space",
+  "ledgerLocalPending": "Local changes pending upload",
+  "ledgerRemovedPhotos": "Images removed (no longer available to view)",
+  "ledgerEventCreate": "Created",
+  "ledgerEventUpdate": "Edited",
+  "ledgerEventVoid": "Undone",
+  "ledgerEventRestore": "Restored",
+  "ledgerEventArchive": "Archived",
+  "ledgerSelectAccount": "Create the required accounts first",
+  "ledgerFromDate": "From date",
+  "ledgerThroughDate": "Through date",
+  "ledgerPendingBlocked": "Waiting for a related item",
+  "ledgerNoPlan": "No allocation plan yet",
+  "ledgerArchivedAccounts": "Archived accounts",
+  "ledgerBack": "Back",
+  "ledgerLocalReadFailed": "Unable to read the local ledger",
+  "ledgerArchiveConfirm": "Archiving preserves history and disables the allocation plan",
+  "ledgerVoidConfirm": "Undo this entry? You can restore it later.",
+  "ledgerEntrySaved": "Saved locally, pending upload",
+  "ledgerRestored": "Restored, pending upload",
+  "ledgerApiKey": "Via API key: {name}",
+  "@ledgerApiKey": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "ledgerResultCount": "{count} results",
+  "@ledgerResultCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ledgerBalanceLabel": "{name}, balance {amount}",
+  "@ledgerBalanceLabel": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "ledgerAmountLabel": "{kind} {amount}",
+  "@ledgerAmountLabel": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "ledgerTagFood": "Dining",
+  "ledgerTagGroceries": "Groceries",
+  "ledgerTagTransport": "Transport",
+  "ledgerTagShopping": "Shopping",
+  "ledgerTagHousing": "Housing",
+  "ledgerTagDaily": "Household",
+  "ledgerTagMedical": "Medical",
+  "ledgerTagEducation": "Education",
+  "ledgerTagEntertainment": "Entertainment",
+  "ledgerTagGifts": "Gifts",
+  "ledgerTagOther": "Other",
+  "ledgerRemovedPhotoCount": "Removed {count} images (no longer available to view)",
+  "@ledgerRemovedPhotoCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ledgerPlanDisabled": "Disabled",
+  "ledgerAggregateRange": "The total exceeds the supported range. Review the entries.",
+  "ledgerRealField": "Money account",
+  "ledgerPurposeBalance": "Purpose balance",
+  "ledgerResolve": "Resolve",
+  "ledgerAddTag": "+ New",
+  "ledgerNegativeTitle": "{account} currently has {amount}",
+  "ledgerNegativeBody": "Move purpose funds to cover this overspend.",
+  "ledgerNegativeTransferBody": "Transfer money in to bring the balance back to zero.",
+  "ledgerReserveCover": "Move {amount} from reserves",
+  "ledgerGoReallocate": "Move funds",
+  "ledgerPlanSchedule": "Add funds on day {day} each month; use month-end in shorter months.",
+  "ledgerPlanStartHint": "The first addition starts on the next due date. Earlier months are not added.",
+  "@ledgerNegativeTitle": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "@ledgerReserveCover": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "@ledgerPlanSchedule": {
+    "placeholders": {
+      "day": {
+        "type": "String"
+      }
+    }
+  }
 }
