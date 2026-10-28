@@ -1652,10 +1652,12 @@ async fn permission_change_during_confirmation_closes_the_reply_on_answer() -> R
     let cp = f.checkpoint(r.message_id).await?;
     let run = f.run(r.message_id).await?;
     assert_eq!(run.status, "paused");
-    sqlx::query("update space_member_grants set level='read' where member_id=$1 and module='ledger'")
-        .bind(run.member_id)
-        .execute(&f.owner)
-        .await?;
+    sqlx::query(
+        "update space_member_grants set level='read' where member_id=$1 and module='ledger'",
+    )
+    .bind(run.member_id)
+    .execute(&f.owner)
+    .await?;
     let action = json!({"protocolVersion":"0.1","id":Uuid::now_v7(),"context":{"messageId":r.message_id,"conversationId":run.conversation_id,"blockId":cp.message.0["interrupt"]["blockId"]},"type":"confirmation.respond","target":"pending_operation.confirm","payload":{"outcome":"confirm"}});
     let error = f
         .runs()
