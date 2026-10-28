@@ -11,3 +11,6 @@ jiabu-ai.workspace = true
 jiabu-tools.workspace = true
 jiabu-chat.workspace = true
 jiabu-db.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true

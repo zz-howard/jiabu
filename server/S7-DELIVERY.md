@@ -158,3 +158,70 @@
 
 - 刷新成功但写库失败时，新 refresh token 只用于本次调用；若上游已作废旧 refresh token，需要重新登录。
 - 调用截止时间取消刷新时，可能丢失上游已轮换的新 refresh token，需要重新登录。
+
+## PR ②
+
+### 第一步：最小接线（等待构建机验证）
+
+以 `~/zylos/workspace/jiabu-s7/go2.md` 末尾“补充”为最高口径。
+本轮只做可供首次编译的骨架，未编译、未运行 Rust / PostgreSQL 测试、未联网、未提交。
+没有修改 docs/、client/、ChatWeave 参考源码、生成实体、OpenAPI JSON 或 Cargo.lock。
+
+本轮改动：
+
+- 追加 0009：运行状态增加 `interrupted`，增加 `waiting_ai_since`、`journal_compacted_at`，FIFO 索引改为 `(conversation_id, created_at, id)`，增加等待超时及保留期候选索引、动作 SHA-256 指纹列。
+- 保留期函数 `retain_agent_journals(int)`：终态运行结束 7 天后清空 provider_blob，30 天后压缩 journal 与工具原始参数／guard／effect_ref，并设置不可重试标记；保留调用身份和原幂等键。服务端固定时间门槛，批量上限 1000，锁定终态运行后处理。函数由 jiabu_owner 持有、固定 search_path、撤销 PUBLIC EXECUTE，仅授予 jiabu_app 执行；不增加应用角色对 journal 的 UPDATE / DELETE 权限。角色权限、7/30 天边界和重试并发测试在下一步补齐。
+- tools：HTTP 和 Agent 共用执行核心。`prepare_agent()` 在锁外校验参数，`ToolCtx::for_transaction()` 绑定已有事务，`invoke_in_tx()` 借用 `&mut SpaceTx`，不重开或提交事务。空间／成员／epoch／effect、授权、幂等顺序共用；Agent 拦截 ApiOnly，AgentOnly 仍作为中断意图保留，不执行 placeholder。执行、审计和幂等结果用 SAVEPOINT 包围，失败回滚到保存点，外层可记录业务失败；500 或事务故障必须由后续 ToolExecutor 放弃整个外层事务。既有 API key 写工具允许不带 join epoch，保持现有语义。
+- chat：固定版本 ChatWeave 类型、`PgEventLog` / `PgCheckpointStore` trait 空实现、`RunEmitter` / `EmissionBatch` 边界、复用库的 `BroadcastHub`（命名为 StreamHub）、`ResumeService`、`sse_response()`。所有持久化空实现返回 Unavailable，不用内存存储冒充数据库。
+- agent：运行状态、租约、预算常量、`uuidv5(run_id, call_id)` 辅助函数、RunService / Worker / Sweeper / ToolExecutor 类型；服务空实现拒绝 key，返回 503，不插入运行、不调用模型。
+- API：登记发送、流、动作、停止、重试、活动消息 6 个接口，附 OpenAPI 注解与虚构示例；AppState 持有 RunService。全部使用 SessionOnly，空间 membership 检查先于写请求 epoch / 幂等键 / 内容校验。已有隔离矩阵补 6 条登记、message_id 占位替换和聊天 key 错误码断言。
+
+空实现的边界：有效成员的请求在基础校验后返回 `503 unavailable`；消息归属、模块动作授权、动作幂等绑定、SSE 响应与超时豁免、消息入库、完整 ask_user 类型与中断拦截、状态迁移、领取／续租／清扫、重试复制、停止收尾、ToolExecutor 的事务内 epoch 防护、后台任务接线及逻辑测试均留给编译通过后的下一步。当前没有后台任务领取或运行任何 AI 工作；`/status` 继续沿用 PR ① 的 AiRouter 可用性语义。`/sync/push` 不接受聊天提交。
+
+### 有意简化（覆盖原计划）
+
+1. 租约过期、进程停机超时、PartialOutput 均以 `interrupted` 终结，收尾已保存检查点并发 `message.end`，仅允许用户显式重试。没有崩溃自动重排、两次恢复、from_checkpoint 续模型流、半截模型流恢复或停机释放回队列；暂停后回答仍是正常的持久中断流程。
+2. 不新增 queue_seq；同时间戳以 UUIDv7 id 排 FIFO。
+3. 不新增活跃时间累计检查点。0004 已有 active_ms 列保留兼容，活跃预算只在进程内计量。
+4. 不新增 conversations 历史整理状态／摘要切点；下一步在运行开始时按预算无状态选取最近历史，并冻结本次历史，运行中不重排。
+5. 不引入 proptest；next_action 后续用普通表驱动测试。只保留两个独立进程渲染同一 journal 字节一致的验收，不做两种 serde 特性构建。
+6. 预算为 20 轮、活跃 10 分钟、waiting_ai 10 分钟、模型调用 5 分钟、工具 10 秒；耗尽标 failed，以确定性服务端文案结束，不加额外模型收尾调用。
+7. worker 只依赖 AiRouter / RouterStore，不接触凭据内部状态；固定两个 worker，停机最多等待约 20 秒。
+
+### 文档没写清、当前接法
+
+- 既有 chat_actions 行的 request_fingerprint 留 NULL，不编造旧请求哈希；后续动作处理器必须拒绝这类旧回执的幂等回放。新请求写入 SHA-256 指纹。
+- 压缩 journal 保留行的 kind / call_id / created_at 与可关联的工具名／状态，删除 payload 原文；history_item 是单独保留的聊天历史，不按 journal 压缩规则删除。journal_compacted_at 是重试拒绝依据。
+- 第一轮消息 DTO 的 images 暂为字符串引用列表，动作请求暂为 JSON；下一步对齐原图身份、ChatWeave 类型及校验，不能把当前 OpenAPI 当作已完成的聊天契约。
+
+### 应以通用形式进库（ChatWeave）
+
+- f11bd4f 的 `action/dispatch.rs::dispatch()` 仍在 handler.authorize 前调用 find_result。下一步家簿用同事务的 `load_block()` 先做成员 / epoch / 会话归属 / 模块授权，再让库查幂等；建议库提供严格的授权后读取回执顺序。
+- `stream.rs` 的存检查点、append、publish 是分开的存储调用。下一步家簿暂存批次，用一个受 epoch 保护的 SpaceTx 提交 journal / 事件 / 检查点，提交后才广播；建议库支持宿主原子提交批次接口。
+- 第 21 条已实现：`ResumeService::open()` 先订阅再读日志，补读缺号并在 Lagged 时断开；直接复用，不复制交接算法。
+
+### 构建机交接
+
+- 更新 Cargo.lock：新增 ChatWeave 两个 git 包，固定 rev `f11bd4f66479d8a06160b6af5f9c8d0f980577ef`（MIT），仅 chat 直接依赖。
+- 应用 0009 后用现有实体生成脚本更新 agent_runs、chat_actions 生成实体；本机未手写实体。
+- 首先编译 workspace / all-targets，重点核验借用 SpaceTx 的 async / Send、ChatWeave trait 和 axum SSE feature、utoipa 注解。随后按 server/AGENTS.md 运行格式、静态检查、测试和安全检查；格式尚未用 rustfmt 校验。
+- OpenAPI 由构建机导出两份 JSON 并审查；聊天契约下一步完成后还需重新导出。
+
+改动文件清单（工作树相对路径）：
+
+- server/Cargo.toml
+- server/S7-DELIVERY.md
+- server/migrations/0009_s7_chat_runtime.sql
+- server/crates/db/src/space_tx.rs
+- server/crates/tools/src/context.rs
+- server/crates/tools/src/registry.rs
+- server/crates/tools/src/lib.rs
+- server/crates/chat/Cargo.toml
+- server/crates/chat/src/lib.rs
+- server/crates/agent/Cargo.toml
+- server/crates/agent/src/lib.rs
+- server/crates/api/src/handlers/chat.rs
+- server/crates/api/src/handlers/mod.rs
+- server/crates/api/src/route_catalog.rs
+- server/crates/api/src/state.rs
+- server/crates/api/src/tests.rs

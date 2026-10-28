@@ -80,6 +80,46 @@ impl ToolCtx {
             api_key_operation: None,
         })
     }
+    /// Agent callers first prepare arguments outside the write lock, then build
+    /// context from their guarded transaction. This context owns no transaction.
+    pub fn for_transaction(
+        db: &AppDb,
+        principal: Principal,
+        tx: &SpaceTx,
+        space_id: SpaceId,
+        epoch: JoinEpoch,
+        effect: Effect,
+        invocation: Invocation,
+    ) -> Result<Self, ToolError> {
+        principal.require_ai_session()?;
+        let member = tx
+            .tool_member(
+                space_id,
+                principal.user_id,
+                Some(epoch),
+                effect == Effect::LocalWrite,
+            )?
+            .clone();
+        Ok(Self {
+            space_id,
+            member,
+            bound_space: space_id,
+            bound_effect: effect,
+            db: db.clone(),
+            epoch: Some(epoch),
+            principal,
+            idempotency_key: invocation.idempotency_key,
+            run_id: invocation.run_id,
+            request_id: invocation.request_id,
+            via_api_key_id: None,
+            via_api_key_name: None,
+            now: invocation.now,
+            replay_key: invocation.replay_key,
+            tx: Mutex::new(None),
+            audit_completed: Arc::new(AtomicBool::new(false)),
+            api_key_operation: None,
+        })
+    }
     pub(crate) fn key_audit(
         &self,
         name: &str,

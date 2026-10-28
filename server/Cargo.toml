@@ -54,7 +54,9 @@ kamadak-exif = { version = "0.6.1" }
 # Already present transitively in Cargo.lock; preserve those versions.
 bytes = "1.12.1"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
-# ChatWeave has no Rust implementation yet. Add pinned protocol/server crates after CW1.
+# MIT; reviewed ChatWeave CW1 revision. Resolve the lockfile on the build host.
+chatweave-protocol = { git = "https://github.com/zz-howard/chatweave", rev = "f11bd4f66479d8a06160b6af5f9c8d0f980577ef" }
+chatweave-server = { git = "https://github.com/zz-howard/chatweave", rev = "f11bd4f66479d8a06160b6af5f9c8d0f980577ef", features = ["axum"] }
 # Only chat, agent, and api may depend on ChatWeave.
 
 [profile.release]

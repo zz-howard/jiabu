@@ -9,3 +9,7 @@ publish.workspace = true
 [dependencies]
 jiabu-db.workspace = true
 jiabu-domain.workspace = true
+chatweave-protocol.workspace = true
+chatweave-server.workspace = true
+async-trait.workspace = true
+uuid.workspace = true
