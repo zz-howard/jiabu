@@ -27,10 +27,9 @@
 9. ProviderBlob 限提供方 / 模型 / 账号完全匹配才发送；无关 scope 被过滤。PR ② 负责消费 Note、原子落 model_turn / journal、保存前缀计量上下文；本 PR 不建立任何 agent worker。
 10. 非 SIWC 的真实付费适配器按范围不实现。配置能力与付费开关已存在，Mock 覆盖付费降级。ChatWeave 依赖、dispatcher 授权接线与通用后续项均在 PR ② 处理。
 
-11. clear-secret 清空密文、nonce、key_id 和 last4，但保留墓碑并递增 revision；重新登录在同一行再次递增，刷新和失效 CAS 都要求 revision 匹配且 usable，旧登录请求不能覆盖或禁用新登录。
-12. OAuth 刷新仅在令牌端点 400/401 且明确返回 invalid_grant / invalid_client / unauthorized_client 时永久失效；网络、超时、429、5xx 和其他异常按可重试错误处理，固定退避 5 秒，期间未过期的访问令牌继续使用，过期则 available 暂时为 false，退避结束重新开放刷新。
-13. router 跟踪已送往 sink 的非空文字、工具调用及 Note；已部分输出后的失败返回带原始错误的 PartialOutput，停止同一 sink 上的透明重试和降级，PR ② 据此保留已有文字并另起一块。
-14. 半开探测由 RAII 许可持有，提前返回或取消均按失败释放；包含重试及 observer / sink 等待的单提供方调用总时限为 300 秒，过期探测在额外冷却后可回收，许可代次隔离过期探测的迟到收尾。
+11. 凭据可用 / 回退 / 丢弃规则：存储读取明确返回 `Present(revision, 凭据)`、`Cleared(revision)` 或临时故障 `Unavailable`；先读 revision / usable，墓碑不解密，密文或 JSON 损坏按 Auth 不可用处理。仅 `Unavailable` 可回退到共享 pending；同 revision 优先 pending，墓碑、损坏或库中 revision 更新立即丢弃 pending 和旧退避，更新的 Present 采用库中凭据。pending 保留最新轮换结果与原 CAS 基准，在可取消的保存前发布；相同 provider / 来源的 reload 共用它、刷新锁和退避。`available()` 表示未确定失效，且访问令牌未过期 / 未被拒，或有 refresh token 且不在刷新退避期；需要刷新仍允许 router 进入 `access()` 并在共享锁下刷新。401 / invalid_token 把旧访问令牌标为过期，禁止重发；刷新临时故障退避 5 秒，结束后经路由恢复，仅令牌端点明确的 invalid_grant / invalid_client / unauthorized_client 永久失效。无 pending 的临时读取故障在退避结束后允许重新读取探测。clear-secret 清空密文并保留递增 revision 的墓碑，重新登录继续递增，旧 CAS 不能覆盖新版本。
+12. router 跟踪已送往 sink 的非空文字、工具调用及 Note；已部分输出后的失败返回带原始错误的 PartialOutput，停止同一 sink 上的透明重试和降级，PR ② 据此保留已有文字并另起一块。
+13. 半开探测由 RAII 许可持有，提前返回或取消均按失败释放；包含重试及 observer / sink 等待的单提供方调用总时限为 300 秒，过期探测在额外冷却后可回收，许可代次隔离过期探测的迟到收尾。
 
 ## CLI 输入例子（全部虚构）
 
@@ -138,29 +137,19 @@
 第二轮独立评审修复：
 
 - 每次尝试传入总时限的剩余预算（含登记耗时），只对提供方调用套超时；捕获 Timeout 后独立执行 `observer.finish()`，router 返回前 `ai_calls` 已完成（`outcome=failed`、`error_kind=timeout`、`completed_at` 非空），重试共用剩余预算。
-- 初始化和后续凭据读取的连接、池、超时等存储故障复用现有 5 秒 `retry` 退避；manager 保留，退避到期重新允许路由探测并读取，无需配置变更或重启，凭据缺失、损坏或明确不可用仍按 Auth 处理。
 - 模型请求 401 或流中 `invalid_api_key` / `invalid_token` / `token_expired` 在尚无可见输出时，经共享刷新锁重新读取并强制刷新（并发请求已轮换则复用新令牌），仅重试一次；`reject()` 仅由令牌端点明确的 `invalid_grant` / `invalid_client` / `unauthorized_client` 触发。403 保留 quota 码 → `QuotaExhausted`、`rate_limit_exceeded` → `RateLimited`、加密内容拒绝码 → `BlobRejected`；`permission_denied` / `insufficient_permissions` / `model_not_found` / `model_access_denied` 及未知或访问令牌类 403 → `Unsupported("permission denied")`，均不刷新、不修改凭据；已输出内容的流失败不透明重试。
 
 
 第三轮独立评审修复：
 
-- 刷新成功但写库失败时，manager 保留新凭据并继续提供新访问令牌，复用 5 秒退避，下一次 access 先以原 revision 重试 CAS，revision 已变化则采用库中凭据；新增写入失败、提交结果不明和竞争登录测试，不再使用旧 refresh token。
 - SIWC 认证恢复的两次物理模型请求分别经过 observer begin/finish，第一次记录 auth、第二次记录 success 或自身错误，共用剩余超时预算；补充 401 / 流中认证错误的逐次计量断言。
 - 需要 DB 主密钥时读取失败使 reload 返回错误并保留旧 router 与版本，首次失败保留 version=-1 的不可用 router，60 秒兜底按未加载版本重试；新增密钥恢复后同配置重新加载及可用性断言（本轮均未编译或运行测试）。
 
 
 第四轮独立评审修复：
 
-- 现有按 provider ID 共享的刷新闸门同时持有 pending 轮换凭据和退避状态，同来源 reload 继承，仅 provider ID 或 db / file 路径 / env 名称变更时隔离；补充写库失败后 reload 继续使用 R1 的回归测试。
-- OAuth 刷新成功后在下一次 await 前写入共享 pending，CAS 成功后清除，CAS 等待被取消仍保留 R1；补充挂起 CAS 后 drop future 再次 access 的回归测试。
 - 完成项 refusal 文本与 output_text 一样发送给 sink，response.refusal.delta 复用文字增量与完成项前缀去重规则；补充无增量、部分增量和完整增量拒答流测试。
 - response.completed 的 usage 在发布其他事件前同步交给 AttemptSink 计量，后续 ToolCall sink 失败仍独立 finish；补充 observer 与 ai_calls token、成本、失败结果断言（本轮未编译或运行测试，未联网）。
 
 
-第五轮独立评审修复：
-
-- 当前凭据统一为 pending（包含最新凭据和原 CAS revision），没有 pending 时采用库中凭据；到期或被拒均走同一刷新路径，多次刷新替换 pending 但不改变 CAS 基准。删除 pending 独立的“只重试保存”分支。
-- access 与 reload 每次成功读到权威版本时，revision 改变或墓碑立即清除 pending 和旧退避；读取失败才保留 pending。清除和重新登录在保存退避期间也立即生效。
-- 401 / invalid_token 将当前凭据的 expires_at 设为 now 并发布到共享 pending，刷新 503 时 available 为 false，普通 access 不再返回旧令牌；同来源 reload 保留此过期标记，pending 刷新成功前保持不可用；普通 access 在退避结束后继续刷新。没有 pending 的读取 / 刷新故障保留原有退避后探测恢复行为。
-- 可用性改为 gate 中共享的 available_until，删除各 manager 的 AtomicBool 与 retry 元组中的重复 expires_at。保留单个 pending、统一的 revision / deadline 退避及跨代刷新锁。
-- 新增三项回归：清除 / 重新登录在 access 与 reload 中淘汰 pending；env 的 A1 到期后用 R1 刷新为 A2/R2；401 后刷新 503 导致不可用且无旧令牌重发。原凭据测试均保留。本轮遵照不编译、不联网要求，未执行 Rust 测试，待构建机运行 oauth 与 siwc 测试及已有检查。
+第五、六轮凭据修复的最终规则已合并到上文“凭据可用 / 回退 / 丢弃规则”。新增 / 调整回归包括：真实 PG18 的 db-admin clear-secret 在 pending 存在时阻止下一次模型请求发送 A1（含 reload）；读取临时不可用允许 pending、凭据损坏丢弃 pending；真实 DB 凭据自然过期后经 AiRouter 刷新并调用成功；401 → 刷新 503 → 退避不可用 → 端点恢复后经 AiRouter 成功且不重发旧令牌。保留重新登录淘汰 pending 与 env 使用最新 refresh token 的回归。本轮仅做静态核对，未编译、未运行 Rust / 数据库测试、未联网、未提交；新增 server 的 wiremock 开发依赖供构建机运行合成 HTTP 回归。

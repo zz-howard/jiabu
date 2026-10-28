@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
     },
 };
 use tokio::sync::Mutex;
@@ -21,9 +21,35 @@ pub struct VersionedToken {
     pub credentials: OAuthCredentials,
     pub usable: bool,
 }
+/// Unavailable is reserved for temporary storage failures; Auth means corrupt/missing credentials.
+pub enum TokenRead {
+    Present {
+        revision: i64,
+        credentials: OAuthCredentials,
+    },
+    Cleared {
+        revision: i64,
+    },
+    Unavailable,
+}
+impl From<VersionedToken> for TokenRead {
+    fn from(token: VersionedToken) -> Self {
+        if token.usable {
+            Self::Present {
+                revision: token.revision,
+                credentials: token.credentials,
+            }
+        } else {
+            Self::Cleared {
+                revision: token.revision,
+            }
+        }
+    }
+}
 #[async_trait]
 pub trait TokenStore: Send + Sync {
-    async fn load(&self) -> Result<VersionedToken, ProviderError>;
+    /// Temporary IO failures must be Unavailable; errors describe unusable credentials.
+    async fn load(&self) -> Result<TokenRead, ProviderError>;
     async fn compare_exchange(
         &self,
         expected: i64,
@@ -38,8 +64,10 @@ pub struct RefreshGate {
     // Rotated credentials awaiting persistence, with the original CAS revision.
     pending: Mutex<Option<VersionedToken>>,
     retry: std::sync::Mutex<Option<(i64, std::time::Instant)>>,
-    // Shared across reloads. MAX allows an initial refresh probe; zero is unavailable.
+    // Shared across reloads: direct access deadline (-1 is definitively invalid),
+    // plus permission to refresh. Zero is an initially unknown deadline.
     available_until: AtomicI64,
+    refreshable: AtomicBool,
 }
 pub struct CredentialManager {
     store: Arc<dyn TokenStore>,
@@ -64,46 +92,42 @@ impl CredentialManager {
         {
             let _guard = manager.refresh.lock.lock().await;
             let mut pending = manager.refresh.pending.lock().await;
-            if let Ok(current) = manager.load(&mut pending).await {
-                manager.refresh.available_until.store(
-                    if current.usable && current.credentials.refreshable() {
-                        if pending.is_some()
-                            || manager
-                                .refresh
-                                .retry
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .is_some()
-                        {
-                            current.credentials.expires_at
-                        } else {
-                            i64::MAX
-                        }
-                    } else {
-                        0
-                    },
-                    Ordering::Release,
-                );
-            }
+            let _ = manager.load(&mut pending).await;
         }
         manager
     }
+    fn observe(&self, current: &VersionedToken) {
+        self.refresh.available_until.store(
+            if current.usable {
+                current.credentials.expires_at
+            } else {
+                -1
+            },
+            Ordering::Release,
+        );
+        self.refresh.refreshable.store(
+            current.usable && !current.credentials.refresh_token.is_empty(),
+            Ordering::Release,
+        );
+    }
     pub fn available(&self) -> bool {
         let until = self.refresh.available_until.load(Ordering::Acquire);
+        if until < 0 {
+            return false;
+        }
         if chrono::Utc::now().timestamp() < until {
             return true;
         }
-        // A pending expired/rejected token remains unavailable until refreshed.
-        // Only a source without pending may advertise a recovery probe.
-        match self.refresh.pending.try_lock() {
-            Ok(pending) if pending.is_none() => {}
-            _ => return false,
-        }
-        self.refresh.retry.lock().is_ok_and(|retry| {
-            retry
-                .as_ref()
-                .is_some_and(|(_, at)| std::time::Instant::now() >= *at)
-        })
+        self.refresh
+            .retry
+            .lock()
+            .is_ok_and(|retry| match retry.as_ref() {
+                Some((base, at)) => {
+                    std::time::Instant::now() >= *at
+                        && (*base == -1 || self.refresh.refreshable.load(Ordering::Acquire))
+                }
+                None => self.refresh.refreshable.load(Ordering::Acquire),
+            })
     }
     pub async fn access(&self) -> Result<OAuthCredentials, ProviderError> {
         self.access_inner(None).await
@@ -120,12 +144,12 @@ impl CredentialManager {
         &self,
         pending: &mut Option<VersionedToken>,
     ) -> Result<VersionedToken, ProviderError> {
-        match self.store.load().await {
-            Ok(stored) => {
-                if pending
-                    .as_ref()
-                    .is_some_and(|v| !stored.usable || v.revision != stored.revision)
-                {
+        let result = match self.store.load().await {
+            Ok(TokenRead::Present {
+                revision,
+                credentials,
+            }) => {
+                if pending.as_ref().is_some_and(|v| revision > v.revision) {
                     *pending = None;
                     *self
                         .refresh
@@ -133,24 +157,43 @@ impl CredentialManager {
                         .lock()
                         .map_err(|_| ProviderError::Transport)? = None;
                 }
+                let stored = VersionedToken {
+                    revision,
+                    credentials,
+                    usable: true,
+                };
                 Ok(pending.as_ref().unwrap_or(&stored).clone())
             }
-            Err(_) if pending.is_some() => Ok(pending.as_ref().ok_or(ProviderError::Auth)?.clone()),
-            Err(error) => {
-                self.refresh.available_until.store(0, Ordering::Release);
-                if error != ProviderError::Auth {
-                    self.defer(-1, 0)?;
-                } else {
-                    *self
-                        .refresh
-                        .retry
-                        .lock()
-                        .map_err(|_| ProviderError::Transport)? = None;
-                }
-                Err(error)
+            Ok(TokenRead::Unavailable) if pending.is_some() => {
+                Ok(pending.as_ref().ok_or(ProviderError::Auth)?.clone())
             }
+            Ok(TokenRead::Unavailable) => {
+                self.refresh.refreshable.store(false, Ordering::Release);
+                // A later outage must not reopen a source already known to be invalid.
+                if self.refresh.available_until.load(Ordering::Acquire) >= 0 {
+                    self.defer(-1, 0)?;
+                }
+                Err(ProviderError::Transport)
+            }
+            Ok(TokenRead::Cleared { .. }) | Err(_) => {
+                // Tombstones and corrupt credentials are authoritative, never a fallback.
+                *pending = None;
+                *self
+                    .refresh
+                    .retry
+                    .lock()
+                    .map_err(|_| ProviderError::Transport)? = None;
+                self.refresh.available_until.store(-1, Ordering::Release);
+                self.refresh.refreshable.store(false, Ordering::Release);
+                Err(ProviderError::Auth)
+            }
+        };
+        if let Ok(current) = &result {
+            self.observe(current);
         }
+        result
     }
+
     async fn access_inner(
         &self,
         rejected: Option<&str>,
@@ -169,13 +212,13 @@ impl CredentialManager {
             *pending = Some(current.clone());
             self.refresh.available_until.store(now, Ordering::Release);
         }
-        if !current.usable || !current.credentials.refreshable() {
+        if !current.usable {
             *self
                 .refresh
                 .retry
                 .lock()
                 .map_err(|_| ProviderError::Transport)? = None;
-            self.refresh.available_until.store(0, Ordering::Release);
+            self.refresh.available_until.store(-1, Ordering::Release);
             return Err(ProviderError::Auth);
         }
         if self.waiting(current.revision)? {
@@ -191,7 +234,9 @@ impl CredentialManager {
             .lock()
             .map_err(|_| ProviderError::Transport)? = None;
         // Pending and stored credentials follow exactly the same refresh path.
-        if current.credentials.expires_at <= now + 60 {
+        if current.credentials.expires_at <= now + 60
+            && !current.credentials.refresh_token.is_empty()
+        {
             match self.oauth.refresh(&current.credentials).await {
                 Ok(next) => {
                     current.credentials = next;
@@ -209,9 +254,10 @@ impl CredentialManager {
                 Err(_) => return self.reject(&current, &mut pending).await,
             }
         }
-        self.refresh
-            .available_until
-            .store(current.credentials.expires_at, Ordering::Release);
+        self.observe(&current);
+        if current.credentials.expires_at <= chrono::Utc::now().timestamp() {
+            return Err(ProviderError::Auth);
+        }
         if pending.is_some() {
             // The rotated copy is already shared before this cancellable await.
             match self
@@ -278,7 +324,8 @@ impl CredentialManager {
             .retry
             .lock()
             .map_err(|_| ProviderError::Transport)? = None;
-        self.refresh.available_until.store(0, Ordering::Release);
+        self.refresh.available_until.store(-1, Ordering::Release);
+        self.refresh.refreshable.store(false, Ordering::Release);
         let mut invalid = current.clone();
         invalid.usable = false;
         *pending = Some(invalid);
@@ -383,8 +430,8 @@ pub struct FileDocument {
 }
 #[async_trait]
 impl TokenStore for FileTokenStore {
-    async fn load(&self) -> Result<VersionedToken, ProviderError> {
-        self.read()
+    async fn load(&self) -> Result<TokenRead, ProviderError> {
+        self.read().map(TokenRead::from)
     }
     async fn compare_exchange(
         &self,

@@ -304,7 +304,6 @@ fn history_replay_preserves_raw_arguments_and_frozen_model_parameters() {
 
 #[tokio::test]
 async fn access_token_errors_refresh_once_but_only_token_endpoint_rejection_revokes() {
-    use jiabu_ai::credentials::TokenStore;
     for (status, events, refresh_rejected, second_rejected) in [
         (
             200,
@@ -396,14 +395,13 @@ async fn access_token_errors_refresh_once_but_only_token_endpoint_rejection_revo
             result.unwrap();
             assert!(matches!(sink.0.last(), Some(TurnEvent::Done { .. })));
         }
-        assert_eq!(tokens.load().await.unwrap().usable, !refresh_rejected);
+        assert_eq!(tokens.snapshot().await.usable, !refresh_rejected);
         assert_eq!(manager.available(), !refresh_rejected);
     }
 }
 
 #[tokio::test]
 async fn forbidden_errors_do_not_refresh_or_change_credentials() {
-    use jiabu_ai::credentials::TokenStore;
     for (code, expected) in [
         (
             "permission_denied",
@@ -461,7 +459,7 @@ async fn forbidden_errors_do_not_refresh_or_change_credentials() {
             Err(expected)
         );
         assert!(manager.available());
-        let current = tokens.load().await.unwrap();
+        let current = tokens.snapshot().await;
         assert!(current.usable);
         assert_eq!(current.revision, 1);
         assert_eq!(current.credentials.access_token, "synthetic-access");
@@ -470,7 +468,6 @@ async fn forbidden_errors_do_not_refresh_or_change_credentials() {
 
 #[tokio::test]
 async fn token_error_after_visible_text_does_not_replay_output_or_revoke_credentials() {
-    use jiabu_ai::credentials::TokenStore;
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/responses"))
@@ -506,7 +503,7 @@ async fn token_error_after_visible_text_does_not_replay_output_or_revoke_credent
     assert_eq!(sink.0.len(), 1);
     assert!(matches!(&sink.0[0], TurnEvent::TextDelta(text) if text == "Recorded."));
     assert!(manager.available());
-    assert!(tokens.load().await.unwrap().usable);
+    assert!(tokens.snapshot().await.usable);
 }
 
 #[tokio::test]
@@ -621,14 +618,22 @@ async fn rejected_access_token_is_unavailable_and_never_resent_after_refresh_503
         .mount_as_scoped(&server)
         .await;
     let provider = SiwcProvider::at(
-        "synthetic".into(),
+        "fake-1".into(),
         capabilities(),
         manager.clone(),
         &format!("{}/v1/responses", server.uri()),
     )
     .unwrap();
+    let router = AiRouter::new(config(), vec![Arc::new(provider)]);
     assert_eq!(
-        provider.run_turn(&request(), &mut Sink::default()).await,
+        router
+            .run_turn(
+                TaskKind::Chat,
+                &request(),
+                &mut Sink::default(),
+                &Meter::default()
+            )
+            .await,
         Err(ProviderError::Transport)
     );
     assert!(!manager.available());
@@ -636,9 +641,17 @@ async fn rejected_access_token_is_unavailable_and_never_resent_after_refresh_503
         manager.access().await,
         Err(ProviderError::Transport)
     ));
-    assert_eq!(
-        provider.run_turn(&request(), &mut Sink::default()).await,
-        Err(ProviderError::Transport)
+    assert!(!router.availability(TaskKind::Chat).available);
+    assert!(
+        router
+            .run_turn(
+                TaskKind::Chat,
+                &request(),
+                &mut Sink::default(),
+                &Meter::default()
+            )
+            .await
+            .is_err()
     );
     let reloaded =
         CredentialManager::with_gate(tokens, OAuthClient::at(&server.uri()).unwrap(), gate).await;
@@ -651,8 +664,9 @@ async fn rejected_access_token_is_unavailable_and_never_resent_after_refresh_503
     // Exactly one rejected model request and one refresh; no old-token resend.
     assert_eq!(server.received_requests().await.unwrap().len(), 2);
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    assert!(!manager.available());
-    assert!(!reloaded.available());
+    assert!(manager.available());
+    assert!(reloaded.available());
+    assert!(router.availability(TaskKind::Chat).available);
     drop(failed_refresh);
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
@@ -663,11 +677,23 @@ async fn rejected_access_token_is_unavailable_and_never_resent_after_refresh_503
         .expect(1)
         .mount(&server)
         .await;
-    assert_eq!(
-        reloaded.access().await.unwrap().access_token,
-        "synthetic-recovered"
-    );
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .and(header("authorization", "Bearer synthetic-recovered"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sse(&[completed()])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    router
+        .run_turn(
+            TaskKind::Chat,
+            &request(),
+            &mut Sink::default(),
+            &Meter::default(),
+        )
+        .await
+        .unwrap();
     assert!(manager.available());
     assert!(reloaded.available());
-    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    assert_eq!(server.received_requests().await.unwrap().len(), 4);
 }

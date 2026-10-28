@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use async_trait::async_trait;
-use jiabu_ai::credentials::{TokenStore, VersionedToken};
+use jiabu_ai::credentials::{TokenRead, TokenStore, VersionedToken};
 use jiabu_ai::siwc::oauth::OAuthCredentials;
 use jiabu_ai::*;
 use std::{
@@ -53,6 +53,9 @@ impl CallObserver for Meter {
 }
 pub struct Tokens(pub Mutex<VersionedToken>);
 impl Tokens {
+    pub async fn snapshot(&self) -> VersionedToken {
+        self.0.lock().unwrap().clone()
+    }
     pub fn new(expires_at: i64) -> Arc<Self> {
         Arc::new(Self(Mutex::new(VersionedToken {
             revision: 1,
@@ -70,8 +73,8 @@ impl Tokens {
 }
 #[async_trait]
 impl TokenStore for Tokens {
-    async fn load(&self) -> Result<VersionedToken, ProviderError> {
-        Ok(self.0.lock().unwrap().clone())
+    async fn load(&self) -> Result<TokenRead, ProviderError> {
+        Ok(self.0.lock().unwrap().clone().into())
     }
     async fn compare_exchange(
         &self,

@@ -5,7 +5,7 @@ use jiabu_ai::{
     CallObserver, Capabilities, ModelProvider, ProviderError, RouterStore, TaskKind, TurnRequest,
     Usage,
     credentials::{
-        CredentialManager, FileTokenStore, RefreshGate, SecretKey, TokenStore, VersionedToken,
+        CredentialManager, FileTokenStore, RefreshGate, SecretKey, TokenRead, TokenStore,
     },
     siwc::{
         SiwcProvider,
@@ -23,25 +23,33 @@ struct DatabaseTokens {
 }
 #[async_trait]
 impl TokenStore for DatabaseTokens {
-    async fn load(&self) -> Result<VersionedToken, ProviderError> {
-        let tx = SystemTx::begin(&self.db)
-            .await
-            .map_err(|_| ProviderError::Transport)?;
-        let secret = tx
-            .ai_secret(&self.provider)
-            .await
-            .map_err(|_| ProviderError::Transport)?
-            .ok_or(ProviderError::Auth)?;
-        tx.commit().await.map_err(|_| ProviderError::Transport)?;
+    async fn load(&self) -> Result<TokenRead, ProviderError> {
+        let secret = async {
+            let tx = SystemTx::begin(&self.db).await?;
+            let secret = tx.ai_secret(&self.provider).await?;
+            tx.commit().await?;
+            Ok::<_, anyhow::Error>(secret)
+        }
+        .await;
+        let secret = match secret {
+            Ok(Some(secret)) => secret,
+            Ok(None) => return Err(ProviderError::Auth),
+            Err(_) => return Ok(TokenRead::Unavailable),
+        };
+        // clear-secret erases ciphertext: inspect metadata before attempting decryption.
+        if !secret.usable {
+            return Ok(TokenRead::Cleared {
+                revision: secret.revision,
+            });
+        }
         let bytes = self
             .key
             .open("provider", &self.provider, "oauth", &secret)
             .map_err(|_| ProviderError::Auth)?;
         let credentials = serde_json::from_slice(&bytes).map_err(|_| ProviderError::Auth)?;
-        Ok(VersionedToken {
+        Ok(TokenRead::Present {
             revision: secret.revision,
             credentials,
-            usable: secret.usable,
         })
     }
     async fn compare_exchange(
@@ -81,13 +89,12 @@ struct EnvironmentTokens {
 }
 #[async_trait]
 impl TokenStore for EnvironmentTokens {
-    async fn load(&self) -> Result<VersionedToken, ProviderError> {
+    async fn load(&self) -> Result<TokenRead, ProviderError> {
         let raw = Zeroizing::new(std::env::var(&self.name).map_err(|_| ProviderError::Auth)?);
         let credentials = serde_json::from_str(&raw).map_err(|_| ProviderError::Auth)?;
-        Ok(VersionedToken {
+        Ok(TokenRead::Present {
             revision: 0,
             credentials,
-            usable: true,
         })
     }
     async fn compare_exchange(
@@ -275,6 +282,9 @@ impl CallObserver for DatabaseMeter {
 }
 
 #[cfg(test)]
+#[path = "../../../crates/ai/tests/support/mod.rs"]
+mod ai_test_support;
+#[cfg(test)]
 mod tests {
     use super::*;
     use jiabu_db_admin::ai_configuration::ConfigWrite;
@@ -408,8 +418,7 @@ mod tests {
         assert!(store.0.load().availability(TaskKind::Chat).available);
         // Both route/config and credential status are used by the same status path.
         let tokens = FileTokenStore { path };
-        let current = tokens.load().await?;
-        assert!(tokens.invalidate(current.revision).await?);
+        assert!(tokens.invalidate(doc.revision).await?);
         let version = store.0.load().config.version;
         admin
             .ai_write(
@@ -637,6 +646,270 @@ mod tests {
         assert!(initial.0.load().availability(TaskKind::Chat).available);
         reload_with_key(&db, &initial, || Err("must not reread a loaded version")).await?;
         assert!(initial.0.load().availability(TaskKind::Chat).available);
+        db.close().await?;
+        Ok(())
+    }
+    // Fail only persistence, while exercising the production DB read/decryption path.
+    struct UnwritableTokens(DatabaseTokens);
+    #[async_trait]
+    impl TokenStore for UnwritableTokens {
+        async fn load(&self) -> Result<TokenRead, ProviderError> {
+            self.0.load().await
+        }
+        async fn compare_exchange(
+            &self,
+            _: i64,
+            _: &OAuthCredentials,
+        ) -> Result<bool, ProviderError> {
+            Err(ProviderError::Transport)
+        }
+        async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+            self.0.invalidate(revision).await
+        }
+    }
+    #[tokio::test]
+    async fn real_clear_secret_discards_pending_without_decrypting_tombstone_or_sending_a1()
+    -> Result<()> {
+        use super::ai_test_support::*;
+        use jiabu_ai::{AiRouter, credentials::TokenRead};
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{header, method, path},
+        };
+        for reload in [false, true] {
+            let fixture = crate::tasks::test_support::TestDb::new().await?;
+            let admin = fixture.admin().await?;
+            let db = AppDb::connect(&fixture.app_url).await?;
+            let mut provider = config().providers.remove(0);
+            provider.kind = "siwc".into();
+            admin
+                .ai_write(
+                    ConfigWrite::Provider {
+                        config: provider,
+                        create: true,
+                    },
+                    "test",
+                )
+                .await?;
+            let key = Arc::new(
+                SecretKey::new("synthetic-key".into(), vec![7; 32]).map_err(anyhow::Error::msg)?,
+            );
+            let credentials = Tokens::new(1).snapshot().await.credentials;
+            let secret = key
+                .seal(
+                    "provider",
+                    "fake-1",
+                    "oauth",
+                    &serde_json::to_vec(&credentials)?,
+                )
+                .map_err(anyhow::Error::msg)?;
+            admin
+                .ai_save_oauth(
+                    "fake-1",
+                    &secret,
+                    &credentials.client_id,
+                    credentials.expires_at,
+                    "test",
+                )
+                .await?;
+            let store = Arc::new(UnwritableTokens(DatabaseTokens {
+                db: db.clone(),
+                provider: "fake-1".into(),
+                key,
+            }));
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/oauth/token"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token":"synthetic-A1", "refresh_token":"synthetic-R1",
+                    "expires_in":3600, "token_type":"Bearer"
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path("/v1/responses"))
+                .and(header("authorization", "Bearer synthetic-A1"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(sse(&[completed()])))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let gate = Arc::new(RefreshGate::default());
+            let manager = Arc::new(
+                CredentialManager::with_gate(
+                    store.clone(),
+                    OAuthClient::at(&server.uri())?,
+                    gate.clone(),
+                )
+                .await,
+            );
+            let make_provider = |manager| -> Result<Arc<dyn ModelProvider>> {
+                Ok(Arc::new(SiwcProvider::at(
+                    "fake-1".into(),
+                    capabilities(),
+                    manager,
+                    &format!("{}/v1/responses", server.uri()),
+                )?))
+            };
+            let router = AiRouter::new(config(), vec![make_provider(manager.clone())?]);
+            router
+                .run_turn(
+                    TaskKind::Chat,
+                    &request(),
+                    &mut Sink::default(),
+                    &Meter::default(),
+                )
+                .await?;
+            // The exact db-admin clear-secret path erases ciphertext and advances revision.
+            admin.ai_set_secret("fake-1", "oauth", None, "test").await?;
+            assert!(matches!(
+                store.load().await?,
+                TokenRead::Cleared { revision: 2 }
+            ));
+            let router = if reload {
+                let manager = Arc::new(
+                    CredentialManager::with_gate(
+                        store.clone(),
+                        OAuthClient::at(&server.uri())?,
+                        gate,
+                    )
+                    .await,
+                );
+                router.reloaded(config(), vec![make_provider(manager)?])
+            } else {
+                router
+            };
+            assert!(
+                router
+                    .run_turn(
+                        TaskKind::Chat,
+                        &request(),
+                        &mut Sink::default(),
+                        &Meter::default()
+                    )
+                    .await
+                    .is_err()
+            );
+            assert!(!manager.available());
+            // The only model request is the one preceding clear-secret.
+            assert_eq!(server.received_requests().await.unwrap().len(), 2);
+            db.close().await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn router_refreshes_database_credentials_after_natural_expiry() -> Result<()> {
+        use super::ai_test_support::*;
+        use jiabu_ai::AiRouter;
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{body_string_contains, header, method, path},
+        };
+        let fixture = crate::tasks::test_support::TestDb::new().await?;
+        let admin = fixture.admin().await?;
+        let db = AppDb::connect(&fixture.app_url).await?;
+        let mut provider = config().providers.remove(0);
+        provider.kind = "siwc".into();
+        admin
+            .ai_write(
+                ConfigWrite::Provider {
+                    config: provider,
+                    create: true,
+                },
+                "test",
+            )
+            .await?;
+        let key = Arc::new(
+            SecretKey::new("synthetic-key".into(), vec![7; 32]).map_err(anyhow::Error::msg)?,
+        );
+        let credentials = Tokens::new(1).snapshot().await.credentials;
+        let secret = key
+            .seal(
+                "provider",
+                "fake-1",
+                "oauth",
+                &serde_json::to_vec(&credentials)?,
+            )
+            .map_err(anyhow::Error::msg)?;
+        admin
+            .ai_save_oauth(
+                "fake-1",
+                &secret,
+                &credentials.client_id,
+                credentials.expires_at,
+                "test",
+            )
+            .await?;
+        let store = Arc::new(DatabaseTokens {
+            db: db.clone(),
+            provider: "fake-1".into(),
+            key,
+        });
+        let server = MockServer::start().await;
+        for (refresh, access, next_refresh, expires) in [
+            ("synthetic-refresh", "synthetic-A1", "synthetic-R1", 3),
+            ("synthetic-R1", "synthetic-A2", "synthetic-R2", 3600),
+        ] {
+            Mock::given(method("POST"))
+                .and(path("/oauth/token"))
+                .and(body_string_contains(format!("refresh_token={refresh}")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token":access, "refresh_token":next_refresh,
+                    "expires_in":expires, "token_type":"Bearer"
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+        }
+        let manager =
+            Arc::new(CredentialManager::new(store.clone(), OAuthClient::at(&server.uri())?).await);
+        // Successful CAS leaves no pending/retry; the shared deadline is A1's real expiry.
+        assert_eq!(manager.access().await?.access_token, "synthetic-A1");
+        assert!(matches!(
+            store.load().await?,
+            TokenRead::Present { revision: 2, .. }
+        ));
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        let TokenRead::Present { credentials, .. } = store.load().await? else {
+            anyhow::bail!("expected persisted credentials");
+        };
+        assert!(credentials.expires_at <= chrono::Utc::now().timestamp());
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .and(header("authorization", "Bearer synthetic-A1"))
+            .respond_with(ResponseTemplate::new(401))
+            .expect(0)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .and(header("authorization", "Bearer synthetic-A2"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(sse(&[completed()])))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let provider = SiwcProvider::at(
+            "fake-1".into(),
+            capabilities(),
+            manager,
+            &format!("{}/v1/responses", server.uri()),
+        )?;
+        let router = AiRouter::new(config(), vec![Arc::new(provider)]);
+        assert!(router.availability(TaskKind::Chat).available);
+        router
+            .run_turn(
+                TaskKind::Chat,
+                &request(),
+                &mut Sink::default(),
+                &Meter::default(),
+            )
+            .await?;
+        assert!(matches!(
+            store.load().await?,
+            TokenRead::Present { revision: 3, .. }
+        ));
+        assert_eq!(server.received_requests().await.unwrap().len(), 3);
         db.close().await?;
         Ok(())
     }
