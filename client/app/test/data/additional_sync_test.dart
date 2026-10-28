@@ -171,6 +171,31 @@ void main() {
     );
   });
 
+  test('module_regain_resets_cursor_and_fences_late_pull', () async {
+    await h.seed('r');
+    await h.memberships.reconcile(
+      SpacesDto(
+        spaces: [
+          sampleSpace(modules: const {'ledger': 'none', 'documents': 'write'}),
+        ],
+      ),
+    );
+    await h.store.setCursor('s', 80);
+    final before = await h.store.fence('s');
+    // sampleSpace() defaults to write on both modules.
+    await h.memberships.reconcile(SpacesDto(spaces: [sampleSpace()]));
+    expect(await h.store.cursor('s'), 0);
+    expect(await h.store.accepts(before!), isFalse);
+  });
+
+  test('unchanged_module_levels_keep_cursor', () async {
+    await h.seed('r');
+    await h.memberships.reconcile(SpacesDto(spaces: [sampleSpace()]));
+    await h.store.setCursor('s', 80);
+    await h.memberships.reconcile(SpacesDto(spaces: [sampleSpace()]));
+    expect(await h.store.cursor('s'), 80);
+  });
+
   test('old_client_data_layer_refuses_new_outbox_entries', () async {
     await h.seed('r');
     await h.store.setWriteAllowed(allowed: false);

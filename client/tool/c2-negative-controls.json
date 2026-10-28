@@ -299,6 +299,18 @@
       ],
       "command": "flutter test test/data/conflict_test.dart --plain-name resolve_mine_update_then_void_keeps_field_edits",
       "find_regex": "return\\s+Ok\\s*\\(\\s*operations\\s*(?:,\\s*)?\\)\\s*;"
+    },
+    {
+      "id": "module_regain_resets_cursor",
+      "file": "client/app/lib/data/sync/membership_reconciler.dart",
+      "find": "          await store.setCursor(space.id, 0);\n",
+      "replace": "",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/additional_sync_test.dart",
+      "test_names": [
+        "module_regain_resets_cursor_and_fences_late_pull"
+      ],
+      "command": "flutter test test/data/additional_sync_test.dart --plain-name module_regain_resets_cursor_and_fences_late_pull"
     }
   ]
 }

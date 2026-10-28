@@ -782,3 +782,7 @@ python3 -m unittest discover -s tool/fonts -p 'test_*.py'
 ```
 
 需在构建机对这 5 条指定测试补跑修前版本的生产代码以确认断言失败；修后全部通过后，再逐条应用两条新负对照，确认断言失败并恢复，最后复跑原版测试。当前环境无法完成这些执行，不将历史通过记录作为本轮证据。
+
+### 第三轮评审修正（luna.coco）
+
+第三轮评审确认第二轮四条已修好，另提一条：模块权限从 `none` 恢复（或首次获得）时只覆盖了权限，没有重置游标，权限收回期间游标已经推进，恢复后从未再改过的旧数据拉不回来。technical-design “授权变化”一条要求“清掉失去权限的模块数据，并把这个空间的游标归零重拉”。修正：任一模块级别变化（收回或恢复）都把该空间游标归零，并递增 `local_generation`，让在途的拉取响应被栅栏丢弃。测试 `module_regain_resets_cursor_and_fences_late_pull`（修前失败）、`unchanged_module_levels_keep_cursor`，负对照 `module_regain_resets_cursor`。

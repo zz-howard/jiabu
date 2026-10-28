@@ -36,13 +36,24 @@ final class MembershipReconciler {
         final existing = await store.entity(space.id, 'space', space.id);
         var localGeneration = (existing?.data['local_generation'] as int?) ?? 0;
         final oldModules = existing?.data['modules'] as Map<String, Object?>?;
+        var levelsChanged = false;
         for (final module in ['ledger', 'documents']) {
-          if (existing != null &&
-              oldModules?[module] != 'none' &&
+          if (existing == null ||
+              oldModules?[module] == space.modules[module]) {
+            continue;
+          }
+          levelsChanged = true;
+          if (oldModules?[module] != 'none' &&
               space.modules[module] == 'none') {
             await store.purgeModule(space.id, module);
-            localGeneration++;
           }
+        }
+        if (levelsChanged) {
+          // 5.4 授权变化: clear lost modules and re-pull the space from 0, so
+          // rows of a regained module come back even if they never changed.
+          // Bumping local_generation fences out pull responses in flight.
+          await store.setCursor(space.id, 0);
+          localGeneration++;
         }
         await store.putEntity(space.id, 'space', {
           ...?existing?.data,
