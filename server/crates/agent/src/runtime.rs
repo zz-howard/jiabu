@@ -119,7 +119,9 @@ impl Runtime {
         lease: RunLease,
         stage: &Mutex<StagedStream>,
     ) -> Result<std::convert::Infallible, OperationError> {
-        let mut renew = tokio::time::interval(Duration::from_secs(RENEW_SECS));
+        // The lease was just claimed or renewed; the first renewal is due one period later.
+        let period = Duration::from_secs(RENEW_SECS);
+        let mut renew = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
         loop {
             renew.tick().await;
             let _stage = stage.lock().await;
