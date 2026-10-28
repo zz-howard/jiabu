@@ -1132,7 +1132,8 @@ async fn model_total_deadline_fails_with_deterministic_text_and_finalized_meter(
     Arc::get_mut(&mut f.runtime)
         .context("unique runtime")?
         .budget
-        .model_call = std::time::Duration::from_millis(10);
+        // Long enough for meter registration to reach the provider, far below the 30 s mock delay.
+        .model_call = std::time::Duration::from_secs(1);
     let r = f.start().await?;
     f.work().await?;
     assert_eq!(f.run(r.message_id).await?.status, "failed");
