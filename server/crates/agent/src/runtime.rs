@@ -110,6 +110,24 @@ impl Runtime {
         }
         Ok(false)
     }
+    /// Renews the lease every `RENEW_SECS` until dropped. Holds the stage for
+    /// the transaction so the tick branch never waits on it.
+    async fn renew_while_streaming(
+        &self,
+        p: &Principal,
+        run: &RunRow,
+        lease: RunLease,
+        stage: &Mutex<StagedStream>,
+    ) -> Result<std::convert::Infallible, OperationError> {
+        let mut renew = tokio::time::interval(Duration::from_secs(RENEW_SECS));
+        loop {
+            renew.tick().await;
+            let _stage = stage.lock().await;
+            let tx = self.begin(p, run, lease).await?;
+            tx.renew_run(SpaceId(run.space_id), lease).await?;
+            tx.commit().await?;
+        }
+    }
     async fn begin(
         &self,
         p: &Principal,
@@ -475,7 +493,10 @@ impl Runtime {
                             router.run_turn(task, &request, &mut sink, self.observer.as_ref());
                         tokio::pin!(future);
                         let mut ticks = tokio::time::interval(Duration::from_millis(50));
-                        let mut renew = tokio::time::interval(Duration::from_secs(RENEW_SECS));
+                        // Polled alongside the model so neither waits on a lock the
+                        // other holds while suspended.
+                        let renewal = self.renew_while_streaming(p, run, lease, &stage);
+                        tokio::pin!(renewal);
                         let deadline = tokio::time::sleep(
                             self.budget.model_call.min(
                                 self.budget
@@ -497,11 +518,14 @@ impl Runtime {
                                 _=&mut deadline=>break Err(ProviderError::Timeout),
                                 _=ticks.tick()=>{
                                     if last_event.lock().await.elapsed()>=self.budget.model_idle{break Err(ProviderError::Timeout);}
-                                    let mut s=stage.lock().await;
-                                    s.stream.tick().await.map_err(protocol_error)?;
-                                    flush(self,p,run,lease,&mut s,&emitter).await?;
+                                    // A busy stage means the model future holds it mid-write;
+                                    // waiting here would stop polling that future and deadlock.
+                                    if let Ok(mut s)=stage.try_lock(){
+                                        s.stream.tick().await.map_err(protocol_error)?;
+                                        flush(self,p,run,lease,&mut s,&emitter).await?;
+                                    }
                                 },
-                                _=renew.tick()=>{let tx=self.begin(p,run,lease).await?;tx.renew_run(space,lease).await?;tx.commit().await?;},
+                                Err(e)=&mut renewal=>return Err(e),
                             }
                         }
                     };
@@ -946,6 +970,8 @@ impl TurnSink for Collector<'_> {
             }
             TurnEvent::ProviderBlob(blob) => self.items.push(RequestItem::ProviderBlob(blob)),
             TurnEvent::Note(text) => {
+                // Every write during a model call holds the stage; see the tick branch.
+                let _stage = self.stage.lock().await;
                 let tx = self
                     .runtime
                     .begin(self.p, self.run, self.lease)
