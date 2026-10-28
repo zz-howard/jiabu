@@ -127,7 +127,8 @@ impl ToolRegistry {
         }
         // ask_user is a typed interrupt intent, never an executable business tool.
         if tool.exposure() == Exposure::AgentOnly {
-            return Err(ToolError::new(503, "unavailable"));
+            tool.validate(args_raw)?;
+            return Err(ToolError::new(409, "agent_interrupt_required"));
         }
         let call = tool.validate(args_raw.clone())?;
         Ok(PreparedToolCall {
@@ -152,11 +153,52 @@ impl ToolRegistry {
         tx: &mut SpaceTx,
     ) -> Result<Value, ToolError> {
         ctx.principal.require_ai_session()?;
+        let lease = ctx.run_lease.ok_or_else(ToolError::not_found)?;
+        if ctx.run_id != Some(lease.run_id) {
+            return Err(ToolError::not_found());
+        }
+        tx.guard_run(ctx.space_id, lease).await?;
         let tool = self.get(&prepared.name)?;
         if tool.exposure() != Exposure::AgentAndApi || ctx.run_id.is_none() {
             return Err(ToolError::not_found());
         }
         self.execute_in_tx(prepared, ctx, tx).await
+    }
+    /// Read-only Agent fan-out shares the guarded transaction. This path uses
+    /// the same prepared typed calls and authorization as invoke_in_tx; it has
+    /// no idempotency/audit writes and therefore needs no SAVEPOINT.
+    pub async fn invoke_read_in_tx(
+        &self,
+        prepared: PreparedToolCall,
+        ctx: &ToolCtx,
+        tx: &SpaceTx,
+    ) -> Result<Value, ToolError> {
+        ctx.principal.require_ai_session()?;
+        if matches!(
+            ctx.principal.via,
+            Via::Session {
+                kind: jiabu_db::auth::SessionKind::PasswordChange,
+                ..
+            }
+        ) {
+            return Err(ToolError::new(403, "password_change_required"));
+        }
+        let lease = ctx.run_lease.ok_or_else(ToolError::not_found)?;
+        tx.guard_run(ctx.space_id, lease).await?;
+        let tool = self.get(&prepared.name)?;
+        if tool.effect() != Effect::Read
+            || tool.exposure() != Exposure::AgentAndApi
+            || ctx.bound_effect != Effect::Read
+            || ctx.run_id != Some(lease.run_id)
+        {
+            return Err(ToolError::not_found());
+        }
+        let member = tx.tool_member(ctx.bound_space, ctx.principal.user_id, ctx.epoch, false)?;
+        if ctx.space_id != ctx.bound_space || member.id() != ctx.member.id() {
+            return Err(ToolError::not_found());
+        }
+        authorize(member, tool.module(), tool.action()).map_err(|_| ToolError::not_found())?;
+        prepared.call.execute(ctx, tx).await
     }
     async fn execute_in_tx(
         &self,
@@ -210,36 +252,36 @@ impl ToolRegistry {
         // HTTP admission already charged once, before entering any tool transaction.
         // Batch callers must use the shared request budget for each item.
         // 5. Replay, business validation, write + append-only audit, response, commit.
-        let operation = if tool.effect() == Effect::LocalWrite {
-            let id = ctx
-                .idempotency_key
-                .ok_or_else(|| ToolError::new(400, "idempotency_key_required"))?;
-            let key = ctx
-                .replay_key
-                .clone()
-                .unwrap_or_else(|| format!("tool:{id}"));
-            if key.is_empty() || key.len() > 200 {
-                return Err(ToolError::new(400, "bad_request"));
-            }
-            let path = format!("/v1/spaces/{}/tools/{name}", ctx.space_id);
-            let canonical =
-                serde_json::to_vec(&("POST", path, args_raw)).map_err(|_| ToolError::internal())?;
-            let operation = Idempotency {
-                key,
-                hash: Sha256::digest(canonical).to_vec(),
-            };
-            if let Some(reply) = tx.replay(ctx.principal.user_id, &operation).await? {
-                if let Some(audit) = ctx.key_audit(&name, "ok") {
-                    tx.append_api_key_audit(&audit).await?;
-                }
-                return Ok(reply.body);
-            }
-            Some(operation)
-        } else {
-            None
-        };
         tx.begin_tool_savepoint().await?;
         let outcome = async {
+            let operation = if tool.effect() == Effect::LocalWrite {
+                let id = ctx
+                    .idempotency_key
+                    .ok_or_else(|| ToolError::new(400, "idempotency_key_required"))?;
+                let key = ctx
+                    .replay_key
+                    .clone()
+                    .unwrap_or_else(|| format!("tool:{id}"));
+                if key.is_empty() || key.len() > 200 {
+                    return Err(ToolError::new(400, "bad_request"));
+                }
+                let path = format!("/v1/spaces/{}/tools/{name}", ctx.space_id);
+                let canonical = serde_json::to_vec(&("POST", path, args_raw))
+                    .map_err(|_| ToolError::internal())?;
+                let operation = Idempotency {
+                    key,
+                    hash: Sha256::digest(canonical).to_vec(),
+                };
+                if let Some(reply) = tx.replay(ctx.principal.user_id, &operation).await? {
+                    if let Some(audit) = ctx.key_audit(&name, "ok") {
+                        tx.append_api_key_audit(&audit).await?;
+                    }
+                    return Ok(reply.body);
+                }
+                Some(operation)
+            } else {
+                None
+            };
             let result = call.execute(ctx, tx).await?;
             if let Some(operation) = operation {
                 tx.remember(

@@ -225,3 +225,74 @@
 - server/crates/api/src/route_catalog.rs
 - server/crates/api/src/state.rs
 - server/crates/api/src/tests.rs
+
+### 第二步：运行时逻辑与测试（本机未编译、未运行）
+
+本轮按 go2 补充实现运行时，不提交、不编译、不联网。HTTP 处理器、隔离矩阵与 OpenAPI 保持第一步状态，第三步再接服务。因此现有无空间参数的 `RunService` 兼容方法仍拒绝执行；运行时入口是 `RunService.scoped(db, space, epoch, hub, tools, templates)` 返回的 `ScopedRuns`，由它执行 start / stop / retry / answer。构建机编译通过不能被解释为现有 HTTP 聊天接口已经可用。
+
+实现内容：
+
+- `db::chat_runtime` 封装所有 SQL，不向 chat / agent 暴露池或原始连接。SpaceTx 检查当前成员及 epoch，空间锁和运行行锁串行化用户转换与 worker 写入；worker guard 同时检查运行、空间、成员、join_epoch、lease_owner、lease_epoch、租约墙钟有效期与 cancel_requested。领取按 `(created_at,id)` FIFO，先前 running / paused 或更早 queued / waiting_ai 阻塞后续运行；UUIDv7 处理同时间戳。新消息只关闭提交时已暂停的 A，A 在 B 入队之后才暂停不会放行 B，C 到来关闭 A 后 B 仍排在 C 前。
+- chat 使用 ChatWeave MessageStream、FoldState、SchemaRegistry、ResumeService 与 SSE 编码器。私有暂存适配器只收集事件和检查点；文字按库的 20 字 / 50ms tick 合批。每个批次连同 journal / 工具转换在同一受租约保护的 SpaceTx 保存，提交后广播。最终 model_turn、结束事件、最终消息和运行终态一次提交。停止说明由服务端生成，再经库 FoldState 折叠，保持重放与检查点一致。
+- PgEventLog / PgCheckpointStore 是带用户与成员范围的持久读取适配器；直接调用它们不带租约的 append / commit 被有意禁止，生产写入只能通过 RunEmitter。持久 head 来自 chat_entries，不随日志清理归零。先订阅再重放、缺号补读和 Lagged 断开复用库；SSE 保留库的 15 秒心跳，宿主附加 5 分钟空闲期限，ping 不延长期限。
+- 自定义 record_card / document_card schema 只含 ID 与回复时版本；统计、余额、明细、历次指标与账户摘要从工具结构化结果映射。没有从模型文字提取组件。暂停 / 回答 rev=0，最终 rev=1，最终后修订 CAS 增加 rev 和 change_seq、不复用流 seq。
+- tools 增加借用事务内租约防护；本地写与 API 使用同一个执行核心。SAVEPOINT 现在包含幂等查询插入的占位行，业务失败会连同该行、业务和审计一起回滚。失败结果可留在外层事务；数据库错误和超时放弃整个事务。只读工具可在受保护的同一事务内并发，结果按调用顺序入 journal。本地写串行；工具输出、卡片、tool_result 和调用状态共同提交。Agent 创建实体使用原调用的 UUIDv5 身份，重试保留原 key。
+- ask_user 支持选项、表单和自由文字，AgentOnly 仅由运行时解释为中断；ApiOnly 不向 Agent 开放。没有公开 ask_user 路由。动作处理先检查身份 / epoch / 会话 / 持久块及原工具权限，再读取 SHA-256 绑定回执；回答、停止、过期、离线新消息使用同一空间锁和运行状态条件。确认后使用冻结参数及原 expected_version；自由文字不被解释成确认。
+- 运行开始时冻结空间上下文、静态模板 / 工具定义、输入时间与 locale；第一次领取冻结最近完整历史，按上下文字节预算无状态截断。六段 renderer 递归规范化对象键，保留数组次序、原 args_raw 和图片原始引用；s7-renderer 子命令供两个独立进程比较字节。图片只接受当前成员已上传的 chat 原图 SHA-256 引用；二进制适配器从 Original 读取并编码，既不下载用户 URL，也不重编码图片。
+- 固定两个 worker，NOTIFY 唤醒及 5 秒轮询；租约 60 秒、20 秒续租。30 秒清扫器把过期租约标 interrupted，收尾已持久消息，不自动重排。waiting_ai 最多 10 分钟，问答 7 天、确认 24 小时。退出 / 移出同步撤销租约；维护路径重新校验失效成员并关闭消息，避免不能再进入 SpaceTx 的成员留下永久 streaming 回复。
+- 显式重试在源运行锁内复制完整 journal / tool_calls / 原 key，并追加 note，不复制原 UI 事件或卡片；成功结果不执行。清理与重试锁定同一个源运行。源已压缩、epoch 或权限变化拒绝重试。重试是新运行，重新冻结当前工具定义；不兼容的未执行调用转换为明确的工具错误供模型使用当前定义重新提出，绝不猜测迁移旧参数，已提交结果仍保留。
+- 预算为 20 轮、10 分钟内存活跃时间、5 分钟单次模型、60 秒模型流空闲、10 秒工具。超限 failed，服务端确定性收尾；PartialOutput interrupted。原运行 schema 版本变化安全失败，由用户重试新运行，不在原消息热迁移执行状态。优雅停机停止领取、最多等待约 20 秒，剩余本进程拥有的 running 回复 interrupted，不释放回队列。
+- 独立 RuntimeMeter 登记 / 完成每次物理调用，记录 first / continue / resume / retry 和规范前缀 hash。取消 / 超时 / 停机后的未完成调用另行标失败；不依赖凭据内部状态。
+
+新增迁移 `0010_s7_checkpoint_timing.sql` 仅保存 ChatWeave 私有 `step_work_ms`，防止跨进程回答时丢掉暂停前步骤用时。该列不下发、不属于模型前缀，不是已删除的运行活跃时间恢复检查点。0009 保持已提交版本不变。构建机需重生成 chat_entries 实体；本机未修改生成文件。
+
+有意简化补充：原运行遇到不兼容工具 schema 不进行热迁移，结束为 failed，显式重试的新运行使用当前定义并复用已提交结果。历史预算采用保守的上下文字节额度和整条截断，不调用模型摘要，不保存整理进度。
+
+测试代码：
+
+- `agent/tests/runtime.rs`：真实 PG18 独立数据库与 MockProvider；领取 / FIFO / A-B-C、暂停重启与清空日志后回答、双设备、回答与停止 / 过期、动作绑定与伪造选项、授权先于回执、其他成员隔离、租约过期 interrupted / 陈旧 epoch、PartialOutput、waiting_ai 停止与期限、最终 rev / 修订、午饭 5000 分和停车 1000 分重试且只发新卡、SAVEPOINT 失败、提交前回滚、最终提交原子性、停止保留已提交写入、工具超时、20 轮 / 活跃 / 单次模型 / 空闲预算、停机、7 / 30 天清理及角色权限、清理与重试竞争。
+- 同文件 SSE 测试通过包装真实 PG EventLog 的 barrier 确定性交接，覆盖最后 end、缺号补读、Lagged、提交后未广播即崩溃、清理后快照及权威 head；degraded activity 经过协议校验且不进可靠日志。
+- `agent/tests/renderer.rs` 启动两个独立 s7-renderer 子进程，比较规范字节；decision / budget / render / chat blocks 包含普通表驱动与纯函数单元测试，不引入 proptest。
+
+以上是新增测试的覆盖说明，**不是测试通过声明**。本机只运行 Cargo.toml 解析、Rust 分隔符静态检查、`tool/check-rules.sh`、`git diff --check`。没有运行 Rust、PostgreSQL 或 renderer 测试，没有运行 fmt / clippy / 构建 / 联网。
+
+最需首次编译核对的地方：
+
+1. `agent/runtime.rs` 的 Collector 对 prompt / sink 的借用，select 中 pinned router future 与暂存 MutexGuard，以及 Tokio spawn 要求的 Send。
+2. `tools/registry.rs::invoke_read_in_tx` 与 executor 的同事务并发借用；SeaORM DatabaseTransaction 的 Sync / Send、join_all 的 future 生命周期。
+3. `chat/lib.rs` 的 axum BodyDataStream / unfold / Body::from_stream 类型，以及 git ChatWeave 的 SSE Response 与工作区 axum 的统一版本。
+4. 真实 PG18 的 JSONB / bytea / UUID 数组参数推断、运行领取 SQL 和终态修订 JSONB 表达式；Rust 编译无法替代这部分数据库测试。
+5. 新增私有步骤计时列需要应用 0010 和重生成实体；Cargo.lock 没有手工更新，格式也尚未由 rustfmt 处理。
+
+第三步仍需把 HTTP 的空间 / epoch / 请求幂等身份绑定到 ScopedRuns，并让路由与 worker 使用同一个 StreamHub，完成 SSE 超时层豁免、隔离矩阵、动作响应契约与 OpenAPI。当前二进制的 worker / 清扫 / 原图 / 停机接线已加入，HTTP 兼容骨架仍关闭聊天请求。
+
+第二步改动文件（完整列表）：
+
+- `server/S7-DELIVERY.md`
+- `server/bins/server/Cargo.toml`
+- `server/bins/server/src/main.rs`
+- `server/crates/agent/Cargo.toml`
+- `server/crates/agent/src/lib.rs`
+- `server/crates/chat/Cargo.toml`
+- `server/crates/chat/src/lib.rs`
+- `server/crates/db/src/lib.rs`
+- `server/crates/db/src/spaces.rs`
+- `server/crates/tools/src/ask_user.rs`
+- `server/crates/tools/src/context.rs`
+- `server/crates/tools/src/lib.rs`
+- `server/crates/tools/src/registry.rs`
+- `server/bins/server/src/chat_runtime.rs`
+- `server/crates/agent/src/bin/s7-renderer.rs`
+- `server/crates/agent/src/budget.rs`
+- `server/crates/agent/src/decision.rs`
+- `server/crates/agent/src/executor.rs`
+- `server/crates/agent/src/meter.rs`
+- `server/crates/agent/src/render.rs`
+- `server/crates/agent/src/runtime.rs`
+- `server/crates/agent/src/service.rs`
+- `server/crates/agent/tests/renderer.rs`
+- `server/crates/agent/tests/runtime.rs`
+- `server/crates/chat/src/blocks.rs`
+- `server/crates/chat/src/staging.rs`
+- `server/crates/db/src/chat_runtime.rs`
+- `server/migrations/0010_s7_checkpoint_timing.sql`

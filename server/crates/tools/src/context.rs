@@ -20,6 +20,7 @@ pub struct Invocation {
 /// After parameter validation, invoke opens the write transaction and rechecks the
 /// live member/epoch under its space lock. No arbitrary member can be supplied.
 pub struct ToolCtx {
+    pub(crate) run_lease: Option<jiabu_db::chat_runtime::RunLease>,
     pub space_id: SpaceId,
     pub member: ActiveMember,
     pub(crate) bound_space: SpaceId,
@@ -61,6 +62,7 @@ impl ToolCtx {
             _ => (None, None),
         };
         Ok(Self {
+            run_lease: None,
             space_id,
             member,
             bound_space: space_id,
@@ -101,6 +103,7 @@ impl ToolCtx {
             )?
             .clone();
         Ok(Self {
+            run_lease: None,
             space_id,
             member,
             bound_space: space_id,
@@ -119,6 +122,16 @@ impl ToolCtx {
             audit_completed: Arc::new(AtomicBool::new(false)),
             api_key_operation: None,
         })
+    }
+    pub fn bind_run_lease(
+        mut self,
+        lease: jiabu_db::chat_runtime::RunLease,
+    ) -> Result<Self, ToolError> {
+        if self.run_id != Some(lease.run_id) {
+            return Err(ToolError::not_found());
+        }
+        self.run_lease = Some(lease);
+        Ok(self)
     }
     pub(crate) fn key_audit(
         &self,
@@ -161,8 +174,13 @@ impl ToolCtx {
         }
     }
     pub fn new_id(&self, supplied: Option<Uuid>) -> Result<Uuid, ToolError> {
-        supplied
-            .or(self.idempotency_key)
-            .ok_or_else(|| ToolError::new(400, "idempotency_key_required"))
+        // Agent-created entities use the durable call identity, even when a
+        // model supplies an unrelated ID. Retry copies that identity verbatim.
+        (if self.run_id.is_some() {
+            self.idempotency_key
+        } else {
+            supplied.or(self.idempotency_key)
+        })
+        .ok_or_else(|| ToolError::new(400, "idempotency_key_required"))
     }
 }

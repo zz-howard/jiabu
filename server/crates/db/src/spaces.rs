@@ -125,7 +125,7 @@ impl SpaceTx {
         Ok(MemberId(id))
     }
     async fn cancel_runs(&self, space: SpaceId, member: Option<MemberId>) -> Result<(), Error> {
-        self.execute("update agent_runs set status='cancelled',last_error='space_unavailable' where space_id=$1 and ($2::uuid is null or member_id=$2) and status in ('queued','running','paused','waiting_ai')",
+        self.execute("update agent_runs set status='cancelled',last_error='space_unavailable',lease_epoch=lease_epoch+1,lease_owner=null,lease_until=null,ended_at=now() where space_id=$1 and ($2::uuid is null or member_id=$2) and status in ('queued','running','paused','waiting_ai')",
             vec![space.0.into(), member.map(|m| m.0).into()]).await?;
         Ok(())
     }

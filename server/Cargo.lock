@@ -2168,12 +2168,22 @@ dependencies = [
 name = "jiabu-agent"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-util",
  "jiabu-ai",
  "jiabu-chat",
  "jiabu-db",
+ "jiabu-db-admin",
+ "jiabu-domain",
  "jiabu-tools",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -2248,10 +2258,14 @@ name = "jiabu-chat"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "chatweave-protocol",
  "chatweave-server",
+ "futures-util",
  "jiabu-db",
  "jiabu-domain",
+ "serde_json",
+ "tokio",
  "uuid",
 ]
 
@@ -2310,13 +2324,17 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "config",
+ "futures-util",
  "image",
  "jiabu-admin",
+ "jiabu-agent",
  "jiabu-ai",
  "jiabu-api",
+ "jiabu-chat",
  "jiabu-db",
  "jiabu-db-admin",
  "jiabu-domain",

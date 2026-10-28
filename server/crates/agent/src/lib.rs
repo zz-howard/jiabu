@@ -1,4 +1,4 @@
-//! S7 runtime contracts. Step 1 does not claim, enqueue, or execute runs.
+//! Durable chat runs. HTTP binding remains a separate delivery step.
 use jiabu_db::{OperationError, Principal};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -51,6 +51,8 @@ pub struct StartResponse {
     pub user_message_id: Uuid,
     pub message_id: Uuid,
 }
+/// Stateless facade. Bind db/space/epoch/hub with scoped() for runtime work.
+/// Legacy unbound calls remain fail-closed until HTTP handlers are wired in step 3.
 #[derive(Clone, Default)]
 pub struct RunService;
 impl RunService {
@@ -88,15 +90,16 @@ impl RunService {
     }
 }
 
-/// Worker and sweeper are contracts only; no background tasks start in step 1.
-/// Expired leases, shutdown timeouts and PartialOutput end as Interrupted.
-/// Only an explicit user retry creates a replacement run.
-pub struct Worker {
-    pub id: Uuid,
-    pub router: std::sync::Arc<jiabu_ai::RouterStore>,
-    pub tools: std::sync::Arc<jiabu_tools::ToolRegistry>,
-}
-pub struct Sweeper;
-pub struct ToolExecutor {
-    pub registry: std::sync::Arc<jiabu_tools::ToolRegistry>,
-}
+mod decision;
+mod executor;
+pub mod render;
+mod runtime;
+mod service;
+pub use decision::{NextAction, next_action};
+pub use executor::ToolExecutor;
+pub use runtime::{ImageLoader, Runtime, RuntimeHandle};
+pub use service::ScopedRuns;
+mod meter;
+pub use meter::RuntimeMeter;
+mod budget;
+pub use budget::RunBudget;

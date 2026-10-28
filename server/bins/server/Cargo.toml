@@ -32,6 +32,10 @@ serde_json.workspace = true
 jiabu-ai.workspace = true
 async-trait.workspace = true
 zeroize.workspace = true
+jiabu-agent.workspace = true
+jiabu-chat.workspace = true
+base64.workspace = true
+futures-util.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 jiabu-admin.workspace = true
