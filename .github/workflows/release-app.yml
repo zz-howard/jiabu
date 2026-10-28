@@ -31,11 +31,11 @@ jobs:
         if: steps.android.outputs.ready == 'true'
         working-directory: client/app
         run: |
-          flutter build apk --debug --target lib/main_dev.dart
-          # TODO(C7): Add flavors, release signing, metadata, and publication.
+          flutter build apk --debug --flavor dev --target lib/main_dev.dart
+          # TODO(C7): Release signing, metadata, and publication.
       - uses: actions/upload-artifact@v4
         if: steps.android.outputs.ready == 'true'
         with:
           name: jiabu-app-debug
-          path: client/app/build/app/outputs/flutter-apk/app-debug.apk
+          path: client/app/build/app/outputs/flutter-apk/app-dev-debug.apk
           if-no-files-found: error
