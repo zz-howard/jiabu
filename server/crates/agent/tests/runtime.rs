@@ -409,6 +409,50 @@ async fn new_c_closes_paused_a_but_does_not_overtake_queued_b() -> Result<()> {
     Ok(())
 }
 #[tokio::test]
+async fn reclaimed_run_rejects_writes_from_the_same_owners_earlier_epoch() -> Result<()> {
+    let f = Fixture::new(vec![]).await?;
+    f.start().await?;
+    let owner = Uuid::now_v7();
+    let tx = SpaceTx::begin(&f.db, f.p.user_id, &[(f.space, None)], Mode::Write).await?;
+    let run = tx.claim_run(f.space, owner).await?.context("claim")?;
+    tx.commit().await?;
+    // Pause, answer and reclaim by the same worker leave status, owner and
+    // lease unchanged; only the epoch tells the old holder apart.
+    sqlx::query("update agent_runs set lease_epoch=lease_epoch+1 where id=$1")
+        .bind(run.id)
+        .execute(&f.owner)
+        .await?;
+    let tx = SpaceTx::begin(&f.db, f.p.user_id, &[(f.space, None)], Mode::Write).await?;
+    let stale = RunLease {
+        run_id: run.id,
+        owner,
+        epoch: run.lease_epoch,
+    };
+    assert!(tx.guard_run(f.space, stale).await.is_err());
+    let current = RunLease {
+        epoch: run.lease_epoch + 1,
+        ..stale
+    };
+    assert!(tx.guard_run(f.space, current).await.is_ok());
+    tx.rollback().await?;
+    Ok(())
+}
+#[tokio::test]
+async fn later_message_waits_behind_earlier_run_backing_off_for_ai() -> Result<()> {
+    let f = Fixture::new(vec![]).await?;
+    let a = f.start().await?;
+    let b = f.start().await?;
+    sqlx::query("update agent_runs set status='waiting_ai',waiting_ai_since=now(),run_after=now()+interval '1 minute' where assistant_message_id=$1")
+        .bind(a.message_id)
+        .execute(&f.owner)
+        .await?;
+    let tx = SpaceTx::begin(&f.db, f.p.user_id, &[(f.space, None)], Mode::Write).await?;
+    assert!(tx.claim_run(f.space, Uuid::now_v7()).await?.is_none());
+    tx.rollback().await?;
+    assert_eq!(f.run(b.message_id).await?.status, "queued");
+    Ok(())
+}
+#[tokio::test]
 async fn workers_skip_locked_claim_each_run_once_and_fifo_uses_uuid_tiebreak() -> Result<()> {
     let f = Fixture::new(vec![]).await?;
     let a = f.start().await?;
