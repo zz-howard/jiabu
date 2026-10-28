@@ -479,28 +479,6 @@ class RecordForm extends ConsumerWidget {
                       final baseline =
                           state.values['_opened_record']
                               as Map<String, Object?>?;
-                      if (original != null && baseline != null) {
-                        final current = ref
-                            .read(ledgerViewModelProvider(spaceId))
-                            .snapshot;
-                        final latest = current?.find(
-                          current.records,
-                          original.id,
-                        );
-                        if (latest == null) {
-                          model.fail('not_found');
-                          return;
-                        }
-                        if (recordEditIsStale(
-                          latest,
-                          state.values['_opened_version'] as int? ??
-                              original.number('version'),
-                          baseline,
-                        )) {
-                          model.refreshRecord(latest, snapshot.currency);
-                          return;
-                        }
-                      }
                       final amount = parseMinor(
                         state.values['amount_text']?.toString() ?? '',
                         snapshot.currency,
@@ -531,9 +509,9 @@ class RecordForm extends ConsumerWidget {
                         else if (original == null)
                           'tag_ids': <String>[],
                       };
-                      final ok = await model.submit((repo, _) {
+                      final ok = await model.submit((repo, _) async {
                         if (original == null) {
-                          return repo.createRecord(spaceId, values);
+                          return await repo.createRecord(spaceId, values);
                         }
                         final editable = {...values}
                           ..remove('kind')
@@ -542,10 +520,23 @@ class RecordForm extends ConsumerWidget {
                           editable,
                           baseline ?? original.data,
                         );
-                        if (changes.isEmpty) {
-                          return Future.value(Ok(original.id));
+                        final result = await repo.editRecord(
+                          spaceId,
+                          original.id,
+                          changes,
+                          openedVersion:
+                              state.values['_opened_version'] as int? ??
+                              original.number('version'),
+                        );
+                        if (result is Failure<String> &&
+                            result.code == 'record_changed_elsewhere') {
+                          final latest = await repo.watch(spaceId).first;
+                          final row = latest.find(latest.records, original.id);
+                          if (row != null && context.mounted) {
+                            model.refreshRecord(row, latest.currency);
+                          }
                         }
-                        return repo.editRecord(spaceId, original.id, changes);
+                        return result;
                       });
                       if (ok && context.mounted) {
                         Navigator.of(context).pop();
@@ -643,7 +634,7 @@ class AccountForm extends ConsumerWidget {
             onPressed: state.busy || !snapshot.writable
                 ? null
                 : () async {
-                    final name = state.values['name']?.toString().trim() ?? '';
+                    final name = state.values['name']?.toString() ?? '';
                     final opening = parseMinor(
                       state.values['opening_text']?.toString() ?? '0',
                       snapshot.currency,
@@ -652,7 +643,7 @@ class AccountForm extends ConsumerWidget {
                           .symbols
                           .DECIMAL_SEP,
                     );
-                    if (name.isEmpty ||
+                    if (name.trim().isEmpty ||
                         opening == null ||
                         !validLedgerDate(
                           state.values['opening_on']?.toString() ?? '',

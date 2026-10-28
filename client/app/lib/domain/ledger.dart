@@ -94,8 +94,9 @@ abstract interface class LedgerRepository {
   Future<Result<String>> editRecord(
     String spaceId,
     String id,
-    Map<String, Object?> changes,
-  );
+    Map<String, Object?> changes, {
+    int? openedVersion,
+  });
   Future<Result<String>> recordStatus(
     String spaceId,
     String id, {

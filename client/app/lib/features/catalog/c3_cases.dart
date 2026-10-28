@@ -283,8 +283,9 @@ class _PreviewRepository implements LedgerRepository {
   Future<Result<String>> editRecord(
     String s,
     String id,
-    Map<String, Object?> v,
-  ) async => const Failure('catalog');
+    Map<String, Object?> v, {
+    int? openedVersion,
+  }) async => const Failure('catalog');
   @override
   Future<Result<String>> recordStatus(
     String s,

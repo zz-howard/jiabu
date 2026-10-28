@@ -369,4 +369,80 @@ void main() {
       );
     });
   }
+  test('edit_save_rejects_stale_database_version', () async {
+    await h.seed('r', amount: 10000);
+    final opened = (await repo.snapshot('s')).records.single;
+    // The UI still holds v1; pull has already committed v2 to the database.
+    await h.store.putEntity('s', 'record', {
+      ...opened.data,
+      'version': 2,
+      'amount_minor': 20000,
+    });
+    final result = await repo.editRecord('s', 'r', {
+      'note': '用户A修改备注',
+    }, openedVersion: opened.number('version'));
+    expect(result, isA<Failure<String>>());
+    expect((result as Failure<String>).code, 'record_changed_elsewhere');
+    expect(await h.store.outbox('s'), isEmpty);
+    final row = (await h.store.entity('s', 'record', 'r'))!;
+    expect(row.data['amount_minor'], 20000);
+    expect(row.data['note'], opened.data['note']);
+    expect(row.syncState, 'synced');
+  });
+  Map<String, Object?> accountValues(
+    String kind,
+    String name, {
+    bool reserve = false,
+  }) => {
+    'kind': kind,
+    'name': name,
+    'opening_balance_minor': 0,
+    'opening_on': '2026-10-28',
+    'is_reserve': reserve,
+  };
+  test('account_create_rejects_duplicate_active_name', () async {
+    await repo.createAccount('s', accountValues('real', 'Cash'));
+    final count = (await h.store.entities('s', 'account')).length;
+    final result = await repo.createAccount('s', accountValues('real', 'cash'));
+    expect((result as Failure<String>).code, 'account_name_taken');
+    expect((await h.store.outbox('s')).length, 1);
+    expect((await h.store.entities('s', 'account')).length, count);
+  });
+  test('account_create_rejects_second_reserve', () async {
+    await repo.createAccount(
+      's',
+      accountValues('purpose', '用户A备用金', reserve: true),
+    );
+    final result = await repo.createAccount(
+      's',
+      accountValues('purpose', '用户B备用金', reserve: true),
+    );
+    expect((result as Failure<String>).code, 'reserve_account_exists');
+    expect((await h.store.outbox('s')).length, 1);
+  });
+  test('account_name_check_preserves_spaces_width_kind_and_archived', () async {
+    await h.store.putEntity('s', 'account', {
+      ...accountValues('real', 'Cash'),
+      'id': 'archived',
+      'space_id': 's',
+      'version': 1,
+      'archived_at': '2026-10-28',
+    });
+    for (final pair in [
+      ('real', 'Cash'),
+      ('real', ' Cash '),
+      ('real', 'Ｃａｓｈ'),
+      ('purpose', 'Cash'),
+    ]) {
+      expect(
+        await repo.createAccount('s', accountValues(pair.$1, pair.$2)),
+        isA<Ok<String>>(),
+      );
+    }
+    expect(
+      (await h.store.outbox('s'))
+          .map((op) => (op.payload['args']! as Map<String, Object?>)['name']),
+      ['Cash', ' Cash ', 'Ｃａｓｈ', 'Cash'],
+    );
+  });
 }

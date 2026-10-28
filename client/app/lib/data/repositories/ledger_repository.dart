@@ -82,15 +82,22 @@ final class LocalLedgerRepository implements LedgerRepository {
   Future<Result<String>> editRecord(
     String spaceId,
     String id,
-    Map<String, Object?> changes,
-  ) => store.transaction(() async {
+    Map<String, Object?> changes, {
+    int? openedVersion,
+  }) => store.transaction(() async {
     final data = await snapshot(spaceId);
     final old = data.find(data.records, id);
     if (old == null) {
       return const Failure('not_found');
     }
+    if (openedVersion != null && old.number('version') != openedVersion) {
+      return const Failure('record_changed_elsewhere');
+    }
     if (!old.active) {
       return const Failure('parent_voided');
+    }
+    if (changes.isEmpty) {
+      return Ok(id);
     }
     final error = validateRecord(data, {...old.data, ...changes}, editing: id);
     if (error != null) {
@@ -160,16 +167,32 @@ final class LocalLedgerRepository implements LedgerRepository {
     String spaceId,
     Map<String, Object?> values,
   ) => store.transaction(() async {
-    final name = values['name']?.toString().trim() ?? '';
+    final name = values['name']?.toString() ?? '';
     final opening = values['opening_balance_minor'];
     if (!validLedgerDate(values['opening_on']?.toString() ?? '') ||
         opening is! int ||
         opening.abs() > 1000000000000 ||
-        name.isEmpty ||
+        name.trim().isEmpty ||
         name.runes.length > 30 ||
         !const ['real', 'purpose'].contains(values['kind']) ||
         (values['is_reserve'] == true && values['kind'] != 'purpose')) {
       return const Failure('validation_failed');
+    }
+    // Server check_account uses lower(name), without trimming or NFKC.
+    final active = (await store.entities(
+      spaceId,
+      'account',
+    )).where((row) => row.data['archived_at'] == null);
+    if (active.any(
+      (row) =>
+          row.data['kind'] == values['kind'] &&
+          row.data['name']?.toString().toLowerCase() == name.toLowerCase(),
+    )) {
+      return const Failure('account_name_taken');
+    }
+    if (values['is_reserve'] == true &&
+        active.any((row) => row.data['is_reserve'] == true)) {
+      return const Failure('reserve_account_exists');
     }
     final id = mutations.newId();
     return await mutations.enqueueTool(

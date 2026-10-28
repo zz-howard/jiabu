@@ -355,5 +355,8 @@
       }
     }
   },
-  "ledgerRecentlyChanged": "这笔刚被别处改过，已刷新，请重新确认。"
+  "ledgerRecentlyChanged": "这笔刚被别处改过，已刷新，请重新确认。",
+  "ledgerAccountNameTaken": "已有同类同名账户，请换一个名称。",
+  "ledgerReserveExists": "已有备用金，不能重复创建。",
+  "ledgerAccountCreateRejected": "服务器拒绝创建，可能已有同名账户或备用金；需删除后重建，本版暂不支持删除未上传账户。"
 }

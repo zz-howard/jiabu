@@ -748,6 +748,17 @@ class AccountsPage extends ConsumerWidget {
                             ? l.ledgerFailed
                             : l.ledgerUpload,
                       ),
+                    if (snapshot
+                        .operations('account', account.id)
+                        .any(
+                          (op) =>
+                              op.text('tool') == 'create_account' &&
+                              op.text('state') == 'failed',
+                        ))
+                      Text(
+                        l.ledgerAccountCreateRejected,
+                        style: context.jiabu.type.secondary,
+                      ),
                     if (balances.containsKey(account.id))
                       ledgerAmount(
                         context,

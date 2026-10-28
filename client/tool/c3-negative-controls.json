@@ -185,16 +185,16 @@
     },
     {
       "id": "edit_opened_version_refresh",
-      "file": "client/app/lib/domain/record_edit.dart",
-      "find": "latest.number('version') != openedVersion ||\n    changedRecordFields(latest.data, baseline).isNotEmpty",
+      "file": "client/app/lib/data/repositories/ledger_repository.dart",
+      "find": "openedVersion != null && old.number('version') != openedVersion",
       "replace": "false",
       "expected_occurrences": 1,
-      "find_regex": "latest\\.number\\('version'\\)\\s*!=\\s*openedVersion\\s*\\|\\|\\s*changedRecordFields\\(latest\\.data,\\s*baseline\\)\\.isNotEmpty",
-      "test_file": "client/app/test/features/c3_review_regression_test.dart",
+      "find_regex": "openedVersion\\s*!=\\s*null\\s*\\&\\&\\s*old\\.number\\('version'\\)\\s*!=\\s*openedVersion",
+      "test_file": "client/app/test/data/c3_ledger_repository_test.dart",
       "test_names": [
-        "edit_refreshes_and_blocks_when_opened_version_changes"
+        "edit_save_rejects_stale_database_version"
       ],
-      "command": "flutter test test/features/c3_review_regression_test.dart --plain-name edit_refreshes_and_blocks_when_opened_version_changes"
+      "command": "flutter test test/data/c3_ledger_repository_test.dart --plain-name edit_save_rejects_stale_database_version"
     }
   ]
 }

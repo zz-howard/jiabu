@@ -33,8 +33,13 @@ class FakeLedgerRepository implements LedgerRepository {
   Future<Result<String>> editRecord(
     String s,
     String id,
-    Map<String, Object?> v,
-  ) async {
+    Map<String, Object?> v, {
+    int? openedVersion,
+  }) async {
+    final row = snapshot.find(snapshot.records, id);
+    if (openedVersion != null && row?.number('version') != openedVersion) {
+      return const Failure('record_changed_elsewhere');
+    }
     calls.add('edit:$id');
     recordWrites.add(Map.of(v));
     return writeResult;

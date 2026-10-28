@@ -611,3 +611,65 @@ ARB 键及改动过的注解源码需在构建机重新生成 l10n / build_runne
 check_rules 通过，所有修改的 Dart 行长不超过 80，双语 ARB 键一致，
 15 条负对照的 find / regex 均唯一，golden.sh 经 bash -n，git diff --check
 通过。没有完整项目依赖解析，因此这些检查不等于 analyze 或测试通过。
+
+
+## PR #13 第二轮：aacb422 上的最小修正
+
+- 编辑表单将已有的 `_opened_version` 传给 editRecord；只在原保存事务中
+  读当前行后比较版本，不同即返回既有 record_changed_elsewhere 失败，
+  不做乐观写入、不入队。UI 预检查及不再使用的 recordEditIsStale 已删除，
+  失败后用现有 repository.watch(spaceId).first 读最新记录，复用 refreshRecord
+  与已有提示。空改动也先经过同一事务检查，再返回成功，不入空更新。
+- 新建账户在原事务内查重：按服务端 writes.rs:89–99 的 check_account
+  及 server/migrations/0003_content.sql:17–18，同空间、同类、未归档账户
+  比较 lower(name)，备用金同空间未归档只能一个。没有 NFKC，也不 trim
+  存储名称；trim 只用于检查空白。新建表单与仓库已去掉保存前自动 trim，
+  大小写比较用 toLowerCase，全半角与首尾空格仍有区别。
+- 本机查重失败复用现有表单错误显示；服务端仍拒绝创建时，保留原失败状态，
+  在账户列表补充一句说明。不改写 outbox、不增加重试 / 删除流程；未新增
+  状态、表、列、依赖或生成文件。
+
+新增测试：
+
+- edit_save_rejects_stale_database_version：库已提交 v2，UI 仍持有 v1，
+  保存失败且行内容不变、outbox 为空。
+- account_create_rejects_duplicate_active_name
+- account_create_rejects_second_reserve
+- account_name_check_preserves_spaces_width_kind_and_archived
+- failed_account_creation_explains_current_limitation
+
+现有 edit_refreshes_and_blocks_when_opened_version_changes 继续验证刷新提示；
+测试 double 调整为在 editRecord 边界检查传入版本。原负对照
+edit_opened_version_refresh 改指向仓库内的版本比较，运行
+edit_save_rejects_stale_database_version；总数仍为 15，不新增负对照机制。
+现有 113 张 golden 的数据没有创建失败的账户，因此预计均不变；新增提示
+由组件测试覆盖，不加 golden 状态或 PNG。
+
+改动文件：
+
+- `client/C3-DELIVERY.md`
+- `client/app/lib/data/repositories/ledger_repository.dart`
+- `client/app/lib/domain/ledger.dart`
+- `client/app/lib/domain/record_edit.dart`
+- `client/app/lib/features/catalog/c3_cases.dart`
+- `client/app/lib/l10n/app_en.arb`
+- `client/app/lib/l10n/app_zh.arb`
+- `client/app/lib/shared/ledger/ledger_forms.dart`
+- `client/app/lib/shared/ledger/ledger_labels.dart`
+- `client/app/lib/shared/ledger/ledger_pages.dart`
+- `client/app/test/data/c3_ledger_repository_test.dart`
+- `client/app/test/features/c3_review_regression_test.dart`
+- `client/app/test/support/ledger_fake.dart`
+- `client/tool/c3-negative-controls.json`
+
+验证边界：本机只做离线语法解析、规则与静态核对，不运行 Flutter 测试、
+analyze、生成或负对照；代码格式与动态验证由构建机检查，新增 ARB 需生成
+l10n。未改 docs/、server/、schema 或生成文件。
+
+本轮静态检查通过：离线语法解析、check_rules、行长、双语 ARB 键、15 条
+负对照唯一锚点与 git diff --check；没有把这些结果视为动态测试通过。
+
+## 已知限制
+
+- 跨设备同时创建同类同名账户或备用金仍可能被服务端拒绝，需要删除未上传账户后重建，但 C3 没有可复用的删除 / 放弃入口，当前只显示提示，引用该账户的记录也会继续等待。
+- 已归档账户因旧账修正重新出现余额时，服务端仍不支持直接转走余额或取消归档，当前只提示回查旧账。

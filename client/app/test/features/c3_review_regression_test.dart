@@ -8,6 +8,7 @@ import 'package:jiabu/domain/ledger.dart';
 import 'package:jiabu/domain/result.dart';
 import 'package:jiabu/features/catalog/c3_cases.dart';
 import 'package:jiabu/shared/ledger/ledger_forms.dart';
+import 'package:jiabu/shared/ledger/ledger_pages.dart';
 import 'package:jiabu/shared/ledger/ledger_view_model.dart';
 import 'package:jiabu/shared/ledger/record_details.dart';
 import 'package:jiabu_design/jiabu_design.dart';
@@ -244,5 +245,37 @@ void main() {
           .values['occurred_on'],
       '2026-10-28',
     );
+  });
+  testWidgets('failed_account_creation_explains_current_limitation', (
+    tester,
+  ) async {
+    final base = c3Snapshot('accounts');
+    final data = LedgerSnapshot(
+      spaceId: base.spaceId,
+      space: base.space,
+      accounts: [
+        LedgerRow(base.accounts.first.data, syncState: 'pending'),
+        ...base.accounts.skip(1),
+      ],
+      pending: [
+        LedgerRow({
+          'id': 'failed-create',
+          'tool': 'create_account',
+          'state': 'failed',
+          'entity_ids': ['account:${base.accounts.first.id}'],
+        }),
+      ],
+    );
+    final repo = FakeLedgerRepository(data);
+    addTearDown(repo.changes.close);
+    await pumpC3(
+      tester,
+      repository: repo,
+      scale: 2,
+      child: AccountsPage(snapshot: data),
+    );
+    expect(find.text('上传失败'), findsOneWidget);
+    expect(find.textContaining('本版暂不支持删除未上传账户'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

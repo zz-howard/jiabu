@@ -27,6 +27,8 @@ Map<String, String> ledgerLabels(AppLocalizations l) => {
 };
 String ledgerError(AppLocalizations l, String code) => switch (code) {
   'record_changed_elsewhere' => l.ledgerRecentlyChanged,
+  'account_name_taken' => l.ledgerAccountNameTaken,
+  'reserve_account_exists' => l.ledgerReserveExists,
   'validation_failed' => l.ledgerInvalid,
   'aggregate_out_of_range' => l.ledgerAggregateRange,
   'same_endpoints' => l.ledgerSameEndpoints,

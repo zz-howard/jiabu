@@ -355,5 +355,8 @@
       }
     }
   },
-  "ledgerRecentlyChanged": "This entry changed elsewhere. Review the refreshed values and confirm again."
+  "ledgerRecentlyChanged": "This entry changed elsewhere. Review the refreshed values and confirm again.",
+  "ledgerAccountNameTaken": "An active account of this kind already uses that name.",
+  "ledgerReserveExists": "A reserve account already exists.",
+  "ledgerAccountCreateRejected": "The server rejected this account; its name or reserve setting may already be in use. It needs to be deleted and recreated; deleting unuploaded accounts is not supported yet."
 }
