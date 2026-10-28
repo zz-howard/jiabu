@@ -99,7 +99,7 @@ impl ToolExecutor<'_> {
         };
         let (output, status) = match result {
             Ok(value) => {
-                if tool.effect() == Effect::LocalWrite
+                let shows_component = tool.effect() == Effect::LocalWrite
                     || matches!(
                         tool.name(),
                         "query_stats"
@@ -107,7 +107,8 @@ impl ToolExecutor<'_> {
                             | "document_metric_series"
                             | "search_records"
                             | "list_accounts"
-                    )
+                    );
+                if shows_component
                     && let Some((kind, data, fallback)) =
                         jiabu_chat::map_tool_result(&call.tool, &value)
                             .map_err(service::protocol_error)?
