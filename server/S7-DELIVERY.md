@@ -28,6 +28,7 @@
 10. 非 SIWC 的真实付费适配器按范围不实现。配置能力与付费开关已存在，Mock 覆盖付费降级。ChatWeave 依赖、dispatcher 授权接线与通用后续项均在 PR ② 处理。
 
 11. 凭据可用 / 回退 / 丢弃规则：存储读取明确返回 `Present(revision, 凭据)`、`Cleared(revision)` 或临时故障 `Unavailable`；先读 revision / usable，墓碑不解密，密文或 JSON 损坏按 Auth 不可用处理。仅 `Unavailable` 可回退到共享 pending；同 revision 优先 pending，墓碑、损坏或库中 revision 更新立即丢弃 pending 和旧退避，更新的 Present 采用库中凭据。pending 保留最新轮换结果与原 CAS 基准，在可取消的保存前发布；相同 provider / 来源的 reload 共用它、刷新锁和退避。`available()` 表示未确定失效，且访问令牌未过期 / 未被拒，或有 refresh token 且不在刷新退避期；需要刷新仍允许 router 进入 `access()` 并在共享锁下刷新。401 / invalid_token 把旧访问令牌标为过期，禁止重发；刷新临时故障退避 5 秒，结束后经路由恢复，仅令牌端点明确的 invalid_grant / invalid_client / unauthorized_client 永久失效。无 pending 的临时读取故障在退避结束后允许重新读取探测。clear-secret 清空密文并保留递增 revision 的墓碑，重新登录继续递增，旧 CAS 不能覆盖新版本。
+    第七轮补充：每次模型请求的 Auth（401 / invalid_token，含第二次失败及已有输出之后）均按访问令牌身份记录被拒，迟到的旧令牌失败不误标新令牌；是否刷新重试仍限一次且已有输出不重试。文件来源的 NotFound、权限违规（含 0600 检查）、JSON / 结构损坏仍为权威结果，其他 IO 错误（含 EIO、EMFILE、Interrupted）返回 Unavailable 并保留 pending，恢复后继续使用最新 R1。刷新闸门按 `(provider_id, source_identity)` 常驻保存、不从 map 移除，db → file → db 复用原闸门的锁、pending 和退避。
 12. router 跟踪已送往 sink 的非空文字、工具调用及 Note；已部分输出后的失败返回带原始错误的 PartialOutput，停止同一 sink 上的透明重试和降级，PR ② 据此保留已有文字并另起一块。
 13. 半开探测由 RAII 许可持有，提前返回或取消均按失败释放；包含重试及 observer / sink 等待的单提供方调用总时限为 300 秒，过期探测在额外冷却后可回收，许可代次隔离过期探测的迟到收尾。
 

@@ -109,19 +109,17 @@ impl TokenStore for EnvironmentTokens {
     }
 }
 fn refresh_gate(provider: &str, source: &str) -> Arc<RefreshGate> {
-    type Gates = std::sync::Mutex<std::collections::BTreeMap<String, (String, Arc<RefreshGate>)>>;
+    type Gates = std::sync::Mutex<std::collections::BTreeMap<(String, String), Arc<RefreshGate>>>;
     static GATES: std::sync::OnceLock<Gates> = std::sync::OnceLock::new();
     let mut gates = GATES
         .get_or_init(Gates::default)
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let entry = gates
-        .entry(provider.to_owned())
-        .or_insert_with(|| (source.to_owned(), Arc::new(RefreshGate::default())));
-    if entry.0 != source {
-        *entry = (source.to_owned(), Arc::new(RefreshGate::default()));
-    }
-    entry.1.clone()
+    // Keep every source resident so switching back reuses lock, pending and backoff.
+    gates
+        .entry((provider.to_owned(), source.to_owned()))
+        .or_insert_with(|| Arc::new(RefreshGate::default()))
+        .clone()
 }
 async fn reload(db: &AppDb, store: &RouterStore) -> Result<()> {
     reload_with_key(db, store, SecretKey::from_environment).await
@@ -306,7 +304,7 @@ mod tests {
             &env,
             &refresh_gate("synthetic-gate", "env:SYNTHETIC_B")
         ));
-        assert!(!Arc::ptr_eq(&first, &refresh_gate("synthetic-gate", "db")));
+        assert!(Arc::ptr_eq(&first, &refresh_gate("synthetic-gate", "db")));
     }
     async fn wait_version(store: &RouterStore, version: i64) -> Result<()> {
         tokio::time::timeout(Duration::from_secs(5), async {

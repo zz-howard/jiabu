@@ -64,8 +64,10 @@ pub struct RefreshGate {
     // Rotated credentials awaiting persistence, with the original CAS revision.
     pending: Mutex<Option<VersionedToken>>,
     retry: std::sync::Mutex<Option<(i64, std::time::Instant)>>,
-    // Shared across reloads: direct access deadline (-1 is definitively invalid),
-    // plus permission to refresh. Zero is an initially unknown deadline.
+    // Observed access-token identity and rejection flag, shared across reloads.
+    access_state: std::sync::Mutex<(Zeroizing<String>, bool)>,
+    // Direct access deadline (-1 is definitively invalid), plus permission to refresh.
+    // Zero is an initially unknown deadline.
     available_until: AtomicI64,
     refreshable: AtomicBool,
 }
@@ -96,7 +98,24 @@ impl CredentialManager {
         }
         manager
     }
-    fn observe(&self, current: &VersionedToken) {
+    fn observe(&self, current: &mut VersionedToken) {
+        let mut state = self
+            .refresh
+            .access_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.0.as_str() != current.credentials.access_token {
+            *state = (
+                Zeroizing::new(current.credentials.access_token.clone()),
+                false,
+            );
+        }
+        if state.1 {
+            current.credentials.expires_at = current
+                .credentials
+                .expires_at
+                .min(chrono::Utc::now().timestamp());
+        }
         self.refresh.available_until.store(
             if current.usable {
                 current.credentials.expires_at
@@ -132,6 +151,18 @@ impl CredentialManager {
     pub async fn access(&self) -> Result<OAuthCredentials, ProviderError> {
         self.access_inner(None).await
     }
+    /// Record every model Auth, independently of whether this call may retry.
+    pub fn mark_rejected(&self, access_token: &str) {
+        let mut state = self
+            .refresh
+            .access_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.0.as_str() == access_token {
+            state.1 = true;
+            self.refresh.available_until.fetch_min(0, Ordering::AcqRel);
+        }
+    }
     /// Re-read under the shared gate: another request may already have rotated the token.
     pub async fn refresh_after_rejection(
         &self,
@@ -144,7 +175,7 @@ impl CredentialManager {
         &self,
         pending: &mut Option<VersionedToken>,
     ) -> Result<VersionedToken, ProviderError> {
-        let result = match self.store.load().await {
+        let mut result = match self.store.load().await {
             Ok(TokenRead::Present {
                 revision,
                 credentials,
@@ -188,7 +219,7 @@ impl CredentialManager {
                 Err(ProviderError::Auth)
             }
         };
-        if let Ok(current) = &result {
+        if let Ok(current) = &mut result {
             self.observe(current);
         }
         result
@@ -254,7 +285,7 @@ impl CredentialManager {
                 Err(_) => return self.reject(&current, &mut pending).await,
             }
         }
-        self.observe(&current);
+        self.observe(&mut current);
         if current.credentials.expires_at <= chrono::Utc::now().timestamp() {
             return Err(ProviderError::Auth);
         }
@@ -348,16 +379,32 @@ pub struct FileTokenStore {
     pub path: PathBuf,
 }
 impl FileTokenStore {
+    fn read_result(
+        result: Result<VersionedToken, ProviderError>,
+    ) -> Result<TokenRead, ProviderError> {
+        match result {
+            Err(ProviderError::Transport) => Ok(TokenRead::Unavailable),
+            result => result.map(TokenRead::from),
+        }
+    }
+    fn read_error(error: std::io::Error) -> ProviderError {
+        match error.kind() {
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
+                ProviderError::Auth
+            }
+            _ => ProviderError::Transport,
+        }
+    }
     fn read(&self) -> Result<VersionedToken, ProviderError> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let metadata = std::fs::metadata(&self.path).map_err(|_| ProviderError::Auth)?;
+            let metadata = std::fs::metadata(&self.path).map_err(Self::read_error)?;
             if metadata.permissions().mode() & 0o777 != 0o600 {
                 return Err(ProviderError::Auth);
             }
         }
-        let raw = Zeroizing::new(std::fs::read(&self.path).map_err(|_| ProviderError::Auth)?);
+        let raw = Zeroizing::new(std::fs::read(&self.path).map_err(Self::read_error)?);
         if raw.len() > 1024 * 1024 {
             return Err(ProviderError::Auth);
         }
@@ -431,7 +478,7 @@ pub struct FileDocument {
 #[async_trait]
 impl TokenStore for FileTokenStore {
     async fn load(&self) -> Result<TokenRead, ProviderError> {
-        self.read().map(TokenRead::from)
+        Self::read_result(self.read())
     }
     async fn compare_exchange(
         &self,
@@ -442,5 +489,104 @@ impl TokenStore for FileTokenStore {
     }
     async fn invalidate(&self, expected: i64) -> Result<bool, ProviderError> {
         self.update(expected, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FileReadFault {
+        fail_once: AtomicBool,
+        stored: VersionedToken,
+    }
+    #[async_trait]
+    impl TokenStore for FileReadFault {
+        async fn load(&self) -> Result<TokenRead, ProviderError> {
+            FileTokenStore::read_result(if self.fail_once.swap(false, Ordering::SeqCst) {
+                // Inject EIO at the file-read error classification boundary.
+                Err(FileTokenStore::read_error(
+                    std::io::Error::from_raw_os_error(5),
+                ))
+            } else {
+                Ok(self.stored.clone())
+            })
+        }
+        async fn compare_exchange(
+            &self,
+            _: i64,
+            _: &OAuthCredentials,
+        ) -> Result<bool, ProviderError> {
+            Err(ProviderError::Transport)
+        }
+        async fn invalidate(&self, _: i64) -> Result<bool, ProviderError> {
+            Ok(false)
+        }
+    }
+    #[tokio::test]
+    async fn file_eio_preserves_pending_and_recovery_keeps_r1() {
+        let mut token = VersionedToken {
+            revision: 1,
+            usable: true,
+            credentials: OAuthCredentials {
+                access_token: "synthetic-A0".into(),
+                refresh_token: "synthetic-R0".into(),
+                client_id: "synthetic-client".into(),
+                account_id: "synthetic-account".into(),
+                expires_at: chrono::Utc::now().timestamp() + 3600,
+                host_id: uuid::Uuid::nil(),
+            },
+        };
+        let store = Arc::new(FileReadFault {
+            fail_once: AtomicBool::new(true),
+            stored: token.clone(),
+        });
+        token.credentials.access_token = "synthetic-A1".into();
+        token.credentials.refresh_token = "synthetic-R1".into();
+        let gate = Arc::new(RefreshGate::default());
+        *gate.pending.lock().await = Some(token);
+        // Constructor encounters one EIO through the same classification as file load.
+        let manager =
+            CredentialManager::with_gate(store, OAuthClient::official().unwrap(), gate.clone())
+                .await;
+        assert_eq!(
+            gate.pending
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .credentials
+                .refresh_token,
+            "synthetic-R1"
+        );
+        assert_eq!(
+            manager.access().await.unwrap().refresh_token,
+            "synthetic-R1"
+        );
+        assert!(gate.pending.lock().await.is_some());
+    }
+    #[test]
+    fn file_read_io_errors_keep_authoritative_failures_distinct() {
+        use std::io::{Error, ErrorKind};
+        for kind in [ErrorKind::NotFound, ErrorKind::PermissionDenied] {
+            assert_eq!(
+                FileTokenStore::read_error(Error::from(kind)),
+                ProviderError::Auth
+            );
+        }
+        for error in [
+            Error::from_raw_os_error(5),
+            Error::from_raw_os_error(24),
+            Error::from(ErrorKind::Interrupted),
+        ] {
+            assert!(matches!(
+                FileTokenStore::read_result(Err(FileTokenStore::read_error(error))),
+                Ok(TokenRead::Unavailable)
+            ));
+        }
+        assert!(matches!(
+            FileTokenStore::read_result(Err(ProviderError::Auth)),
+            Err(ProviderError::Auth)
+        ));
     }
 }
