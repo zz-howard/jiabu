@@ -296,3 +296,52 @@
 - `server/crates/chat/src/staging.rs`
 - `server/crates/db/src/chat_runtime.rs`
 - `server/migrations/0010_s7_checkpoint_timing.sql`
+
+### 第三步：运行时收尾修复与 HTTP 接口（本机未编译、未运行测试）
+
+本轮读取 go2.md 及末尾“补充”，保留中断即收尾、用户显式重试的简化原则；不提交、不编译、不联网，不修改 docs/、client/ 或 ChatWeave 参考仓库。
+
+运行时 16 条失败的静态定位：共同错误不是 PostgreSQL SQL 失败或零行条件写入，而是 `close_run()` 调用 `StagedStream::component("markdown", ...)`。该方法发 `block.data`，ChatWeave `FoldState` 为 markdown 在 block.start 时已初始化 data，随后 block.data 首先报 `duplicate_block_data`（该分支也明确规定 markdown uses delta），再由 `protocol_error()` 映射为 `runtime_conflict`。现新增专用 `markdown()`，用 `append_text()` / `finish()` 发 delta，保留库的合批、校验、收尾及最终折叠。没有为通过测试改变预算或租约规则，也没有放宽数据库条件写入。
+
+| A 的失败测试 | 首个出错步骤 / 根因 |
+|---|---|
+| `tool_ten_second_deadline_abandons_whole_transaction` | 工具超时放弃事务后，失败收尾补写 markdown，错误使用 `block.data`。 |
+| `stop_preserves_committed_write_and_reports_count_without_model_closure` | 停止在跑的运行时，追加已保存数量的 markdown，错误使用 `block.data`。 |
+| `waiting_ai_ten_minute_budget_fails_without_provider_call` | 清扫超时 waiting_ai 后补写失败 markdown，错误使用 `block.data`。 |
+| `twenty_model_turns_budget_fails_before_twenty_first_call` | 第 21 次调用之前预算收尾补写 markdown，错误使用 `block.data`。 |
+| `lease_expiry_interrupts_and_never_requeues_or_calls_provider` | 清扫过期租约时补写中断 markdown，错误使用 `block.data`。 |
+| `graceful_shutdown_interrupts_claimed_owned_run_instead_of_releasing_to_queue` | 测试先停止首条 queued 回复即在停止 markdown 处报错；后面的 shutdown 空回复收尾也受同一问题影响。 |
+| `active_budget_fails_before_call_and_paused_time_does_not_count` | 零活跃预算在首次模型调用前收尾，失败 markdown 错误使用 `block.data`。 |
+| `sse_lagged_disconnects_instead_of_skipping_events` | 制造广播积压前的 `stop()` 先在停止 markdown 处报错，未执行到 Lagged 断言。 |
+| `model_total_deadline_fails_with_deterministic_text_and_finalized_meter` | 总调用截止后的确定性失败 markdown 错误使用 `block.data`。 |
+| `one_retry_per_run_returns_same_new_reply_to_two_devices` | 并发重试之前的 `stop()` 先在停止 markdown 处报错。 |
+| `model_idle_deadline_fails_without_followup_model_closure` | 模型流空闲截止后的确定性失败 markdown 错误使用 `block.data`。 |
+| `stop_waiting_ai_for_manual_entry_never_calls_provider` | 停止 waiting_ai 时补写数量说明 markdown，错误使用 `block.data`。 |
+| `stale_lease_epoch_rejects_every_worker_write_kind` | 陈旧写入断言之前的过期租约清扫在中断 markdown 处报错。 |
+| `sse_subscribes_before_log_read_and_cannot_lose_terminal_event` | EventLog barrier 暂停期间的 `stop()` 在停止 markdown 处报错，未生成终结事件。 |
+| `retention_races_retry_without_partial_copy` | 清理 / 重试竞态之前的 `stop()` 在停止 markdown 处报错。 |
+| `sse_gap_repairs_from_postgres_and_matches_unbroken_fold` | 制造缺号广播之前的 `stop()` 在停止 markdown 处报错，尚未进入补读断言。 |
+
+`db::chat_runtime::conflict()` 的全部调用点均带静态原因，包含函数和具体失败条件；原因进入内部 DbErr 与 tracing，不进入 HTTP Problem。`close_run()` 的每个协议错误映射也记录静态操作名，不记录用户原话或模型输出。停止遇到尚未关闭的模型 markdown 时直接让库终结它，并由 terminal_summary 补数量说明，避免第二个 open markdown；失败补文案同样避开已有 open markdown。新增纯 ChatWeave 回归测试覆盖停止 / 失败两种收尾，检查 markdown 只发 delta、最终 rev=1、重放与检查点相同。上表是源码定位结果，尚未经构建机重跑确认。
+
+HTTP 实现：
+
+- 六个已登记的 chat 路由全部接通。写入绑定经过检查的空间 / epoch 到 `ScopedRuns`，服务层在实际写事务内重新检查成员和 epoch；不再调用第一步的 unbound 占位方法。预检查事务在进入服务写事务前提交。
+- 提交和动作要求请求 ID 等于 UUID `Idempotency-Key`；动作的身份绑定放在持久块、原工具权限和冻结环境检查之后、回执查询之前。停止按回复自然幂等，重试按源运行唯一子运行自然幂等，二者仍要求有效的请求 key 与当前 epoch。动作成功直接返回 `{status, resume: {messageId}}`，授权拒绝保留真正的 HTTP 404。
+- `AppState.chat_hub` 同时交给 handler 和二进制 runtime，避免进程内两套 hub 导致 SSE 永远收不到实时事件。使用库 ResumeService / SSE 封装；支持 Last-Event-ID 优先于 `after`，非法 / 超前游标 400。客户端通过 `ChatWeave-Capabilities` 声明 `stream.snapshot` / `stream.activity`；没有 snapshot 能力且日志已清理时保留库的流级 `resume_unavailable`。
+- SSE 先检查活跃成员与消息所有者，再处理游标和能力。已有中间件只将 blob 的绝对期限包到响应体，普通 30 秒期限仅覆盖取得 SSE 响应头；SSE 响应体使用已有 15 秒心跳、独立 5 分钟空闲期限，ping 不续期。没有新增另一层恢复机制。
+- 活跃消息查询仅限本人 / 当前 epoch，包含 queued、running、waiting_ai、paused，按 FIFO 返回 `{messages: [{messageId, conversationId, lastSeq, replyTo, status}]}`；status 是 ChatWeave streaming / paused，可用 replyTo 对上提交消息，lastSeq 用于续传。
+- 六条路由保留 SessionOnly 第一重 key 拒绝，ScopedRuns.begin 的 `require_ai_session()` 保留第二重拒绝，错误码 `api_key_ai_not_allowed`。已有隔离矩阵六条登记保留，并补齐各遍历辅助中 `{message_id}` 的替换；补真实同空间另一成员的会话隔离测试。
+- OpenAPI 注解补写入头、SSE 游标 / 能力头、实际成功响应及示例、ActiveMessage / ActiveResponse schema，删除占位 unavailable 契约。按 brief 要求，`openapi.json` 仍由构建机导出，本机不手造生成文档。
+
+现有五条 API 测试的处理依据：
+
+1. `transfer_delete_and_default_space_rules`：继续要求删除空间后 404，修测试辅助漏替换 `{message_id}` 导致 Path UUID 提前 400 的问题。
+2. `keys_cannot_manage_account_keys_spaces_or_members`：chat 使用专门的 `api_key_ai_not_allowed` 符合设计；仅 chat 更新期望，账户管理仍要求 `api_key_not_allowed`。
+3. `exposure_status_schemas_and_oneof_are_public_contracts`：公开 ToolRegistry 调用 AgentOnly `ask_user` 按注册表规则返回 `not_found` 正确，更新旧占位 `unavailable` 期望；仍断言没有公开路由 / schema。
+4. `leave_remove_invalidate_invitations_cancel_runs_and_rejoin_reuses_member`：撤销运行时必须递增 lease_epoch、清空 owner / until、设置 ended_at；更新 S2 时“租约和时间不变”的旧断言，同时继续逐字段核对其余值和其他成员 / 空间不受影响，并修 Path 辅助。
+5. `cross_space_child_ids_and_session_only_routes`：保留原授权 / 缺 key 断言，只修 `{message_id}` 替换；避免 400 路径解析掩盖真正的处理器行为。
+
+新增 `api/src/tests/chat.rs`（挂在 spaces 测试模块以复用成员 / 邀请辅助）：真实 PG18 + MockProvider 覆盖提交重放与请求绑定、epoch 拒绝、双会话回答 / 回执绑定、停止 / 并发重试、queued / waiting_ai / paused 活跃回复、HTTP SSE 实时交接 / 超过普通 30 秒 / 续传 / 清理后的能力协商、他人会话与跨空间统一 404、两种 scope 的 key 全路由拒绝，以及 `/sync/push` 伪装 kind=chat_send / tool=chat_send / ask_user 都不创建运行、消息或 AI 调用。OpenAPI 测试核对写头、游标参数与活跃回复字段。
+
+本机只运行 `tool/check-rules.sh` 和 `git diff --check`，并进行静态检查。未运行 Rust 编译、Rust 测试、PostgreSQL 测试、fmt、OpenAPI 导出或任何联网操作；构建机需重新运行 agent / api / chat 测试并导出 OpenAPI。没有把新增测试的存在当作通过证明。

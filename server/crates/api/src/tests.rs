@@ -42,6 +42,7 @@ pub(crate) async fn authorization_probe(
 struct TestApp {
     fixture: support::TestDb,
     router: Router,
+    state: AppState,
     plan: jiabu_domain::space_init::SpaceInit,
     purge: std::sync::Arc<tokio::sync::Notify>,
 }
@@ -91,7 +92,8 @@ impl TestApp {
         Ok(Self {
             fixture,
             purge,
-            router: crate::router(state),
+            router: crate::router(state.clone()),
+            state,
             plan,
         })
     }

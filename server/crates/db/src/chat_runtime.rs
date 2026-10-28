@@ -9,8 +9,9 @@ use uuid::Uuid;
 fn statement(sql: &str, values: Vec<SqlValue>) -> Statement {
     Statement::from_sql_and_values(DbBackend::Postgres, sql, values)
 }
-fn conflict() -> DbErr {
-    DbErr::Custom("runtime_conflict".into())
+fn conflict(reason: &'static str) -> DbErr {
+    tracing::warn!(reason, "chat runtime conflict");
+    DbErr::Custom(format!("runtime_conflict: {reason}"))
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct RunLease {
@@ -74,19 +75,19 @@ impl SpaceTx {
         self.assert_write();
         let row = self.tx.query_one_raw(statement(
             "select to_jsonb(r) as data from agent_runs r where r.id=$1 and r.space_id=$2 and r.member_id=$3 and r.status='running' and r.lease_owner=$4 and r.lease_epoch=$5 and r.lease_until>clock_timestamp() and r.join_epoch=$6 and not r.cancel_requested for update",
-            vec![lease.run_id.into(), space.0.into(), self.chat_scope(space).0.into(), lease.owner.into(), lease.epoch.into(), self.member(space).join_epoch().0.into()])).await?.ok_or_else(conflict)?;
-        serde_json::from_value(row.try_get("", "data")?).map_err(|_| conflict())
+            vec![lease.run_id.into(), space.0.into(), self.chat_scope(space).0.into(), lease.owner.into(), lease.epoch.into(), self.member(space).join_epoch().0.into()])).await?.ok_or_else(|| conflict("guard_run: lease, status or membership mismatch"))?;
+        serde_json::from_value(row.try_get("", "data")?).map_err(|_| conflict("guard_run: invalid run row"))
     }
     pub async fn conversation(&self, space: SpaceId) -> Result<Uuid, DbErr> {
         self.assert_write();
         let row = self.tx.query_one_raw(statement(
             "insert into conversations(space_id,member_id,change_seq) values($1,$2,nextval('change_seq')) on conflict(space_id,member_id) do update set member_id=excluded.member_id returning id",
-            vec![space.0.into(),self.chat_scope(space).0.into()])).await?.ok_or_else(conflict)?;
+            vec![space.0.into(),self.chat_scope(space).0.into()])).await?.ok_or_else(|| conflict("conversation: missing inserted conversation"))?;
         row.try_get("", "id")
     }
     pub async fn message(&self, space: SpaceId, id: Uuid) -> Result<Option<StoredMessage>, DbErr> {
         self.tx.query_one_raw(statement("select message,last_seq,checkpoint_work_ms from chat_entries where id=$1 and space_id=$2 and member_id=$3",
-            vec![id.into(),space.0.into(),self.chat_scope(space).0.into()])).await?.map(|r| Ok(StoredMessage{message:r.try_get("","message")?,last_seq:r.try_get("","last_seq")?,step_work_ms:serde_json::from_value(r.try_get("","checkpoint_work_ms")?).map_err(|_|conflict())?})).transpose()
+            vec![id.into(),space.0.into(),self.chat_scope(space).0.into()])).await?.map(|r| Ok(StoredMessage{message:r.try_get("","message")?,last_seq:r.try_get("","last_seq")?,step_work_ms:serde_json::from_value(r.try_get("","checkpoint_work_ms")?).map_err(|_|conflict("message: invalid checkpoint clocks"))?})).transpose()
     }
     pub async fn insert_message(
         &self,
@@ -100,12 +101,12 @@ impl SpaceTx {
         self.assert_write();
         let id: Uuid = message["id"]
             .as_str()
-            .ok_or_else(conflict)?
+            .ok_or_else(|| conflict("insert_message: missing message id"))?
             .parse()
-            .map_err(|_| conflict())?;
-        let role = message["role"].as_str().ok_or_else(conflict)?;
+            .map_err(|_| conflict("insert_message: invalid message id"))?;
+        let role = message["role"].as_str().ok_or_else(|| conflict("insert_message: missing role"))?;
         self.tx.execute_raw(statement("insert into chat_entries(id,space_id,member_id,conversation_id,agent_run_id,reply_to_id,protocol_version,message,fallback_text,stream_status,rev,last_seq,role,change_seq,created_at,updated_at) values($1,$2,$3,$4,$5,$6,'0.1',$7,$8,$9,$10,$11,$12,nextval('change_seq'),now(),now())",
-            vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),conversation.into(),run.into(),reply.into(),message.clone().into(),message["fallbackText"].as_str().unwrap_or_default().into(),message["status"].as_str().ok_or_else(conflict)?.into(),(message["rev"].as_i64().unwrap_or(0) as i32).into(),seq.into(),role.into()])).await?;
+            vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),conversation.into(),run.into(),reply.into(),message.clone().into(),message["fallbackText"].as_str().unwrap_or_default().into(),message["status"].as_str().ok_or_else(|| conflict("insert_message: missing status"))?.into(),(message["rev"].as_i64().unwrap_or(0) as i32).into(),seq.into(),role.into()])).await?;
         Ok(())
     }
     /// Atomic event batch + authoritative checkpoint. No caller can lower the
@@ -121,23 +122,23 @@ impl SpaceTx {
     ) -> Result<(), DbErr> {
         self.assert_write();
         let seq = expected
-            .checked_add(i32::try_from(events.len()).map_err(|_| conflict())?)
-            .ok_or_else(conflict)?;
+            .checked_add(i32::try_from(events.len()).map_err(|_| conflict("save_emission: event count overflow"))?)
+            .ok_or_else(|| conflict("save_emission: sequence overflow"))?;
         for (offset, event) in events.iter().enumerate() {
             if event["messageId"] != id.to_string()
                 || event["seq"].as_i64() != Some(i64::from(expected) + offset as i64 + 1)
                 || event["type"] == "message.activity"
             {
-                return Err(conflict());
+                return Err(conflict("save_emission: invalid event batch"));
             }
         }
         let n=self.tx.execute_raw(statement("update chat_entries set message=$5,last_seq=$6,rev=$7,stream_status=$8,fallback_text=$9,updated_at=now(),change_seq=nextval('change_seq'),checkpoint_work_ms=$10 where id=$1 and space_id=$2 and member_id=$3 and last_seq=$4 and rev<=$7",
-            vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),expected.into(),message.clone().into(),seq.into(),(message["rev"].as_i64().unwrap_or(0) as i32).into(),message["status"].as_str().ok_or_else(conflict)?.into(),message["fallbackText"].as_str().unwrap_or_default().into(),work_ms.into()])).await?;
+            vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),expected.into(),message.clone().into(),seq.into(),(message["rev"].as_i64().unwrap_or(0) as i32).into(),message["status"].as_str().ok_or_else(|| conflict("save_emission: missing status"))?.into(),message["fallbackText"].as_str().unwrap_or_default().into(),work_ms.into()])).await?;
         if n.rows_affected() != 1 {
-            return Err(conflict());
+            return Err(conflict("save_emission: checkpoint watermark or revision mismatch"));
         }
         for event in events {
-            self.tx.execute_raw(statement("insert into chat_stream_events(message_id,seq,space_id,member_id,event) values($1,$2,$3,$4,$5)",vec![id.into(),(event["seq"].as_i64().ok_or_else(conflict)? as i32).into(),space.0.into(),self.chat_scope(space).0.into(),event.into()])).await?;
+            self.tx.execute_raw(statement("insert into chat_stream_events(message_id,seq,space_id,member_id,event) values($1,$2,$3,$4,$5)",vec![id.into(),(event["seq"].as_i64().ok_or_else(|| conflict("save_emission: missing event sequence"))? as i32).into(),space.0.into(),self.chat_scope(space).0.into(),event.into()])).await?;
         }
         Ok(())
     }
@@ -155,10 +156,16 @@ impl SpaceTx {
         space: SpaceId,
         message: Uuid,
     ) -> Result<Option<RunRow>, DbErr> {
-        self.tx.query_one_raw(statement("select to_jsonb(r) as data from agent_runs r where r.space_id=$1 and r.member_id=$2 and r.assistant_message_id=$3 for update",vec![space.0.into(),self.chat_scope(space).0.into(),message.into()])).await?.map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict())).transpose()
+        self.tx.query_one_raw(statement("select to_jsonb(r) as data from agent_runs r where r.space_id=$1 and r.member_id=$2 and r.assistant_message_id=$3 for update",vec![space.0.into(),self.chat_scope(space).0.into(),message.into()])).await?.map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict("run_for_message: invalid run row"))).transpose()
     }
     pub async fn active_runs(&self, space: SpaceId) -> Result<Vec<RunRow>, DbErr> {
-        self.tx.query_all_raw(statement("select to_jsonb(r) as data from agent_runs r where r.space_id=$1 and r.member_id=$2 and status in ('queued','running','waiting_ai','paused') order by created_at,id for update",vec![space.0.into(),self.chat_scope(space).0.into()])).await?.into_iter().map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict())).collect()
+        self.tx.query_all_raw(statement("select to_jsonb(r) as data from agent_runs r where r.space_id=$1 and r.member_id=$2 and status in ('queued','running','waiting_ai','paused') order by created_at,id for update",vec![space.0.into(),self.chat_scope(space).0.into()])).await?.into_iter().map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict("active_runs: invalid run row"))).collect()
+    }
+    pub async fn active_chat_messages(&self, space: SpaceId) -> Result<Vec<Value>, DbErr> {
+        self.tx.query_all_raw(statement(
+            "select jsonb_build_object('messageId',c.id,'conversationId',r.conversation_id,'lastSeq',c.last_seq,'replyTo',r.input_entry_id,'status',c.stream_status) as data from agent_runs r join chat_entries c on c.id=r.assistant_message_id and c.space_id=r.space_id and c.member_id=r.member_id where r.space_id=$1 and r.member_id=$2 and r.join_epoch=$3 and r.status in ('queued','running','waiting_ai','paused') order by r.created_at,r.id",
+            vec![space.0.into(),self.chat_scope(space).0.into(),self.member(space).join_epoch().0.into()]
+        )).await?.into_iter().map(|r| r.try_get("", "data")).collect()
     }
     pub async fn enqueue_run(
         &self,
@@ -177,10 +184,10 @@ impl SpaceTx {
         Ok(())
     }
     pub async fn journal(&self, space: SpaceId, run: Uuid) -> Result<Vec<JournalItem>, DbErr> {
-        self.tx.query_all_raw(statement("select to_jsonb(i) as data from agent_run_items i join agent_runs r on r.id=i.run_id where r.space_id=$1 and r.member_id=$2 and r.id=$3 order by i.idx",vec![space.0.into(),self.chat_scope(space).0.into(),run.into()])).await?.into_iter().map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict())).collect()
+        self.tx.query_all_raw(statement("select to_jsonb(i) as data from agent_run_items i join agent_runs r on r.id=i.run_id where r.space_id=$1 and r.member_id=$2 and r.id=$3 order by i.idx",vec![space.0.into(),self.chat_scope(space).0.into(),run.into()])).await?.into_iter().map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict("journal: invalid journal item"))).collect()
     }
     pub async fn calls(&self, space: SpaceId, run: Uuid) -> Result<Vec<ToolCallRow>, DbErr> {
-        self.tx.query_all_raw(statement("select to_jsonb(c) as data from agent_tool_calls c join agent_runs r on r.id=c.run_id where r.space_id=$1 and r.member_id=$2 and r.id=$3 order by c.updated_at,c.call_id",vec![space.0.into(),self.chat_scope(space).0.into(),run.into()])).await?.into_iter().map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict())).collect()
+        self.tx.query_all_raw(statement("select to_jsonb(c) as data from agent_tool_calls c join agent_runs r on r.id=c.run_id where r.space_id=$1 and r.member_id=$2 and r.id=$3 order by c.updated_at,c.call_id",vec![space.0.into(),self.chat_scope(space).0.into(),run.into()])).await?.into_iter().map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict("calls: invalid tool call row"))).collect()
     }
     pub async fn append_journal(
         &self,
@@ -224,7 +231,7 @@ impl SpaceTx {
         history: Value,
     ) -> Result<Value, DbErr> {
         self.guard_run(space, lease).await?;
-        let r=self.tx.query_one_raw(statement("update agent_runs set history_item=coalesce(history_item,$3) where id=$1 and space_id=$2 returning history_item",vec![lease.run_id.into(),space.0.into(),history.into()])).await?.ok_or_else(conflict)?;
+        let r=self.tx.query_one_raw(statement("update agent_runs set history_item=coalesce(history_item,$3) where id=$1 and space_id=$2 returning history_item",vec![lease.run_id.into(),space.0.into(),history.into()])).await?.ok_or_else(|| conflict("freeze_history: run missing during history freeze"))?;
         r.try_get("", "history_item")
     }
     pub async fn recent_history(&self, space: SpaceId, before: Uuid) -> Result<Vec<Value>, DbErr> {
@@ -242,11 +249,11 @@ impl SpaceTx {
             status,
             "completed" | "cancelled" | "expired" | "failed" | "interrupted"
         ) {
-            return Err(conflict());
+            return Err(conflict("finish_run: invalid terminal status"));
         }
         let n=self.tx.execute_raw(statement("update agent_runs set status=$4,last_error=$5,open_interrupt=null,lease_epoch=lease_epoch+1,lease_owner=null,lease_until=null,ended_at=now(),updated_at=now(),history_item=(select jsonb_build_object('role',c.role,'text',c.fallback_text) from chat_entries c where c.id=agent_runs.assistant_message_id and c.space_id=agent_runs.space_id) where id=$1 and space_id=$2 and member_id=$3 and status in ('queued','running','waiting_ai','paused')",vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),status.into(),error.map(str::to_owned).into()])).await?;
         if n.rows_affected() != 1 {
-            return Err(conflict());
+            return Err(conflict("finish_run: run already terminal or missing"));
         }
         self.tx.execute_raw(statement("update agent_tool_calls set status=case when $2='expired' then 'expired' else 'cancelled' end,updated_at=now() where run_id=$1 and status in ('proposed','awaiting_user','approved','executing')",vec![id.into(),status.into()])).await?;
         Ok(())
@@ -292,7 +299,7 @@ impl SpaceTx {
         self.assert_write();
         // Caller locked old via run_for_message. Retention locks the same row.
         if old.journal_compacted_at.is_some() {
-            return Err(conflict());
+            return Err(conflict("retry_copy: journal compacted"));
         }
         self.tx.execute_raw(statement("insert into agent_run_items(run_id,idx,kind,call_id,payload,provider_blob,schema_version) select $1,i.idx,i.kind,i.call_id,i.payload,i.provider_blob,i.schema_version from agent_run_items i join agent_runs r on r.id=i.run_id where i.run_id=$2 and r.space_id=$3 and r.member_id=$4",vec![new.into(),old.id.into(),space.0.into(),self.chat_scope(space).0.into()])).await?;
         self.tx.execute_raw(statement("insert into agent_tool_calls(run_id,call_id,tool,tool_schema_version,args,args_hash,effect,status,idempotency_key,guard,effect_ref,attempts) select $1,call_id,tool,tool_schema_version,args,args_hash,effect,case when status in ('executing','failed','cancelled','expired') then 'proposed' else status end,idempotency_key,guard,effect_ref,attempts from agent_tool_calls where run_id=$2",vec![new.into(),old.id.into()])).await?;
@@ -301,7 +308,7 @@ impl SpaceTx {
         Ok(())
     }
     pub async fn retry_child(&self, space: SpaceId, old: Uuid) -> Result<Option<RunRow>, DbErr> {
-        self.tx.query_one_raw(statement("select to_jsonb(r) data from agent_runs r where space_id=$1 and member_id=$2 and retry_of_run_id=$3",vec![space.0.into(),self.chat_scope(space).0.into(),old.into()])).await?.map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict())).transpose()
+        self.tx.query_one_raw(statement("select to_jsonb(r) data from agent_runs r where space_id=$1 and member_id=$2 and retry_of_run_id=$3",vec![space.0.into(),self.chat_scope(space).0.into(),old.into()])).await?.map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict("retry_child: invalid run row"))).transpose()
     }
 }
 impl AppDb {
@@ -351,7 +358,7 @@ impl AppDb {
 impl SpaceTx {
     pub async fn claim_run(&self, space: SpaceId, owner: Uuid) -> Result<Option<RunRow>, DbErr> {
         self.assert_write();
-        self.tx.query_one_raw(statement("update agent_runs r set status='running',lease_owner=$3,lease_until=now()+interval '60 seconds',lease_epoch=lease_epoch+1,updated_at=now() where r.id=(select a.id from agent_runs a where a.space_id=$1 and a.member_id=$2 and a.join_epoch=$4 and a.status in ('queued','waiting_ai') and a.run_after<=now() and (a.waiting_ai_since is null or a.waiting_ai_since>now()-interval '10 minutes') and not exists(select 1 from agent_runs b where b.conversation_id=a.conversation_id and b.id<>a.id and (b.status in ('running','paused') or (b.status in ('queued','waiting_ai') and (b.created_at,b.id)<(a.created_at,a.id)))) order by a.created_at,a.id for update skip locked limit 1) returning to_jsonb(r) data",vec![space.0.into(),self.chat_scope(space).0.into(),owner.into(),self.member(space).join_epoch().0.into()])).await?.map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict())).transpose()
+        self.tx.query_one_raw(statement("update agent_runs r set status='running',lease_owner=$3,lease_until=now()+interval '60 seconds',lease_epoch=lease_epoch+1,updated_at=now() where r.id=(select a.id from agent_runs a where a.space_id=$1 and a.member_id=$2 and a.join_epoch=$4 and a.status in ('queued','waiting_ai') and a.run_after<=now() and (a.waiting_ai_since is null or a.waiting_ai_since>now()-interval '10 minutes') and not exists(select 1 from agent_runs b where b.conversation_id=a.conversation_id and b.id<>a.id and (b.status in ('running','paused') or (b.status in ('queued','waiting_ai') and (b.created_at,b.id)<(a.created_at,a.id)))) order by a.created_at,a.id for update skip locked limit 1) returning to_jsonb(r) data",vec![space.0.into(),self.chat_scope(space).0.into(),owner.into(),self.member(space).join_epoch().0.into()])).await?.map(|r|serde_json::from_value(r.try_get("","data")?).map_err(|_|conflict("claim_run: invalid run row"))).transpose()
     }
     pub async fn renew_run(&self, space: SpaceId, lease: RunLease) -> Result<(), DbErr> {
         self.guard_run(space, lease).await?;
@@ -372,7 +379,7 @@ impl SpaceTx {
         let m = self.member(space);
         let ledger = m.ledger_grant() >= crate::GrantLevel::Read;
         let documents = m.documents_grant() >= crate::GrantLevel::Read;
-        let row=self.tx.query_one_raw(statement("select jsonb_build_object('currency',s.currency,'timezone',s.timezone,'accounts',case when $2 then (select coalesce(jsonb_agg(jsonb_build_object('id',a.id,'kind',a.kind,'name',a.name,'is_reserve',a.is_reserve,'archived',a.archived_at is not null) order by a.id),'[]'::jsonb) from accounts a where a.space_id=s.id) else '[]'::jsonb end,'tags',case when $2 then (select coalesce(jsonb_agg(jsonb_build_object('id',t.id,'name',t.name,'preset_key',t.preset_key) order by t.id),'[]'::jsonb) from tags t where t.space_id=s.id) else '[]'::jsonb end,'subjects',case when $3 then (select coalesce(jsonb_agg(jsonb_build_object('id',x.id,'name',x.name) order by x.id),'[]'::jsonb) from subjects x where x.space_id=s.id) else '[]'::jsonb end,'members',(select coalesce(jsonb_agg(jsonb_build_object('id',m.id,'name',m.display_name) order by m.id),'[]'::jsonb) from space_members m where m.space_id=s.id and m.status='active')) data from spaces s where s.id=$1",vec![space.0.into(),ledger.into(),documents.into()])).await?.ok_or_else(conflict)?;
+        let row=self.tx.query_one_raw(statement("select jsonb_build_object('currency',s.currency,'timezone',s.timezone,'accounts',case when $2 then (select coalesce(jsonb_agg(jsonb_build_object('id',a.id,'kind',a.kind,'name',a.name,'is_reserve',a.is_reserve,'archived',a.archived_at is not null) order by a.id),'[]'::jsonb) from accounts a where a.space_id=s.id) else '[]'::jsonb end,'tags',case when $2 then (select coalesce(jsonb_agg(jsonb_build_object('id',t.id,'name',t.name,'preset_key',t.preset_key) order by t.id),'[]'::jsonb) from tags t where t.space_id=s.id) else '[]'::jsonb end,'subjects',case when $3 then (select coalesce(jsonb_agg(jsonb_build_object('id',x.id,'name',x.name) order by x.id),'[]'::jsonb) from subjects x where x.space_id=s.id) else '[]'::jsonb end,'members',(select coalesce(jsonb_agg(jsonb_build_object('id',m.id,'name',m.display_name) order by m.id),'[]'::jsonb) from space_members m where m.space_id=s.id and m.status='active')) data from spaces s where s.id=$1",vec![space.0.into(),ledger.into(),documents.into()])).await?.ok_or_else(|| conflict("space_context: space missing"))?;
         row.try_get("", "data")
     }
     pub async fn action_receipt(
@@ -399,8 +406,8 @@ impl SpaceTx {
         approved: bool,
     ) -> Result<(), crate::OperationError> {
         self.assert_write();
-        let call = interrupt["call_id"].as_str().ok_or_else(conflict)?;
-        let id = interrupt["id"].as_str().ok_or_else(conflict)?;
+        let call = interrupt["call_id"].as_str().ok_or_else(|| conflict("resolve_interrupt: missing call id"))?;
+        let id = interrupt["id"].as_str().ok_or_else(|| conflict("resolve_interrupt: missing interrupt id"))?;
         let n=self.tx.execute_raw(statement("update agent_runs set status='queued',open_interrupt=null,run_after=now(),lease_epoch=lease_epoch+1,updated_at=now() where id=$1 and space_id=$2 and member_id=$3 and status='paused' and open_interrupt->>'id'=$4 and (open_interrupt->>'expires_at')::timestamptz>clock_timestamp()",vec![run.into(),space.0.into(),self.chat_scope(space).0.into(),id.into()])).await?;
         if n.rows_affected() != 1 {
             return Err(crate::OperationError::new(409, "interrupt_resolved"));
@@ -437,7 +444,7 @@ impl SpaceTx {
         fingerprint: Vec<u8>,
         result: Value,
     ) -> Result<(), DbErr> {
-        self.tx.execute_raw(statement("insert into chat_actions(id,space_id,member_id,message_id,block_id,action_type,target,payload,status,result,actor_member_id,request_fingerprint) values($1,$2,$3,$4,$5,$6,$7,$8,'accepted',$9,$3,$10)",vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),message.into(),block.into(),request["type"].as_str().ok_or_else(conflict)?.into(),request["target"].as_str().ok_or_else(conflict)?.into(),request["payload"].clone().into(),result.into(),fingerprint.into()])).await?;
+        self.tx.execute_raw(statement("insert into chat_actions(id,space_id,member_id,message_id,block_id,action_type,target,payload,status,result,actor_member_id,request_fingerprint) values($1,$2,$3,$4,$5,$6,$7,$8,'accepted',$9,$3,$10)",vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),message.into(),block.into(),request["type"].as_str().ok_or_else(|| conflict("remember_action: missing action type"))?.into(),request["target"].as_str().ok_or_else(|| conflict("remember_action: missing target"))?.into(),request["payload"].clone().into(),result.into(),fingerprint.into()])).await?;
         Ok(())
     }
     pub async fn save_prompt_snapshot(
@@ -448,7 +455,7 @@ impl SpaceTx {
         snapshot: Value,
     ) -> Result<(), DbErr> {
         self.guard_run(space, lease).await?;
-        self.tx.execute_raw(statement("insert into agent_prompt_snapshots(hash,agent_def_version,provider_kind,model,instructions,tools,settings) values($1,'s7-v1','router','',$2,$3,$4) on conflict(hash) do nothing",vec![hash.clone().into(),snapshot["instructions"].as_str().ok_or_else(conflict)?.into(),snapshot["tools"].clone().into(),snapshot.clone().into()])).await?;
+        self.tx.execute_raw(statement("insert into agent_prompt_snapshots(hash,agent_def_version,provider_kind,model,instructions,tools,settings) values($1,'s7-v1','router','',$2,$3,$4) on conflict(hash) do nothing",vec![hash.clone().into(),snapshot["instructions"].as_str().ok_or_else(|| conflict("save_prompt_snapshot: missing instructions"))?.into(),snapshot["tools"].clone().into(),snapshot.clone().into()])).await?;
         self.tx
             .execute_raw(statement(
                 "update agent_runs set prompt_snapshot=$2 where id=$1",
@@ -484,11 +491,11 @@ impl SpaceTx {
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         {
-            return Err(conflict());
+            return Err(conflict("require_chat_image: invalid image hash"));
         }
         let row=self.tx.query_one_raw(statement("select b.sha256 from blobs b join blob_refs r on r.sha256=b.sha256 where b.sha256=decode($1,'hex') and r.space_id=$2 and r.module='chat' and r.uploaded_by_member_id=$3 and b.mime='image/jpeg'",vec![image.into(),space.0.into(),self.chat_scope(space).0.into()])).await?;
         if row.is_none() {
-            return Err(conflict());
+            return Err(conflict("require_chat_image: image unavailable"));
         }
         Ok(())
     }
@@ -537,7 +544,7 @@ impl AppDb {
         run: Uuid,
     ) -> Result<crate::Principal, DbErr> {
         let tx = SystemTx::begin(self).await?;
-        let row=tx.tx.query_one_raw(statement("select u.id,u.username,u.locale from users u join space_members m on m.user_id=u.id join agent_runs r on r.member_id=m.id and r.space_id=m.space_id where u.id=$1 and r.id=$2 and u.disabled_at is null",vec![user.0.into(),run.into()])).await?.ok_or_else(conflict)?;
+        let row=tx.tx.query_one_raw(statement("select u.id,u.username,u.locale from users u join space_members m on m.user_id=u.id join agent_runs r on r.member_id=m.id and r.space_id=m.space_id where u.id=$1 and r.id=$2 and u.disabled_at is null",vec![user.0.into(),run.into()])).await?.ok_or_else(|| conflict("runtime_principal: user or run unavailable"))?;
         let principal = crate::Principal {
             user_id: user,
             via: crate::Via::Session {
@@ -581,12 +588,12 @@ impl AppDb {
             .into_iter()
             .map(|r| {
                 Ok((
-                    serde_json::from_value(r.try_get("", "data")?).map_err(|_| conflict())?,
+                    serde_json::from_value(r.try_get("", "data")?).map_err(|_| conflict("unavailable_run_messages: invalid run row"))?,
                     StoredMessage {
                         message: r.try_get("", "message")?,
                         last_seq: r.try_get("", "last_seq")?,
                         step_work_ms: serde_json::from_value(r.try_get("", "checkpoint_work_ms")?)
-                            .map_err(|_| conflict())?,
+                            .map_err(|_| conflict("unavailable_run_messages: invalid checkpoint clocks"))?,
                     },
                 ))
             })
@@ -613,17 +620,17 @@ impl AppDb {
         if message["id"] != run.assistant_message_id.to_string()
             || !matches!(message["status"].as_str(), Some("interrupted" | "error"))
         {
-            return Err(conflict());
+            return Err(conflict("cancel_unavailable_run: invalid terminal message"));
         }
-        let n=tx.tx.execute_raw(statement("update chat_entries set message=$4,last_seq=$5,rev=1,stream_status=$6,fallback_text=$7,updated_at=now(),change_seq=nextval('change_seq') where id=$1 and space_id=$2 and last_seq=$3",vec![run.assistant_message_id.into(),run.space_id.into(),expected.into(),message.clone().into(),(expected+events.len() as i32).into(),message["status"].as_str().ok_or_else(conflict)?.into(),message["fallbackText"].as_str().unwrap_or_default().into()])).await?;
+        let n=tx.tx.execute_raw(statement("update chat_entries set message=$4,last_seq=$5,rev=1,stream_status=$6,fallback_text=$7,updated_at=now(),change_seq=nextval('change_seq') where id=$1 and space_id=$2 and last_seq=$3",vec![run.assistant_message_id.into(),run.space_id.into(),expected.into(),message.clone().into(),(expected+events.len() as i32).into(),message["status"].as_str().ok_or_else(|| conflict("cancel_unavailable_run: missing status"))?.into(),message["fallbackText"].as_str().unwrap_or_default().into()])).await?;
         if n.rows_affected() != 1 {
-            return Err(conflict());
+            return Err(conflict("cancel_unavailable_run: checkpoint watermark mismatch"));
         }
         for (offset, event) in events.into_iter().enumerate() {
             if event["seq"].as_i64() != Some(i64::from(expected) + offset as i64 + 1)
                 || event["messageId"] != run.assistant_message_id.to_string()
             {
-                return Err(conflict());
+                return Err(conflict("cancel_unavailable_run: invalid event sequence"));
             }
             tx.tx.execute_raw(statement("insert into chat_stream_events(message_id,space_id,member_id,seq,event) values($1,$2,$3,$4,$5)",vec![run.assistant_message_id.into(),run.space_id.into(),run.member_id.into(),(expected+offset as i32+1).into(),event.into()])).await?;
         }
@@ -643,7 +650,7 @@ impl SpaceTx {
         self.guard_run(space, lease).await?;
         let n=self.tx.execute_raw(statement("update agent_runs set model_turns=model_turns+1 where id=$1 and space_id=$2 and model_turns<20",vec![lease.run_id.into(),space.0.into()])).await?;
         if n.rows_affected() != 1 {
-            return Err(conflict());
+            return Err(conflict("begin_model_call: model turn budget exhausted"));
         }
         Ok(())
     }
@@ -661,11 +668,11 @@ impl SpaceTx {
             || message["id"] != id.to_string()
             || message["rev"].as_i64() != Some(i64::from(expected_rev) + 1)
         {
-            return Err(conflict());
+            return Err(conflict("revise_final_chat_message: invalid revision"));
         }
         let n=self.tx.execute_raw(statement("update chat_entries set message=$5,rev=rev+1,fallback_text=$6,updated_at=now(),change_seq=nextval('change_seq') where id=$1 and space_id=$2 and member_id=$3 and rev=$4 and stream_status in ('complete','interrupted','error') and message->>'status'=$5::jsonb->>'status' and message->>'role'=$5::jsonb->>'role'",vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),expected_rev.into(),message.clone().into(),message["fallbackText"].as_str().unwrap_or_default().into()])).await?;
         if n.rows_affected() != 1 {
-            return Err(conflict());
+            return Err(conflict("revise_final_chat_message: message revision or status mismatch"));
         }
         Ok(())
     }
@@ -673,7 +680,7 @@ impl SpaceTx {
 impl AppDb {
     pub async fn runtime_call_kind(&self, run: Uuid) -> Result<String, DbErr> {
         let tx = SystemTx::begin(self).await?;
-        let row=tx.tx.query_one_raw(statement("select case when not exists(select 1 from agent_run_items i where i.run_id=r.id and i.kind='model_turn') then case when retry_of_run_id is null then 'first' else 'retry' end when coalesce((select max(idx) from agent_run_items i where i.run_id=r.id and i.kind='interrupt_answer'),0)>coalesce((select max(idx) from agent_run_items i where i.run_id=r.id and i.kind='model_turn'),0) then 'resume' else 'continue' end kind from agent_runs r where r.id=$1",vec![run.into()])).await?.ok_or_else(conflict)?;
+        let row=tx.tx.query_one_raw(statement("select case when not exists(select 1 from agent_run_items i where i.run_id=r.id and i.kind='model_turn') then case when retry_of_run_id is null then 'first' else 'retry' end when coalesce((select max(idx) from agent_run_items i where i.run_id=r.id and i.kind='interrupt_answer'),0)>coalesce((select max(idx) from agent_run_items i where i.run_id=r.id and i.kind='model_turn'),0) then 'resume' else 'continue' end kind from agent_runs r where r.id=$1",vec![run.into()])).await?.ok_or_else(|| conflict("runtime_call_kind: run missing"))?;
         let kind = row.try_get("", "kind")?;
         tx.commit().await?;
         Ok(kind)

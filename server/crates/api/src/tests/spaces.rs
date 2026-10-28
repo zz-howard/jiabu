@@ -618,12 +618,19 @@ async fn assert_runs(owner: &sqlx::PgPool, runs: &[(Uuid, Value)], cancelled: bo
         {
             expected["status"] = json!("cancelled");
             expected["last_error"] = json!("space_unavailable");
+            expected["lease_epoch"] = json!(before["lease_epoch"].as_i64().unwrap_or_default() + 1);
+            expected["lease_owner"] = Value::Null;
+            expected["lease_until"] = Value::Null;
         }
         let after: Value = sqlx::query_scalar("select to_jsonb(r) from agent_runs r where id=$1")
             .bind(id)
             .fetch_one(owner)
             .await?;
-        assert_eq!(after, expected); // In S2 even timestamps/leases remain untouched.
+        if cancelled && expected["status"] == "cancelled" && before["status"] != "cancelled" {
+            assert!(after["ended_at"].is_string());
+            expected["ended_at"] = after["ended_at"].clone();
+        }
+        assert_eq!(after, expected); // Revocation invalidates leases and records terminal time.
     }
     Ok(())
 }
@@ -639,6 +646,7 @@ async fn assert_routes_gone(
             .replace("{space_id}", &space.to_string())
             .replace("{inv_id}", &Uuid::now_v7().to_string())
             .replace("{member_id}", &member.to_string())
+            .replace("{message_id}", &Uuid::now_v7().to_string())
             .replace("{sha256}", &"00".repeat(32));
         assert_eq!(
             write(
@@ -1212,6 +1220,7 @@ async fn cross_space_child_ids_and_session_only_routes() -> Result<()> {
             .replace("{space_id}", &space.to_string())
             .replace("{inv_id}", &foreign_invitation.to_string())
             .replace("{member_id}", &member.to_string())
+            .replace("{message_id}", &Uuid::now_v7().to_string())
             .replace("{sha256}", &"00".repeat(32));
         let mut body = matrix_body(route.method, &route.path, member);
         if route.method == "POST" && route.path == "/v1/spaces" {
@@ -1297,3 +1306,6 @@ async fn cross_space_child_ids_and_session_only_routes() -> Result<()> {
 
 #[path = "spaces_review.rs"]
 mod review;
+
+#[path = "chat.rs"]
+mod chat;

@@ -53,6 +53,7 @@ async fn configure_limits(
         )))
         .map_err(anyhow::Error::msg)?;
     app.router = crate::router(state.clone());
+    app.state = state.clone();
     Ok(state)
 }
 pub(super) async fn high_limits(app: &mut TestApp) -> Result<()> {
@@ -523,7 +524,8 @@ async fn keys_cannot_manage_account_keys_spaces_or_members() -> Result<()> {
                 *method,
                 path.replace("{space_id}", &app.plan.space_id.to_string())
                     .replace("{member_id}", &id.to_string())
-                    .replace("{inv_id}", &id.to_string()),
+                    .replace("{inv_id}", &id.to_string())
+                    .replace("{message_id}", &id.to_string()),
             ));
         }
         for (method, path) in routes {
@@ -541,7 +543,7 @@ async fn keys_cannot_manage_account_keys_spaces_or_members() -> Result<()> {
                 StatusCode::FORBIDDEN,
                 "{scope} {method} {path}"
             );
-            assert_eq!(reply.json()["code"], "api_key_not_allowed");
+            assert_eq!(reply.json()["code"], if path.contains("/chat/") { "api_key_ai_not_allowed" } else { "api_key_not_allowed" });
         }
         for path in ["/v1/me", "/v1/status", "/v1/spaces"] {
             assert_eq!(

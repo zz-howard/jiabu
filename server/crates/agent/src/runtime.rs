@@ -364,6 +364,7 @@ impl Runtime {
                         .ok_or_else(OperationError::internal)?;
                     let mut s = stage.lock().await;
                     let executor = ToolExecutor {
+                        db: &self.db,
                         registry: self.tools.clone(),
                     };
                     if call.effect == "read" {
@@ -398,11 +399,11 @@ impl Runtime {
                             }
                         }
                         executor
-                            .execute_reads(&self.db, p, run, lease, &batch, &mut s, &emitter)
+                            .execute_reads(p, run, lease, &batch, &mut s, &emitter)
                             .await?;
                     } else {
                         executor
-                            .execute(&self.db, p, run, lease, call, &mut s, &emitter)
+                            .execute(p, run, lease, call, &mut s, &emitter)
                             .await?;
                     }
                 }
@@ -731,20 +732,43 @@ impl Runtime {
         for _ in 0..WORKER_COUNT {
             let runtime = self.clone();
             let mut rx = rx.clone();
-            tasks.push(tokio::spawn(async move{
-                let owner=Uuid::now_v7();
-                loop{
-                    if *rx.borrow(){break;}
-                    match runtime.work_once(owner).await{Ok(true)=>continue,Ok(false)=>{},Err(_)=>tracing::warn!(error_kind="worker_failed","Agent worker failed")}
-                    tokio::select!{_=tokio::time::sleep(Duration::from_secs(5))=>{},_=runtime.wake.notified()=>{},_=rx.changed()=>{}}
+            tasks.push(tokio::spawn(async move {
+                let owner = Uuid::now_v7();
+                loop {
+                    if *rx.borrow() {
+                        break;
+                    }
+                    match runtime.work_once(owner).await {
+                        Ok(true) => continue,
+                        Ok(false) => {}
+                        Err(_) => tracing::warn!(error_kind = "worker_failed", "Agent worker failed"),
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                        _ = runtime.wake.notified() => {}
+                        _ = rx.changed() => {}
+                    }
                 }
             }));
         }
         let runtime = self.clone();
         let mut rx = rx;
-        tasks.push(tokio::spawn(async move{
-            let mut tick=tokio::time::interval(Duration::from_secs(30));
-            loop{tokio::select!{_=rx.changed()=>break,_=tick.tick()=>{if runtime.sweep().await.is_err(){tracing::warn!(error_kind="sweep_failed","Agent sweep failed");}if runtime.db.cleanup_chat_logs().await.is_err(){tracing::warn!(error_kind="cleanup_failed","Chat cleanup failed");}}}}
+        tasks.push(tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                tokio::select! {
+                    _ = rx.changed() => break,
+                    _ = tick.tick() => {
+                        // Sweeping and log cleanup are independent; one failing must not skip the other.
+                        if runtime.sweep().await.is_err() {
+                            tracing::warn!(error_kind = "sweep_failed", "Agent sweep failed");
+                        }
+                        if runtime.db.cleanup_chat_logs().await.is_err() {
+                            tracing::warn!(error_kind = "cleanup_failed", "Chat cleanup failed");
+                        }
+                    }
+                }
+            }
         }));
         RuntimeHandle {
             runtime: self,
@@ -787,25 +811,19 @@ impl RuntimeHandle {
         }
         // Aborted workers retain leases; revoke and close them now, never requeue.
         let owners: Vec<_> = self.runtime.owners.lock().await.iter().copied().collect();
-        if let Ok(candidates) = self.runtime.db.owned_running_messages(&owners).await {
-            for (space, user, message) in candidates {
-                if let Ok(tx) =
-                    SpaceTx::begin(&self.runtime.db, user, &[(space, None)], Mode::Write).await
-                {
-                    if let Ok(Some(run)) = tx.run_for_message(space, message).await {
-                        if run.status == "running" {
-                            if let Ok(batch) =
-                                close_run(&tx, space, &run, "interrupted", "shutdown").await
-                            {
-                                if tx.commit().await.is_ok() {
-                                    let _ =
-                                        self.runtime.db.finish_abandoned_run_calls(run.id).await;
-                                    let _ = jiabu_chat::publish(&self.runtime.hub, batch).await;
-                                }
-                            }
-                        }
-                    }
-                }
+        let Ok(candidates) = self.runtime.db.owned_running_messages(&owners).await else {
+            return;
+        };
+        for (space, user, message) in candidates {
+            if let Ok(tx) =
+                SpaceTx::begin(&self.runtime.db, user, &[(space, None)], Mode::Write).await
+                && let Ok(Some(run)) = tx.run_for_message(space, message).await
+                && run.status == "running"
+                && let Ok(batch) = close_run(&tx, space, &run, "interrupted", "shutdown").await
+                && tx.commit().await.is_ok()
+            {
+                let _ = self.runtime.db.finish_abandoned_run_calls(run.id).await;
+                let _ = jiabu_chat::publish(&self.runtime.hub, batch).await;
             }
         }
     }

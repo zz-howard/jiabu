@@ -111,9 +111,48 @@ impl StagedStream {
         self.expected = seq;
         Ok(batch)
     }
+    /// Markdown is a delta stream, never a component block.data event.
+    pub async fn markdown(&self, text: &str) -> Result<()> {
+        let block = self.stream.start_block("markdown", 1, "").await?;
+        block.append_text(text).await?;
+        block.finish().await
+    }
     pub async fn component(&self, kind: &str, data: Value, fallback: &str) -> Result<()> {
         let block = self.stream.start_block(kind, 1, fallback).await?;
         block.data(data, fallback, None).await?;
         block.finish().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn markdown_terminal_text_uses_deltas_and_replays_to_checkpoint() -> Result<()> {
+        for stopped in [false, true] {
+            let mut stage = StagedStream::start(StreamConfig::new(Uuid::now_v7().to_string())).await?;
+            let initial = stage.batch().await?.checkpoint;
+            stage.markdown("虚构收尾文字 / Synthetic terminal text").await?;
+            if stopped {
+                stage.stream.stop().await?;
+            } else {
+                stage.stream.fail("虚构失败 / Synthetic failure").await?;
+            }
+            let batch = stage.batch().await?;
+            assert!(batch.events.iter().any(|e| e.event_type() == "block.delta"));
+            assert!(!batch.events.iter().any(|e| e.event_type() == "block.data"));
+            let mut fold = FoldState::from_checkpoint(initial.message, initial.last_seq)
+                .map_err(|_| Error::Conflict)?;
+            for event in &batch.events {
+                validator()?.validate(DocumentKind::Event, &event.0).map_err(|_| Error::Conflict)?;
+                fold.apply(event.clone()).map_err(|_| Error::Conflict)?;
+            }
+            assert_eq!(fold.message().map_err(|_| Error::Conflict)?.0, batch.checkpoint.message.0);
+            assert_eq!(batch.checkpoint.message.rev(), 1);
+            assert!(batch.checkpoint.message.0["fallbackText"].as_str()
+                .is_some_and(|text| text.contains("虚构收尾文字")));
+        }
+        Ok(())
     }
 }

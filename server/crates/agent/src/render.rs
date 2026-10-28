@@ -144,6 +144,13 @@ pub fn render_request(
         items,
     })
 }
+
+pub fn static_instructions(catalog: &[u8]) -> String {
+    format!(
+        "You are 家簿 / Jiabu. Use tools for facts and writes. Ask about ambiguous dates. Use context IDs and bilingual preset aliases. Match the user's language; locale is a fallback. Never reveal reasoning.\nTEMPLATES\n{}",
+        String::from_utf8_lossy(catalog)
+    )
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,11 +170,4 @@ mod tests {
             Some(br#"{"a":"{ \"x\" : 1 }","z":[2,1]}"#.to_vec())
         );
     }
-}
-
-pub fn static_instructions(catalog: &[u8]) -> String {
-    format!(
-        "You are 家簿 / Jiabu. Use tools for facts and writes. Ask about ambiguous dates. Use context IDs and bilingual preset aliases. Match the user's language; locale is a fallback. Never reveal reasoning.\nTEMPLATES\n{}",
-        String::from_utf8_lossy(catalog)
-    )
 }

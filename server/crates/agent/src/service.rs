@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 /// A request binds its space and epoch explicitly; neither is inferred from a
-/// message UUID. HTTP step 3 will bind this after parsing authenticated headers.
+/// message UUID. HTTP binds it after checking membership and request headers.
 pub struct ScopedRuns {
     pub db: AppDb,
     pub space: SpaceId,
@@ -39,6 +39,11 @@ impl RunService {
 }
 pub(crate) fn protocol_error(_: impl std::fmt::Display) -> OperationError {
     OperationError::new(409, "runtime_conflict")
+}
+fn protocol_error_at(reason: &'static str, error: impl std::fmt::Display) -> OperationError {
+    // Static context only: protocol errors can contain private field values.
+    tracing::warn!(reason, "chat protocol conflict");
+    protocol_error(error)
 }
 impl ScopedRuns {
     async fn begin(&self, p: &Principal) -> Result<SpaceTx, OperationError> {
@@ -262,6 +267,25 @@ impl ScopedRuns {
         request: Value,
         registry: &jiabu_tools::ToolRegistry,
     ) -> Result<Value, OperationError> {
+        self.answer_inner(p, request, registry, None).await
+    }
+    /// HTTP identity binding is checked after persisted-block authorization.
+    pub async fn answer_with_key(
+        &self,
+        p: &Principal,
+        request: Value,
+        registry: &jiabu_tools::ToolRegistry,
+        key: Uuid,
+    ) -> Result<Value, OperationError> {
+        self.answer_inner(p, request, registry, Some(key)).await
+    }
+    async fn answer_inner(
+        &self,
+        p: &Principal,
+        request: Value,
+        registry: &jiabu_tools::ToolRegistry,
+        key: Option<Uuid>,
+    ) -> Result<Value, OperationError> {
         let tx = self.begin(p).await?;
         let parse_id = |v: &Value| {
             v.as_str()
@@ -314,6 +338,9 @@ impl ScopedRuns {
         }
         validate_environment(tx.member(self.space), &journal)
             .map_err(|_| OperationError::not_found())?;
+        if key.is_some_and(|key| key != action) {
+            return Err(OperationError::new(400, "idempotency_key_mismatch"));
+        }
         let fingerprint =
             Sha256::digest(crate::render::bytes(&request).map_err(protocol_error)?).to_vec();
         if let Some(result) = tx
@@ -403,14 +430,13 @@ pub(crate) fn validate_environment(
     member: &jiabu_db::ActiveMember,
     journal: &[jiabu_db::chat_runtime::JournalItem],
 ) -> Result<(), OperationError> {
-    if let Some(context) = journal.iter().find(|i| i.kind == "context") {
-        if context
+    if let Some(context) = journal.iter().find(|i| i.kind == "context")
+        && context
             .payload
             .get("permissions")
             .is_some_and(|v| v != &permissions(member))
-        {
-            return Err(OperationError::new(409, "permission_changed"));
-        }
+    {
+        return Err(OperationError::new(409, "permission_changed"));
     }
     Ok(())
 }
@@ -428,57 +454,53 @@ pub(crate) async fn close_run(
     let initial = jiabu_chat::checkpoint(stored);
     let mut stage = StagedStream::load(initial.clone())
         .await
-        .map_err(protocol_error)?;
+        .map_err(|error| protocol_error_at("close_run: load checkpoint", error))?;
     let calls = tx.calls(space, run.id).await?;
     let count = calls
         .iter()
         .filter(|c| c.effect == "local_write" && c.status == "succeeded")
         .count();
-    if stage
-        .stream
-        .message()
-        .await
-        .map_err(protocol_error)?
-        .status()
-        == "streaming"
-        && reason == "stopped"
+    let current = stage.stream.message().await
+        .map_err(|error| protocol_error_at("close_run: read stream status", error))?;
+    let open_markdown = current.0["blocks"].as_array().is_some_and(|blocks|
+        blocks.iter().any(|block| block["type"] == "markdown" && block["status"] == "pending"));
+    // CW permits one open markdown block. Its terminator closes any persisted
+    // model block; terminal_summary still reports counts when we skip this block.
+    if current.status() == "streaming" && reason == "stopped" && !open_markdown
     {
-        stage.component("markdown",json!({"text":format!("已停止，已保存 {count} 项 / Stopped; {count} operations saved.")}),"已停止 / Stopped").await.map_err(protocol_error)?;
+        stage.markdown(&format!("已停止，已保存 {count} 项 / Stopped; {count} operations saved.")).await.map_err(|error| protocol_error_at("close_run: append stop text", error))?;
     }
     // A paused stream must be closed through its interrupt-aware CW terminator.
     match reason {
-        "stopped" => stage.stream.stop().await.map_err(protocol_error)?,
+        "stopped" => stage.stream.stop().await.map_err(|error| protocol_error_at("close_run: stop stream", error))?,
         "interrupt_expired" => stage
             .stream
             .expire_interrupt()
             .await
-            .map_err(protocol_error)?,
+            .map_err(|error| protocol_error_at("close_run: expire interrupt", error))?,
         _ => {
-            if stage.stream.message().await.map_err(protocol_error)?.0["fallbackText"]
+            if stage.stream.message().await.map_err(|error| protocol_error_at("close_run: read fallback text", error))?.0["fallbackText"]
                 .as_str()
                 .is_none_or(|s| s.trim().is_empty())
+                && !open_markdown
             {
                 stage
-                    .component(
-                        "markdown",
-                        json!({"text":"运行未完成，请重试 / Run did not finish; retry."}),
-                        "运行未完成，请重试 / Run did not finish; retry.",
-                    )
+                    .markdown("运行未完成，请重试 / Run did not finish; retry.")
                     .await
-                    .map_err(protocol_error)?;
+                    .map_err(|error| protocol_error_at("close_run: append failure text", error))?;
             }
-            stage.stream.fail(&format!("运行未完成，请重试 / Run did not finish; retry. 已保存 {count} 项 / {count} operations saved.")).await.map_err(protocol_error)?;
+            stage.stream.fail(&format!("运行未完成，请重试 / Run did not finish; retry. 已保存 {count} 项 / {count} operations saved.")).await.map_err(|error| protocol_error_at("close_run: fail stream", error))?;
         }
     }
-    let mut batch = stage.batch().await.map_err(protocol_error)?;
+    let mut batch = stage.batch().await.map_err(|error| protocol_error_at("close_run: collect terminal batch", error))?;
     if reason == "stopped" {
         let unfinished = calls.iter().filter(|c| c.status != "succeeded").count();
-        batch=jiabu_chat::terminal_summary(&initial,batch,&format!("已停止；已保存 {count} 项，未完成 {unfinished} 项 / Stopped; {count} operations saved, {unfinished} unfinished.")).map_err(protocol_error)?;
+        batch=jiabu_chat::terminal_summary(&initial,batch,&format!("已停止；已保存 {count} 项，未完成 {unfinished} 项 / Stopped; {count} operations saved, {unfinished} unfinished.")).map_err(|error| protocol_error_at("close_run: fold terminal summary", error))?;
     }
     tx.record_interrupt_close(space, run, status).await?;
     jiabu_chat::persist(tx, space, &batch)
         .await
-        .map_err(protocol_error)?;
+        .map_err(|error| protocol_error_at("close_run: persist terminal batch", error))?;
     tx.finish_run(space, run.id, status, Some(reason)).await?;
     Ok(batch)
 }

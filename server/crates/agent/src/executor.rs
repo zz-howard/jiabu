@@ -7,13 +7,13 @@ use jiabu_domain::{JoinEpoch, SpaceId};
 use jiabu_tools::{Effect, Invocation, ToolCtx};
 use serde_json::json;
 use std::sync::Arc;
-pub struct ToolExecutor {
+pub struct ToolExecutor<'a> {
+    pub db: &'a AppDb,
     pub registry: Arc<jiabu_tools::ToolRegistry>,
 }
-impl ToolExecutor {
+impl ToolExecutor<'_> {
     pub async fn execute(
         &self,
-        db: &AppDb,
         p: &Principal,
         run: &RunRow,
         lease: RunLease,
@@ -29,7 +29,7 @@ impl ToolExecutor {
         }
         let space = SpaceId(run.space_id);
         let mut tx = SpaceTx::begin(
-            db,
+            self.db,
             p.user_id,
             &[(space, Some(JoinEpoch(run.join_epoch)))],
             Mode::Write,
@@ -54,7 +54,7 @@ impl ToolExecutor {
             return Ok(());
         }
         let context = ToolCtx::for_transaction(
-            db,
+            self.db,
             p.clone(),
             &tx,
             space,
@@ -108,16 +108,14 @@ impl ToolExecutor {
                             | "search_records"
                             | "list_accounts"
                     )
-                {
-                    if let Some((kind, data, fallback)) =
+                    && let Some((kind, data, fallback)) =
                         jiabu_chat::map_tool_result(&call.tool, &value)
                             .map_err(service::protocol_error)?
-                    {
-                        stage
-                            .component(kind, data, &fallback)
-                            .await
-                            .map_err(service::protocol_error)?;
-                    }
+                {
+                    stage
+                        .component(kind, data, &fallback)
+                        .await
+                        .map_err(service::protocol_error)?;
                 }
                 (value, "succeeded")
             }
@@ -151,10 +149,9 @@ impl ToolExecutor {
             .map_err(service::protocol_error)
     }
 }
-impl ToolExecutor {
+impl ToolExecutor<'_> {
     pub async fn execute_reads(
         &self,
-        db: &AppDb,
         p: &Principal,
         run: &RunRow,
         lease: RunLease,
@@ -168,7 +165,7 @@ impl ToolExecutor {
         }
         let space = SpaceId(run.space_id);
         let tx = SpaceTx::begin(
-            db,
+            self.db,
             p.user_id,
             &[(space, Some(JoinEpoch(run.join_epoch)))],
             Mode::Write,
@@ -190,7 +187,7 @@ impl ToolExecutor {
             }
             contexts.push(
                 ToolCtx::for_transaction(
-                    db,
+                    self.db,
                     p.clone(),
                     &tx,
                     space,
@@ -235,16 +232,15 @@ impl ToolExecutor {
                 Err(e) if e.status < 500 => (json!({"error":e.code}), "failed"),
                 Err(e) => return Err(e),
             };
-            if status == "succeeded" {
-                if let Some((kind, data, fallback)) =
+            if status == "succeeded"
+                && let Some((kind, data, fallback)) =
                     jiabu_chat::map_tool_result(&call.tool, &output)
                         .map_err(service::protocol_error)?
-                {
-                    stage
-                        .component(kind, data, &fallback)
-                        .await
-                        .map_err(service::protocol_error)?;
-                }
+            {
+                stage
+                    .component(kind, data, &fallback)
+                    .await
+                    .map_err(service::protocol_error)?;
             }
             tx.append_journal(
                 space,
