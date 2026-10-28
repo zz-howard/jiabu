@@ -938,7 +938,7 @@ worker 每次领取后、做任何事之前，在运行空间的 `SpaceTx` 里�
   | `transport` | 交通 | Transport |
   | `shopping` | 购物 | Shopping |
   | `housing` | 居住 | Housing |
-  | `daily` | 日用 | Household |
+  | `daily` | 日用 | Daily necessities |
   | `medical` | 医疗 | Medical |
   | `education` | 教育 | Education |
   | `entertainment` | 娱乐 | Entertainment |
