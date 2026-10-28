@@ -96,7 +96,17 @@ final class LocalLedgerRepository implements LedgerRepository {
     if (error != null) {
       return Failure(error);
     }
-    return await records.update(spaceId, id, changes);
+    final refundIds = old.text('kind') == 'expense'
+        ? data.records
+              .where((row) => row.text('refund_of_id') == id)
+              .map((row) => row.id)
+        : <String>[];
+    return await records.update(
+      spaceId,
+      id,
+      changes,
+      dependsOn: refundVoidDependencies(refundIds),
+    );
   });
 
   @override

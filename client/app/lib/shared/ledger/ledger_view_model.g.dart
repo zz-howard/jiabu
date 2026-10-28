@@ -156,7 +156,7 @@ final class LedgerFormViewModelProvider
 }
 
 String _$ledgerFormViewModelHash() =>
-    r'88f81a9569a516507f4d98504502ff0531c3c092';
+    r'69e9be06dbae2880c2aeec83ffda8416c6cc188c';
 
 final class LedgerFormViewModelFamily extends $Family
     with

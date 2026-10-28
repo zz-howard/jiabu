@@ -354,5 +354,6 @@
         "type": "String"
       }
     }
-  }
+  },
+  "ledgerRecentlyChanged": "This entry changed elsewhere. Review the refreshed values and confirm again."
 }

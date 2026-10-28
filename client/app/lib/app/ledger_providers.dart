@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart' as rp;
 import 'package:jiabu/app/providers.dart';
 import 'package:jiabu/domain/ledger.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -44,3 +45,26 @@ Stream<int> ledgerRuntimeEvents(Ref ref) async* {
     yield ++revision;
   }
 }
+
+/// Presentation ownership, independent of an individual request's fence.
+typedef LedgerPresentationSession = ({String partition, String? spaceId});
+
+final ledgerPresentationSessionProvider =
+    rp.Provider<LedgerPresentationSession?>((ref) {
+      ref.watch(ledgerRuntimeEventsProvider);
+      final runtime = ref.watch(appRuntimeProvider);
+      final session = runtime.auth.current;
+      if (session == null || runtime.ledger == null) {
+        return null;
+      }
+      return (
+        partition:
+            '${session.partition.prefix}:${session.generation}'
+            ':${runtime.revision}',
+        spaceId: runtime.currentSpace,
+      );
+    });
+
+final ledgerClockProvider = rp.Provider<DateTime Function()>(
+  (ref) => DateTime.now,
+);

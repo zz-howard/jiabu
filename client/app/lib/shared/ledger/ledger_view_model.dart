@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:jiabu/app/ledger_providers.dart';
 import 'package:jiabu/domain/history_filter.dart';
 import 'package:jiabu/domain/ledger.dart';
+import 'package:jiabu/domain/money.dart';
 import 'package:jiabu/domain/result.dart';
 import 'package:jiabu/shared/ledger/ledger_ui_state.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -68,6 +69,20 @@ class LedgerFormViewModel extends _$LedgerFormViewModel {
     if (state.values.isEmpty) {
       state = state.copyWith(values: values);
     }
+  }
+
+  void refreshRecord(LedgerRow row, String currency) {
+    state = state.copyWith(
+      values: {
+        ...row.data,
+        'amount_text': minorInput(row.number('amount_minor'), currency),
+        '_opened_record': row.data,
+        '_opened_version': row.number('version'),
+        '_refresh': ((state.values['_refresh'] as int?) ?? 0) + 1,
+      },
+      error: 'record_changed_elsewhere',
+      busy: false,
+    );
   }
 
   void patch(String key, Object? value) {

@@ -357,13 +357,24 @@ void main() {
           if (kind == 'reallocation') 'to_purpose_id': 'purpose-b',
           'tag_ids': ['tag-a'],
         };
+        final originalRow = LedgerRow({...values}..remove('amount_text'));
+        if (editing) {
+          repo.snapshot = LedgerSnapshot(
+            spaceId: data.spaceId,
+            space: data.space,
+            accounts: data.accounts,
+            records: [originalRow],
+            tags: data.tags,
+            members: data.members,
+          );
+        }
         await pumpC3(
           tester,
           repository: repo,
           child: Builder(
             builder: (context) => TextButton(
               onPressed: () => editing
-                  ? openEditRecord(context, data.spaceId, LedgerRow(values))
+                  ? openEditRecord(context, data.spaceId, originalRow)
                   : openManualEntry(context, data.spaceId, initial: values),
               child: const Text('open'),
             ),
@@ -378,13 +389,22 @@ void main() {
           find.widgetWithText(ActionChip, '+ 新建'),
           hasTags ? findsOneWidget : findsNothing,
         );
+        if (editing) {
+          final note = find.byWidgetPredicate(
+            (widget) =>
+                widget is TextField && widget.decoration?.labelText == '说明',
+          );
+          await tester.ensureVisible(note);
+          await tester.enterText(note, '用户A修改备注');
+          await tester.pump();
+        }
         final save = find.widgetWithText(FilledButton, '保存');
         await tester.ensureVisible(save);
         await tester.tap(save);
         await tester.pumpAndSettle();
         expect(repo.recordWrites, hasLength(1));
         final submitted = repo.recordWrites.single;
-        if (hasTags) {
+        if (hasTags && !editing) {
           expect(submitted['tag_ids'], ['tag-a']);
         } else if (editing) {
           expect(submitted.containsKey('tag_ids'), isFalse);

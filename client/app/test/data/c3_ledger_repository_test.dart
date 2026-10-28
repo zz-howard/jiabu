@@ -295,4 +295,78 @@ void main() {
     expect((await failed).pending.single.text('error'), 'validation_failed');
     await subscription.cancel();
   });
+  for (final blockedBy in ['backoff', 'conflict']) {
+    test('refund_void_${blockedBy}_blocks_expense_edit', () async {
+      final parent = sampleRecord('parent', amount: 10000);
+      final refund = {
+        ...sampleRecord('refund', amount: 8000),
+        'kind': 'refund',
+        'refund_of_id': 'parent',
+      };
+      await h.store.putEntity('s', 'record', parent);
+      await h.store.putEntity('s', 'record', refund);
+      h.api.server.addAll({'parent': parent, 'refund': refund});
+      expect(
+        await repo.recordStatus('s', 'refund', restore: false),
+        isA<Ok<String>>(),
+      );
+      final refundOp = (await h.store.outbox('s')).single;
+      expect(refundOp.dependsOn, contains('record:parent'));
+      expect(
+        await repo.editRecord('s', 'parent', {'amount_minor': 5000}),
+        isA<Ok<String>>(),
+      );
+      final expenseOp = (await h.store.outbox('s')).last;
+      expect(expenseOp.dependsOn, contains('record:refund'));
+      if (blockedBy == 'backoff') {
+        await h.store.setOutboxState(
+          's',
+          refundOp.id,
+          'pending',
+          error: {
+            'code': 'retry',
+            'retry_at': h.clock
+                .add(const Duration(hours: 1))
+                .millisecondsSinceEpoch,
+          },
+        );
+      } else {
+        await h.store.transaction(
+          () => h.conflicts.captureConflict('s', 'record', 'refund', {
+            ...refund,
+            'version': 2,
+          }),
+        );
+      }
+      await h.engine.runRound();
+      expect(h.api.batches, isEmpty);
+      expect(
+        (await h.store.outbox('s')).any((op) => op.id == expenseOp.id),
+        isTrue,
+      );
+    });
+  }
+  for (final action in ['void_record', 'restore_record', 'update_record']) {
+    test('refund_${action}_references_parent', () async {
+      await h.seed('parent', amount: 10000);
+      await h.store.putEntity('s', 'record', {
+        ...sampleRecord('refund', amount: 8000),
+        'kind': 'refund',
+        'refund_of_id': 'parent',
+        'status': action == 'restore_record' ? 'voided' : 'active',
+      });
+      final result = action == 'update_record'
+          ? await repo.editRecord('s', 'refund', {'note': '用户A退款备注'})
+          : await repo.recordStatus(
+              's',
+              'refund',
+              restore: action == 'restore_record',
+            );
+      expect(result, isA<Ok<String>>());
+      expect(
+        (await h.store.outbox('s')).single.dependsOn,
+        contains('record:parent'),
+      );
+    });
+  }
 }

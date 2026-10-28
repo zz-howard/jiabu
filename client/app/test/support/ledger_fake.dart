@@ -9,6 +9,7 @@ class FakeLedgerRepository implements LedgerRepository {
   final changes = StreamController<LedgerSnapshot>.broadcast();
   final calls = <String>[];
   final recordWrites = <Map<String, Object?>>[];
+  Result<List<int>> imageResult = const Failure('image_not_local');
   Result<String> writeResult = const Ok('fictional-op');
   void emit(LedgerSnapshot value) {
     snapshot = value;
@@ -105,5 +106,5 @@ class FakeLedgerRepository implements LedgerRepository {
     String s,
     String hash, {
     bool download = false,
-  }) async => const Failure('image_not_local');
+  }) async => imageResult;
 }

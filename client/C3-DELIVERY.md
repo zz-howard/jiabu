@@ -461,3 +461,153 @@ plan_enabled；indigo card_recorded。对应文件名与完整路径沿用
 现有 `edit` 预览为支出，因此 PNG 不变；转账 / 调拨编辑由组件测试覆盖。
 总 manifest 仍为 113 张，本轮不改 PNG、ARB、生成文件或服务端代码。
 本机只做离线格式 / 规则 / 锚点检查，动态测试由构建机跑。
+
+
+### PR #13 第一轮独立评审与 CI 修正
+
+#### 展示期间的权限边界
+
+所有产品账本弹层统一经 `LedgerSheet.show`，由 `LedgerSheetFence` 包住
+整个 PaperSheet（包括固定 footer）。覆盖详情、原图、编辑、退款、手动
+记账、冲突、账户、拨入计划、撤销确认、归档提示、历史筛选；表单日期
+选择器也继承相同边界。catalog 的静态 PaperSheet 仍只用于展示组件。
+
+边界持续监听当前会话的分区 / generation / runtime revision 与当前空间，
+以及该空间本机快照中的 member_id、join_epoch、local_generation、成员
+状态与 ledger 模块授权。空间记录里的 member_id / join_epoch 是 /spaces
+返回的当前成员身份；成员明细存在时也检查 active / left_at，成员明细为空
+时仍以空间的当前成员身份为准。写表单另外要求 write / manage。
+
+首次快照未到时只显示空白，不展示已捕获的表单或图片；权限失效、清库、
+分区 / 空间切换、成员退出或重新加入时，当前帧先撤掉内容子树，随后移除
+各自的模态路由。使用 removeRoute 而非只 pop 当前栈顶，确保嵌套原图及
+日期选择器不会把下面的失效详情留在栈内。清理时 invalidate 整个表单
+provider family 与 recordImage provider family；不会等请求结束才做检查。
+普通请求的 C2 fence 保持不变，不以它代替展示生命周期边界。
+
+#### 退款顺序
+
+C2 toolDependencies 的 update_record / restore_record 已引用退款原支出，
+但 void_record 漏了该引用，本轮补齐。RecordsRepository.update 增加可选
+依赖参数；LocalLedgerRepository 对支出编辑再登记相关退款引用。这样：
+
+- 退款撤销退避时，双方引用使 C2 FIFO 阻止后续原支出编辑越序。
+- 退款冲突时，即使 captureConflict 已移除退款的 outbox 条目，支出编辑
+  仍依赖退款，按 C2 原有 blocked / 冲突解决流程继续等待。
+
+没有重写调度器或冲突状态机，也没有改变服务端或 schema。
+
+#### 编辑的差量和重新确认
+
+编辑初始化在 UI 状态保存打开时的记录、version；保存时读取最新快照，
+若版本或行内容改变，阻止入队，显示“这笔刚被别处改过，已刷新，请重新
+确认。”，以最新记录替换表单基线和输入控件（包含金额 / 备注），要求用户
+重新确认。用户继续修改后，以刷新后的记录为基线。
+
+update_record.changes 仅包含相对该基线真正变化的字段；深比较列表，
+不因标签数组的新实例误判为变化；不提交 kind / refund_of_id / UI 元数据。
+无实际变化时不入队。原有标签回归测试相应改为实际修改备注，并验证未改
+标签不进入 changes；新建记录的 tag_ids 行为保持上一轮规则。
+
+#### golden 环境与时钟
+
+**golden 环境固定 UTC；界面上审计时间仍按设备本地时区显示。**
+`tool/golden.sh` 的 docker run 加 `--env TZ=UTC`；CI 的 App tests including
+goldens 步骤显式配置 `TZ: UTC`。保留审计显示的 `.toLocal()`。
+
+已检查 C3 shared/ledger 与 catalog 的宿主时区 / 当前时间依赖：除了审计
+时间，手动表单默认日期、开户默认日期、日期选择器回退初始日也使用“今天”。
+统一改读可注入 ledgerClockProvider；真实 App 默认 DateTime.now（设备时间），
+catalog / C3 测试固定为 2026-10-28 12:00 UTC。catalog 已有的明确日期继续
+保留；账本 occurred_on 的日精度解析及历史时间格式没有新增 .toLocal。
+
+#### 新增回归测试与负对照
+
+`app/test/features/c3_review_regression_test.dart`：
+
+- `open_image_closes_on_permission` / `open_edit_closes_on_permission`
+- `open_image_closes_on_clear` / `open_edit_closes_on_clear`
+- 同两类弹层的 `_closes_on_partition`、`_closes_on_space`、
+  `_closes_on_member`（合计 10 条）；原图通过详情缩略图打开，验证两层
+  弹层同时关闭、widget 树不再有图片 / 表单 / EditableText，表单状态清空，
+  已缓存的 image provider 重新求值而不返回旧图片。
+- `edit_note_submits_only_note`
+- `edit_refreshes_and_blocks_when_opened_version_changes`（包括刷新金额为
+  200、清除旧备注输入，并在再次编辑确认后只提交新备注）
+- `manual_date_uses_injected_clock`
+
+`app/test/data/c3_ledger_repository_test.dart`：
+
+- `refund_void_backoff_blocks_expense_edit`
+- `refund_void_conflict_blocks_expense_edit`
+- `refund_void_record_references_parent`
+- `refund_restore_record_references_parent`
+- `refund_update_record_references_parent`
+
+`test/golden_environment_test.dart`：
+
+- `golden_tool_and_ci_app_step_pin_utc`
+
+共新增 19 条回归用例，均由构建机运行，本机未执行。
+
+`tool/c3-negative-controls.json` 新增 4 条（总计 15），均有唯一 find / regex
+锚点、替换内容、测试名及命令；要求编译成功后的断言失败，不接受编译失败：
+
+- `refund_void_parent_reference`：故意取消 void_record 的原支出依赖；
+  `refund_void_backoff_blocks_expense_edit` 应失败。
+- `expense_edit_refund_conflict_reference`：支出编辑故意不引用退款；
+  `refund_void_conflict_blocks_expense_edit` 应失败。
+- `edit_only_changed_fields`：故意提交所有候选字段；
+  `edit_note_submits_only_note` 应失败。
+- `edit_opened_version_refresh`：故意关闭打开后变化检测；
+  `edit_refreshes_and_blocks_when_opened_version_changes` 应失败。
+
+#### 本轮文件清单
+
+- `.github/workflows/client-ci.yml`
+- `client/C3-DELIVERY.md`
+- `client/app/lib/app/ledger_providers.dart`
+- `client/app/lib/data/repositories/ledger_repository.dart`
+- `client/app/lib/data/repositories/records_repository.dart`
+- `client/app/lib/data/sync/tool_dependencies.dart`
+- `client/app/lib/domain/record_edit.dart`
+- `client/app/lib/features/catalog/c3_cases.dart`
+- `client/app/lib/l10n/app_en.arb`
+- `client/app/lib/l10n/app_zh.arb`
+- `client/app/lib/shared/ledger/ledger_forms.dart`
+- `client/app/lib/shared/ledger/ledger_labels.dart`
+- `client/app/lib/shared/ledger/ledger_pages.dart`
+- `client/app/lib/shared/ledger/ledger_sheet.dart`
+- `client/app/lib/shared/ledger/ledger_view_model.dart`
+- `client/app/lib/shared/ledger/record_details.dart`
+- `client/app/test/data/c3_ledger_repository_test.dart`
+- `client/app/test/features/c3_interaction_test.dart`
+- `client/app/test/features/c3_review_regression_test.dart`
+- `client/app/test/features/manual_setup_flow_test.dart`
+- `client/app/test/support/c3_harness.dart`
+- `client/app/test/support/ledger_fake.dart`
+- `client/packages/jiabu_design/lib/src/components/paper_sheet.dart`
+- `client/test/golden_environment_test.dart`
+- `client/tool/c3-negative-controls.json`
+- `client/tool/golden.sh`
+
+#### golden 重录范围与验证边界
+
+建议重录 `details_audit` 的既有 3 张：
+
+- `details_audit_zh_pine_w360_text100.png`
+- `details_audit_zh_pine_w430_text200.png`
+- `details_audit_en_pine_w360_text100.png`
+
+其中 CI 报差的是两个 w360 文件；w430 时间可能在首屏之外，也一起在 UTC
+环境复核。其他状态的日期已固定，正常状态没有新增视觉元素，预计不变。
+没有增加 manifest 状态，仍为 113 张。本轮未修改 PNG 或生成文件；新增
+ARB 键及改动过的注解源码需在构建机重新生成 l10n / build_runner 输出。
+
+本机仅离线语法格式、check_rules、JSON / 锚点、shell 语法和 diff 检查；
+未运行 Flutter 测试、完整 analyze、golden 或负对照，不能声明动态验证通过。
+
+本轮最终静态检查结果：20 个手写 Dart 文件经离线 formatter 解析；
+check_rules 通过，所有修改的 Dart 行长不超过 80，双语 ARB 键一致，
+15 条负对照的 find / regex 均唯一，golden.sh 经 bash -n，git diff --check
+通过。没有完整项目依赖解析，因此这些检查不等于 analyze 或测试通过。

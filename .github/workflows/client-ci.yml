@@ -64,6 +64,8 @@ jobs:
       - name: Workspace tool tests
         run: flutter test
       - name: App tests including goldens
+        env:
+          TZ: UTC
         working-directory: client/app
         run: flutter test
       - name: Design package tests

@@ -3,17 +3,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:jiabu/app/ledger_providers.dart';
 import 'package:jiabu/domain/ledger.dart';
 import 'package:jiabu/domain/ledger_balance.dart';
 import 'package:jiabu/domain/ledger_validation.dart';
 import 'package:jiabu/domain/money.dart';
+import 'package:jiabu/domain/record_edit.dart';
+import 'package:jiabu/domain/result.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/ledger/ledger_labels.dart';
+import 'package:jiabu/shared/ledger/ledger_sheet.dart';
 import 'package:jiabu/shared/ledger/ledger_ui_state.dart';
 import 'package:jiabu/shared/ledger/ledger_view_model.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
-String todayInput() => DateFormat('yyyy-MM-dd').format(DateTime.now());
+String todayInput(BuildContext context) => DateFormat('yyyy-MM-dd').format(
+  ProviderScope.containerOf(context, listen: false).read(ledgerClockProvider)(),
+);
 
 Future<void> openManualEntry(
   BuildContext context,
@@ -21,11 +27,14 @@ Future<void> openManualEntry(
   Map<String, Object?> initial = const {},
 }) async {
   ScaffoldMessenger.of(context).hideCurrentSnackBar();
-  await PaperSheet.show<void>(
+  final occurredOn = todayInput(context);
+  await LedgerSheet.show<void>(
     context: context,
+    spaceId: spaceId,
+    requireWrite: true,
     builder: (_) => RecordForm(
       spaceId: spaceId,
-      initial: {'kind': 'expense', 'occurred_on': todayInput(), ...initial},
+      initial: {'kind': 'expense', 'occurred_on': occurredOn, ...initial},
     ),
   );
 }
@@ -36,8 +45,10 @@ Future<void> openEditRecord(
   LedgerRow record,
 ) async {
   ScaffoldMessenger.of(context).hideCurrentSnackBar();
-  await PaperSheet.show<void>(
+  await LedgerSheet.show<void>(
     context: context,
+    spaceId: spaceId,
+    requireWrite: true,
     builder: (_) => RecordForm(spaceId: spaceId, record: record),
   );
 }
@@ -47,8 +58,10 @@ Future<void> openAccountForm(
   String spaceId, {
   LedgerRow? account,
 }) async {
-  await PaperSheet.show<void>(
+  await LedgerSheet.show<void>(
     context: context,
+    spaceId: spaceId,
+    requireWrite: true,
     builder: (_) => AccountForm(spaceId: spaceId, account: account),
   );
 }
@@ -58,8 +71,10 @@ Future<void> openPlan(
   String spaceId,
   String accountId,
 ) async {
-  await PaperSheet.show<void>(
+  await LedgerSheet.show<void>(
     context: context,
+    spaceId: spaceId,
+    requireWrite: true,
     builder: (_) => AllocationPlanForm(spaceId: spaceId, accountId: accountId),
   );
 }
@@ -137,7 +152,10 @@ Widget formField(
           onChanged: (value) => model.patch(key, value),
         )
       : TextFormField(
-          key: ValueKey('${state.values['kind'] ?? ''}-$key'),
+          key: ValueKey(
+            '${state.values['kind'] ?? ''}-$key-'
+            '${state.values['_refresh'] ?? 0}',
+          ),
           initialValue: state.values[key]?.toString() ?? '',
           decoration: InputDecoration(labelText: label),
           maxLength: maxLength,
@@ -242,12 +260,14 @@ class RecordForm extends ConsumerWidget {
       initial: original == null
           ? {
               'kind': 'expense',
-              'occurred_on': todayInput(),
+              'occurred_on': todayInput(context),
               'tag_ids': <String>[],
               ...initial,
             }
           : {
               ...original.data,
+              '_opened_record': original.data,
+              '_opened_version': original.number('version'),
               'amount_text': minorInput(
                 original.number('amount_minor'),
                 snapshot.currency,
@@ -456,6 +476,31 @@ class RecordForm extends ConsumerWidget {
               onPressed: state.busy || !snapshot.writable
                   ? null
                   : () async {
+                      final baseline =
+                          state.values['_opened_record']
+                              as Map<String, Object?>?;
+                      if (original != null && baseline != null) {
+                        final current = ref
+                            .read(ledgerViewModelProvider(spaceId))
+                            .snapshot;
+                        final latest = current?.find(
+                          current.records,
+                          original.id,
+                        );
+                        if (latest == null) {
+                          model.fail('not_found');
+                          return;
+                        }
+                        if (recordEditIsStale(
+                          latest,
+                          state.values['_opened_version'] as int? ??
+                              original.number('version'),
+                          baseline,
+                        )) {
+                          model.refreshRecord(latest, snapshot.currency);
+                          return;
+                        }
+                      }
                       final amount = parseMinor(
                         state.values['amount_text']?.toString() ?? '',
                         snapshot.currency,
@@ -490,9 +535,16 @@ class RecordForm extends ConsumerWidget {
                         if (original == null) {
                           return repo.createRecord(spaceId, values);
                         }
-                        final changes = {...values}
+                        final editable = {...values}
                           ..remove('kind')
                           ..remove('refund_of_id');
+                        final changes = changedRecordFields(
+                          editable,
+                          baseline ?? original.data,
+                        );
+                        if (changes.isEmpty) {
+                          return Future.value(Ok(original.id));
+                        }
                         return repo.editRecord(spaceId, original.id, changes);
                       });
                       if (ok && context.mounted) {
@@ -533,7 +585,7 @@ class AccountForm extends ConsumerWidget {
         'kind': 'real',
         'name': '',
         'opening_text': '0',
-        'opening_on': initialDate ?? todayInput(),
+        'opening_on': initialDate ?? todayInput(context),
         'is_reserve': false,
         ...?account?.data,
       },
@@ -769,9 +821,25 @@ class LedgerDateField extends StatelessWidget {
       initialValue: ledgerDate(value, l),
       decoration: InputDecoration(labelText: label),
       onTap: () async {
+        final fence = context.findAncestorWidgetOfExactType<LedgerSheetFence>();
         final chosen = await showDatePicker(
           context: context,
-          initialDate: DateTime.tryParse(value) ?? DateTime.now(),
+          initialDate:
+              DateTime.tryParse(value) ??
+              ProviderScope.containerOf(
+                context,
+                listen: false,
+              ).read(ledgerClockProvider)(),
+          builder: (pickerContext, child) {
+            if (fence == null) {
+              return child ?? const SizedBox.shrink();
+            }
+            return LedgerSheetFence(
+              spaceId: fence.spaceId,
+              requireWrite: fence.requireWrite,
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
           firstDate: DateTime(1),
           lastDate: DateTime(9999, 12, 31),
         );

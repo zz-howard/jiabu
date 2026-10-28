@@ -11,7 +11,7 @@ command -v docker >/dev/null || {
 
 exec docker run --rm --platform linux/amd64 \
   --user "$(id -u):$(id -g)" \
-  --env HOME=/tmp --env PUB_CACHE=/tmp/pub-cache \
+  --env HOME=/tmp --env PUB_CACHE=/tmp/pub-cache --env TZ=UTC \
   --env PUB_HOSTED_URL --env FLUTTER_STORAGE_BASE_URL \
   --volume "$CLIENT_DIR:/workspace" --workdir /workspace \
   "$IMAGE" bash -euo pipefail -c \

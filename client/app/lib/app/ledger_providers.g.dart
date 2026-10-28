@@ -59,7 +59,8 @@ String _$ledgerRepositoryHash() => r'2abceb8b44c502626bd2660b2eb9bd9fa41bfe6a';
 final currentLedgerSpaceProvider = CurrentLedgerSpaceProvider._();
 
 final class CurrentLedgerSpaceProvider
-    extends $FunctionalProvider<AsyncValue<String?>, String?, Stream<String?>>
+    extends
+        $FunctionalProvider<rp.AsyncValue<String?>, String?, Stream<String?>>
     with $FutureModifier<String?>, $StreamProvider<String?> {
   CurrentLedgerSpaceProvider._()
     : super(
@@ -151,7 +152,7 @@ final ledgerRuntimeEventsProvider = LedgerRuntimeEventsProvider._();
 /// event counter keeps the shell's offline/auth notices reactive as well.
 
 final class LedgerRuntimeEventsProvider
-    extends $FunctionalProvider<AsyncValue<int>, int, Stream<int>>
+    extends $FunctionalProvider<rp.AsyncValue<int>, int, Stream<int>>
     with $FutureModifier<int>, $StreamProvider<int> {
   /// Runtime status can change while the current space ID stays equal. A distinct
   /// event counter keeps the shell's offline/auth notices reactive as well.

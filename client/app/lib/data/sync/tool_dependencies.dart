@@ -17,7 +17,7 @@ Set<String> toolDependencies(
   final refundDependencies = <String>{
     if (refundOf is String) EntityRef('record', refundOf).key,
   };
-  if (tool == 'restore_record') {
+  if (tool == 'restore_record' || tool == 'void_record') {
     return refundDependencies;
   }
   if (tool != 'create_record' && tool != 'update_record') {

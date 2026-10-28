@@ -19,6 +19,8 @@ Future<void> pumpC3(
   Widget? child,
   LedgerRepository? repository,
   bool settle = true,
+  String sessionSpaceId = 'fictional-c3',
+  LedgerPresentationSession? Function()? session,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 844);
@@ -27,6 +29,14 @@ Future<void> pumpC3(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        ledgerClockProvider.overrideWithValue(
+          () => DateTime.utc(2026, 10, 28, 12),
+        ),
+        ledgerPresentationSessionProvider.overrideWith(
+          (ref) => session == null
+              ? (partition: 'test', spaceId: sessionSpaceId)
+              : session(),
+        ),
         if (repository != null)
           ledgerRepositoryProvider.overrideWithValue(repository),
       ],

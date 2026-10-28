@@ -12,6 +12,7 @@ import 'package:jiabu/domain/result.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/ledger/ledger_forms.dart';
 import 'package:jiabu/shared/ledger/ledger_labels.dart';
+import 'package:jiabu/shared/ledger/ledger_sheet.dart';
 import 'package:jiabu/shared/ledger/ledger_view_model.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -34,8 +35,9 @@ Future<void> openRecordDetails(
   String id,
 ) async {
   ScaffoldMessenger.of(context).hideCurrentSnackBar();
-  await PaperSheet.show<void>(
+  await LedgerSheet.show<void>(
     context: context,
+    spaceId: spaceId,
     builder: (_) => RecordDetails(spaceId: spaceId, recordId: id),
     footerBuilder: (_) => RecordActions(spaceId: spaceId, recordId: id),
   );
@@ -48,8 +50,9 @@ Future<void> openConflict(
   String id,
 ) async {
   ScaffoldMessenger.of(context).hideCurrentSnackBar();
-  await PaperSheet.show<void>(
+  await LedgerSheet.show<void>(
     context: context,
+    spaceId: spaceId,
     builder: (_) =>
         ConflictSheet(spaceId: spaceId, entityKind: kind, entityId: id),
   );
@@ -64,8 +67,9 @@ Future<void> changeRecordStatus(
 }) async {
   final l = AppLocalizations.of(context);
   if (!restore) {
-    final confirmed = await PaperSheet.show<bool>(
+    final confirmed = await LedgerSheet.show<bool>(
       context: context,
+      spaceId: spaceId,
       builder: (sheetContext) => Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -490,8 +494,9 @@ class LedgerImage extends ConsumerWidget {
             return picture;
           }
           return InkWell(
-            onTap: () => PaperSheet.show<void>(
+            onTap: () => LedgerSheet.show<void>(
               context: context,
+              spaceId: spaceId,
               builder: (_) =>
                   LedgerImage(spaceId: spaceId, hash: hash, download: true),
             ),
@@ -504,8 +509,9 @@ class LedgerImage extends ConsumerWidget {
         return TextButton(
           onPressed: download
               ? null
-              : () => PaperSheet.show<void>(
+              : () => LedgerSheet.show<void>(
                   context: context,
+                  spaceId: spaceId,
                   builder: (_) =>
                       LedgerImage(spaceId: spaceId, hash: hash, download: true),
                 ),

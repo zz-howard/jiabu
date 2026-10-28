@@ -14,6 +14,7 @@ class PaperSheet extends StatelessWidget {
     required BuildContext context,
     required WidgetBuilder builder,
     WidgetBuilder? footerBuilder,
+    Widget Function(BuildContext, Widget)? wrapperBuilder,
   }) {
     ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
     return showModalBottomSheet<T>(
@@ -27,10 +28,13 @@ class PaperSheet extends StatelessWidget {
         curve: context.jiabu.motion.sheetCurve,
         reverseCurve: context.jiabu.motion.sheetCurve.flipped,
       ),
-      builder: (sheetContext) => PaperSheet(
-        footer: footerBuilder?.call(sheetContext),
-        child: builder(sheetContext),
-      ),
+      builder: (sheetContext) {
+        final sheet = PaperSheet(
+          footer: footerBuilder?.call(sheetContext),
+          child: builder(sheetContext),
+        );
+        return wrapperBuilder?.call(sheetContext, sheet) ?? sheet;
+      },
     );
   }
 

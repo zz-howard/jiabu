@@ -26,6 +26,7 @@ Map<String, String> ledgerLabels(AppLocalizations l) => {
   'other': l.ledgerTagOther,
 };
 String ledgerError(AppLocalizations l, String code) => switch (code) {
+  'record_changed_elsewhere' => l.ledgerRecentlyChanged,
   'validation_failed' => l.ledgerInvalid,
   'aggregate_out_of_range' => l.ledgerAggregateRange,
   'same_endpoints' => l.ledgerSameEndpoints,

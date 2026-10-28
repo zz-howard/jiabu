@@ -14,6 +14,7 @@ import 'package:jiabu/domain/result.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/ledger/ledger_forms.dart';
 import 'package:jiabu/shared/ledger/ledger_labels.dart';
+import 'package:jiabu/shared/ledger/ledger_sheet.dart';
 import 'package:jiabu/shared/ledger/ledger_view_model.dart';
 import 'package:jiabu/shared/ledger/record_card.dart';
 import 'package:jiabu/shared/ledger/record_details.dart';
@@ -424,8 +425,9 @@ class HistoryPage extends ConsumerWidget {
       String? selected,
       void Function(String?) choose,
     ) async {
-      await PaperSheet.show<void>(
+      await LedgerSheet.show<void>(
         context: context,
+        spaceId: snapshot.spaceId,
         builder: (sheetContext) => Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -548,8 +550,9 @@ class HistoryPage extends ConsumerWidget {
                     PaperFilterChip(
                       label: l.ledgerPeriod,
                       selected: filter.from != null || filter.through != null,
-                      onPressed: () => PaperSheet.show<void>(
+                      onPressed: () => LedgerSheet.show<void>(
                         context: context,
+                        spaceId: snapshot.spaceId,
                         builder: (sheetContext) =>
                             DateFilterForm(spaceId: snapshot.spaceId),
                       ),
@@ -823,8 +826,9 @@ Future<void> archiveGuide(
   int balance,
 ) async {
   final l = AppLocalizations.of(context);
-  await PaperSheet.show<void>(
+  await LedgerSheet.show<void>(
     context: context,
+    spaceId: snapshot.spaceId,
     builder: (sheetContext) => Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,

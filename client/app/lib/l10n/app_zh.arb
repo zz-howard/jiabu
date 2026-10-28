@@ -354,5 +354,6 @@
         "type": "String"
       }
     }
-  }
+  },
+  "ledgerRecentlyChanged": "这笔刚被别处改过，已刷新，请重新确认。"
 }

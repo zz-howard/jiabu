@@ -141,6 +141,8 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
       'space_id': s,
       'name': '虚构家庭空间',
       'currency': 'CNY',
+      'member_id': 'member-a',
+      'join_epoch': 1,
       'timezone': 'Asia/Singapore',
       'accent_color': accent,
       'modules': {'ledger': 'write'},
@@ -345,6 +347,13 @@ class C3Preview extends StatelessWidget {
     };
     return ProviderScope(
       overrides: [
+        ledgerClockProvider.overrideWithValue(
+          () => DateTime.utc(2026, 10, 28, 12),
+        ),
+        ledgerPresentationSessionProvider.overrideWithValue((
+          partition: 'catalog',
+          spaceId: s,
+        )),
         ledgerRepositoryProvider.overrideWithValue(
           _PreviewRepository(snapshot),
         ),

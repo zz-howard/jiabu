@@ -143,6 +143,58 @@
         "expense_void_waits_for_refund_void_ack"
       ],
       "command": "flutter test test/data/c3_ledger_repository_test.dart --plain-name expense_void_waits_for_refund_void_ack"
+    },
+    {
+      "id": "refund_void_parent_reference",
+      "file": "client/app/lib/data/sync/tool_dependencies.dart",
+      "find": "tool == 'restore_record' || tool == 'void_record'",
+      "replace": "tool == 'restore_record' || tool == 'void_record_disabled'",
+      "expected_occurrences": 1,
+      "find_regex": "tool\\s*==\\s*'restore_record'\\s*\\|\\|\\s*tool\\s*==\\s*'void_record'",
+      "test_file": "client/app/test/data/c3_ledger_repository_test.dart",
+      "test_names": [
+        "refund_void_backoff_blocks_expense_edit"
+      ],
+      "command": "flutter test test/data/c3_ledger_repository_test.dart --plain-name refund_void_backoff_blocks_expense_edit"
+    },
+    {
+      "id": "expense_edit_refund_conflict_reference",
+      "file": "client/app/lib/data/repositories/ledger_repository.dart",
+      "find": "    return await records.update(\n      spaceId,\n      id,\n      changes,\n      dependsOn: refundVoidDependencies(refundIds),\n    );",
+      "replace": "    return await records.update(\n      spaceId,\n      id,\n      changes,\n      dependsOn: refundVoidDependencies(refundIds.where((_) => false)),\n    );",
+      "expected_occurrences": 1,
+      "find_regex": "\\s*return\\s*await\\s*records\\.update\\(\\s*spaceId,\\s*id,\\s*changes,\\s*dependsOn:\\s*refundVoidDependencies\\(refundIds\\),\\s*\\);",
+      "test_file": "client/app/test/data/c3_ledger_repository_test.dart",
+      "test_names": [
+        "refund_void_conflict_blocks_expense_edit"
+      ],
+      "command": "flutter test test/data/c3_ledger_repository_test.dart --plain-name refund_void_conflict_blocks_expense_edit"
+    },
+    {
+      "id": "edit_only_changed_fields",
+      "file": "client/app/lib/domain/record_edit.dart",
+      "find": "if (jsonEncode(entry.value) != jsonEncode(baseline[entry.key]))",
+      "replace": "if (true)",
+      "expected_occurrences": 1,
+      "find_regex": "if\\s*\\(jsonEncode\\(entry\\.value\\)\\s*!=\\s*jsonEncode\\(baseline\\[entry\\.key\\]\\)\\)",
+      "test_file": "client/app/test/features/c3_review_regression_test.dart",
+      "test_names": [
+        "edit_note_submits_only_note"
+      ],
+      "command": "flutter test test/features/c3_review_regression_test.dart --plain-name edit_note_submits_only_note"
+    },
+    {
+      "id": "edit_opened_version_refresh",
+      "file": "client/app/lib/domain/record_edit.dart",
+      "find": "latest.number('version') != openedVersion ||\n    changedRecordFields(latest.data, baseline).isNotEmpty",
+      "replace": "false",
+      "expected_occurrences": 1,
+      "find_regex": "latest\\.number\\('version'\\)\\s*!=\\s*openedVersion\\s*\\|\\|\\s*changedRecordFields\\(latest\\.data,\\s*baseline\\)\\.isNotEmpty",
+      "test_file": "client/app/test/features/c3_review_regression_test.dart",
+      "test_names": [
+        "edit_refreshes_and_blocks_when_opened_version_changes"
+      ],
+      "command": "flutter test test/features/c3_review_regression_test.dart --plain-name edit_refreshes_and_blocks_when_opened_version_changes"
     }
   ]
 }

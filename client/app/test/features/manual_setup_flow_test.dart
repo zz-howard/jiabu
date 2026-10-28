@@ -43,6 +43,7 @@ void main() {
       await pumpC3(
         tester,
         repository: repo,
+        sessionSpaceId: 's',
         settle: false,
         child: Builder(
           builder: (context) => Column(
@@ -81,6 +82,7 @@ void main() {
       await pumpC3(
         tester,
         repository: repo,
+        sessionSpaceId: 's',
         settle: false,
         child: Builder(
           builder: (context) => TextButton(
@@ -99,6 +101,7 @@ void main() {
         await pumpC3(
           tester,
           repository: repo,
+          sessionSpaceId: 's',
           settle: false,
           child: Builder(
             builder: (context) => TextButton(
@@ -153,6 +156,7 @@ void main() {
       await pumpC3(
         tester,
         repository: repo,
+        sessionSpaceId: 's',
         settle: false,
         child: OverviewPage(snapshot: snapshot),
       );
@@ -187,6 +191,7 @@ void main() {
       await pumpC3(
         tester,
         repository: repo,
+        sessionSpaceId: 's',
         settle: false,
         child: const SingleChildScrollView(
           child: RecordForm(
@@ -208,6 +213,7 @@ void main() {
       await pumpC3(
         tester,
         repository: repo,
+        sessionSpaceId: 's',
         settle: false,
         child: const RecordActions(spaceId: 's', recordId: 'parent'),
       );
