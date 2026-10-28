@@ -38,11 +38,77 @@ List<String> selectValues(Object? value, List<Object?> path) {
   throw FormatException('Missing JSON path $key');
 }
 
-String messageText(String message) {
-  if (RegExp(r'\{\s*\w+\s*,').hasMatch(message)) {
-    throw const FormatException('Add explicit ICU plural/select handling');
+const _icuBranching = {'plural', 'select', 'selectordinal'};
+
+int _closingBrace(String text, int start) {
+  var depth = 0;
+  for (var index = start; index < text.length; index++) {
+    if (text[index] == '{') {
+      depth++;
+    } else if (text[index] == '}') {
+      depth--;
+      if (depth == 0) {
+        return index;
+      }
+    }
   }
-  return message.replaceAll(RegExp(r'\{\w+\}'), '');
+  throw const FormatException('Unbalanced braces in ARB message');
+}
+
+/// Mirrors tool/fonts/subset.py `message_text`: placeholders contribute no
+/// characters, plural/select contribute every branch ("#" inside plural is the
+/// count) and any other ICU argument is rejected.
+String messageText(String message, {bool inPlural = false}) {
+  final out = StringBuffer();
+  var index = 0;
+  while (index < message.length) {
+    final char = message[index];
+    if (char != '{') {
+      if (!(inPlural && char == '#')) {
+        out.write(char);
+      }
+      index++;
+      continue;
+    }
+    final end = _closingBrace(message, index);
+    final body = message.substring(index + 1, end);
+    final comma = body.indexOf(',');
+    if (comma >= 0) {
+      final second = body.indexOf(',', comma + 1);
+      final kind = second < 0 ? '' : body.substring(comma + 1, second).trim();
+      if (second < 0 ||
+          !RegExp(r'^\w+$').hasMatch(body.substring(0, comma).trim()) ||
+          !_icuBranching.contains(kind)) {
+        throw const FormatException('Add explicit ICU plural/select handling');
+      }
+      final rest = body.substring(second + 1);
+      var position = 0;
+      while (position < rest.length) {
+        if (rest[position].trim().isEmpty) {
+          position++;
+          continue;
+        }
+        final opening = rest.indexOf('{', position);
+        if (opening < 0 ||
+            !RegExp(r'^=?\w+$')
+                .hasMatch(rest.substring(position, opening).trim())) {
+          throw const FormatException('Malformed ICU selector');
+        }
+        final closing = _closingBrace(rest, opening);
+        out.write(
+          messageText(
+            rest.substring(opening + 1, closing),
+            inPlural: kind != 'select',
+          ),
+        );
+        position = closing + 1;
+      }
+    } else if (!RegExp(r'^\w+$').hasMatch(body)) {
+      throw const FormatException('Malformed ARB placeholder');
+    }
+    index = end + 1;
+  }
+  return out.toString();
 }
 
 List<FontCharacterSource> readFontSources(Directory root) {

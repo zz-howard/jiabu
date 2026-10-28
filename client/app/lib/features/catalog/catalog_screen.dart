@@ -5,7 +5,7 @@ import 'package:jiabu_design/jiabu_design.dart';
 
 /// Reachable from main_dev.dart only; no production route is registered.
 class CatalogScreen extends StatelessWidget {
-  const new({super.key});
+  const CatalogScreen({super.key});
 
   @override
   Widget build(BuildContext context) {

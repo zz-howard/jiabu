@@ -1,2 +1,4 @@
 tags:
   golden:
+  server:
+    skip: Run tool/server-it.sh

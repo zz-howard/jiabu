@@ -1,2 +1,6 @@
 tags:
   golden:
+  server:
+    # Real-server integration tests: only tool/server-it.sh runs them
+    # (flutter test has no --preset, so they are skipped rather than excluded).
+    skip: Run tool/server-it.sh

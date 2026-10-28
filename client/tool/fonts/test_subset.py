@@ -40,6 +40,20 @@ class FontToolTest(unittest.TestCase):
                     subset.cached_source(spec, directory)
             self.assertEqual(list(Path(directory).iterdir()), [])
 
+    def test_message_text_covers_every_icu_branch(self):
+        self.assertEqual(subset.message_text("{month}月{day}日"), "月日")
+        self.assertEqual(
+            subset.message_text("{count, plural, one{1 条#} other{{count} 条}}"),
+            "1 条 条")
+        self.assertEqual(subset.message_text("{kind, select, a{甲} other{乙}}"), "甲乙")
+        with self.assertRaises(ValueError):
+            subset.message_text("{amount, number}")
+
+    def test_icu_argument_name_must_be_ascii_word(self):
+        for message in ("{bad-name, plural, other{A}}", "{名字, plural, other{A}}"):
+            with self.subTest(message=message), self.assertRaises(ValueError):
+                subset.message_text(message)
+
     def test_gb2312_level_one_has_exactly_3755_characters(self):
         chars = subset.gb2312_level1()
         self.assertEqual(len(chars), 3755)

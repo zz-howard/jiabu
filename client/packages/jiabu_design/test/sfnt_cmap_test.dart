@@ -93,10 +93,16 @@ void main() {
     );
     expect(selectValues(['hello'], ['0']), ['hello']);
     expect(messageText('{month}月{day}日 周{weekday}'), '月日 周');
+    expect(messageText('{count, plural, one{1 条#} other{{count} 条}}'), '1 条 条');
+    expect(messageText('{kind, select, a{甲} other{乙}}'), '甲乙');
+    expect(() => messageText('{amount, number}'), throwsFormatException);
+    expect(() => selectValues({'a': 1}, ['missing']), throwsFormatException);
+  });
+  test('ICU argument names require ASCII word characters', () {
     expect(
-      () => messageText('{count, plural, one{a} other{b}}'),
+      () => messageText('{bad-name, plural, other{A}}'),
       throwsFormatException,
     );
-    expect(() => selectValues({'a': 1}, ['missing']), throwsFormatException);
+    expect(() => messageText('{名字, plural, other{A}}'), throwsFormatException);
   });
 }

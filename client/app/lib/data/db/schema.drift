@@ -1,0 +1,298 @@
+-- C2 schema source. Generate database.g.dart on the build host; schemaVersion=1.
+-- C5 adds ChatWeave message_json/rev/last_seq columns. data_json preserves
+-- the complete server payload today without interpreting ChatWeave messages.
+-- Templates deliberately deferred to C6 by the C2 G0 decision.
+
+CREATE TABLE spaces (
+  "id" TEXT,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "base_version" INTEGER,
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "name" TEXT,
+  "accent_color" TEXT,
+  "currency" TEXT,
+  "timezone" TEXT,
+  "is_default" INTEGER,
+  "version" INTEGER,
+  "change_seq" INTEGER,
+  "role" TEXT,
+  "member_id" TEXT,
+  "join_epoch" INTEGER,
+  "modules" TEXT,
+  "local_generation" INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (space_id, id),
+  CHECK (space_id = id)
+);
+CREATE INDEX spaces_space ON spaces (space_id);
+
+CREATE TABLE space_members (
+  "id" TEXT,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "base_version" INTEGER,
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "display_name" TEXT,
+  "role" TEXT,
+  "status" TEXT,
+  "join_epoch" INTEGER,
+  "joined_at" TEXT,
+  "left_at" TEXT,
+  "left_reason" TEXT,
+  "version" INTEGER,
+  "change_seq" INTEGER,
+  PRIMARY KEY (space_id, id)
+);
+CREATE INDEX space_members_space ON space_members (space_id);
+
+CREATE TABLE member_grants (
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "member_id" TEXT,
+  "module" TEXT,
+  "level" TEXT,
+  "change_seq" INTEGER,
+  PRIMARY KEY (space_id, member_id, module)
+);
+CREATE INDEX member_grants_space ON member_grants (space_id);
+
+CREATE TABLE accounts (
+  "id" TEXT,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "base_version" INTEGER,
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "module" TEXT,
+  "visibility" TEXT,
+  "kind" TEXT,
+  "name" TEXT,
+  "is_reserve" INTEGER,
+  "opening_balance_minor" INTEGER,
+  "opening_on" TEXT,
+  "sort_key" INTEGER,
+  "created_by_member_id" TEXT,
+  "archived_at" TEXT,
+  "version" INTEGER,
+  "change_seq" INTEGER,
+  "created_at" TEXT,
+  "updated_at" TEXT,
+  PRIMARY KEY (space_id, id)
+);
+CREATE INDEX accounts_space ON accounts (space_id);
+
+CREATE TABLE allocation_plans (
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "base_version" INTEGER,
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "account_id" TEXT,
+  "amount_minor" INTEGER,
+  "day_of_month" INTEGER,
+  "enabled" INTEGER,
+  "next_run_on" TEXT,
+  "last_run_month" TEXT,
+  "version" INTEGER,
+  "change_seq" INTEGER,
+  "updated_at" TEXT,
+  PRIMARY KEY (space_id, account_id)
+);
+CREATE INDEX allocation_plans_space ON allocation_plans (space_id);
+
+CREATE TABLE tags (
+  "id" TEXT,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "base_version" INTEGER,
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "module" TEXT,
+  "preset_key" TEXT,
+  "name" TEXT,
+  "created_by_member_id" TEXT,
+  "deleted_at" TEXT,
+  "version" INTEGER,
+  "change_seq" INTEGER,
+  PRIMARY KEY (space_id, id)
+);
+CREATE INDEX tags_space ON tags (space_id);
+
+CREATE TABLE records (
+  "id" TEXT,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "base_version" INTEGER,
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "module" TEXT,
+  "visibility" TEXT,
+  "kind" TEXT,
+  "amount_minor" INTEGER,
+  "occurred_on" TEXT,
+  "account_id" TEXT,
+  "to_account_id" TEXT,
+  "purpose_id" TEXT,
+  "to_purpose_id" TEXT,
+  "refund_of_id" TEXT,
+  "tag_ids" TEXT,
+  "note" TEXT,
+  "attachments" TEXT,
+  "status" TEXT,
+  "void_reason" TEXT,
+  "origin" TEXT,
+  "run_id" TEXT,
+  "created_by_member_id" TEXT,
+  "updated_by_member_id" TEXT,
+  "version" INTEGER,
+  "change_seq" INTEGER,
+  "created_at" TEXT,
+  "updated_at" TEXT,
+  PRIMARY KEY (space_id, id)
+);
+CREATE INDEX records_space ON records (space_id);
+
+CREATE TABLE subjects (
+  "id" TEXT,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "base_version" INTEGER,
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "module" TEXT,
+  "visibility" TEXT,
+  "kind" TEXT,
+  "name" TEXT,
+  "member_id" TEXT,
+  "archived_at" TEXT,
+  "deleted_at" TEXT,
+  "created_by_member_id" TEXT,
+  "version" INTEGER,
+  "change_seq" INTEGER,
+  "created_at" TEXT,
+  "updated_at" TEXT,
+  PRIMARY KEY (space_id, id)
+);
+CREATE INDEX subjects_space ON subjects (space_id);
+
+CREATE TABLE documents (
+  "id" TEXT,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "base_version" INTEGER,
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "module" TEXT,
+  "visibility" TEXT,
+  "template_id" TEXT,
+  "template_version" INTEGER,
+  "title" TEXT,
+  "event_date" TEXT,
+  "subject_ids" TEXT,
+  "content" TEXT,
+  "status" TEXT,
+  "origin" TEXT,
+  "run_id" TEXT,
+  "created_by_member_id" TEXT,
+  "updated_by_member_id" TEXT,
+  "version" INTEGER,
+  "change_seq" INTEGER,
+  "created_at" TEXT,
+  "updated_at" TEXT,
+  PRIMARY KEY (space_id, id)
+);
+CREATE INDEX documents_space ON documents (space_id);
+
+CREATE TABLE entity_events (
+  "id" INTEGER,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "entity_kind" TEXT,
+  "entity_id" TEXT,
+  "kind" TEXT,
+  "before" TEXT,
+  "after" TEXT,
+  "actor_member_id" TEXT,
+  "via_api_key_id" TEXT,
+  "via_api_key_name" TEXT,
+  "run_id" TEXT,
+  "request_id" TEXT,
+  "at" TEXT,
+  "change_seq" INTEGER,
+  PRIMARY KEY (space_id, id)
+);
+CREATE INDEX entity_events_space ON entity_events (space_id);
+
+CREATE TABLE conversations (
+  "id" TEXT,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "member_id" TEXT,
+  "created_at" TEXT,
+  "change_seq" INTEGER,
+  "server_payload_json" TEXT,
+  PRIMARY KEY (space_id, id)
+);
+CREATE INDEX conversations_space ON conversations (space_id);
+
+CREATE TABLE chat_entries (
+  "id" TEXT,
+  "space_id" TEXT NOT NULL,
+  "sync_state" TEXT NOT NULL DEFAULT 'synced' CHECK (sync_state IN ('synced','pending','conflict')),
+  "data_json" TEXT NOT NULL DEFAULT '{}',
+  "member_id" TEXT,
+  "conversation_id" TEXT,
+  "role" TEXT,
+  "reply_to_id" TEXT,
+  "agent_run_id" TEXT,
+  "protocol_version" TEXT,
+  "fallback_text" TEXT,
+  "stream_status" TEXT,
+  "change_seq" INTEGER,
+  "created_at" TEXT,
+  "updated_at" TEXT,
+  "server_payload_json" TEXT,
+  PRIMARY KEY (space_id, id)
+);
+CREATE INDEX chat_entries_space ON chat_entries (space_id);
+
+CREATE TABLE outbox (
+  id TEXT PRIMARY KEY,
+  space_id TEXT NOT NULL,
+  join_epoch INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('tool','blob','chat_send','chat_action','chat_retry')),
+  payload_json TEXT NOT NULL,
+  entity_ids TEXT NOT NULL,
+  depends_on TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','sending','failed','blocked')),
+  last_error TEXT,
+  lease_until INTEGER
+);
+CREATE INDEX outbox_fifo ON outbox (space_id, created_at, id);
+CREATE TABLE sync_cursors (space_id TEXT PRIMARY KEY, cursor INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE entity_conflicts (
+  space_id TEXT NOT NULL, entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL,
+  mine_json TEXT NOT NULL, server_version INTEGER NOT NULL,
+  server_status TEXT, detected_at INTEGER NOT NULL,
+  PRIMARY KEY (space_id, entity_kind, entity_id)
+);
+CREATE TABLE blobs_local (
+  space_id TEXT NOT NULL, module TEXT NOT NULL, sha256 TEXT NOT NULL,
+  path TEXT NOT NULL, bytes INTEGER NOT NULL, uploaded INTEGER NOT NULL DEFAULT 0,
+  uploaded_at INTEGER,
+  PRIMARY KEY (space_id, module, sha256)
+);
+CREATE TABLE sync_runtime (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  generation INTEGER NOT NULL DEFAULT 0,
+  authenticated INTEGER NOT NULL DEFAULT 0,
+  change_revision INTEGER NOT NULL DEFAULT 0,
+  notices_json TEXT NOT NULL DEFAULT '[]',
+  write_allowed INTEGER NOT NULL DEFAULT 1,
+  identity_json TEXT,
+  session_kind TEXT NOT NULL DEFAULT 'full',
+  space_ids_json TEXT NOT NULL DEFAULT '[]',
+  round_owner TEXT,
+  round_lease_until INTEGER,
+  pending_deletions_json TEXT NOT NULL DEFAULT '[]'
+);

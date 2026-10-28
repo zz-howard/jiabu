@@ -17,9 +17,9 @@
       "weight": 600
     },
     "jiabu_serif.otf": {
-      "bytes": 1229860,
-      "codepoint_count": 3883,
-      "sha256": "5a378baa27bc797e764a48776e0e5df3cf3fd6e1773e9e7668bc7c9c68bcf56c",
+      "bytes": 1229884,
+      "codepoint_count": 3884,
+      "sha256": "7ae25ea640455dd538f3f8d16997c18a13ba289acf7eed33d717fd9619444985",
       "source_sha256": "24693d48bdb9152f0a06b02af625638a1097abd6de4010ebba027f6e82710527",
       "source_url": "https://raw.githubusercontent.com/notofonts/noto-cjk/9b0f1436e455d902de067a2501422e5dc71ad16b/Serif/SubsetOTF/SC/NotoSerifSC-Bold.otf",
       "weight": 700
