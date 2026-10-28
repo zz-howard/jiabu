@@ -32,6 +32,8 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub last4: String,
     pub updated_at: DateTimeWithTimeZone,
+    pub revision: i64,
+    pub usable: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

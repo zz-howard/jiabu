@@ -16697,7 +16697,7 @@
                 }
               }
             },
-            "description": "AI availability; S7 connects the runtime"
+            "description": "Availability of the configured chat route"
           }
         },
         "security": [

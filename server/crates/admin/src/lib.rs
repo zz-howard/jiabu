@@ -83,3 +83,7 @@ pub async fn api_keys(
 ) -> Result<serde_json::Value> {
     db.api_keys(username, revoke, actor).await
 }
+
+pub mod ai;
+#[path = "../../../support/ai_secrets.rs"]
+pub mod ai_secrets;

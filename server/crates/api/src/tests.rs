@@ -1160,3 +1160,109 @@ mod s4_api_keys;
 
 mod documents;
 mod templates;
+
+#[tokio::test]
+async fn status_uses_chat_availability_with_session_or_key_and_never_creates_runs() -> Result<()> {
+    use jiabu_ai::{
+        AiConfig, AiRouter, Billing, BreakerConfig, Capabilities, ModelConfig, ProviderConfig,
+        RouteConfig, StructuredMode, TaskKind, mock::MockProvider,
+    };
+    let mut app = TestApp::new(false).await?;
+    let token = app.token().await?;
+    let state = AppState::with_storage(
+        AppDb::connect(&app.fixture.app_url).await?,
+        jiabu_storage::BlobStore::local(app.fixture.data_dir())?,
+        jiabu_storage::ImageLimits::default(),
+    )
+    .await
+    .map_err(anyhow::Error::msg)?;
+    let store = state.ai.clone();
+    app.router = crate::router(state);
+    let (_, key) = api_keys::issue(&app, &token, "read").await?;
+    let model_id = Uuid::now_v7();
+    let provider = std::sync::Arc::new(MockProvider::scripted(
+        "fake-status",
+        Capabilities {
+            structured: StructuredMode::ToolCall,
+            vision: true,
+            max_images: 8,
+            context_tokens: 1000,
+        },
+        vec![],
+    ));
+    let mut config = AiConfig {
+        version: 1,
+        breaker: BreakerConfig::default(),
+        providers: vec![ProviderConfig {
+            id: "fake-status".into(),
+            kind: "mock".into(),
+            base_url: None,
+            billing: Billing::Subscription,
+            secret_source: None,
+            enabled: true,
+            version: 1,
+        }],
+        models: vec![ModelConfig {
+            id: model_id,
+            provider_id: "fake-status".into(),
+            model: "synthetic-model".into(),
+            structured: StructuredMode::ToolCall,
+            vision: true,
+            context_tokens: Some(1000),
+            enabled: true,
+        }],
+        routes: vec![RouteConfig {
+            task_kind: TaskKind::ChatVision,
+            position: 0,
+            model_id,
+        }],
+        ..AiConfig::default()
+    };
+    store.0.store(std::sync::Arc::new(AiRouter::new(
+        config.clone(),
+        vec![provider.clone()],
+    )));
+    assert_eq!(
+        app.request("GET", "/v1/status", Value::Null, Some(&token), &[])
+            .await?
+            .json()["ai_available"],
+        false
+    );
+    config.routes[0].task_kind = TaskKind::Chat;
+    store.0.store(std::sync::Arc::new(
+        store
+            .0
+            .load()
+            .reloaded(config.clone(), vec![provider.clone()]),
+    ));
+    for bearer in [&token, &key] {
+        let reply = app
+            .request("GET", "/v1/status", Value::Null, Some(bearer), &[])
+            .await?;
+        assert_eq!(reply.status, StatusCode::OK);
+        assert_eq!(reply.json()["ai_available"], true);
+    }
+    config.providers[0].billing = Billing::Paid;
+    store.0.store(std::sync::Arc::new(
+        store.0.load().reloaded(config, vec![provider.clone()]),
+    ));
+    assert_eq!(
+        app.request("GET", "/v1/status", Value::Null, Some(&token), &[])
+            .await?
+            .json()["ai_available"],
+        false
+    );
+    assert!(provider.requests().is_empty());
+    let owner = app.fixture.owner().await?;
+    for sql in [
+        "select count(*) from agent_runs",
+        "select count(*) from ai_calls",
+    ] {
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(sql).fetch_one(&owner).await?,
+            0
+        );
+    }
+    owner.close().await;
+    Ok(())
+}

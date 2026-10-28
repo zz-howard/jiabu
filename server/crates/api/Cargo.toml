@@ -7,6 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+jiabu-ai.workspace = true
 jiabu-agent.workspace = true
 jiabu-chat.workspace = true
 jiabu-tools.workspace = true
