@@ -445,7 +445,6 @@ mod tests {
                 parameters: jiabu_ai::ModelParameters::default(),
             },
             items: vec![],
-            provider_blobs: vec![],
         };
         let call = meter
             .begin("synthetic", "unknown-model", TaskKind::Probe, &request)

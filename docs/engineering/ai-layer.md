@@ -39,7 +39,8 @@ pub struct TurnRequest {
     pub session_key: String,             // = 会话 ID；SIWC 的请求头 session_id 与 prompt_cache_key 都用它（4.4 第 8 项）
     pub snapshot: PromptSnapshot,        // 冻结的指令、工具清单（固定顺序、含 schema）、模型参数（15.2）
     pub items: Vec<RequestItem>,         // 空间上下文 → 历史 → 本轮输入（文字、≤1600px JPEG 图片引用、当前日期时间）→ 本次运行的 journal
-    pub provider_blobs: Vec<ProviderBlob>, // 同一提供方、模型、账号时原样回放的加密推理数据（14.9）
+    // items 包含 RequestItem::ProviderBlob(ProviderBlob)，按模型输出原位置回放；
+    // 仅发送提供方、模型、账号均匹配的 blob，其余条目顺序不变（14.9）。
 }
 /// 流式一轮：适配器把提供方的流事件翻译成 TurnEvent；不支持流式的提供方在结束时一次性发出全部文字（功能不变）。
 pub enum TurnEvent {

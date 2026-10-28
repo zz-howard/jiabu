@@ -25,7 +25,23 @@ async fn provider(server: &MockServer) -> SiwcProvider {
 }
 #[test]
 fn request_snapshot_is_allowlisted_with_namespace_image_and_no_forbidden_fields() {
-    let body = body(&request(), "synthetic", "synthetic-account").unwrap();
+    let mut req = request();
+    req.items.push(RequestItem::ProviderBlob(ProviderBlob {
+        provider_id: "synthetic".into(),
+        model: "synthetic-model".into(),
+        account_id: "synthetic-account".into(),
+        item: json!({"type":"reasoning","encrypted_content":"synthetic-opaque","summary":[]}),
+    }));
+    req.items.push(RequestItem::ToolCall {
+        call_id: "synthetic-call".into(),
+        name: "jiabu.create_record".into(),
+        args_raw: "{ \"amount\": 50 }".into(),
+    });
+    req.items.push(RequestItem::ToolResult {
+        call_id: "synthetic-call".into(),
+        output: "synthetic-result".into(),
+    });
+    let body = body(&req, "synthetic", "synthetic-account").unwrap();
     insta::assert_json_snapshot!(body, @r###"
     {
       "include": [
@@ -45,6 +61,23 @@ fn request_snapshot_is_allowlisted_with_namespace_image_and_no_forbidden_fields(
             }
           ],
           "role": "user"
+        },
+        {
+          "encrypted_content": "synthetic-opaque",
+          "summary": [],
+          "type": "reasoning"
+        },
+        {
+          "arguments": "{ \"amount\": 50 }",
+          "call_id": "synthetic-call",
+          "name": "create_record",
+          "namespace": "jiabu",
+          "type": "function_call"
+        },
+        {
+          "call_id": "synthetic-call",
+          "output": "synthetic-result",
+          "type": "function_call_output"
         }
       ],
       "instructions": "Use household tools.",
@@ -207,36 +240,108 @@ async fn decoder_handles_chunk_boundaries_crlf_and_done_only_text() {
 #[test]
 fn encrypted_reasoning_scope_is_provider_model_and_account_bound() {
     let mut req = request();
-    req.provider_blobs.push(ProviderBlob {
-        provider_id: "synthetic".into(),
-        model: req.snapshot.model.clone(),
-        account_id: "synthetic-account".into(),
-        item: json!({"type":"reasoning","encrypted_content":"synthetic-opaque","summary":[]}),
-    });
-    assert_eq!(
-        body(&req, "synthetic", "synthetic-account").unwrap()["input"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    for (provider, account) in [("other", "synthetic-account"), ("synthetic", "other")] {
-        assert_eq!(
-            body(&req, provider, account).unwrap()["input"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1
-        );
+    let user = body(&req, "synthetic", "synthetic-account").unwrap()["input"][0].clone();
+    let first = json!({"type":"reasoning","encrypted_content":"first-opaque","summary":[]});
+    let second = json!({"type":"reasoning","encrypted_content":"second-opaque","summary":[]});
+    for (provider, model, account, item) in [
+        ("other", "synthetic-model", "synthetic-account", json!({})),
+        (
+            "synthetic",
+            "synthetic-model",
+            "synthetic-account",
+            first.clone(),
+        ),
+        ("synthetic", "other-model", "synthetic-account", json!({})),
+        (
+            "synthetic",
+            "synthetic-model",
+            "synthetic-account",
+            second.clone(),
+        ),
+        ("synthetic", "synthetic-model", "other-account", json!({})),
+    ] {
+        req.items.push(RequestItem::ProviderBlob(ProviderBlob {
+            provider_id: provider.into(),
+            model: model.into(),
+            account_id: account.into(),
+            item,
+        }));
+        req.items.push(RequestItem::Message {
+            role: "assistant".into(),
+            text: format!("after {provider}/{model}/{account}"),
+            images: vec![],
+        });
     }
-    req.snapshot.model = "other-model".into();
+    let messages: Vec<_> = req
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            RequestItem::Message { text, role, .. } if role == "assistant" => {
+                Some(json!({"role":role,"content":[{"type":"input_text","text":text}]}))
+            }
+            _ => None,
+        })
+        .collect();
     assert_eq!(
-        body(&req, "synthetic", "synthetic-account").unwrap()["input"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
+        body(&req, "synthetic", "synthetic-account").unwrap()["input"],
+        json!([
+            user,
+            messages[0],
+            first,
+            messages[1],
+            messages[2],
+            second,
+            messages[3],
+            messages[4]
+        ])
     );
+}
+
+#[test]
+fn three_tool_loops_preserve_each_complete_request_input_as_a_prefix() {
+    let mut req = request();
+    let mut previous = body(&req, "synthetic", "synthetic-account").unwrap()["input"]
+        .as_array()
+        .unwrap()
+        .clone();
+    for round in 1..=3 {
+        let call_id = format!("synthetic-call-{round}");
+        let args_raw = format!("{{ \"amount\": {round} }}");
+        let output = format!("synthetic-result-{round}");
+        let blob = json!({"type":"reasoning","encrypted_content":format!("synthetic-opaque-{round}"),"summary":[]});
+        // Append model output and recorded tool results in journal order: F, O, B.
+        req.items.push(RequestItem::ToolCall {
+            call_id: call_id.clone(),
+            name: "jiabu.create_record".into(),
+            args_raw: args_raw.clone(),
+        });
+        req.items.push(RequestItem::ToolResult {
+            call_id: call_id.clone(),
+            output: output.clone(),
+        });
+        req.items.push(RequestItem::ProviderBlob(ProviderBlob {
+            provider_id: "synthetic".into(),
+            model: "synthetic-model".into(),
+            account_id: "synthetic-account".into(),
+            item: blob.clone(),
+        }));
+        let rendered = body(&req, "synthetic", "synthetic-account").unwrap();
+        let input = rendered["input"].as_array().unwrap();
+        assert!(
+            input.starts_with(&previous),
+            "request after tool loop {round}"
+        );
+        assert_eq!(input.len(), 1 + 3 * round);
+        assert_eq!(
+            &input[previous.len()..],
+            &[
+                json!({"type":"function_call","call_id":call_id,"namespace":"jiabu","name":"create_record","arguments":args_raw}),
+                json!({"type":"function_call_output","call_id":call_id,"output":output}),
+                blob,
+            ]
+        );
+        previous = input.clone();
+    }
 }
 
 #[tokio::test]
@@ -265,12 +370,12 @@ async fn wire_blob_rejection_removes_encrypted_item_once_and_records_two_attempt
     config.models[0].model = "synthetic-model".into();
     let router = AiRouter::new(config, vec![Arc::new(provider(&server).await)]);
     let mut req = request();
-    req.provider_blobs.push(ProviderBlob {
+    req.items.push(RequestItem::ProviderBlob(ProviderBlob {
         provider_id: "synthetic".into(),
         model: "synthetic-model".into(),
         account_id: "synthetic-account".into(),
         item: json!({"type":"reasoning","encrypted_content":"synthetic-opaque","summary":[]}),
-    });
+    }));
     let meter = Meter::default();
     let mut sink = Sink::default();
     router

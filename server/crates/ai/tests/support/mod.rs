@@ -119,7 +119,6 @@ pub fn request() -> TurnRequest {
             text: "Synthetic receipt".into(),
             images: vec!["data:image/jpeg;base64,/9j/2Q==".into()],
         }],
-        provider_blobs: vec![],
     }
 }
 pub fn capabilities() -> Capabilities {

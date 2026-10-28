@@ -219,10 +219,10 @@ impl AiRouter {
                     }
                     if result == Err(ProviderError::BlobRejected)
                         && !retried_blob
-                        && !request.provider_blobs.is_empty()
+                        && request.items.iter().any(|item| matches!(item, RequestItem::ProviderBlob(_)))
                     {
                         retried_blob = true;
-                        request.provider_blobs.clear();
+                        request.items.retain(|item| !matches!(item, RequestItem::ProviderBlob(_)));
                         output.emit(TurnEvent::Note(
                             "Encrypted reasoning was unavailable; continuing from recorded results."
                                 .into(),

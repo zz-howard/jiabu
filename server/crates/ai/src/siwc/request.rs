@@ -21,15 +21,16 @@ pub fn body(
             },
             RequestItem::ToolCall { call_id,name,args_raw } => json!({"type":"function_call","call_id":call_id,"namespace":"jiabu","name":name.strip_prefix("jiabu.").unwrap_or(name),"arguments":args_raw}),
             RequestItem::ToolResult { call_id,output } => json!({"type":"function_call_output","call_id":call_id,"output":output}),
+            RequestItem::ProviderBlob(blob) => {
+                if blob.provider_id != provider_id
+                    || blob.model != req.snapshot.model
+                    || blob.account_id != account_id
+                {
+                    continue;
+                }
+                blob.item.clone()
+            },
         });
-    }
-    for blob in &req.provider_blobs {
-        if blob.provider_id == provider_id
-            && blob.model == req.snapshot.model
-            && blob.account_id == account_id
-        {
-            input.push(blob.item.clone());
-        }
     }
     let tools: Vec<_> = req.snapshot.tools.iter().map(|t| json!({"type":"function","name":t.name,"description":t.description,"parameters":t.parameters,"strict":true})).collect();
     let tools = if tools.is_empty() {

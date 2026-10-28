@@ -106,11 +106,26 @@ async fn encrypted_blob_rejection_retries_once_without_blob_with_independent_met
     ));
     let router = AiRouter::new(config(), vec![mock.clone()]);
     let mut req = request();
-    req.provider_blobs.push(ProviderBlob {
+    req.items.push(RequestItem::ProviderBlob(ProviderBlob {
         provider_id: "fake-1".into(),
         model: "model-1".into(),
         account_id: "synthetic-account".into(),
         item: serde_json::json!({"type":"reasoning","encrypted_content":"synthetic-opaque"}),
+    }));
+    req.items.push(RequestItem::ToolCall {
+        call_id: "synthetic-call".into(),
+        name: "jiabu.create_record".into(),
+        args_raw: "{}".into(),
+    });
+    req.items.push(RequestItem::ProviderBlob(ProviderBlob {
+        provider_id: "other-provider".into(),
+        model: "other-model".into(),
+        account_id: "other-account".into(),
+        item: serde_json::json!({"type":"reasoning","encrypted_content":"other-opaque"}),
+    }));
+    req.items.push(RequestItem::ToolResult {
+        call_id: "synthetic-call".into(),
+        output: "synthetic-result".into(),
     });
     let meter = Meter::default();
     router
@@ -119,9 +134,35 @@ async fn encrypted_blob_rejection_retries_once_without_blob_with_independent_met
         .unwrap();
     let requests = mock.requests();
     assert_eq!(requests.len(), 2);
-    assert!(!requests[0].provider_blobs.is_empty());
-    assert!(requests[1].provider_blobs.is_empty());
-    assert_eq!(requests[1].items.len(), requests[0].items.len() + 1);
+    let original = &requests[0].items;
+    let retry = &requests[1].items;
+    assert_eq!(
+        original
+            .iter()
+            .filter(|item| matches!(item, RequestItem::ProviderBlob(_)))
+            .count(),
+        2
+    );
+    assert!(
+        !retry
+            .iter()
+            .any(|item| matches!(item, RequestItem::ProviderBlob(_)))
+    );
+    let retained: Vec<_> = original
+        .iter()
+        .filter(|item| !matches!(item, RequestItem::ProviderBlob(_)))
+        .collect();
+    assert_eq!(retry.len(), retained.len() + 1);
+    assert_eq!(
+        serde_json::to_value(&retry[..retained.len()]).unwrap(),
+        serde_json::to_value(&retained).unwrap()
+    );
+    assert!(matches!(retry.last(), Some(RequestItem::Message { role, .. }) if role == "developer"));
+    // The caller's history is unchanged by the retry.
+    assert_eq!(
+        serde_json::to_value(&req.items).unwrap(),
+        serde_json::to_value(original).unwrap()
+    );
     assert_eq!(meter.calls.lock().unwrap().len(), 2);
 }
 #[tokio::test]
@@ -133,12 +174,12 @@ async fn a_second_blob_rejection_does_not_loop() {
     ));
     let router = AiRouter::new(config(), vec![mock.clone()]);
     let mut req = request();
-    req.provider_blobs.push(ProviderBlob {
+    req.items.push(RequestItem::ProviderBlob(ProviderBlob {
         provider_id: "fake-1".into(),
         model: "model-1".into(),
         account_id: "synthetic-account".into(),
         item: serde_json::json!({}),
-    });
+    }));
     assert_eq!(
         router
             .run_turn(
@@ -269,12 +310,12 @@ async fn half_open_note_sink_failure_and_cancelled_future_release_probe() {
         );
         tokio::time::sleep(Duration::from_secs(1)).await;
         let mut req = request();
-        req.provider_blobs.push(ProviderBlob {
+        req.items.push(RequestItem::ProviderBlob(ProviderBlob {
             provider_id: "fake-1".into(),
             model: "model-1".into(),
             account_id: "synthetic".into(),
             item: serde_json::json!({}),
-        });
+        }));
         if cancel {
             let task_router = router.clone();
             let task = tokio::spawn(async move {

@@ -46,6 +46,8 @@ pub enum RequestItem {
         call_id: String,
         output: String,
     },
+    /// Replay in its original output position, only when all scope identifiers match.
+    ProviderBlob(ProviderBlob),
 }
 /// Never log provider blobs; scope must match all three identifiers.
 #[derive(Clone, Serialize, Deserialize)]
@@ -55,13 +57,17 @@ pub struct ProviderBlob {
     pub account_id: String,
     pub item: Value,
 }
+impl std::fmt::Debug for ProviderBlob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ProviderBlob([redacted])")
+    }
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TurnRequest {
     pub run_id: Uuid,
     pub session_key: String,
     pub snapshot: PromptSnapshot,
     pub items: Vec<RequestItem>,
-    pub provider_blobs: Vec<ProviderBlob>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {

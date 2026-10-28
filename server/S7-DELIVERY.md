@@ -24,7 +24,7 @@
 6. 缓存写入用量目前没有 TTL：价格表存在 default 时使用 default；只有一个 TTL 费率时使用该费率；多个 TTL 且无 default 时，不猜测费率，成本保持 NULL。长上下文按 input_tokens 阈值选价。价格缺失不阻止调用，历史价格不重算。
 7. 配置一次管理操作可以触发多次版本递增；约定是单调递增，不保证正好 +1。所有正常配置写入与 OAuth 函数先锁 settings 行，避免密钥行 / 提供方行之间的锁反转。刷新 CAS 只允许当前启用的 SIWC 数据库 OAuth 行，刷新失败的失效写入也绑定 revision；旧请求的认证失败不撤销已经轮换的新令牌。单进程内还按 provider ID 跨配置代共享刷新锁，避免热替换期间两个适配器同时使用旧 refresh token。
 8. 运行等待退避的 5 秒初值 / 60 秒上限 / 600 秒硬上限在本 PR 提供可配置字段；实际等待状态机留 PR ②。路由的 5 分钟总调用超时和 SIWC 的 60 秒流空闲超时已经接入。
-9. ProviderBlob 限提供方 / 模型 / 账号完全匹配才发送；无关 scope 被过滤。PR ② 负责消费 Note、原子落 model_turn / journal、保存前缀计量上下文；本 PR 不建立任何 agent worker。
+9. ProviderBlob 作为有序 RequestItem 保留在模型输出原位置，限提供方 / 模型 / 账号完全匹配才发送；无关 scope 就地跳过，其余条目顺序不变。被拒后重试一次，移除全部 ProviderBlob 条目并保留其余历史顺序。PR ② 负责消费 Note、原子落 model_turn / journal、保存前缀计量上下文；本 PR 不建立任何 agent worker。
 10. 非 SIWC 的真实付费适配器按范围不实现。配置能力与付费开关已存在，Mock 覆盖付费降级。ChatWeave 依赖、dispatcher 授权接线与通用后续项均在 PR ② 处理。
 
 11. 凭据可用 / 回退 / 丢弃规则：存储读取明确返回 `Present(revision, 凭据)`、`Cleared(revision)` 或临时故障 `Unavailable`；先读 revision / usable，墓碑不解密，密文或 JSON 损坏按 Auth 不可用处理。仅 `Unavailable` 可回退到共享 pending；同 revision 优先 pending，墓碑、损坏或库中 revision 更新立即丢弃 pending 和旧退避，更新的 Present 采用库中凭据。pending 保留最新轮换结果与原 CAS 基准，在可取消的保存前发布；相同 provider / 来源的 reload 共用它、刷新锁和退避。`available()` 表示未确定失效，且访问令牌未过期 / 未被拒，或有 refresh token 且不在刷新退避期；需要刷新仍允许 router 进入 `access()` 并在共享锁下刷新。401 / invalid_token 把旧访问令牌标为过期，禁止重发；刷新临时故障退避 5 秒，结束后经路由恢复，仅令牌端点明确的 invalid_grant / invalid_client / unauthorized_client 永久失效。无 pending 的临时读取故障在退避结束后允许重新读取探测。clear-secret 清空密文并保留递增 revision 的墓碑，重新登录继续递增，旧 CAS 不能覆盖新版本。
@@ -154,3 +154,8 @@
 
 
 第五、六轮凭据修复的最终规则已合并到上文“凭据可用 / 回退 / 丢弃规则”。新增 / 调整回归包括：真实 PG18 的 db-admin clear-secret 在 pending 存在时阻止下一次模型请求发送 A1（含 reload）；读取临时不可用允许 pending、凭据损坏丢弃 pending；真实 DB 凭据自然过期后经 AiRouter 刷新并调用成功；401 → 刷新 503 → 退避不可用 → 端点恢复后经 AiRouter 成功且不重发旧令牌。保留重新登录淘汰 pending 与 env 使用最新 refresh token 的回归。本轮仅做静态核对，未编译、未运行 Rust / 数据库测试、未联网、未提交；新增 server 的 wiremock 开发依赖供构建机运行合成 HTTP 回归。
+
+
+## 后续（已评估、可延后；见 issue #14）
+
+调用截止时间可能取消已在上游完成轮换、但响应尚未返回的刷新请求，导致新 refresh token 丢失（触发条件：临近 300 秒截止时才收到 401，且令牌端点响应延迟超过剩余预算）。建议做法：刷新启动后由独立任务持有共享刷新锁完成接收与保存，调用方截止只停止等待。
