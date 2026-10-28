@@ -49,6 +49,8 @@ pub struct Model {
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
     pub ended_at: Option<DateTimeWithTimeZone>,
+    pub waiting_ai_since: Option<DateTimeWithTimeZone>,
+    pub journal_compacted_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

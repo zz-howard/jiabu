@@ -28,6 +28,8 @@ pub struct Model {
     pub change_seq: i64,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
+    #[sea_orm(column_type = "JsonBinary")]
+    pub checkpoint_work_ms: Json,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

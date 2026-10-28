@@ -26,6 +26,8 @@ pub struct Model {
     pub actor_member_id: Uuid,
     pub request_id: Option<Uuid>,
     pub created_at: DateTimeWithTimeZone,
+    #[sea_orm(column_type = "VarBinary(StringLen::None)", nullable)]
+    pub request_fingerprint: Option<Vec<u8>>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

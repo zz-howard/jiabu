@@ -1,6 +1,53 @@
 {
   "components": {
     "schemas": {
+      "ActiveMessage": {
+        "properties": {
+          "conversationId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "lastSeq": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "messageId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "replyTo": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "description": "ChatWeave status: streaming or paused (includes queued/waiting_ai runs).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId",
+          "conversationId",
+          "lastSeq",
+          "replyTo",
+          "status"
+        ],
+        "type": "object"
+      },
+      "ActiveResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveMessage"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "type": "object"
+      },
       "ChangePassword": {
         "additionalProperties": false,
         "properties": {
@@ -790,6 +837,31 @@
         ],
         "type": "object"
       },
+      "MessageInput": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "images": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
       "MetaResponse": {
         "properties": {
           "api_versions": {
@@ -1466,6 +1538,23 @@
         },
         "required": [
           "spaces"
+        ],
+        "type": "object"
+      },
+      "StartResponse": {
+        "properties": {
+          "messageId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "userMessageId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "userMessageId",
+          "messageId"
         ],
         "type": "object"
       },
@@ -10536,6 +10625,747 @@
                 }
               }
             }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/chat/actions": {
+      "post": {
+        "operationId": "action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Current membership epoch",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Message/action id for submit/action; operation key for stop/retry",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "context": {
+                  "blockId": "question",
+                  "conversationId": "019a0000-0000-7000-8000-000000000005",
+                  "messageId": "019a0000-0000-7000-8000-000000000003"
+                },
+                "id": "019a0000-0000-7000-8000-000000000002",
+                "payload": {
+                  "selected": [
+                    "lunch"
+                  ]
+                },
+                "protocolVersion": "0.1",
+                "target": "clarification.answer",
+                "type": "choice.select"
+              },
+              "schema": {
+                "type": [
+                  "object",
+                  "array",
+                  "string",
+                  "number",
+                  "integer",
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "resume": {
+                    "messageId": "019a0000-0000-7000-8000-000000000003"
+                  },
+                  "status": "accepted"
+                },
+                "schema": {
+                  "type": [
+                    "object",
+                    "array",
+                    "string",
+                    "number",
+                    "integer",
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "Accepted operation"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid headers or cursor"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "API keys cannot use AI"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Membership, idempotency or runtime conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid input"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/chat/active-messages": {
+      "get": {
+        "operationId": "active",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "messages": [
+                    {
+                      "conversationId": "019a0000-0000-7000-8000-000000000005",
+                      "lastSeq": 1,
+                      "messageId": "019a0000-0000-7000-8000-000000000003",
+                      "replyTo": "019a0000-0000-7000-8000-000000000001",
+                      "status": "streaming"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveResponse"
+                }
+              }
+            },
+            "description": "Own queued/running/waiting_ai/paused assistant messages in FIFO order"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid headers or cursor"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "API keys cannot use AI"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Membership, idempotency or runtime conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid input"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/chat/messages": {
+      "post": {
+        "operationId": "send",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Current membership epoch",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Message/action id for submit/action; operation key for stop/retry",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "id": "019a0000-0000-7000-8000-000000000001",
+                "text": "午饭 50"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/MessageInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "messageId": "019a0000-0000-7000-8000-000000000003",
+                  "userMessageId": "019a0000-0000-7000-8000-000000000001"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/StartResponse"
+                }
+              }
+            },
+            "description": "Message identifiers"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid headers or cursor"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "API keys cannot use AI"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Membership, idempotency or runtime conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid input"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/chat/messages/{message_id}/retry": {
+      "post": {
+        "operationId": "retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Current membership epoch",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Message/action id for submit/action; operation key for stop/retry",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "messageId": "019a0000-0000-7000-8000-000000000003",
+                  "userMessageId": "019a0000-0000-7000-8000-000000000001"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/StartResponse"
+                }
+              }
+            },
+            "description": "Message identifiers"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid headers or cursor"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "API keys cannot use AI"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Membership, idempotency or runtime conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid input"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/chat/messages/{message_id}/stop": {
+      "post": {
+        "operationId": "stop",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Current membership epoch",
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Message/action id for submit/action; operation key for stop/retry",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "accepted"
+                },
+                "schema": {
+                  "type": [
+                    "object",
+                    "array",
+                    "string",
+                    "number",
+                    "integer",
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "Accepted operation"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid headers or cursor"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "API keys cannot use AI"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Membership, idempotency or runtime conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid input"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/spaces/{space_id}/chat/messages/{message_id}/stream": {
+      "get": {
+        "operationId": "stream",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "v=0.1; features=stream.resume,stream.snapshot,stream.activity",
+            "in": "header",
+            "name": "ChatWeave-Capabilities",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Last reliable sequence; overrides after",
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Resume cursor when Last-Event-ID is absent",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "example": "event: message.start\ndata: {\"protocolVersion\":\"0.1\",\"messageId\":\"019a0000-0000-7000-8000-000000000003\",\"type\":\"message.start\",\"message\":{\"id\":\"019a0000-0000-7000-8000-000000000003\",\"role\":\"assistant\",\"conversationId\":\"019a0000-0000-7000-8000-000000000005\",\"createdAt\":\"2026-01-01T00:00:00Z\"},\"seq\":1}\n\n",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Resumable ChatWeave event stream; 15s heartbeat, 5min idle timeout; snapshot/activity require capability declarations"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid headers or cursor"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "API keys cannot use AI"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Membership, idempotency or runtime conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Invalid input"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Stream storage unavailable"
           }
         },
         "security": [
