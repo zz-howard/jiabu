@@ -408,6 +408,22 @@ void main() {
     expect((await h.store.outbox('s')).length, 1);
     expect((await h.store.entities('s', 'account')).length, count);
   });
+  test('account_rename_rejects_duplicate_active_name', () async {
+    await repo.createAccount('s', accountValues('real', 'Cash'));
+    await repo.createAccount('s', accountValues('real', 'Wallet'));
+    final accounts = await h.store.entities('s', 'account');
+    String idOf(String name) =>
+        accounts.firstWhere((row) => row.data['name'] == name).data['id']!
+            as String;
+    final before = (await h.store.outbox('s')).length;
+    final result = await repo.renameAccount('s', idOf('Wallet'), 'cash');
+    expect((result as Failure<String>).code, 'account_name_taken');
+    expect((await h.store.outbox('s')).length, before);
+    expect(
+      await repo.renameAccount('s', idOf('Cash'), 'CASH'),
+      isA<Ok<String>>(),
+    );
+  });
   test('account_create_rejects_second_reserve', () async {
     await repo.createAccount(
       's',

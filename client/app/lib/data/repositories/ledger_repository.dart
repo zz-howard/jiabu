@@ -229,6 +229,17 @@ final class LocalLedgerRepository implements LedgerRepository {
     if (old == null) {
       return const Failure('not_found');
     }
+    final taken = (await store.entities(spaceId, 'account')).any(
+      (row) =>
+          row.data['id'] != id &&
+          row.data['archived_at'] == null &&
+          row.data['kind'] == old.data['kind'] &&
+          row.data['name']?.toString().toLowerCase() ==
+              name.trim().toLowerCase(),
+    );
+    if (taken) {
+      return const Failure('account_name_taken');
+    }
     return await mutations.enqueueTool(
       spaceId: spaceId,
       tool: 'update_account',
