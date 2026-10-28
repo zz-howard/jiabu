@@ -175,18 +175,6 @@ impl SiwcProvider {
         sink: &mut dyn TurnSink,
         creds: &oauth::OAuthCredentials,
     ) -> Result<(), ProviderError> {
-        let result = self.request_inner(req, sink, creds).await;
-        if result == Err(ProviderError::Auth) {
-            self.credentials.mark_rejected(&creds.access_token);
-        }
-        result
-    }
-    async fn request_inner(
-        &self,
-        req: &TurnRequest,
-        sink: &mut dyn TurnSink,
-        creds: &oauth::OAuthCredentials,
-    ) -> Result<(), ProviderError> {
         let body = request::body(req, &self.id, &creds.account_id)?;
         let response = self
             .client

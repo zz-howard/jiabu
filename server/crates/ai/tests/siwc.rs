@@ -503,22 +503,10 @@ async fn access_token_errors_refresh_once_but_only_token_endpoint_rejection_revo
         assert_eq!(tokens.snapshot().await.usable, !refresh_rejected);
         assert_eq!(manager.available(), !refresh_rejected);
         if second_rejected {
-            // A1 is rejected too: the next access refreshes R1 rather than returning A1.
-            Mock::given(method("POST"))
-                .and(path("/oauth/token"))
-                .and(wiremock::matchers::body_string_contains(
-                    "synthetic-new-refresh",
-                ))
-                .respond_with(ResponseTemplate::new(503))
-                .with_priority(1)
-                .expect(1)
-                .mount(&server)
-                .await;
-            assert_eq!(manager.access().await.err(), Some(ProviderError::Transport));
-            assert!(!manager.available());
-            // A late A0 failure must not undo A1's rejected state.
-            manager.mark_rejected("synthetic-access");
-            assert_eq!(manager.access().await.err(), Some(ProviderError::Transport));
+            assert_eq!(
+                manager.access().await.unwrap().access_token,
+                "synthetic-new-access"
+            );
         }
     }
 }
@@ -715,161 +703,61 @@ async fn completed_usage_reaches_observer_before_tool_call_sink_failure() {
 }
 
 #[tokio::test]
-async fn rejected_access_token_is_unavailable_and_never_resent_after_refresh_503() {
+async fn concurrent_401_requests_refresh_once_and_both_retry_successfully() {
     let server = MockServer::start().await;
-    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 3600);
-    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
     let manager = Arc::new(
-        CredentialManager::with_gate(
-            tokens.clone(),
+        CredentialManager::new(
+            Tokens::new(chrono::Utc::now().timestamp() + 3600),
             OAuthClient::at(&server.uri()).unwrap(),
-            gate.clone(),
         )
         .await,
     );
-    Mock::given(method("POST"))
-        .and(path("/v1/responses"))
+    // Overlap the initial requests so both receive 401 for the original token.
+    let arrivals = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = arrivals.clone();
+    Mock::given(path("/v1/responses"))
         .and(header("authorization", "Bearer synthetic-access"))
-        .respond_with(ResponseTemplate::new(401))
+        .respond_with(move |_: &wiremock::Request| {
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            ResponseTemplate::new(401).set_delay(std::time::Duration::from_millis(50))
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+    let count = arrivals.clone();
+    Mock::given(path("/oauth/token"))
+        .respond_with(move |_: &wiremock::Request| {
+            assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+            ResponseTemplate::new(200).set_body_json(json!({
+                "access_token":"synthetic-new-access", "refresh_token":"synthetic-new-refresh",
+                "expires_in":3600, "token_type":"Bearer"
+            }))
+        })
         .expect(1)
         .mount(&server)
         .await;
-    let failed_refresh = Mock::given(method("POST"))
-        .and(path("/oauth/token"))
-        .respond_with(ResponseTemplate::new(503))
-        .expect(1)
-        .mount_as_scoped(&server)
+    Mock::given(path("/v1/responses"))
+        .and(header("authorization", "Bearer synthetic-new-access"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sse(&[completed()])))
+        .expect(2)
+        .mount(&server)
         .await;
     let provider = SiwcProvider::at(
-        "fake-1".into(),
+        "synthetic".into(),
         capabilities(),
-        manager.clone(),
+        manager,
         &format!("{}/v1/responses", server.uri()),
     )
     .unwrap();
-    let router = AiRouter::new(config(), vec![Arc::new(provider)]);
-    assert_eq!(
-        router
-            .run_turn(
-                TaskKind::Chat,
-                &request(),
-                &mut Sink::default(),
-                &Meter::default()
-            )
-            .await,
-        Err(ProviderError::Transport)
+    let req = request();
+    let mut first = Sink::default();
+    let mut second = Sink::default();
+    let (a, b) = tokio::join!(
+        provider.run_turn(&req, &mut first),
+        provider.run_turn(&req, &mut second),
     );
-    assert!(!manager.available());
-    assert!(matches!(
-        manager.access().await,
-        Err(ProviderError::Transport)
-    ));
-    assert!(!router.availability(TaskKind::Chat).available);
-    assert!(
-        router
-            .run_turn(
-                TaskKind::Chat,
-                &request(),
-                &mut Sink::default(),
-                &Meter::default()
-            )
-            .await
-            .is_err()
-    );
-    let reloaded =
-        CredentialManager::with_gate(tokens, OAuthClient::at(&server.uri()).unwrap(), gate).await;
-    assert!(!reloaded.available());
-    assert!(matches!(
-        reloaded.access().await,
-        Err(ProviderError::Transport)
-    ));
-    assert!(!manager.available());
-    // Exactly one rejected model request and one refresh; no old-token resend.
-    assert_eq!(server.received_requests().await.unwrap().len(), 2);
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    assert!(manager.available());
-    assert!(reloaded.available());
-    assert!(router.availability(TaskKind::Chat).available);
-    drop(failed_refresh);
-    Mock::given(method("POST"))
-        .and(path("/oauth/token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "access_token":"synthetic-recovered", "refresh_token":"synthetic-recovered-refresh",
-            "expires_in":3600, "token_type":"Bearer"
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/v1/responses"))
-        .and(header("authorization", "Bearer synthetic-recovered"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(sse(&[completed()])))
-        .expect(1)
-        .mount(&server)
-        .await;
-    router
-        .run_turn(
-            TaskKind::Chat,
-            &request(),
-            &mut Sink::default(),
-            &Meter::default(),
-        )
-        .await
-        .unwrap();
-    assert!(manager.available());
-    assert!(reloaded.available());
-    assert_eq!(server.received_requests().await.unwrap().len(), 4);
-}
-
-#[tokio::test]
-async fn auth_after_visible_output_marks_token_without_retrying() {
-    for observed in [false, true] {
-        let server = MockServer::start().await;
-        let manager = Arc::new(
-            CredentialManager::new(
-                Tokens::new(chrono::Utc::now().timestamp() + 3600),
-                OAuthClient::at(&server.uri()).unwrap(),
-            )
-            .await,
-        );
-        Mock::given(path("/v1/responses"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(sse(&[
-                json!({"type":"response.output_text.delta","output_index":0,"delta":"Recorded."}),
-                json!({"type":"error","code":"invalid_token"}),
-            ])))
-            .expect(1)
-            .mount(&server)
-            .await;
-        let provider = SiwcProvider::at(
-            "synthetic".into(),
-            capabilities(),
-            manager.clone(),
-            &format!("{}/v1/responses", server.uri()),
-        )
-        .unwrap();
-        let mut sink = Sink::default();
-        let result = if observed {
-            provider
-                .run_turn_observed(
-                    TaskKind::Chat,
-                    &request(),
-                    &mut sink,
-                    &Meter::default(),
-                    std::time::Duration::from_secs(30),
-                )
-                .await
-        } else {
-            provider.run_turn(&request(), &mut sink).await
-        };
-        assert!(result.is_err());
-        assert!(!sink.0.is_empty());
-        assert_eq!(server.received_requests().await.unwrap().len(), 1);
-        Mock::given(path("/oauth/token"))
-            .respond_with(ResponseTemplate::new(503))
-            .expect(1)
-            .mount(&server)
-            .await;
-        assert_eq!(manager.access().await.err(), Some(ProviderError::Transport));
-        assert!(!manager.available());
-    }
+    a.unwrap();
+    b.unwrap();
+    assert!(matches!(first.0.last(), Some(TurnEvent::Done { .. })));
+    assert!(matches!(second.0.last(), Some(TurnEvent::Done { .. })));
 }
