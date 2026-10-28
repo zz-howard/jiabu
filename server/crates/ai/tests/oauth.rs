@@ -314,3 +314,20 @@ async fn temporary_store_read_failure_returns_transport_then_recovers() {
         "synthetic-access"
     );
 }
+#[tokio::test]
+async fn store_read_failure_during_construction_still_recovers() {
+    let store = Arc::new(FlakyRead {
+        tokens: Tokens::new(chrono::Utc::now().timestamp() + 3600),
+        fail: std::sync::atomic::AtomicBool::new(true),
+    });
+    let manager = CredentialManager::new(
+        store.clone(),
+        OAuthClient::at("http://127.0.0.1:1").unwrap(),
+    )
+    .await;
+    assert!(manager.available());
+    assert_eq!(
+        manager.access().await.unwrap().access_token,
+        "synthetic-access"
+    );
+}

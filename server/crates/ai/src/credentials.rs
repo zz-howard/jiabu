@@ -58,10 +58,18 @@ pub trait TokenStore: Send + Sync {
     async fn invalidate(&self, expected: i64) -> Result<bool, ProviderError>;
 }
 /// Shared by provider/source across configuration generations.
-#[derive(Default)]
 pub struct RefreshGate {
     lock: Mutex<()>,
     usable: AtomicBool,
+}
+/// Usable until a tombstone, corrupt credential or definite rejection is seen.
+impl Default for RefreshGate {
+    fn default() -> Self {
+        Self {
+            lock: Mutex::new(()),
+            usable: AtomicBool::new(true),
+        }
+    }
 }
 pub struct CredentialManager {
     store: Arc<dyn TokenStore>,
