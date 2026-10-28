@@ -128,7 +128,11 @@ impl StagedStream {
             step_work_ms: Default::default(),
         })
         .await?;
-        if scratch.emit_component(kind, data.clone(), fallback).await.is_err() {
+        if scratch
+            .emit_component(kind, data.clone(), fallback)
+            .await
+            .is_err()
+        {
             return Ok(());
         }
         self.emit_component(kind, data, fallback).await
@@ -157,7 +161,10 @@ mod tests {
         let blocks = stage.batch().await?.checkpoint.message.0["blocks"].clone();
         let blocks = blocks.as_array().ok_or(Error::Conflict)?;
         assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0]["data"]["metrics"].as_array().map(Vec::len), Some(2));
+        assert_eq!(
+            blocks[0]["data"]["metrics"].as_array().map(Vec::len),
+            Some(2)
+        );
         Ok(())
     }
 
@@ -181,7 +188,12 @@ mod tests {
         let message = stage.batch().await?.checkpoint.message;
         let blocks = message.0["blocks"].as_array().ok_or(Error::Conflict)?.len();
         assert!((1..5).contains(&blocks), "{blocks} cards");
-        assert!(serde_json::to_vec(&message.0).map_err(|_| Error::Conflict)?.len() <= 256 * 1024);
+        assert!(
+            serde_json::to_vec(&message.0)
+                .map_err(|_| Error::Conflict)?
+                .len()
+                <= 256 * 1024
+        );
         Ok(())
     }
 
