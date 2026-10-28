@@ -192,7 +192,7 @@ impl SpaceTx {
         {
             return Ok(Some(template));
         }
-        Err(Error::new(422, "template_unavailable"))
+        Err(Error::new(422, "template_unknown"))
     }
     async fn documents_subjects_check(
         &self,

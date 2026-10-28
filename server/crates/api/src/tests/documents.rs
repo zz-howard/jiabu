@@ -1261,3 +1261,222 @@ async fn every_document_api_tool_succeeds_and_matches_direct_registry_invoke() -
     .await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn title_only_update_preserves_unitless_number_and_table_after_template_default_added()
+-> Result<()> {
+    let h = harness().await?;
+    let s = subject(&h, "虚构单位家人").await?;
+    let mut template = json!({
+        "protocol": "jiabu.template/1",
+        "id": "myhome.unit_snapshot",
+        "version": 1,
+        "name": {"zh-Hans": "单位快照", "en": "Unit snapshot"},
+        "subjects": [{"kind": "family_member", "min": 1, "max": 1}],
+        "fields": [
+            {
+                "key": "weight",
+                "type": "number",
+                "label": {"zh-Hans": "体重", "en": "Weight"},
+                "metric": "body.weight"
+            },
+            {
+                "key": "measurements",
+                "type": "table",
+                "label": {"zh-Hans": "测量", "en": "Measurements"},
+                "metric": "test.mass",
+                "metric_columns": {"item": "item", "value": "value"},
+                "columns": [
+                    {
+                        "key": "item",
+                        "type": "single_select",
+                        "label": {"zh-Hans": "项目", "en": "Item"},
+                        "options": [{
+                            "id": "mass",
+                            "label": {"zh-Hans": "质量", "en": "Mass"}
+                        }]
+                    },
+                    {
+                        "key": "value",
+                        "type": "number",
+                        "label": {"zh-Hans": "数值", "en": "Value"}
+                    }
+                ]
+            }
+        ]
+    });
+    let mut files = jiabu_tools::templates::official_files();
+    files.push(jiabu_tools::templates::TemplateFile {
+        filename: "unit_snapshot.json".into(),
+        body: template.to_string(),
+        official: false,
+        error: None,
+    });
+    let report = h.state.templates.reload(&h.state.db, files).await?;
+    assert!(report.rejected.is_empty());
+    let args = json!({
+        "title": "虚构无单位历史资料",
+        "template_id": "myhome.unit_snapshot",
+        "subject_ids": [s["id"]],
+        "event_date": "2026-10-01",
+        "content": {
+            "v": 1,
+            "items": [
+                {
+                    "key": "weight",
+                    "type": "number",
+                    "label": "体重快照",
+                    "value": 60,
+                    "unit": null
+                },
+                {
+                    "key": "measurements",
+                    "type": "table",
+                    "label": "测量快照",
+                    "value": {
+                        "columns": [
+                            {"key": "item", "type": "single_select", "label": "项目"},
+                            {"key": "value", "type": "number", "label": "数值", "unit": null}
+                        ],
+                        "rows": [{"item": {"id": "mass", "label": "质量"}, "value": 20}]
+                    }
+                }
+            ]
+        }
+    });
+    let historical = h.call(h.space, "create_document", args.clone()).await?;
+    assert!(historical["content"]["items"][0]["unit"].is_null());
+    assert!(historical["content"]["items"][1]["value"]["columns"][1]["unit"].is_null());
+
+    template["version"] = json!(2);
+    template["fields"][0]["unit"] = json!("kg");
+    template["fields"][1]["columns"][1]["unit"] = json!("kg");
+    let mut files = jiabu_tools::templates::official_files();
+    files.push(jiabu_tools::templates::TemplateFile {
+        filename: "unit_snapshot.json".into(),
+        body: template.to_string(),
+        official: false,
+        error: None,
+    });
+    let report = h.state.templates.reload(&h.state.db, files).await?;
+    assert!(report.rejected.is_empty());
+    let mut recent_args = args;
+    recent_args["title"] = json!("虚构新单位资料");
+    recent_args["event_date"] = json!("2026-10-02");
+    let recent = h.call(h.space, "create_document", recent_args).await?;
+    assert_eq!(recent["content"]["items"][0]["unit"], "kg");
+    assert_eq!(
+        recent["content"]["items"][1]["value"]["columns"][1]["unit"],
+        "kg"
+    );
+    let mut before = Vec::new();
+    for metric in ["body.weight", "test.mass.mass"] {
+        let series = read(
+            &h,
+            "document_metric_series",
+            json!({"subject_id": s["id"], "metric": metric}),
+        )
+        .await?;
+        assert_eq!(series["unit"], "kg");
+        assert_eq!(series["points"].as_array().unwrap().len(), 1);
+        assert_eq!(series["points"][0]["document_id"], recent["id"]);
+        assert_eq!(
+            series["excluded"],
+            json!([{"document_id": historical["id"], "unit": null}])
+        );
+        before.push(series);
+    }
+
+    let updated = h
+        .call(
+            h.space,
+            "update_document",
+            json!({
+                "id": historical["id"],
+                "expected_version": 1,
+                "changes": {"title": "虚构只改标题"}
+            }),
+        )
+        .await?;
+    assert_eq!(updated["content"], historical["content"]);
+    assert!(updated["content"]["items"][0]["unit"].is_null());
+    assert!(updated["content"]["items"][1]["value"]["columns"][1]["unit"].is_null());
+    let fetched = read(&h, "get_document", json!({"id": historical["id"]})).await?;
+    assert_eq!(fetched["content"], historical["content"]);
+    for series in before {
+        let after = read(
+            &h,
+            "document_metric_series",
+            json!({"subject_id": s["id"], "metric": series["metric"]}),
+        )
+        .await?;
+        assert_eq!(after, series);
+    }
+
+    // Explicitly resubmitting content applies the current defaults to those items.
+    let resubmitted = h
+        .call(
+            h.space,
+            "update_document",
+            json!({
+                "id": historical["id"],
+                "expected_version": 2,
+                "changes": {
+                    "content": historical["content"],
+                    "event_date": historical["event_date"]
+                }
+            }),
+        )
+        .await?;
+    assert_eq!(resubmitted["content"]["items"][0]["unit"], "kg");
+    assert_eq!(
+        resubmitted["content"]["items"][1]["value"]["columns"][1]["unit"],
+        "kg"
+    );
+    for metric in ["body.weight", "test.mass.mass"] {
+        let series = read(
+            &h,
+            "document_metric_series",
+            json!({"subject_id": s["id"], "metric": metric}),
+        )
+        .await?;
+        assert_eq!(series["points"].as_array().unwrap().len(), 2);
+        assert!(series["excluded"].as_array().unwrap().is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn unknown_templates_return_template_unknown_on_create_and_template_change() -> Result<()> {
+    let h = harness().await?;
+    error(
+        &h,
+        "create_document",
+        json!({
+            "template_id": "myhome.missing",
+            "title": "虚构未知模板资料",
+            "content": {"v": 1, "items": []}
+        }),
+        "template_unknown",
+    )
+    .await?;
+    let original = h
+        .call(h.space, "create_document", raw_document(None, "2026-10-12"))
+        .await?;
+    error(
+        &h,
+        "update_document",
+        json!({
+            "id": original["id"],
+            "expected_version": 1,
+            "changes": {"template_id": "myhome.missing"}
+        }),
+        "template_unknown",
+    )
+    .await?;
+    assert_eq!(
+        read(&h, "get_document", json!({"id": original["id"]})).await?,
+        original
+    );
+    Ok(())
+}

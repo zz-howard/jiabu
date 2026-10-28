@@ -24,6 +24,7 @@ fn atom(
     value: &Value,
     unit: &mut Option<String>,
     field: Option<&Field>,
+    fill_default_units: bool,
 ) -> Result<bool, &'static str> {
     if kind != ValueType::Number && unit.is_some() {
         return Err("unit");
@@ -40,7 +41,7 @@ fn atom(
             Ok(false)
         }
         ValueType::Number => {
-            if unit.is_none() {
+            if fill_default_units && unit.is_none() {
                 *unit = field.and_then(|f| f.unit.clone());
             }
             if unit.as_ref().is_some_and(|u| u.chars().count() > 32) {
@@ -106,6 +107,20 @@ fn atom(
 pub fn normalize_content(
     content: &mut Content,
     template: Option<&Template>,
+) -> Result<Vec<String>, ContentError> {
+    check_content(content, template, true)
+}
+/// Checks persisted content without filling new defaults or changing its snapshots.
+pub fn validate_content(
+    content: &Content,
+    template: Option<&Template>,
+) -> Result<Vec<String>, ContentError> {
+    check_content(&mut content.clone(), template, false)
+}
+fn check_content(
+    content: &mut Content,
+    template: Option<&Template>,
+    fill_default_units: bool,
 ) -> Result<Vec<String>, ContentError> {
     let size = serde_json::to_vec(content)
         .map_err(|_| error("/content", "structure"))?
@@ -185,7 +200,8 @@ pub fn normalize_content(
                     {
                         return Err(error(&pointer, "column_type"));
                     }
-                    // Validate and persist units even for an empty table.
+                    // Check units even for an empty table; only submitted content
+                    // receives the template's current default unit.
                     let empty = match column.kind {
                         templates::ColumnType::Number => Value::Null,
                         _ => Value::String(String::new()),
@@ -196,6 +212,7 @@ pub fn normalize_content(
                             &empty,
                             &mut column.unit,
                             declared.as_ref(),
+                            fill_default_units,
                         )
                         .map_err(|rule| error(&pointer, rule))?;
                     } else if column.unit.is_some() {
@@ -208,6 +225,7 @@ pub fn normalize_content(
                                 value,
                                 &mut column.unit,
                                 declared.as_ref(),
+                                fill_default_units,
                             )
                             .map_err(|rule| error(&pointer, rule))?;
                         }
@@ -243,7 +261,7 @@ pub fn normalize_content(
                 item.value = serde_json::to_value(table).map_err(|_| error(&pointer, "table"))?;
                 uncertain
             }
-            kind => atom(kind, &item.value, &mut item.unit, field)
+            kind => atom(kind, &item.value, &mut item.unit, field, fill_default_units)
                 .map_err(|rule| error(&pointer, rule))?,
         };
         if uncertain {

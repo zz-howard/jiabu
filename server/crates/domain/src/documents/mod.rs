@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
-pub use validation::{ContentError, metric_values, normalize_content, render_title, subject_rules};
+pub use validation::{
+    ContentError, metric_values, normalize_content, render_title, subject_rules, validate_content,
+};
 use validator::Validate;
 
 #[derive(

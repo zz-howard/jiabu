@@ -232,13 +232,21 @@ impl SpaceTx {
         if let Some(content) = changes.content {
             after.content = content;
         }
-        // Explicitly removing/changing a template discards only old derived metric keys.
+        // Rebind derived metric keys when switching templates, keeping historical
+        // values and units intact unless the caller also submitted content.
         if template_changed {
             for item in &mut after.content.items {
-                item.metric = None;
+                item.metric = template
+                    .as_ref()
+                    .and_then(|t| t.fields.iter().find(|field| field.key == item.key))
+                    .and_then(|field| field.metric.clone());
             }
         }
-        let images = normalize_content(&mut after.content, template.as_ref()).map_err(invalid)?;
+        let images = if content_changed {
+            normalize_content(&mut after.content, template.as_ref()).map_err(invalid)?
+        } else {
+            validate_content(&after.content, template.as_ref()).map_err(invalid)?
+        };
         if content_changed || template_changed || changes.event_date.is_some() {
             let recorded = self.ledger_today(space, old.created_at).await?;
             after.event_date = resolve_date(
