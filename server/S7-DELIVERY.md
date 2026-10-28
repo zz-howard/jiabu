@@ -205,4 +205,19 @@
 
 ### 验证
 
-构建机：fmt、clippy `-D warnings`、nextest 全部、cargo deny、cargo audit、四个检查脚本、OpenAPI 导出。负对照见下节。
+构建机：fmt、clippy `-D warnings`、nextest 全部、cargo deny、cargo audit、四个检查脚本、OpenAPI 导出。
+
+负对照（构建机临时改坏、跑对应测试、撤回，不提交损坏实现）：
+
+| 改坏 | 结果 |
+|---|---|
+| worker guard 去掉 lease_epoch 条件 | `reclaimed_run_rejects_writes_from_the_same_owners_earlier_epoch` 失败。原 `stale_lease_epoch_*` 测试因清扫后状态已非 running 抓不到，补了这条同一 owner 只差 epoch 的测试 |
+| 领取去掉“更早的 queued / waiting_ai 阻塞” | `later_message_waits_behind_earlier_run_backing_off_for_ai` 失败（同上，原并发测试抓不到，已补） |
+| 领取不再被 paused 阻塞（B/A 先后） | `queued_b_remains_blocked_when_running_a_later_pauses` 失败 |
+| 新消息不关闭暂停中的 A | `new_c_closes_paused_a_but_does_not_overtake_queued_b` 失败 |
+| 重试复制工具调用时重新生成幂等键 | `retry_lunch_50_parking_10_*` 失败 |
+| 服务层去掉 `require_ai_session()` | `service_layer_key_rejected_without_runs_or_model_calls` 失败 |
+| 重试把已成功调用改回 proposed | 测试仍通过：执行器以 journal 中的 tool_result 为准跳过，状态复制是第二道 |
+| 动作去掉工具模块授权 | 测试仍通过：权限变化先被冻结环境校验以 404 拒绝（同样在查回执之前），模块授权是第二道 |
+| 恢复 SQL 去掉 paused / interrupt ID 条件 | 测试仍通过：服务层在行锁内已检查同样条件，SQL 条件是第二道 |
+| RunEmitter::commit 改为先广播后提交 | **未被抓到**：`sse_commit_before_broadcast_survives_crash` 只验证“已提交未广播可重放”，没走 `commit()`；确定性地让提交在广播后失败需要故障注入，未做。顺序由 `commit()` 三行代码保证 |
