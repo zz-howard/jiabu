@@ -247,7 +247,12 @@ impl SpaceTx {
         } else {
             validate_content(&after.content, template.as_ref()).map_err(invalid)?
         };
-        if content_changed || template_changed || changes.event_date.is_some() {
+        let date_field_changed = event_date_value(&after.content, template.as_ref())
+            != event_date_value(&old.content, template.as_ref());
+        if changes.event_date.is_some()
+            || after.template_id != old.template_id
+            || date_field_changed
+        {
             let recorded = self.ledger_today(space, old.created_at).await?;
             after.event_date = resolve_date(
                 &after.content,
@@ -302,13 +307,8 @@ impl SpaceTx {
         .await
     }
 }
-fn resolve_date(
-    content: &Content,
-    template: Option<&Template>,
-    explicit: Option<chrono::NaiveDate>,
-    fallback: chrono::NaiveDate,
-) -> Result<chrono::NaiveDate, Error> {
-    let derived = template
+fn event_date_value<'a>(content: &'a Content, template: Option<&Template>) -> Option<&'a str> {
+    template
         .and_then(|t| t.event_date_field.as_ref())
         .and_then(|key| {
             content
@@ -317,6 +317,14 @@ fn resolve_date(
                 .find(|i| &i.key == key && i.kind == ValueType::Date)
         })
         .and_then(|i| i.value.as_str())
+}
+fn resolve_date(
+    content: &Content,
+    template: Option<&Template>,
+    explicit: Option<chrono::NaiveDate>,
+    fallback: chrono::NaiveDate,
+) -> Result<chrono::NaiveDate, Error> {
+    let derived = event_date_value(content, template)
         .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
     if derived.zip(explicit).is_some_and(|(a, b)| a != b) {
         return Err(Error::invalid());

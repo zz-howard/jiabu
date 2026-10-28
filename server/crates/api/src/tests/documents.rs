@@ -1480,3 +1480,208 @@ async fn unknown_templates_return_template_unknown_on_create_and_template_change
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn no_template_content_edit_preserves_explicit_event_date() -> Result<()> {
+    let h = harness().await?;
+    let original = h
+        .call(h.space, "create_document", raw_document(None, "2026-10-01"))
+        .await?;
+    let mut content = original["content"].clone();
+    content["items"][0]["value"] = json!("虚构备注更正");
+    let updated = h
+        .call(
+            h.space,
+            "update_document",
+            json!({
+                "id": original["id"],
+                "expected_version": 1,
+                "changes": {"content": content}
+            }),
+        )
+        .await?;
+    assert_eq!(updated["content"], content);
+    assert_eq!(updated["event_date"], "2026-10-01");
+    assert_eq!(
+        read(&h, "get_document", json!({"id": original["id"]})).await?,
+        updated
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn templated_non_date_content_edit_preserves_explicit_event_date() -> Result<()> {
+    let h = harness().await?;
+    let template = json!({
+        "protocol": "jiabu.template/1",
+        "id": "myhome.notes",
+        "version": 1,
+        "name": {"zh-Hans": "备注", "en": "Notes"},
+        "subjects": [],
+        "fields": [{
+            "key": "note",
+            "type": "text",
+            "label": {"zh-Hans": "备注", "en": "Notes"}
+        }]
+    });
+    let mut files = jiabu_tools::templates::official_files();
+    files.push(jiabu_tools::templates::TemplateFile {
+        filename: "notes.json".into(),
+        body: template.to_string(),
+        official: false,
+        error: None,
+    });
+    let report = h.state.templates.reload(&h.state.db, files).await?;
+    assert!(report.rejected.is_empty());
+    let mut notes = raw_document(None, "2026-10-01");
+    notes["template_id"] = json!("myhome.notes");
+    let s = subject(&h, "虚构日期家人").await?;
+    let mut vision = typed_document(
+        &s,
+        "jiabu.vision",
+        "exam_date",
+        "2026-10-01",
+        vec![json!({"key": "note", "type": "text", "label": "备注", "value": "虚构备注"})],
+    );
+    vision["content"]["items"][0]["value"] = Value::Null;
+    vision["event_date"] = json!("2026-10-01");
+
+    // Cover both an undeclared event-date field and a declared but empty one.
+    for args in [notes, vision] {
+        let original = h.call(h.space, "create_document", args).await?;
+        let mut content = original["content"].clone();
+        let note = content["items"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|item| item["key"] == "note")
+            .unwrap();
+        note["value"] = json!("虚构备注更正");
+        let updated = h
+            .call(
+                h.space,
+                "update_document",
+                json!({
+                    "id": original["id"],
+                    "expected_version": 1,
+                    "changes": {
+                        "template_id": original["template_id"],
+                        "content": content
+                    }
+                }),
+            )
+            .await?;
+        assert_eq!(updated["content"], content);
+        assert_eq!(updated["event_date"], "2026-10-01");
+        assert_eq!(
+            read(&h, "get_document", json!({"id": original["id"]})).await?,
+            updated
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn changed_template_date_field_updates_event_date() -> Result<()> {
+    let h = harness().await?;
+    let s = subject(&h, "虚构日期家人").await?;
+    let original = h
+        .call(
+            h.space,
+            "create_document",
+            typed_document(&s, "jiabu.vision", "exam_date", "2026-10-01", vec![]),
+        )
+        .await?;
+    let mut content = original["content"].clone();
+    content["items"][0]["value"] = json!("2026-10-12");
+    let updated = h
+        .call(
+            h.space,
+            "update_document",
+            json!({
+                "id": original["id"],
+                "expected_version": 1,
+                "changes": {"content": content}
+            }),
+        )
+        .await?;
+    assert_eq!(updated["event_date"], "2026-10-12");
+    assert_eq!(
+        read(&h, "get_document", json!({"id": original["id"]})).await?,
+        updated
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn cleared_template_date_field_falls_back_to_original_recording_date() -> Result<()> {
+    let mut h = harness().await?;
+    let s = subject(&h, "虚构日期家人").await?;
+    let original = h
+        .call(
+            h.space,
+            "create_document",
+            typed_document(&s, "jiabu.vision", "exam_date", "2026-10-01", vec![]),
+        )
+        .await?;
+    h.state.clock = std::sync::Arc::new(s4::Fixed(
+        chrono::DateTime::parse_from_rfc3339("2026-11-02T00:00:00Z")?.with_timezone(&chrono::Utc),
+    ));
+    h.app.router = crate::router(h.state.clone());
+    let mut content = original["content"].clone();
+    content["items"][0]["value"] = Value::Null;
+    let cleared = h
+        .call(
+            h.space,
+            "update_document",
+            json!({
+                "id": original["id"],
+                "expected_version": 1,
+                "changes": {"content": content}
+            }),
+        )
+        .await?;
+    assert_eq!(cleared["event_date"], "2026-10-28");
+    assert_eq!(
+        read(&h, "get_document", json!({"id": original["id"]})).await?,
+        cleared
+    );
+    let restored = h
+        .call(
+            h.space,
+            "update_document",
+            json!({
+                "id": original["id"],
+                "expected_version": 2,
+                "changes": {"content": original["content"]}
+            }),
+        )
+        .await?;
+    assert_eq!(restored["event_date"], "2026-10-01");
+    content["items"] = json!([]);
+    let removed = h
+        .call(
+            h.space,
+            "update_document",
+            json!({
+                "id": original["id"],
+                "expected_version": 3,
+                "changes": {"content": content}
+            }),
+        )
+        .await?;
+    assert_eq!(removed["event_date"], "2026-10-28");
+    let explicit = h
+        .call(
+            h.space,
+            "update_document",
+            json!({
+                "id": original["id"],
+                "expected_version": 4,
+                "changes": {"event_date": "2026-10-05"}
+            }),
+        )
+        .await?;
+    assert_eq!(explicit["event_date"], "2026-10-05");
+    Ok(())
+}
