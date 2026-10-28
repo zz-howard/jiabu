@@ -341,6 +341,7 @@ create table space_events (id bigint generated always as identity primary key, s
   at timestamptz not null default now());
 create table blobs (sha256 bytea primary key, mime text not null check (mime = 'image/jpeg'), bytes bigint not null,
   width int, height int, created_at timestamptz not null default now());
+-- 之后加的列：unreferenced_at（S4 的保留计时）、stored_bytes（原图 + 两个派生尺寸的字节数，照片占用用，技术方案 3.7.1）
 -- blob_refs：代理主键 + 两条部分唯一索引（chat 每位成员一条、业务模块每个空间每张图一条），见技术方案 3.7
 -- 聊天表都不带 module / visibility（聊天是本人的记录，不按模块过滤）；三张表都有 space_id 和会话所属成员 member_id
 create table chat_entries (id uuid primary key, space_id uuid not null references spaces,
@@ -410,7 +411,7 @@ create table api_key_audit (id bigint generated always as identity primary key,
 ### 5.3 原图存储
 
 - v1：`object_store::local::LocalFileSystem` 存原图到 `<data_dir>/blobs/{sha256 前 2 位}/{sha256}.{orig|1600|512}.jpg`（内容寻址，物理文件只存一份），数据库存元数据（大小、MIME、宽高）以及逻辑引用 `blob_refs`（按模块 `ledger` / `documents` / `chat`；聊天的图每位成员各一条、只有本人能读，业务模块每个空间每张图一条，[技术方案 3.7](technical-design.md#37-原图)）。上传总是要求完整内容，响应对新图和已有的图完全相同（技术方案 5.8）。以后换 S3 兼容服务只换构造函数。
-- 处理：`infer` 嗅探真实类型（不信任客户端 Content-Type）；`image` 生成 1600px 显示版和 512px 缩略图；按 EXIF 方向转正；对外下发的图片重新编码以去掉 GPS 等 EXIF（原图保留供 AI 和核对）。
+- 处理：`infer` 嗅探真实类型（不信任客户端 Content-Type）；`image` 生成 1600px 显示版和 512px 缩略图；按 EXIF 方向转正；派生尺寸重新编码、不带 EXIF；原图写盘前去掉 GPS、XMP / APP13 和图像结束标记之后的附加内容（“实况照片”视频、MPF），画质不动（P70，技术方案 3.7）。原图供 AI 和核对。
 - 下载：本空间要有一条请求者能读的引用（`ledger` / `documents` 按模块读权限，`chat` 要求本人的引用），否则 404；之后流式返回（`tokio_util::io::ReaderStream`），不开放静态目录。
 
 ### 5.4 中间件、配置、错误、校验
@@ -530,6 +531,7 @@ GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 servi
 | `api_keys` | `SELECT`（除 `token_hash`）；`UPDATE (revoked_at, revoked_by)` |
 | `agent_runs` | `SELECT (id, space_id, member_id, kind, status, provider_id, model, model_turns, active_ms, attempt, created_at, ended_at)` |
 | `ai_calls`、`ai_step_meters` | `SELECT` |
+| `space_storage_daily`、`storage_daily_totals` | `SELECT`（只有空间 ID、日期、张数和字节数，技术方案 3.7.1） |
 | `app_releases` | 读写（安装包不含内容，技术方案 3.9） |
 | `ai_providers`、`ai_models`、`ai_routes`、`ai_settings`、`ai_prices`、`secrets`、`admin_tokens`、`admin_audit` | 读写（`admin_audit` 只有 `INSERT` / `SELECT`） |
 | `records`、`entity_events`、`accounts`、`allocation_plans`、`tags`、`subjects`、`documents`、`space_invitations`、`blobs`、`blob_refs`、`conversations`、`chat_entries`、`chat_stream_events`、`chat_actions`、`agent_run_items`、`agent_tool_calls`、`agent_prompt_snapshots`、`idempotency`、`api_key_audit` | **无** |
@@ -570,6 +572,7 @@ GitHub Actions `ubuntu-24.04`：fmt → clippy → nextest（PostgreSQL 18 servi
 | | `GET /usage/runs/{run_id}` | read | 运行明细：每次模型调用（序号、调用种类 first / continue / resume / retry、提供方、模型、各类 token、成本、缓存省下的金额、耗时、结果、错误类别）+ 每一步（序号、操作类别、状态、耗时）。**不含**任何文字内容 |
 | | `GET /usage/calls` | read | 调用明细（分页），字段同上，用于导出 |
 | 空间（只有元数据） | `GET /spaces` | read | ID、名称、类型、创建者用户名、成员数、创建时间；不含任何空间内容 |
+| 照片占用 | `GET /storage` | read | 参数 `from`、`to`、可选 `space_id`：每个空间每天的照片张数与字节数（`space_storage_daily`，带空间名称）和每天的全服务器实际占用（`storage_daily_totals`）；不含任何照片或引用（P68，技术方案 3.7.1） |
 | 提供方 | `GET /providers`、`POST /providers`、`PATCH /providers/{id}` | read / write | 提供方：种类（`siwc` / genai 的各家 / `ollama` …）、`base_url`、计费类别（`subscription` / `local` / `paid`）、是否启用 |
 | | `PUT /providers/{id}/secret`、`DELETE /providers/{id}/secret` | write | 录入 / 删除 API key（只写不读，9.6）。也可以不录入，而是继续用环境变量或文件（`secret_source = env:NAME` / `file:PATH`） |
 | | `GET /providers/{id}/status` | read | 是否已配置凭据（只给“已设置 · 末 4 位”）、熔断器状态、最近一次成功 / 失败及错误类别；ChatGPT 订阅另给登录状态、令牌到期时间、最近一次刷新、`ext_agent_host_id`（9.7） |
@@ -670,6 +673,7 @@ admin route show|set <task_kind> <模型…>
 admin price list|add                      # 只追加
 admin usage summary --from … --to … --group-by space,model [--tz …] [--json]
 admin usage run <run_id>
+admin storage summary [--from …] [--to …] [--space <id>] [--json]   # 照片占用（P68）
 admin token create|list|revoke            # 管理服务令牌（只能在这里创建）
 admin secrets init-key|rotate
 admin ai import <ai.toml> | export
