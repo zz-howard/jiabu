@@ -338,10 +338,15 @@ final class LocalAuthRepository implements AuthRepository {
       invalidated = true;
     });
     if (invalidated && identical(current, expectedSession)) {
-      current = null;
-      handle = null;
-      onChanged?.call(null);
+      clearLocalSession();
     }
+  }
+
+  /// Detach an obsolete runtime without changing shared credentials or state.
+  void clearLocalSession() {
+    current = null;
+    handle = null;
+    onChanged?.call(null);
   }
 
   @override

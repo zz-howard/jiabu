@@ -786,3 +786,48 @@ python3 -m unittest discover -s tool/fonts -p 'test_*.py'
 ### 第三轮评审修正（luna.coco）
 
 第三轮评审确认第二轮四条已修好，另提一条：模块权限从 `none` 恢复（或首次获得）时只覆盖了权限，没有重置游标，权限收回期间游标已经推进，恢复后从未再改过的旧数据拉不回来。technical-design “授权变化”一条要求“清掉失去权限的模块数据，并把这个空间的游标归零重拉”。修正：任一模块级别变化（收回或恢复）都把该空间游标归零，并递增 `local_generation`，让在途的拉取响应被栅栏丢弃。测试 `module_regain_resets_cursor_and_fences_late_pull`（修前失败）、`unchanged_module_levels_keep_cursor`，负对照 `module_regain_resets_cursor`。
+
+### 第四轮评审修正
+
+第四轮评审确认第三轮修正通过，本轮处理新增的两条中严重度问题。以下回归测试均先于对应生产代码修复写入；受执行环境限制，尚未取得实际修前红 / 修后绿证据。
+
+1. **旧 runtime 不得失效新登录令牌。** `AppRuntime` 的同步认证失效回调和前台数据库监听共用 `authenticationLost`，调用 `invalidate` 时始终传引擎创建时捕获的 generation，由存储事务检查代次。代次不一致时不改共享令牌和 runtime 行，只通过 `LocalAuthRepository.clearLocalSession` 清理旧实例的认证状态、引擎、订阅和本机视图状态。正常同代次失效仍通过原事务撤销认证和删除令牌。
+   - `stale_runtime_cannot_invalidate_new_login_token`：两个 AppRuntime 共用 MemorySettings、MemorySessions 和数据库目录，各有独立 DatabaseManager / SQLite 连接。旧 worker resume 并捕获代次后，另一实例退出并以同账号临时密码登录；此时 authenticated=0。旧引擎启动同步后，新令牌与新代次必须保留、旧 runtime 必须清理，随后新实例改密码成功且请求携带新令牌。两个实例均关闭平台触发器以控制时序，认证仓库和 Dio 请求保持真实调用。
+   - `runtime_observing_external_logout_only_clears_local_session`：另一实例只退出、不重新登录时，旧 runtime 清理本机状态，不再次递增共享 generation。
+   - 修前源码推导：旧 worker 以 persisted generation 调 invalidate，删除新令牌；只有退出的分支也会再次递增 generation。上述分别由令牌断言和代次断言捕获；尚未动态执行。
+2. **已有退款的更新、恢复必须依赖原支出。** `toolDependencies` 新建退款从 args 读取 refund_of_id，更新和恢复从 previous 读取，统一登记 `record:<原支出 ID>`。因此 R 冲突期间 F 不领取、不发送，不会因服务器旧金额被拒成 failed；R 用我的版本解决并确认后，F 自动继续。ConflictService 原已传入 previous 并调用同一函数，重建 update / restore 操作也获得该依赖，无须另加路径。
+   - `refund_update_waits_while_parent_expense_in_conflict`：服务器已有 R=100、F=20，离线改 R=200、F=150，模拟另一设备引起 R 版本冲突。只发送 R；F 保持 blocked、attempts=0、无失败错误，重复同步也不发 F。
+   - `refund_update_continues_after_parent_conflict_resolved`：R 选择我的版本并确认后，按单独批次 R 冲突 → R 解决确认 → F 更新发送，F=150 成功、队列清空。
+   - `refund_restore_waits_for_parent_conflict_resolution`：恢复已有的 voided 退款同样先等待 R 冲突解决与确认，再发送 restore_record 并成功。
+   - 假 API 按顺序对 R 返回 version_conflict、对父支出金额仍为 100 的 F 返回 refund_exceeds_original；修前源码推导为同批发送 R/F，F 被拒进 failed，不能自动继续。尚未动态执行。
+
+本轮修改 7 个文件（相对 client/）：`app/lib/app/runtime.dart`、`app/lib/data/repositories/auth_repository.dart`、`app/lib/data/sync/tool_dependencies.dart`、`app/test/data/runtime_auth_test.dart`（新增）、`app/test/data/conflict_test.dart`、`tool/c2-negative-controls.json`、`C2-DELIVERY.md`。未改 docs/、server/、生成文件、PNG；未提交 git。
+
+新增负对照（均 expected_occurrences=1，含兼容 Dart 格式化的 find_regex）：
+
+- `stale_runtime_uses_captured_generation`，文件 `app/lib/app/runtime.dart`：
+  - find：`expectedGeneration: requireValue<int>(generation),`
+  - replace：`expectedGeneration: requireValue<int>((await store.runtime())['generation']),`
+  - 命令：`flutter test test/data/runtime_auth_test.dart --plain-name stale_runtime_cannot_invalidate_new_login_token`
+- `existing_refund_depends_on_parent`，文件 `app/lib/data/sync/tool_dependencies.dart`：
+  - find：`: previous['refund_of_id'];`
+  - replace：`: null;`
+  - 命令：`flutter test test/data/conflict_test.dart --name '^refund_(update_waits_while_parent_expense_in_conflict|update_continues_after_parent_conflict_resolved|restore_waits_for_parent_conflict_resolution)$'`
+
+验证：本机为 aarch64，未安装 Flutter / Dart；client/AGENTS.md 要求仅在 x86_64 构建机运行测试。尝试 `ssh -o BatchMode=yes -o ConnectTimeout=8 jiabu-build`，当前沙箱返回 `socket: Operation not permitted`，连接未建立。已通过 `git diff --check`、JSON 解析、全部 26 条负对照 ID 唯一性、精确 / 正则锚点次数及测试文件路径检查，并对两条新负对照做内存替换检查。**尚未执行 Flutter 测试、Dart format、analyze、check_rules，以及负对照动态断言失败验证；静态检查不代替这些证据。**
+
+构建机待验证（不运行生成器、不更新 PNG；重任务加 nice / ionice 并串行执行）：
+
+```bash
+cd client
+dart format --set-exit-if-changed app/lib/app/runtime.dart app/lib/data/repositories/auth_repository.dart app/lib/data/sync/tool_dependencies.dart app/test/data/runtime_auth_test.dart app/test/data/conflict_test.dart
+nice -n 19 ionice -c3 flutter analyze --fatal-infos
+dart run tool/check_rules.dart
+nice -n 19 ionice -c3 flutter test
+cd app
+nice -n 19 ionice -c3 flutter test test/data/runtime_auth_test.dart test/data/runtime_channel_test.dart test/data/auth_repository_test.dart test/data/conflict_test.dart test/data/sync_test.dart test/data/sync_audit_test.dart test/data/additional_sync_test.dart test/data/partition_and_lease_test.dart
+cd ../packages/jiabu_design
+nice -n 19 ionice -c3 flutter test
+```
+
+需在隔离副本保留新测试、恢复本轮修前的生产实现，先确认对应测试为断言失败；恢复修复后确认通过。再按 JSON 一次应用一条负对照，确认断言失败（编译失败不算）、恢复并复跑。当前拿不准的是上述动态执行结果，不能声称本轮测试或负对照已跑通过。

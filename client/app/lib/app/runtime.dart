@@ -199,6 +199,22 @@ final class AppRuntime {
     }
     final store = handle.store;
     final generation = (await store.runtime())['generation'];
+    Future<void> authenticationLost() async {
+      if (capturedRevision != revision) {
+        return;
+      }
+      status = SyncStatus.loginRequired;
+      await auth.invalidate(
+        session.partition,
+        expectedGeneration: requireValue<int>(generation),
+      );
+      if (capturedRevision == revision) {
+        // Another instance changed the generation. Only detach this runtime;
+        // its captured credentials no longer own the shared session.
+        auth.clearLocalSession();
+      }
+    }
+
     final client = api(session.partition.server, session.partition);
     currentSpace = await settings.lastSpace(session.partition);
     final cache = BlobCacheService(store, handle.blobs);
@@ -246,17 +262,7 @@ final class AppRuntime {
         status = next;
         notify();
       },
-      onAuthenticationLost: () async {
-        final persisted = await store.runtime();
-        if (capturedRevision == revision &&
-            (persisted['generation'] == generation ||
-                persisted['authenticated'] == 0)) {
-          await auth.invalidate(
-            session.partition,
-            expectedGeneration: requireValue<int>(persisted['generation']),
-          );
-        }
-      },
+      onAuthenticationLost: authenticationLost,
       onMembershipsRefreshed: () async {
         if (capturedRevision != revision) {
           return;
@@ -334,11 +340,7 @@ final class AppRuntime {
             return;
           }
           if (row['authenticated'] != 1) {
-            status = SyncStatus.loginRequired;
-            await auth.invalidate(
-              session.partition,
-              expectedGeneration: requireValue<int>(row['generation']),
-            );
+            await authenticationLost();
             return;
           }
           final notices = (jsonDecode(

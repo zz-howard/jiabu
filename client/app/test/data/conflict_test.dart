@@ -62,6 +62,136 @@ void main() {
     h.api.onPush = null;
   }
 
+  Future<void> editExistingRefund({bool restore = false}) async {
+    final refund = {
+      ...sampleRecord(
+        'refund',
+        amount: restore ? 150 : 20,
+        status: restore ? 'voided' : 'active',
+      ),
+      'kind': 'refund',
+      'refund_of_id': 'r',
+    };
+    await h.store.putEntity('s', 'record', refund);
+    h.api.server['refund'] = refund;
+    // Another device advances R's version while this device is offline.
+    h.api.server['r'] = sampleRecord('r', version: 2);
+    expect(
+      await h.records.update('s', 'r', {'amount_minor': 200}),
+      isA<Ok<String>>(),
+    );
+    if (restore) {
+      expect(
+        await h.mutations.enqueueTool(
+          spaceId: 's',
+          tool: 'restore_record',
+          args: {'id': 'refund'},
+          entityKind: 'record',
+          entityId: 'refund',
+          optimistic: {...refund, 'status': 'active'},
+        ),
+        isA<Ok<String>>(),
+      );
+    } else {
+      expect(
+        await h.records.update('s', 'refund', {'amount_minor': 150}),
+        isA<Ok<String>>(),
+      );
+    }
+    h.api.onPush = (ops) async => PushResponseDto(
+      results: [
+        for (final op in ops)
+          if (op.args['id'] == 'r' && op.args['expected_version'] == 1)
+            PushResultDto(
+              opId: op.opId,
+              status: 'conflict',
+              problem: ProblemDto(
+                code: 'version_conflict',
+                status: 409,
+                current: h.api.server['r'],
+              ),
+            )
+          else if (op.args['id'] == 'refund' &&
+              requireValue<int>(h.api.server['r']?['amount_minor']) < 150)
+            PushResultDto(
+              opId: op.opId,
+              status: 'rejected',
+              problem: const ProblemDto(
+                code: 'refund_exceeds_original',
+                status: 422,
+              ),
+            )
+          else
+            h.api.apply([op]).results.single,
+      ],
+    );
+  }
+
+  test('refund_update_waits_while_parent_expense_in_conflict', () async {
+    await editExistingRefund();
+    await h.engine.runRound();
+    expect((await h.store.entity('s', 'record', 'r'))?.syncState, 'conflict');
+    final waiting = (await h.store.outbox('s')).single;
+    expect(waiting.entityIds, {'record:refund'});
+    expect(waiting.state, 'blocked');
+    expect(waiting.attempts, 0);
+    expect(waiting.lastError, isNull);
+    await h.engine.runRound();
+    expect(h.api.batches.expand((batch) => batch).map((op) => op.args['id']), [
+      'r',
+    ]);
+    expect((await h.store.outbox('s')).single.state, 'blocked');
+  });
+
+  test('refund_update_continues_after_parent_conflict_resolved', () async {
+    await editExistingRefund();
+    await h.engine.runRound();
+    expect(
+      await h.conflicts.resolveWithMine('s', 'record', 'r'),
+      isA<Ok<void>>(),
+    );
+    await h.engine.runRound();
+    expect(h.api.batches.map((batch) => batch.map((op) => op.args['id'])), [
+      ['r'],
+      ['r'],
+      ['refund'],
+    ]);
+    expect(h.api.server['r']?['amount_minor'], 200);
+    expect(h.api.server['refund']?['amount_minor'], 150);
+    expect(
+      (await h.store.entity('s', 'record', 'refund'))?.syncState,
+      'synced',
+    );
+    expect(await h.store.outbox('s'), isEmpty);
+  });
+
+  test('refund_restore_waits_for_parent_conflict_resolution', () async {
+    await editExistingRefund(restore: true);
+    await h.engine.runRound();
+    final waiting = (await h.store.outbox('s')).single;
+    expect(waiting.payload['tool'], 'restore_record');
+    expect(waiting.state, 'blocked');
+    expect(waiting.attempts, 0);
+    expect(h.api.server['refund']?['status'], 'voided');
+    expect(
+      await h.conflicts.resolveWithMine('s', 'record', 'r'),
+      isA<Ok<void>>(),
+    );
+    await h.engine.runRound();
+    expect(h.api.batches.map((batch) => batch.map((op) => op.args['id'])), [
+      ['r'],
+      ['r'],
+      ['refund'],
+    ]);
+    expect(h.api.batches.last.single.tool, 'restore_record');
+    expect(h.api.server['refund']?['status'], 'active');
+    expect(
+      (await h.store.entity('s', 'record', 'refund'))?.syncState,
+      'synced',
+    );
+    expect(await h.store.outbox('s'), isEmpty);
+  });
+
   test('pending_to_conflict_folds_all_edits_and_blocks_d'
       'ependencies', () async {
     await conflict(refund: true);

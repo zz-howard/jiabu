@@ -11,6 +11,15 @@ Set<String> toolDependencies(
   if (tool == 'set_allocation_plan') {
     return {EntityRef('account', requireValue<String>(args['account_id'])).key};
   }
+  final refundOf = tool == 'create_record'
+      ? args['refund_of_id']
+      : previous['refund_of_id'];
+  final refundDependencies = <String>{
+    if (refundOf is String) EntityRef('record', refundOf).key,
+  };
+  if (tool == 'restore_record') {
+    return refundDependencies;
+  }
   if (tool != 'create_record' && tool != 'update_record') {
     return {};
   }
@@ -21,6 +30,7 @@ Set<String> toolDependencies(
       ? previous['attachments'] as List<Object?>? ?? const <Object?>[]
       : const <Object?>[];
   return {
+    ...refundDependencies,
     for (final field in [
       'account_id',
       'to_account_id',
@@ -28,8 +38,6 @@ Set<String> toolDependencies(
       'to_purpose_id',
     ])
       if (values[field] case final String id) EntityRef('account', id).key,
-    if (tool == 'create_record' && values['refund_of_id'] is String)
-      EntityRef('record', requireValue<String>(values['refund_of_id'])).key,
     for (final tag in (values['tag_ids'] as List<Object?>? ?? const []))
       EntityRef('tag', tag as String).key,
     for (final hash in (values['attachments'] as List<Object?>? ?? const []))
