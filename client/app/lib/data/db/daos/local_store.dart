@@ -361,7 +361,7 @@ final class LocalStore {
   Future<void> deferDependents(String spaceId, String entityKey) async {
     final queue = await outbox(spaceId);
     var next = queue.isEmpty ? 0 : queue.last.createdAt;
-    final deferredEntities = <String>{};
+    final deferredReferences = <String>{};
     for (final op in queue) {
       // The resolution itself stays ahead of its dependents. Unrelated
       // prerequisites (especially blobs required by it) keep their position.
@@ -370,11 +370,12 @@ final class LocalStore {
       }
       final shouldDefer =
           op.dependsOn.contains(entityKey) ||
-          op.references.intersection(deferredEntities).isNotEmpty;
+          op.references.intersection(deferredReferences).isNotEmpty;
       if (shouldDefer) {
-        // Include later edits and downstream dependents of a deferred entity,
-        // even when they no longer repeat the original dependency.
-        deferredEntities.addAll(op.entityIds);
+        // Preserve order with every later write sharing any reference, even
+        // when that reference is a dependency rather than the written entity.
+        // For example refund(R, T) must remain ahead of a later delete(T).
+        deferredReferences.addAll(op.references);
         await _write(
           'outbox',
           'UPDATE outbox SET created_at = ? WHERE space_id '

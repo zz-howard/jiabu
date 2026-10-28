@@ -1,6 +1,5 @@
 import 'package:jiabu/data/db/daos/local_store.dart';
 import 'package:jiabu/data/repositories/local_mutations_repository.dart';
-import 'package:jiabu/domain/entity_ref.dart';
 import 'package:jiabu/domain/required_value.dart';
 import 'package:jiabu/domain/result.dart';
 
@@ -52,23 +51,6 @@ final class RecordsRepository {
             'status': 'active',
             'version': 0,
           },
-          dependsOn: {
-            for (final key in [
-              'account_id',
-              'to_account_id',
-              'purpose_id',
-              'to_purpose_id',
-            ])
-              if (record[key] case final String value)
-                EntityRef('account', value).key,
-            if (record['refund_of_id'] case final String parent)
-              EntityRef('record', parent).key,
-            for (final tag in (record['tag_ids'] as List<Object?>? ?? const []))
-              EntityRef('tag', tag as String).key,
-            for (final hash
-                in (record['attachments'] as List<Object?>? ?? const []))
-              EntityRef.blob(module, hash as String),
-          },
         );
       });
 
@@ -101,26 +83,6 @@ final class RecordsRepository {
           'space',
           spaceId,
         ))?.data['member_id'],
-      },
-      dependsOn: {
-        for (final key in [
-          'account_id',
-          'to_account_id',
-          'purpose_id',
-          'to_purpose_id',
-        ])
-          if (changes[key] case final String value)
-            EntityRef('account', value).key,
-        for (final tag in (changes['tag_ids'] as List<Object?>? ?? const []))
-          EntityRef('tag', tag as String).key,
-        for (final hash
-            in (changes['attachments'] as List<Object?>? ?? const []))
-          // Retained server attachments need no local upload receipt. That
-          // receipt may have expired with the original's 30-day cache.
-          if (!(row.data['attachments'] as List<Object?>? ?? const []).contains(
-            hash,
-          ))
-            EntityRef.blob('ledger', hash as String),
       },
     );
   });

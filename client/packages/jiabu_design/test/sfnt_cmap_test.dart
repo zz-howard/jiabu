@@ -98,4 +98,11 @@ void main() {
     expect(() => messageText('{amount, number}'), throwsFormatException);
     expect(() => selectValues({'a': 1}, ['missing']), throwsFormatException);
   });
+  test('ICU argument names require ASCII word characters', () {
+    expect(
+      () => messageText('{bad-name, plural, other{A}}'),
+      throwsFormatException,
+    );
+    expect(() => messageText('{名字, plural, other{A}}'), throwsFormatException);
+  });
 }

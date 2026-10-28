@@ -252,7 +252,7 @@
       "id": "resolution_keeps_required_blob_ahead",
       "file": "client/app/lib/data/db/daos/local_store.dart",
       "find": "if (shouldDefer) {",
-      "replace": "if (shouldDefer || deferredEntities.isNotEmpty) {",
+      "replace": "if (shouldDefer || deferredReferences.isNotEmpty) {",
       "expected_occurrences": 1,
       "test_file": "client/app/test/data/conflict_test.dart",
       "test_names": [
@@ -273,6 +273,32 @@
       ],
       "command": "flutter test test/data/runtime_channel_test.dart --plain-name stable_entry_background_handshake_and_client_header_are_stable",
       "find_regex": "final\\s+runtimeChannel\\s*=\\s*background\\s*\\?\\s*await\\s+appSettings\\s*\\.\\s*clientChannel\\s*\\(\\s*\\)\\s*:\\s*channel\\s*;"
+    },
+    {
+      "id": "deferral_shared_reference_closure",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "deferredReferences.addAll(op.references);",
+      "replace": "deferredReferences.addAll(op.entityIds);",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/conflict_test.dart",
+      "test_names": [
+        "deferral_keeps_shared_reference_order"
+      ],
+      "command": "flutter test test/data/conflict_test.dart --plain-name deferral_keeps_shared_reference_order",
+      "find_regex": "deferredReferences\\s*\\.\\s*addAll\\s*\\(\\s*op\\s*\\.\\s*references\\s*(?:,\\s*)?\\)\\s*;"
+    },
+    {
+      "id": "resolution_update_before_void",
+      "file": "client/app/lib/data/sync/conflict_service.dart",
+      "find": "return Ok(operations);",
+      "replace": "return Ok(operations.reversed.toList());",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/conflict_test.dart",
+      "test_names": [
+        "resolve_mine_update_then_void_keeps_field_edits"
+      ],
+      "command": "flutter test test/data/conflict_test.dart --plain-name resolve_mine_update_then_void_keeps_field_edits",
+      "find_regex": "return\\s+Ok\\s*\\(\\s*operations\\s*(?:,\\s*)?\\)\\s*;"
     }
   ]
 }

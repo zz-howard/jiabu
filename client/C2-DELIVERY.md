@@ -683,3 +683,102 @@ flutter test test/data/sync_test.dart test/data/sync_audit_test.dart test/data/p
 - push 事件下 git 不信任容器里的检出目录（只有 PR 事件那一步设了 safe.directory），生成一致性检查里的 `git diff` 因此报用法错误退出 129：把 `safe.directory` 提成所有事件都跑的第一步。
 - 字体覆盖测试与 `tool/fonts/subset.py` 原本遇到 ICU plural/select 就直接报错；C2 的英文 ARB 用了 plural。两边都改成取出每个分支的文字（plural 里的 `#` 是数字，不计），其他 ICU 参数仍然报错，并加了 Python / Dart 测试。按新规则在构建机重跑 subset：思源宋体子集多了 1 个 C2 新文案里的字（3883 → 3884），manifest 已更新。
 - 构建机上集成测试端口：S6 的开发库占着 55462，本次实测改用 PG 55479、HTTP 18481/18482。
+
+
+### 第二轮：按服务器当前状态 → mine 整体重建
+
+本轮按 PR #10 第二轮结论统一修正冲突重建、依赖与重排；未提交 git。以下替代上轮只重建一个操作的做法。所列 5 条指定回归先写入，再修改生产实现；受环境限制，尚未实测修前失败 / 修后通过。
+
+#### 修法与真实接口边界
+
+- **共用依赖**：新增 `app/lib/data/sync/tool_dependencies.dart`。`LocalMutationsRepository.enqueueTool` 对所有普通工具写入调用它（与调用方额外依赖取并集），`RecordsRepository` 移除原有重复实现；`ConflictService` 对重建的每一个操作调用同一函数。record create / update 的账户四字段、tag_ids、新附件、create 的退款父记录均集中处理；update 依据前一状态排除已保留的服务器附件。`set_allocation_plan` 登记 account 依赖。
+- **record**：先用可编辑字段的值差异生成 `update_record.changes`，再按状态差异追加 `void_record`。只撤销且没有字段差异时仅 void。服务器已撤销时保留显式恢复门禁；明确恢复生成 `restore_record → update_record`。每步都不预填 expected_version，仍由 OutboxProcessor 在领取上传时按最新 base_version 绑定，同实体操作逐个确认。回写中间成功只更新 base_version，保留未完成的最终乐观状态。
+- **tag**：mine.deleted_at 非空时仅生成 `delete_tag`（服务器已删除则无需操作），不会先 rename；否则只在名称不同且可写时 rename。乐观状态也按实际操作效果合成，删除不把旧 mine 名称覆盖服务器名称。
+- **account**：字段不同先 update，再按 archived_at 的空/非空差异 archive；只归档时仅 archive。字段清单补齐服务端真实支持的 `is_reserve`。
+- **allocation_plan**：没有单独删除 / 归档工具；enabled 通过 `set_allocation_plan` 双向设置。即使仅 enabled 不同，也发送必填的 amount_minor、day_of_month、enabled 全部三项。
+- **空差异**：不制造空 update，直接使用服务器行并解除冲突；不留下没有上传操作的 pending 行。显式 restore 后仍按既有契约排 update。
+- **引用闭包重排**：`LocalStore.deferDependents` 将每个被移动条目的 `references = entityIds ∪ dependsOn` 全部加入传播集合，后续共享任一引用的条目都随之前移到解决操作后，保持原先顺序。F(R,T) → 删除T 变为解决R → F → 删除T；无关的 blob / 新建实体前置操作保留在解决操作前。只改 created_at，保留 id、request_id、payload、重试信息。
+- **ICU 一致性**：Dart 对 branching 参数名增加 `^\w+$`（默认 ASCII）校验；Python 将参数名、简单占位符和 selector 的 `\w` 改为 `[A-Za-z0-9_]`。两边均加入 `{bad-name, plural, other{A}}` 与非 ASCII 参数名拒绝断言。
+
+已核对只读来源：`server/crates/tools/src/ledger/mod.rs`、`server/crates/tools/src/lib.rs`、`server/crates/domain/src/ledger.rs`、`server/crates/db/src/ledger/writes.rs` 和 `server/openapi/openapi.json`。没有修改 server/。
+
+服务端没有对应工具的转换及保留的限制：
+
+- 没有取消账户归档或恢复已删标签的工具，update_account 也不接收 archived_at。客户端分别返回 `unarchive_not_supported` / `restore_tag_not_supported`，保留冲突和 mine，不排出只能完成部分意图的操作，不把本机状态误标成功。
+- 当前工具注册表与 OpenAPI 完全没有 subject / document 写入、删除或归档工具。遇到这些 kind 的“用我的”返回 `unsupported_conflict_resolution` 并保留冲突，不再猜测 `update_subject` / `update_document`。后续服务端有工具后才能补相应重建与依赖规则。
+- void_record 仍只接受 id / expected_version，void_reason 固定为 user；自定义原因不能通过当前接口往返。archive/delete 的具体时间也由服务器分配。归档零余额、退款上限等服务端业务约束继续按既有失败/冲突路径处理。
+- 服务器 record 已 voided 时仍要求显式恢复，包括双方都 voided 的快照；显式恢复的目标为 active，保留原有交互语义，不隐式恢复后再撤销。
+
+#### 新测试与原有保护
+
+`app/test/data/conflict_test.dart` 新增：
+
+- `resolve_mine_update_then_void_keeps_field_edits`：真实普通 update 与乐观 void 入队后捕获冲突，检查 update → void、参数只含字段差异、分批 expected_version=2/3，以及假服务器最终金额/备注为 mine 且已撤销。
+- `resolve_mine_waits_for_new_tag_dependency`：R 请求在途时创建 T 并让 R 引用 T，409 捕获最终 mine；T 创建网络失败进入 pending/退避，解决操作仍等待，重试后先 T 再 R。
+- `resolve_mine_tag_delete_is_not_rename`
+- `resolve_mine_account_archive_is_preserved`
+- `deferral_keeps_shared_reference_order`：解决R → F(R,T) → 删除T，并检查移动条目的身份、请求与参数保留。
+- `resolve_mine_equal_fields_needs_no_operation`
+- `resolve_mine_archive_only_needs_no_update`
+- `resolve_mine_record_rebuilds_all_changed_reference_dependencies`
+- `resolve_mine_allocation_plan_enabled_false` / `resolve_mine_allocation_plan_enabled_true`
+- `resolve_mine_unsupported_transition_preserves_{account,tag,subject,document}_conflict`（4 条）
+
+原有 `resolve_mine_preserves_void_intent_after_version_conflict` 调整为只有 version 改变、无字段差异，继续要求仅一个 void；原有 `resolve_mine_keeps_required_blob_ahead_of_resolution`、restore → update 和恢复后退款顺序测试均保留。假服务器补齐 flat update/rename/set、delete_tag 和 archive_account 的效果，供最终状态断言使用。
+
+字体测试：Dart 新增 `ICU argument names require ASCII word characters`；Python 新增 `test_icu_argument_name_must_be_ascii_word`，各覆盖非法连字符与非 ASCII 名称。
+
+#### 新增负对照（清单共 23 条）
+
+`tool/c2-negative-controls.json` 新增两条，精确 find / replace 如下；JSON 中另有容忍格式化的 find_regex，均要求唯一匹配。命令 cwd 为 client/app，必须产生断言失败，编译失败不算通过负对照。
+
+1. `deferral_shared_reference_closure`，文件 `app/lib/data/db/daos/local_store.dart`：
+   - find：`deferredReferences.addAll(op.references);`
+   - replace：`deferredReferences.addAll(op.entityIds);`
+   - 测试/命令：`flutter test test/data/conflict_test.dart --plain-name deferral_keeps_shared_reference_order`
+2. `resolution_update_before_void`，文件 `app/lib/data/sync/conflict_service.dart`：
+   - find：`return Ok(operations);`
+   - replace：`return Ok(operations.reversed.toList());`
+   - 测试/命令：`flutter test test/data/conflict_test.dart --plain-name resolve_mine_update_then_void_keeps_field_edits`
+
+既有 `resolution_keeps_required_blob_ahead` 的 replace 同步将变量名 deferredEntities 改为 deferredReferences；find 和测试不变。
+
+#### 本轮文件与验证
+
+本轮修改 13 个文件（相对 client/）：
+
+- `app/lib/data/sync/tool_dependencies.dart`（新增）
+- `app/lib/data/sync/conflict_service.dart`
+- `app/lib/data/repositories/local_mutations_repository.dart`
+- `app/lib/data/repositories/records_repository.dart`
+- `app/lib/data/db/daos/local_store.dart`
+- `app/test/data/conflict_test.dart`
+- `app/test/support/sync_harness.dart`
+- `packages/jiabu_design/test/support/font_sources.dart`
+- `packages/jiabu_design/test/sfnt_cmap_test.dart`
+- `tool/fonts/subset.py`
+- `tool/fonts/test_subset.py`
+- `tool/c2-negative-controls.json`
+- `C2-DELIVERY.md`
+
+用户已有 `app/lib/app/partition_host.dart` 的 scope 导入及 `@Dependencies([router])` 原样保留，不计入本轮修改。未改 docs/、server/、生成文件、PNG 或依赖清单；未提交 git。
+
+本机 aarch64，无 Dart / Flutter；按 client/AGENTS.md，只在 x86_64 构建机运行构建和测试。本轮尝试 SSH jiabu-build，被沙箱以 `socket: Operation not permitted` 拒绝。因此 **尚未执行 Flutter/Dart/Python 测试、format/analyze/check_rules，也未取得实际修前红 / 修后绿或负对照断言失败记录**。已完成 Python AST 语法检查、全部 23 条负对照精确/正则锚点唯一性核对、工具参数静态对照及 git diff --check；这些不能代替动态测试。
+
+构建机后续验证（不要运行生成器、字体子集生成或更新 PNG；重任务依 client/README.md 加 nice/ionice，串行执行）：
+
+```bash
+cd client
+# 先只格式化本轮改动的 Dart 源码/测试。
+nice -n 19 ionice -c3 flutter analyze --fatal-infos
+dart run tool/check_rules.dart
+nice -n 19 ionice -c3 flutter test
+cd app
+nice -n 19 ionice -c3 flutter test test/data/conflict_test.dart test/data/sync_test.dart test/data/sync_audit_test.dart test/data/media_and_logs_test.dart test/data/partition_and_lease_test.dart
+cd ../packages/jiabu_design
+nice -n 19 ionice -c3 flutter test
+cd ../..
+python3 -m unittest discover -s tool/fonts -p 'test_*.py'
+```
+
+需在构建机对这 5 条指定测试补跑修前版本的生产代码以确认断言失败；修后全部通过后，再逐条应用两条新负对照，确认断言失败并恢复，最后复跑原版测试。当前环境无法完成这些执行，不将历史通过记录作为本轮证据。

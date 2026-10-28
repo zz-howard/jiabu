@@ -76,7 +76,9 @@ String messageText(String message, {bool inPlural = false}) {
     if (comma >= 0) {
       final second = body.indexOf(',', comma + 1);
       final kind = second < 0 ? '' : body.substring(comma + 1, second).trim();
-      if (second < 0 || !_icuBranching.contains(kind)) {
+      if (second < 0 ||
+          !RegExp(r'^\w+$').hasMatch(body.substring(0, comma).trim()) ||
+          !_icuBranching.contains(kind)) {
         throw const FormatException('Add explicit ICU plural/select handling');
       }
       final rest = body.substring(second + 1);

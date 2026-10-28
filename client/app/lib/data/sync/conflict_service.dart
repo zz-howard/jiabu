@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:jiabu/data/db/daos/local_store.dart';
+import 'package:jiabu/data/sync/tool_dependencies.dart';
 import 'package:jiabu/domain/entity_ref.dart';
 import 'package:jiabu/domain/outbox_operation.dart';
 import 'package:jiabu/domain/required_value.dart';
@@ -112,7 +113,10 @@ final class ConflictService {
     if (useMine && (await store.runtime())['write_allowed'] != 1) {
       return const Failure<void>('client_too_old');
     }
-    if (useMine && conflict['server_status'] == 'voided' && !restore) {
+    if (useMine &&
+        kind == 'record' &&
+        conflict['server_status'] == 'voided' &&
+        !restore) {
       return const Failure<void>('explicit_restore_required');
     }
     if (restore &&
@@ -125,75 +129,51 @@ final class ConflictService {
     final key = EntityRef(kind, id).key;
     final created = now().microsecondsSinceEpoch;
     if (useMine) {
-      final voidMine =
-          kind == 'record' &&
-          mine['status'] == 'voided' &&
-          conflict['server_status'] == 'active' &&
-          !restore;
-      if (restore) {
+      final planned = _mineOperations(
+        kind,
+        id,
+        row.data,
+        mine,
+        restore: restore,
+      );
+      if (planned case Failure<List<_ResolutionOperation>>(:final code)) {
+        return Failure<void>(code);
+      }
+      final operations = (planned as Ok<List<_ResolutionOperation>>).value;
+      var optimistic = row.data;
+      for (var index = 0; index < operations.length; index++) {
+        final operation = operations[index];
         await store.enqueue(
           OutboxOperation(
             id: newId(),
             spaceId: spaceId,
             joinEpoch: fence.joinEpoch,
             kind: 'tool',
-            payload: {
-              'tool': 'restore_record',
-              'args': {'id': id},
-            },
+            payload: {'tool': operation.tool, 'args': operation.args},
             entityIds: {key},
-            dependsOn: const {},
+            dependsOn: toolDependencies(
+              operation.tool,
+              operation.args,
+              previous: optimistic,
+            ),
             requestId: newId(),
-            createdAt: created,
+            createdAt: created + index,
           ),
         );
+        optimistic = {...optimistic, ...operation.values};
       }
-      await store.enqueue(
-        OutboxOperation(
-          id: newId(),
-          spaceId: spaceId,
-          joinEpoch: fence.joinEpoch,
-          kind: 'tool',
-          payload: {
-            'tool': voidMine
-                ? 'void_record'
-                : switch (kind) {
-                    'tag' => 'rename_tag',
-                    'allocation_plan' => 'set_allocation_plan',
-                    _ => 'update_$kind',
-                  },
-            // The current void_record schema only accepts id / version; the
-            // server assigns void_reason=user. Keep mine intact locally until
-            // acknowledgement, without sending an unsupported argument.
-            'args': voidMine ? {'id': id} : _updateArgs(kind, id, mine),
-          },
-          entityIds: {key},
-          dependsOn: {
-            if (!voidMine)
-              for (final hash
-                  in (mine['attachments'] as List<Object?>? ?? const []))
-                if (!(row.data['attachments'] as List<Object?>? ?? const [])
-                    .contains(hash))
-                  EntityRef.blob('ledger', hash as String),
-          },
-          requestId: newId(),
-          createdAt: created + (restore ? 1 : 0),
-        ),
-      );
       await store.putEntity(
         spaceId,
         kind,
-        {
-          ...mine,
-          if (restore) 'status': 'active',
-          if (restore) 'void_reason': null,
-        },
-        state: 'pending',
+        optimistic,
+        state: operations.isEmpty ? 'synced' : 'pending',
         baseVersion: requireValue<int>(conflict['server_version']),
       );
-      // A pre-existing refund must wait behind this newly queued resolution,
-      // especially restore -> update. Preserve its operation identity/payload.
-      await store.deferDependents(spaceId, key);
+      // Refunds and later writes sharing their references follow the entire
+      // resolution. Prerequisites independent of those writes stay ahead.
+      if (operations.isNotEmpty) {
+        await store.deferDependents(spaceId, key);
+      }
     } else {
       await store.putEntity(
         spaceId,
@@ -207,11 +187,15 @@ final class ConflictService {
     return const Ok<void>(null);
   });
 
-  Map<String, Object?> _updateArgs(
+  Result<List<_ResolutionOperation>> _mineOperations(
     String kind,
     String id,
-    Map<String, Object?> mine,
-  ) {
+    Map<String, Object?> server,
+    Map<String, Object?> mine, {
+    required bool restore,
+  }) {
+    // These are the writable fields of the actual server tool schemas. There
+    // are no subject/document tools in the current registry or OpenAPI.
     final editable = switch (kind) {
       'record' => [
         'amount_minor',
@@ -224,23 +208,94 @@ final class ConflictService {
         'note',
         'attachments',
       ],
-      'account' => ['name', 'opening_balance_minor', 'opening_on', 'sort_key'],
+      'account' => [
+        'name',
+        'is_reserve',
+        'opening_balance_minor',
+        'opening_on',
+        'sort_key',
+      ],
       'tag' => ['name'],
-      'subject' => ['name', 'member_id'],
-      'document' => ['title', 'event_date', 'subject_ids', 'content'],
       'allocation_plan' => ['amount_minor', 'day_of_month', 'enabled'],
-      _ => throw ArgumentError('unsupported_conflict_entity'),
+      _ => null,
     };
-    final values = {
+    if (editable == null) {
+      return const Failure('unsupported_conflict_resolution');
+    }
+    if (kind == 'account' &&
+        server['archived_at'] != null &&
+        mine['archived_at'] == null) {
+      return const Failure('unarchive_not_supported');
+    }
+    if (kind == 'tag' &&
+        server['deleted_at'] != null &&
+        mine['deleted_at'] == null) {
+      return const Failure('restore_tag_not_supported');
+    }
+    final changes = <String, Object?>{
       for (final field in editable)
-        if (mine.containsKey(field)) field: mine[field],
+        if (mine.containsKey(field) &&
+            jsonEncode(mine[field]) != jsonEncode(server[field]))
+          field: mine[field],
     };
-    return kind == 'record' || kind == 'document'
-        ? {'id': id, 'changes': values}
-        : {
-            if (kind == 'allocation_plan') 'account_id': id else 'id': id,
-            ...values,
-          };
+    final operations = <_ResolutionOperation>[];
+    void add(
+      String tool,
+      Map<String, Object?> args,
+      Map<String, Object?> values,
+    ) => operations.add(_ResolutionOperation(tool, args, values));
+
+    switch (kind) {
+      case 'record':
+        if (restore) {
+          add(
+            'restore_record',
+            {'id': id},
+            {'status': 'active', 'void_reason': null},
+          );
+        }
+        if (changes.isNotEmpty || restore) {
+          add('update_record', {'id': id, 'changes': changes}, changes);
+        }
+        if (!restore &&
+            mine['status'] == 'voided' &&
+            server['status'] == 'active') {
+          // VersionedRecord accepts only id / expected_version. The server
+          // assigns void_reason=user; do not send an unsupported reason.
+          add(
+            'void_record',
+            {'id': id},
+            {'status': 'voided', 'void_reason': mine['void_reason'] ?? 'user'},
+          );
+        }
+      case 'tag':
+        if (mine['deleted_at'] != null) {
+          if (server['deleted_at'] == null) {
+            add('delete_tag', {'id': id}, {'deleted_at': mine['deleted_at']});
+          }
+        } else if (changes.isNotEmpty) {
+          add('rename_tag', {'id': id, ...changes}, changes);
+        }
+      case 'account':
+        if (changes.isNotEmpty) {
+          add('update_account', {'id': id, ...changes}, changes);
+        }
+        if (mine['archived_at'] != null && server['archived_at'] == null) {
+          add(
+            'archive_account',
+            {'id': id},
+            {'archived_at': mine['archived_at']},
+          );
+        }
+      case 'allocation_plan':
+        if (changes.isNotEmpty) {
+          // The set tool requires all three values rather than a patch,
+          // including when the sole difference is enabled=false.
+          final values = {for (final field in editable) field: mine[field]};
+          add('set_allocation_plan', {'account_id': id, ...values}, values);
+        }
+    }
+    return Ok(operations);
   }
 
   Future<void> unblockResolvedDependents(String spaceId) async {
@@ -267,4 +322,13 @@ final class ConflictService {
       }
     }
   }
+}
+
+/// Each step carries just its effect, so optimistic state follows the same
+/// sequence as the server (e.g. deleting a tag does not also rename it).
+final class _ResolutionOperation {
+  const _ResolutionOperation(this.tool, this.args, this.values);
+  final String tool;
+  final Map<String, Object?> args;
+  final Map<String, Object?> values;
 }

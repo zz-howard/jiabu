@@ -1,4 +1,5 @@
 import 'package:jiabu/data/db/daos/local_store.dart';
+import 'package:jiabu/data/sync/tool_dependencies.dart';
 import 'package:jiabu/domain/entity_ref.dart';
 import 'package:jiabu/domain/outbox_operation.dart';
 import 'package:jiabu/domain/result.dart';
@@ -68,7 +69,14 @@ final class LocalMutationsRepository {
           kind: 'tool',
           payload: {'tool': tool, 'args': cleanArgs},
           entityIds: {EntityRef(entityKind, entityId).key},
-          dependsOn: dependsOn,
+          dependsOn: {
+            ...dependsOn,
+            ...toolDependencies(
+              tool,
+              cleanArgs,
+              previous: existing?.data ?? const {},
+            ),
+          },
           requestId: newId(),
           createdAt: now().microsecondsSinceEpoch,
         ),

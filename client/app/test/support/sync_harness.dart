@@ -112,6 +112,18 @@ class FakeApi implements ApiClient {
     final data = {
       ...previous,
       if (op.tool.startsWith('create_')) ...op.args,
+      if (const {
+        'update_account',
+        'rename_tag',
+        'set_allocation_plan',
+      }.contains(op.tool))
+        for (final entry in op.args.entries)
+          if (!const {
+            'id',
+            'account_id',
+            'expected_version',
+          }.contains(entry.key))
+            entry.key: entry.value,
       if (op.args['changes'] case final Map<String, Object?> changes)
         ...changes,
       if (op.tool == 'void_record') ...{
@@ -122,6 +134,8 @@ class FakeApi implements ApiClient {
         'status': 'active',
         'void_reason': null,
       },
+      if (op.tool == 'delete_tag') 'deleted_at': '2026-01-01T00:00:00Z',
+      if (op.tool == 'archive_account') 'archived_at': '2026-01-01T00:00:00Z',
       'version': requireValue<int>(previous['version']) + 1,
     };
     server[id] = data;

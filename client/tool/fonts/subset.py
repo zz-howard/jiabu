@@ -121,7 +121,7 @@ def message_text(text, in_plural=False):
             if len(parts) != 3 or parts[1] not in ICU_BRANCHING:
                 raise ValueError("Add explicit ICU handling for: " + body)
             name, kind, rest = parts
-            if not re.fullmatch(r"\w+", name) or kind not in ICU_BRANCHING:
+            if not re.fullmatch(r"[A-Za-z0-9_]+", name) or kind not in ICU_BRANCHING:
                 raise ValueError("Add explicit ICU handling for " + kind)
             position = 0
             while position < len(rest):
@@ -129,12 +129,12 @@ def message_text(text, in_plural=False):
                     position += 1
                     continue
                 opening = rest.index("{", position)
-                if not re.fullmatch(r"=?\w+", rest[position:opening].strip()):
+                if not re.fullmatch(r"=?[A-Za-z0-9_]+", rest[position:opening].strip()):
                     raise ValueError("Malformed ICU selector")
                 closing = _closing_brace(rest, opening)
                 out.append(message_text(rest[opening + 1:closing], kind != "select"))
                 position = closing + 1
-        elif not re.fullmatch(r"\w+", body):
+        elif not re.fullmatch(r"[A-Za-z0-9_]+", body):
             raise ValueError("Malformed ARB placeholder")
         index = end + 1
     return "".join(out)

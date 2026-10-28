@@ -5,6 +5,7 @@ import 'package:jiabu/app/router.dart';
 import 'package:jiabu/features/auth/view_model/auth_view_model.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
+import 'package:riverpod_annotation/experimental/scope.dart';
 
 class PartitionHost extends ConsumerWidget {
   const PartitionHost({super.key});
@@ -25,6 +26,7 @@ class PartitionHost extends ConsumerWidget {
   }
 }
 
+@Dependencies([router])
 class _RoutedApp extends ConsumerWidget {
   const _RoutedApp();
   @override

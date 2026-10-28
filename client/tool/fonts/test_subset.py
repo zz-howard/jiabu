@@ -49,6 +49,11 @@ class FontToolTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             subset.message_text("{amount, number}")
 
+    def test_icu_argument_name_must_be_ascii_word(self):
+        for message in ("{bad-name, plural, other{A}}", "{名字, plural, other{A}}"):
+            with self.subTest(message=message), self.assertRaises(ValueError):
+                subset.message_text(message)
+
     def test_gb2312_level_one_has_exactly_3755_characters(self):
         chars = subset.gb2312_level1()
         self.assertEqual(len(chars), 3755)
