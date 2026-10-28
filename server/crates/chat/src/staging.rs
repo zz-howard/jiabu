@@ -117,7 +117,18 @@ impl StagedStream {
         block.append_text(text).await?;
         block.finish().await
     }
+    /// A card the protocol rejects (e.g. more than 12 metrics) is skipped rather
+    /// than failing the run; the complete tool result still reaches the model.
+    /// The check runs on a scratch stream so the real stream is never left with
+    /// a half-open block.
     pub async fn component(&self, kind: &str, data: Value, fallback: &str) -> Result<()> {
+        let scratch = Self::start(StreamConfig::new(Uuid::now_v7().to_string())).await?;
+        if scratch.emit_component(kind, data.clone(), fallback).await.is_err() {
+            return Ok(());
+        }
+        self.emit_component(kind, data, fallback).await
+    }
+    async fn emit_component(&self, kind: &str, data: Value, fallback: &str) -> Result<()> {
         let block = self.stream.start_block(kind, 1, fallback).await?;
         block.data(data, fallback, None).await?;
         block.finish().await
@@ -127,6 +138,23 @@ impl StagedStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn component_over_protocol_limits_is_skipped_not_failed() -> Result<()> {
+        let mut stage = StagedStream::start(StreamConfig::new(Uuid::now_v7().to_string())).await?;
+        let metrics = |n: usize| {
+            serde_json::json!({"metrics": (0..n)
+                .map(|i| serde_json::json!({"label": format!("虚构账户 {i}"), "value": i, "unit": "分"}))
+                .collect::<Vec<_>>()})
+        };
+        stage.component("metric_group", metrics(13), "余额").await?;
+        stage.component("metric_group", metrics(2), "余额").await?;
+        let blocks = stage.batch().await?.checkpoint.message.0["blocks"].clone();
+        let blocks = blocks.as_array().ok_or(Error::Conflict)?;
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["data"]["metrics"].as_array().map(Vec::len), Some(2));
+        Ok(())
+    }
 
     #[tokio::test]
     async fn markdown_terminal_text_uses_deltas_and_replays_to_checkpoint() -> Result<()> {
