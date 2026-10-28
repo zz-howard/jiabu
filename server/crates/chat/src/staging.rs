@@ -164,11 +164,17 @@ mod tests {
     #[tokio::test]
     async fn component_that_would_overflow_the_message_is_skipped() -> Result<()> {
         let mut stage = StagedStream::start(StreamConfig::new(Uuid::now_v7().to_string())).await?;
-        // Each card is ~54 KiB (under the 64 KiB block limit); five exceed 256 KiB.
-        let rows: Vec<_> = (0..600)
-            .map(|i| serde_json::json!({"id": format!("{i:090}")}))
+        // 200 rows x 3 cells of 90 chars: each card ~58 KiB (under the 64 KiB block
+        // limit and dataset row/cell limits); five exceed the 256 KiB message limit.
+        let cell = |i: usize| format!("{i:090}");
+        let rows: Vec<_> = (0..200)
+            .map(|i| serde_json::json!({"a": cell(i), "b": cell(i), "c": cell(i)}))
             .collect();
-        let data = serde_json::json!({"columns":[{"key":"id","label":"虚构","type":"string"}],"rows":rows});
+        let columns: Vec<_> = ["a", "b", "c"]
+            .iter()
+            .map(|k| serde_json::json!({"key": k, "label": "虚构", "type": "string"}))
+            .collect();
+        let data = serde_json::json!({"columns": columns, "rows": rows});
         for _ in 0..5 {
             stage.component("dataset", data.clone(), "记录").await?;
         }
