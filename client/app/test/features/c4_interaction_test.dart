@@ -83,7 +83,7 @@ void main() {
     }
     expect(spaces.actions, isEmpty);
   });
-  testWidgets('member_invites_without_owner_actions_personal_hides_all', (
+  testWidgets('member_cannot_invite_or_manage_personal_hides_all', (
     tester,
   ) async {
     await pumpC4Widget(
@@ -95,9 +95,9 @@ void main() {
     );
     expect(find.text('移除成员'), findsNothing);
     expect(find.text('转让所有者'), findsNothing);
-    // Any active member may invite; only owners rename/remove/transfer.
-    expect(find.text('邀请成员'), findsOneWidget);
-    expect(find.text('发出的邀请'), findsOneWidget);
+    // P71: only the owner invites and sees sent invitations.
+    expect(find.text('邀请成员'), findsNothing);
+    expect(find.text('发出的邀请'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     await pumpC4Widget(
@@ -174,26 +174,30 @@ void main() {
       expect(spaces.actions, [action]);
     });
   }
-  testWidgets('sent_invitation_cancellation_is_visible_only_to_its_author', (
+  testWidgets('owner_cancels_any_invitation_former_owner_only_its_own', (
     tester,
   ) async {
-    await pumpC4Widget(
-      tester,
-      runtime: c4Runtime(),
-      spaces: C4FakeSpaces(),
-      keys: C4FakeKeys(),
-      child: InvitationsBody(space: c4Space()),
-    );
+    Future<void> pump(C4FakeSpaces spaces, String role) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await pumpC4Widget(
+        tester,
+        runtime: c4Runtime(),
+        spaces: spaces,
+        keys: C4FakeKeys(),
+        child: InvitationsBody(space: c4Space(role: role)),
+      );
+    }
+
+    // P71: the current owner may withdraw any pending invitation.
+    await pump(C4FakeSpaces(), 'owner');
     expect(find.text('取消邀请'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump();
-    await pumpC4Widget(
-      tester,
-      runtime: c4Runtime(),
-      spaces: OtherInviterSpaces(),
-      keys: C4FakeKeys(),
-      child: InvitationsBody(space: c4Space()),
-    );
+    await pump(OtherInviterSpaces(), 'owner');
+    expect(find.text('取消邀请'), findsOneWidget);
+    // A former owner keeps withdrawing only what it sent before the transfer.
+    await pump(C4FakeSpaces(), 'member');
+    expect(find.text('取消邀请'), findsOneWidget);
+    await pump(OtherInviterSpaces(), 'member');
     expect(find.text('取消邀请'), findsNothing);
   });
   testWidgets('delete_requires_exact_name_and_default_space_hides_delete', (

@@ -198,33 +198,27 @@ async fn both_orderings_and_lock_time_inviter_revalidation() -> Result<()> {
         "conflict"
     );
     let id = invitation(&db, host.user_id, space, "third").await?;
-    // Simulate an old pending row whose inviter is no longer active, independent
-    // of the proactive cancellation in the normal leave/remove path.
+    // P71: a pending invitation is sent on behalf of the space, so it stays valid
+    // even when its sender is no longer an active member.
     let owner = fixture.owner().await?;
     sqlx::query("update space_members set status='left' where space_id=$1 and user_id=$2")
         .bind(space.0)
         .bind(host.user_id.0)
         .execute(&owner)
         .await?;
-    assert_eq!(
-        db.decide_invitation(
-            third.user_id,
-            id,
-            Decision::Accept,
-            &operation(),
-            Uuid::now_v7()
-        )
-        .await
-        .err()
-        .ok_or_else(|| anyhow::anyhow!("accepted stale inviter"))?
-        .code,
-        "not_found"
-    );
+    db.decide_invitation(
+        third.user_id,
+        id,
+        Decision::Accept,
+        &operation(),
+        Uuid::now_v7(),
+    )
+    .await?;
     let status: String = sqlx::query_scalar("select status from space_invitations where id=$1")
         .bind(id)
         .fetch_one(&owner)
         .await?;
-    assert_eq!(status, "cancelled"); // Invalidation must be committed despite returning 404.
+    assert_eq!(status, "accepted");
     owner.close().await;
     db.close().await?;
     Ok(())
@@ -423,6 +417,97 @@ async fn accepted_replay_checks_space_deletion_even_with_an_active_member() -> R
         .err()
         .ok_or_else(|| anyhow::anyhow!("replayed a deleted space"))?;
     assert_eq!((error.status, error.code), (404, "not_found"));
+    owner.close().await;
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn invitations_are_owner_only_and_survive_transfer() -> Result<()> {
+    let fixture = support::TestDb::new().await?;
+    let host = fixture.seed("host", "unused").await?;
+    let guest = fixture.seed("guest", "unused").await?;
+    let third = fixture.seed("third", "unused").await?;
+    let fourth = fixture.seed("fourth", "unused").await?;
+    let db = AppDb::connect(&fixture.app_url).await?;
+    let space = SpaceId(Uuid::now_v7());
+    db.create_space(
+        host.user_id,
+        "host",
+        CreateSpace {
+            id: space.0,
+            name: "示例邀请空间".into(),
+            accent_color: "pine".into(),
+            currency: "CNY".into(),
+            timezone: "UTC".into(),
+        },
+        &operation(),
+        Uuid::now_v7(),
+    )
+    .await?;
+    let id = invitation(&db, host.user_id, space, "guest").await?;
+    let joined = db
+        .decide_invitation(
+            guest.user_id,
+            id,
+            Decision::Accept,
+            &operation(),
+            Uuid::now_v7(),
+        )
+        .await?;
+    let guest_member = Uuid::parse_str(
+        joined.body["member_id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing member"))?,
+    )?;
+    // Rule 1: an ordinary member cannot invite.
+    let denied = change(
+        &db,
+        guest.user_id,
+        space,
+        Change::Invite {
+            username: "third".into(),
+        },
+    )
+    .await;
+    assert_eq!(
+        denied
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("member invited"))?
+            .code,
+        "not_found"
+    );
+    // Rule 3: the owner's pending invitation survives a transfer and the old owner leaving.
+    let pending = invitation(&db, host.user_id, space, "third").await?;
+    let other = invitation(&db, host.user_id, space, "fourth").await?;
+    change(
+        &db,
+        host.user_id,
+        space,
+        Change::Transfer {
+            member: guest_member,
+        },
+    )
+    .await?;
+    change(&db, host.user_id, space, Change::Leave).await?;
+    // Rule 2: the new owner may withdraw an invitation it did not send.
+    change(&db, guest.user_id, space, Change::Cancel { invitation: other }).await?;
+    db.decide_invitation(
+        third.user_id,
+        pending,
+        Decision::Accept,
+        &operation(),
+        Uuid::now_v7(),
+    )
+    .await?;
+    let owner = fixture.owner().await?;
+    let statuses: Vec<String> = sqlx::query_scalar(
+        "select status from space_invitations where id = any($1) order by array_position($1, id)",
+    )
+    .bind(vec![pending, other])
+    .fetch_all(&owner)
+    .await?;
+    assert_eq!(statuses, ["accepted", "cancelled"]);
     owner.close().await;
     db.close().await?;
     Ok(())

@@ -53,7 +53,10 @@ final class SpaceInfo {
   bool get lastOwner =>
       owner &&
       activeMembers.where((member) => member.role == 'owner').length == 1;
-  bool canCancel(String inviter) => memberId == inviter;
+  // P71: only the owner invites; the owner may withdraw any pending invitation and
+  // a former owner keeps withdrawing what it sent before a transfer.
+  bool get canInvite => owner && !isDefault;
+  bool canCancel(String inviter) => owner || memberId == inviter;
 }
 
 @immutable
