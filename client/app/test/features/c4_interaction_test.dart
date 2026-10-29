@@ -83,35 +83,34 @@ void main() {
     }
     expect(spaces.actions, isEmpty);
   });
-  testWidgets(
-    'member_invites_without_owner_actions_personal_hides_all',
-    (tester) async {
-      await pumpC4Widget(
-        tester,
-        runtime: c4Runtime(),
-        spaces: C4FakeSpaces(space: c4Space(role: 'member')),
-        keys: C4FakeKeys(),
-        child: const SpacesScreen(page: 'settings', spaceId: 'space-a'),
-      );
-      expect(find.text('移除成员'), findsNothing);
-      expect(find.text('转让所有者'), findsNothing);
-      // Any active member may invite; only owners rename/remove/transfer.
-      expect(find.text('邀请成员'), findsOneWidget);
-      expect(find.text('发出的邀请'), findsOneWidget);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump();
-      await pumpC4Widget(
-        tester,
-        runtime: c4Runtime(),
-        spaces: C4FakeSpaces(space: c4Space(personal: true)),
-        keys: C4FakeKeys(),
-        child: const SpacesScreen(page: 'settings', spaceId: 'space-a'),
-      );
-      expect(find.text('邀请成员'), findsNothing);
-      expect(find.text('退出空间'), findsNothing);
-      expect(find.text('删除空间'), findsNothing);
-    },
-  );
+  testWidgets('member_invites_without_owner_actions_personal_hides_all', (
+    tester,
+  ) async {
+    await pumpC4Widget(
+      tester,
+      runtime: c4Runtime(),
+      spaces: C4FakeSpaces(space: c4Space(role: 'member')),
+      keys: C4FakeKeys(),
+      child: const SpacesScreen(page: 'settings', spaceId: 'space-a'),
+    );
+    expect(find.text('移除成员'), findsNothing);
+    expect(find.text('转让所有者'), findsNothing);
+    // Any active member may invite; only owners rename/remove/transfer.
+    expect(find.text('邀请成员'), findsOneWidget);
+    expect(find.text('发出的邀请'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await pumpC4Widget(
+      tester,
+      runtime: c4Runtime(),
+      spaces: C4FakeSpaces(space: c4Space(personal: true)),
+      keys: C4FakeKeys(),
+      child: const SpacesScreen(page: 'settings', spaceId: 'space-a'),
+    );
+    expect(find.text('邀请成员'), findsNothing);
+    expect(find.text('退出空间'), findsNothing);
+    expect(find.text('删除空间'), findsNothing);
+  });
   for (final accept in [true, false]) {
     testWidgets(
       'received_invitation_${accept ? 'accept' : 'decline'}_calls_repository',
