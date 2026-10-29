@@ -277,7 +277,7 @@ fn encrypted_reasoning_scope_is_provider_model_and_account_bound() {
         .iter()
         .filter_map(|item| match item {
             RequestItem::Message { text, role, .. } if role == "assistant" => {
-                Some(json!({"role":role,"content":[{"type":"input_text","text":text}]}))
+                Some(json!({"role":role,"content":text}))
             }
             _ => None,
         })
@@ -1008,4 +1008,37 @@ async fn namespaced_calls_reach_the_agent_with_bare_tool_names() {
             }
         }
     }
+}
+
+#[test]
+fn assistant_history_is_string_content_and_user_turns_keep_input_parts() {
+    // 2026-10-29 live: assistant history sent as `input_text` parts was rejected with
+    // invalid_value at input[1].content[0], so every second chat message failed.
+    let mut req = request();
+    req.items = vec![
+        RequestItem::Message {
+            role: "user".into(),
+            text: "first".into(),
+            images: vec![],
+        },
+        RequestItem::Message {
+            role: "assistant".into(),
+            text: "reply".into(),
+            images: vec![],
+        },
+        RequestItem::Message {
+            role: "user".into(),
+            text: "second".into(),
+            images: vec![],
+        },
+    ];
+    let input = body(&req, "synthetic", "synthetic-account").unwrap()["input"].clone();
+    assert_eq!(
+        input,
+        json!([
+            {"role":"user","content":[{"type":"input_text","text":"first"}]},
+            {"role":"assistant","content":"reply"},
+            {"role":"user","content":[{"type":"input_text","text":"second"}]}
+        ])
+    );
 }
