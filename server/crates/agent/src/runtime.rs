@@ -587,7 +587,18 @@ impl Runtime {
                         } else if matches!(error, ProviderError::PartialOutput { .. })
                             || !sink.text.is_empty()
                         {
-                            self.end_owned(p, run, lease, "interrupted", "partial_output")
+                            // Visible output is kept and never resent silently; a truncated
+                            // stream still says why it ended.
+                            let reason = match &error {
+                                ProviderError::PartialOutput { source } => match source.as_ref() {
+                                    ProviderError::Incomplete { reason } => {
+                                        format!("incomplete:{reason}")
+                                    }
+                                    _ => "partial_output".into(),
+                                },
+                                _ => "partial_output".into(),
+                            };
+                            self.end_owned(p, run, lease, "interrupted", &reason)
                                 .await?;
                         } else if matches!(error, ProviderError::Sink | ProviderError::Meter) {
                             return Err(OperationError::internal());

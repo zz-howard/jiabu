@@ -401,3 +401,53 @@ async fn undelimited_text_still_replays_before_calls() -> Result<()> {
     assert!(message < call);
     Ok(())
 }
+#[tokio::test]
+async fn user_retry_after_exhausted_corrections_gets_a_fresh_budget() -> Result<()> {
+    let mut f = Fixture::new(vec![]).await?;
+    let valid = expense(&f).await?;
+    script(
+        &mut f,
+        vec![
+            vec![call("bad1", "create_record", bad_amount(&valid)), done()],
+            vec![call("bad2", "create_record", bad_amount(&valid)), done()],
+            vec![call("bad3", "create_record", bad_amount(&valid)), done()],
+            vec![call("good", "create_record", valid), done()],
+            vec![text("已记录 / Recorded"), done()],
+        ],
+    );
+    let r = f.start().await?;
+    f.work().await?;
+    assert_eq!(
+        f.run(r.message_id).await?.last_error.as_deref(),
+        Some("tool_arguments_rejected")
+    );
+    let retry = f.runs().retry(&f.p, r.message_id).await?;
+    f.work().await?;
+    assert_eq!(f.run(retry.message_id).await?.status, "completed");
+    assert_eq!(records(&f).await?, 1);
+    assert_eq!(f.mock.requests().len(), 5);
+    Ok(())
+}
+#[tokio::test]
+async fn truncated_stream_after_visible_text_keeps_it_and_names_the_reason() -> Result<()> {
+    let f = Fixture::new(vec![
+        vec![
+            text("这段虚构文字已经显示给用户，长度足够被保存下来。"),
+            MockStep::Fail(ProviderError::Incomplete {
+                reason: "max_output_tokens".into(),
+            }),
+        ],
+        vec![text("不应调用 / Unused"), done()],
+    ])
+    .await?;
+    let r = f.start().await?;
+    f.work().await?;
+    let run = f.run(r.message_id).await?;
+    assert_eq!(run.status, "interrupted");
+    assert_eq!(
+        run.last_error.as_deref(),
+        Some("incomplete:max_output_tokens")
+    );
+    assert_eq!(f.mock.requests().len(), 1, "visible output is never resent");
+    Ok(())
+}

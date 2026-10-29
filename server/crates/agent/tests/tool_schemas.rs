@@ -82,6 +82,11 @@ fn schema_violations_name_the_field_and_keyword_without_values() {
         "{wrong:?}"
     );
     assert!(!format!("{wrong:?}").contains("十八元"));
+    // A made-up property name may carry user text; only identifier-shaped names survive.
+    let invented = issues(serde_json::json!({
+        "kind":"expense","amount_minor":1800,"occurred_on":"2026-01-01","我的备注 secret":1
+    }));
+    assert_eq!(invented, vec![("/*".into(), "unknown_property".into())]);
     let missing = issues(serde_json::json!({}));
     assert!(
         missing.contains(&("/kind".into(), "required".into())),

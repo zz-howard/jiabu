@@ -243,32 +243,40 @@ impl<T: TypedTool> AgentTool for TypedAdapter<T> {
     }
 }
 /// Field-level schema violations: JSON pointer plus the failing keyword. Only
-/// schema-side names are reported; instance values never appear (they may be user text).
-fn schema_issues(validator: &jsonschema::Validator, raw: &Value) -> Vec<jiabu_db::ValidationIssue> {
+/// schema-shaped names are reported: any pointer segment that is not a short
+/// identifier or index (a map key or unexpected property the model made up, which may
+/// carry user text) becomes `*`. Instance values never appear.
+fn schema_issues(
+    validator: &jsonschema::Validator,
+    raw: &Value,
+) -> Vec<jiabu_db::ValidationIssue> {
     use jsonschema::error::ValidationErrorKind;
     const LIMIT: usize = 16;
     let mut issues = Vec::new();
-    for error in validator.iter_errors(raw) {
+    let mut push = |pointer: String, rule: &str| {
+        let issue = jiabu_db::ValidationIssue {
+            pointer: safe_pointer(&pointer),
+            rule: rule.into(),
+        };
+        if !issues
+            .iter()
+            .any(|i: &jiabu_db::ValidationIssue| i.pointer == issue.pointer && i.rule == issue.rule)
+        {
+            issues.push(issue);
+        }
+    };
+    for error in validator.iter_errors(raw).take(LIMIT) {
         let path = error.instance_path().to_string();
         match error.kind() {
-            ValidationErrorKind::Required { property } => issues.push(jiabu_db::ValidationIssue {
-                pointer: format!("{path}/{}", property.as_str().unwrap_or("")),
-                rule: "required".into(),
-            }),
-            ValidationErrorKind::AdditionalProperties { unexpected } => {
-                issues.extend(unexpected.iter().map(|name| jiabu_db::ValidationIssue {
-                    pointer: format!("{path}/{}", name.chars().take(64).collect::<String>()),
-                    rule: "unknown_property".into(),
-                }));
+            ValidationErrorKind::Required { property } => {
+                push(format!("{path}/{}", property.as_str().unwrap_or("")), "required");
             }
-            kind => issues.push(jiabu_db::ValidationIssue {
-                pointer: if path.is_empty() { "/".into() } else { path },
-                rule: kind.keyword().into(),
-            }),
-        }
-        if issues.len() >= LIMIT {
-            issues.truncate(LIMIT);
-            break;
+            ValidationErrorKind::AdditionalProperties { unexpected } => {
+                for name in unexpected {
+                    push(format!("{path}/{name}"), "unknown_property");
+                }
+            }
+            kind => push(path, kind.keyword()),
         }
     }
     if issues.is_empty() {
@@ -277,5 +285,29 @@ fn schema_issues(validator: &jsonschema::Validator, raw: &Value) -> Vec<jiabu_db
             rule: "schema".into(),
         });
     }
+    issues.truncate(LIMIT);
     issues
+}
+/// `/a/0/b` stays; segments outside `[A-Za-z0-9_]{1,40}` become `*`; empty is `/`.
+pub(crate) fn safe_pointer(pointer: &str) -> String {
+    let segments: Vec<&str> = pointer
+        .split('/')
+        .skip(1)
+        .map(|segment| {
+            if (1..=40).contains(&segment.len())
+                && segment
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                segment
+            } else {
+                "*"
+            }
+        })
+        .collect();
+    if segments.is_empty() {
+        "/".into()
+    } else {
+        format!("/{}", segments.join("/"))
+    }
 }
