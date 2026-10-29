@@ -69,8 +69,7 @@ pub fn corrections_exhausted<'a>(
         .map_or(0, |p| p + 1);
     let mut counts = std::collections::BTreeMap::<&str, usize>::new();
     for item in items[start..].iter().filter(|i| i.kind == "tool_result") {
-        let code = item.payload["output"]["error"].as_str();
-        if !code.is_some_and(|c| crate::CORRECTABLE_ERRORS.contains(&c)) {
+        if !crate::correctable(&item.payload["output"]) {
             continue;
         }
         let Some(call) = calls

@@ -38,6 +38,14 @@ pub const MAX_TOOL_CORRECTIONS: usize = 2;
 /// Tool-result error codes that ask the model to change its arguments.
 pub const CORRECTABLE_ERRORS: [&str; 3] =
     ["invalid_arguments", "unknown_tool", "validation_failed"];
+/// A failed tool result the model is expected to fix: one of the codes above, or any
+/// error that names an argument field (e.g. `not_found` at `/account_id`).
+pub fn correctable(output: &serde_json::Value) -> bool {
+    output["error"]
+        .as_str()
+        .is_some_and(|c| CORRECTABLE_ERRORS.contains(&c))
+        || output["errors"].as_array().is_some_and(|e| !e.is_empty())
+}
 
 /// What the model sees for a failed call: the code plus field-level issues when known.
 pub fn tool_error_output(error: &OperationError) -> serde_json::Value {
@@ -45,7 +53,7 @@ pub fn tool_error_output(error: &OperationError) -> serde_json::Value {
     if let Some(errors) = &error.errors {
         output["errors"] = serde_json::json!(errors);
     }
-    if CORRECTABLE_ERRORS.contains(&error.code) {
+    if correctable(&output) {
         output["note"] = serde_json::json!(
             "Fix the listed fields and call the tool again, or ask the user for the missing information."
         );

@@ -451,3 +451,31 @@ async fn truncated_stream_after_visible_text_keeps_it_and_names_the_reason() -> 
     assert_eq!(f.mock.requests().len(), 1, "visible output is never resent");
     Ok(())
 }
+#[tokio::test]
+async fn unknown_account_ids_count_toward_the_correction_bound() -> Result<()> {
+    let mut f = Fixture::new(vec![]).await?;
+    let mut ghost = expense(&f).await?;
+    ghost["account_id"] = json!(Uuid::now_v7());
+    script(
+        &mut f,
+        vec![
+            vec![call("g1", "create_record", ghost.clone()), done()],
+            vec![call("g2", "create_record", ghost.clone()), done()],
+            vec![call("g3", "create_record", ghost), done()],
+            vec![text("不应调用 / Unused"), done()],
+        ],
+    );
+    let r = f.start().await?;
+    f.work().await?;
+    let run = f.run(r.message_id).await?;
+    assert_eq!(run.last_error.as_deref(), Some("tool_arguments_rejected"));
+    let requests = f.mock.requests();
+    assert_eq!(requests.len(), 3);
+    let output = tool_output(&requests[1], "g1")?;
+    assert_eq!(output["error"], "not_found");
+    assert_eq!(
+        output["errors"],
+        json!([{"pointer":"/account_id","rule":"not_found"}])
+    );
+    Ok(())
+}

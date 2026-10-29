@@ -246,10 +246,7 @@ impl<T: TypedTool> AgentTool for TypedAdapter<T> {
 /// schema-shaped names are reported: any pointer segment that is not a short
 /// identifier or index (a map key or unexpected property the model made up, which may
 /// carry user text) becomes `*`. Instance values never appear.
-fn schema_issues(
-    validator: &jsonschema::Validator,
-    raw: &Value,
-) -> Vec<jiabu_db::ValidationIssue> {
+fn schema_issues(validator: &jsonschema::Validator, raw: &Value) -> Vec<jiabu_db::ValidationIssue> {
     use jsonschema::error::ValidationErrorKind;
     const LIMIT: usize = 16;
     let mut issues = Vec::new();
@@ -269,7 +266,10 @@ fn schema_issues(
         let path = error.instance_path().to_string();
         match error.kind() {
             ValidationErrorKind::Required { property } => {
-                push(format!("{path}/{}", property.as_str().unwrap_or("")), "required");
+                push(
+                    format!("{path}/{}", property.as_str().unwrap_or("")),
+                    "required",
+                );
             }
             ValidationErrorKind::AdditionalProperties { unexpected } => {
                 for name in unexpected {
