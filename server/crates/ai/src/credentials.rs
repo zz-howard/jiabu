@@ -75,6 +75,10 @@ pub struct CredentialManager {
     store: Arc<dyn TokenStore>,
     oauth: OAuthClient,
     refresh: Arc<RefreshGate>,
+    /// A rotation the store did not accept, keyed by the stored revision it replaced.
+    /// Upstream may already have invalidated the stored refresh token, so this copy
+    /// wins until it is persisted or the store moves to another revision.
+    unpersisted: std::sync::Mutex<Option<(i64, OAuthCredentials)>>,
 }
 impl CredentialManager {
     pub async fn new(store: Arc<dyn TokenStore>, oauth: OAuthClient) -> Self {
@@ -90,6 +94,7 @@ impl CredentialManager {
             store,
             oauth,
             refresh,
+            unpersisted: std::sync::Mutex::new(None),
         };
         {
             let _guard = manager.refresh.lock.lock().await;
@@ -126,12 +131,35 @@ impl CredentialManager {
             }
         }
     }
+    /// Retries transient storage failures; false when the rotation is not stored.
+    async fn persist(&self, revision: i64, next: &OAuthCredentials) -> bool {
+        for attempt in 0..3u32 {
+            match self.store.compare_exchange(revision, next).await {
+                Ok(true) => return true,
+                Ok(false) => return false,
+                Err(_) if attempt < 2 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(200 << attempt)).await;
+                }
+                Err(_) => {}
+            }
+        }
+        false
+    }
     async fn access_inner(
         &self,
         rejected: Option<&str>,
     ) -> Result<OAuthCredentials, ProviderError> {
         let _guard = self.refresh.lock.lock().await;
-        let (revision, current) = self.load().await?;
+        let (mut revision, mut current) = self.load().await?;
+        let pending = self.unpersisted.lock().unwrap().take();
+        if let Some((base, rotated)) = pending.filter(|(base, _)| *base == revision) {
+            if self.persist(base, &rotated).await {
+                revision = base + 1;
+            } else {
+                *self.unpersisted.lock().unwrap() = Some((base, rotated.clone()));
+            }
+            current = rotated;
+        }
         if rejected.is_some_and(|token| token != current.access_token) {
             return Ok(current);
         }
@@ -141,27 +169,11 @@ impl CredentialManager {
         {
             match self.oauth.refresh(&current).await {
                 Ok(next) => {
-                    // The old refresh token may already be dead upstream; retry transient
-                    // storage failures so the rotation survives a restart.
-                    for attempt in 0..3 {
-                        match self.store.compare_exchange(revision, &next).await {
-                            Ok(true) => break,
-                            Ok(false) => {
-                                eprintln!(
-                                    "SIWC credential rotation was not persisted: revision changed"
-                                );
-                                break;
-                            }
-                            Err(_) if attempt < 2 => {
-                                tokio::time::sleep(std::time::Duration::from_millis(
-                                    200 << attempt,
-                                ))
-                                .await;
-                            }
-                            Err(_) => eprintln!(
-                                "SIWC credential rotation was not persisted: storage failure"
-                            ),
-                        }
+                    // The old refresh token may already be dead upstream, so an
+                    // unpersisted rotation is kept in memory and retried later.
+                    if !self.persist(revision, &next).await {
+                        eprintln!("SIWC credential rotation not persisted; kept in memory");
+                        *self.unpersisted.lock().unwrap() = Some((revision, next.clone()));
                     }
                     return Ok(next);
                 }
