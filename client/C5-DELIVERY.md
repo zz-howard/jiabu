@@ -1,6 +1,6 @@
 # C5 聊天交付说明
 
-当前为实现提交前的交付记录，**尚未在构建机编译或运行测试**。本机没有 Dart / Flutter；未安装工具、未联网、未运行 pub get、build_runner、Dart/Flutter 测试、golden 或负对照。不能据此认定 G1/G2/G3 通过。luna.coco 生成代码、格式化、运行检查并反馈诊断后继续修正。
+构建机已验证（Flutter 3.47.8，ChatWeave 固定 f11bd4f，其 dart/ 与本地 CW2 b3fb497 相同）：format、`flutter analyze --fatal-infos`、check_rules 0 问题；app 非 golden 测试 3130/3130；固定镜像 golden 全过（含 164 张新 C5 PNG，已人工看图：基础与 430×200% 两组联系表）；11 项负对照全部以断言失败捕获。**未运行**真实服务端集成 `server-it.sh`：master 尚无 loopback 假上游入口（Howard 的独立服务端 PR），合并后补跑。
 
 没有修改 `server/`、`docs/` 或 ChatWeave 库。没有手写 `*.g.dart`、`*.freezed.dart`、drift schema/helper、lockfile、字体或 PNG。没有提交任何真实数据或凭据。
 
@@ -73,7 +73,7 @@
 
 ## 验收 → 自动化测试名
 
-所有路径以 client/app 为基准。以下均为已写测试，尚未执行。
+所有路径以 client/app 为基准。`test/server/chat_server_test.dart` 的 8 条（关键流程与两设备场景）带 `server` 标签，只经 `tool/server-it.sh` 运行，**尚未执行**（见“验证状态”）；其余均已在构建机通过。
 
 | 验收 | 文件与测试名 |
 |---|---|
@@ -112,7 +112,7 @@
 
 39个状态在 `app/lib/features/catalog/c5_cases.dart` 的 c5States；catalog 同源。页面状态包含完整 MainFrame、聊天列表和输入栏，组件状态单独展示。旧 catalog_golden_test 排除 c5，避免重复生成不在批准矩阵内的图。无溢出测试不收窄。
 
-luna.coco 在固定镜像生成 PNG，实际打开审图，提交并标记 visual-change。本机没有生成、看图或声称视觉通过。
+164 张 PNG 已在固定镜像（`ghcr.io/zz-howard/jiabu-flutter-ci:3.47.8-1`）生成，按基础（zh/pine/360/100%）与 430×200% 两组联系表逐状态看图，并抽查放大；未见溢出或裁切。430×200% 的 streaming 中较早的便利贴部分滚到顶栏下，为列表贴底的正常滚动。PR 标记 visual-change。
 
 ## 构建机命令顺序
 
@@ -159,27 +159,28 @@ client/tool/server-it.sh
 
 脚本继续使用 `flutter test --tags server --run-skipped`。假上游只有 Python 标准库，监听127.0.0.1，不转发、不调用官方端点。Responses SSE 支持文字、工具、完成/usage、故障、分片、CRLF和受控barrier；OAuth刷新仅返回合成令牌。测试脚本通过本机控制端点注册逐轮响应，不修改服务端数据库业务记录或时间。
 
-## 本机静态检查及未验证点
+## 验证状态与仍待验证点
 
-已核对 shell/Python 语法、SQLite建表、两份ARB键集及新getter引用、依赖声明与白名单、负对照唯一锚点、Dart字符串/插值/括号配对、git diff --check。这些不是 Dart parser/analyze 或测试结果。
+构建机门禁见文首。仍待验证：
 
-重点等待构建机验证：
-
-1. 固定git override与workspace解算，Riverpod/freezed/drift/l10n生成及strict lint。不要在生成前把缺少generated符号视为实现已验证。
-2. Dio流式problem解析、原生取消与长期连接；core恢复控制器在暂停/停止/网络变化间的时序。
-3. messageFrameBuilder适配后的真实滚动、过程条伸缩、回收后的定位；几何测试不允许用golden代替。
-4. 两实例动作回执、租约和杀进程文件库恢复；真实服务端取决于尚待合并的loopback契约。
-5. 360/430、200%字号与复杂表单/图表的实际渲染；164张PNG需要人工看图，当前没有视觉验收结论。
-6. 真机图片拾取/编解码、离后台回来和第二个测试APK的手感检查，由构建机/设备完成。
+1. 真实服务端集成（两实例动作回执、租约、杀进程恢复）：依赖尚待合并的 loopback 假上游契约，脚本 `tool/server-it.sh` 已就绪。
+2. 真机：图片拾取/编解码、离后台回来、长期连接与网络切换的手感，由第二个测试 APK 检查。
 
 ## 留给后续切片
 
 - C4 协调约定：C5 不新增任何系统通知。已核对聊天实现，当前仅有页面内提示、读屏播报和数据库/状态变更事件，没有系统通知发送路径。
 - 后续若接入系统通知，必须遵循应用锁的通知文字规则，并在通知接入点保留 `TODO(C4): route through app-lock notification text rule`；本切片不新增通知插件或发送逻辑。
 
-## 构建机 analyze 反馈修正
+## 构建机反馈修正
 
-构建机已通过 pub get、gen-l10n、build_runner、drift schema/helper 生成和 check_rules。本轮以 1b51846 的生成代码和格式化结果为基准，修正剩余 analyze 类型错误及 lint：void 流回调、SafeLogEvent 日志捕获、Tags 名称冲突、Future await、文件存在性检查、控制流花括号、长行、cascade、命名布尔参数、getter/setter 与依赖顺序。同步更新11项负对照的源码锚点，保留原来的故意破坏方式与测试命令。没有增加 ignore，也没有改生成代码；本机未运行 Dart/Flutter analyze 或测试。
+- analyze：修正类型错误与 lint（void 流回调、SafeLogEvent 日志捕获、Tags 名称冲突、Future await、控制流花括号、长行、cascade、命名布尔参数、getter/setter 与依赖顺序），未加 ignore。
+- 生成物：drift 生成代码与 schema v2 helper 在构建机重新生成后入库；ChatWeave 在 pubspec.lock 中按 git 来源（f11bd4f）记录，不含构建机路径覆盖。
+- 布局：`JiabuMessageView` 改为 `Alignment.topLeft`，下方组件增高时只向下展开（几何测试 `component_fill_preserves_text_top_left_jiabu`）。
+- 用户照片 Polaroid 用设计系统默认倾角 −2°（原传 0° 违反 ±2° 断言）。
+- AI 不可用入口文案改为“手动记一笔”（新键 `chatManualEntry`），与需求一致；原 `ledgerManual`“记一笔”在此语境含义不清。
+- `choice_resolved` 示例只含 `selected`（协议规定 selected 与 freeText 二选一），回显为“已回答：信用卡”。
+- 测试：原先无输出卡满 10 分钟的三条组件测试，根因是测试侧 `pumpAndSettle` 等待持续活动态、以及在 FakeAsync 内裸等真实 I/O；改为有上限的 `pumpUntil`、真实 I/O 放在 `runAsync`/测试外层、`pumpC3` 支持根作用域 overrides，并对其设 60 秒上限。无产品逻辑为测试让步。
+- 负对照：手动接管一项因缩进变化更新锚点，其余不变。
 
 ## 改动文件清单
 
