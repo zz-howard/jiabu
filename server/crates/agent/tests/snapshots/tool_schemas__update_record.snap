@@ -1,0 +1,108 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$defs": {
+    "RecordPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "amount_minor": {
+          "format": "int64",
+          "maximum": 1000000000000,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "attachments": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "occurred_on": {
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "purpose_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tag_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "to_account_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to_purpose_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "changes": {
+      "$ref": "#/$defs/RecordPatch"
+    },
+    "expected_version": {
+      "format": "int32",
+      "minimum": 1,
+      "type": "integer"
+    },
+    "id": {
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "expected_version",
+    "changes"
+  ],
+  "title": "UpdateRecord",
+  "type": "object"
+}

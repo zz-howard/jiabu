@@ -16,6 +16,10 @@ pub enum ProviderError {
     Unsupported(&'static str),
     #[error("invalid upstream output")]
     InvalidOutput,
+    /// Upstream refused the request itself (e.g. a tool schema); resending cannot help.
+    /// `code` is a sanitized upstream code; `message` is truncated upstream text.
+    #[error("request rejected: {code}")]
+    Rejected { code: String, message: String },
     #[error("encrypted reasoning rejected")]
     BlobRejected,
     #[error("provider timed out")]
@@ -36,6 +40,7 @@ impl ProviderError {
             Self::Auth => "auth",
             Self::Unsupported(_) => "unsupported",
             Self::InvalidOutput => "invalid_output",
+            Self::Rejected { .. } => "request_rejected",
             Self::BlobRejected => "blob_rejected",
             Self::Timeout => "timeout",
             Self::Transport => "transport",

@@ -1,0 +1,108 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$defs": {
+    "CreateKind": {
+      "enum": [
+        "expense",
+        "income",
+        "transfer",
+        "reallocation",
+        "refund"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "account_id": {
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "amount_minor": {
+      "format": "int64",
+      "maximum": 1000000000000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "attachments": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "id": {
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "kind": {
+      "$ref": "#/$defs/CreateKind"
+    },
+    "note": {
+      "maxLength": 500,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "occurred_on": {
+      "format": "date",
+      "type": "string"
+    },
+    "purpose_id": {
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "refund_of_id": {
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tag_ids": {
+      "default": [],
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "to_account_id": {
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "to_purpose_id": {
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "kind",
+    "amount_minor",
+    "occurred_on"
+  ],
+  "title": "CreateRecord",
+  "type": "object"
+}

@@ -1,0 +1,1 @@
+{"error": {"code": "invalid_function_parameters", "message": "Invalid schema for function 'ask_user': At schema path /, required must include declared property \"fields\"", "param": "tools", "type": "invalid_request_error"}, "type": "error"}

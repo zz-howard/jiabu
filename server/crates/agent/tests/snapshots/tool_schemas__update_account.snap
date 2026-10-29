@@ -1,0 +1,62 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "expected_version": {
+      "format": "int32",
+      "minimum": 1,
+      "type": "integer"
+    },
+    "id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "is_reserve": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "name": {
+      "maxLength": 30,
+      "minLength": 1,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "opening_balance_minor": {
+      "format": "int64",
+      "maximum": 1000000000000,
+      "minimum": -1000000000000,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "opening_on": {
+      "format": "date",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sort_key": {
+      "format": "int32",
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "expected_version"
+  ],
+  "title": "UpdateAccount",
+  "type": "object"
+}

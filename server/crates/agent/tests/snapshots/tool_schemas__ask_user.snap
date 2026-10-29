@@ -1,0 +1,76 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$defs": {
+    "AskField": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "type",
+        "required"
+      ],
+      "type": "object"
+    },
+    "AskOption": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "fields": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AskField"
+      },
+      "type": "array"
+    },
+    "options": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AskOption"
+      },
+      "type": "array"
+    },
+    "prompt": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "prompt"
+  ],
+  "title": "AskArgs",
+  "type": "object"
+}

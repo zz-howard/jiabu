@@ -32,7 +32,12 @@ pub fn body(
             },
         });
     }
-    let tools: Vec<_> = req.snapshot.tools.iter().map(|t| json!({"type":"function","name":t.name,"description":t.description,"parameters":t.parameters,"strict":true})).collect();
+    let tools: Vec<_> = req
+        .snapshot
+        .tools
+        .iter()
+        .map(|t| json!({"type":"function","name":t.name,"description":t.description,"parameters":t.parameters,"strict":strict_compatible(&t.parameters)}))
+        .collect();
     let tools = if tools.is_empty() {
         vec![]
     } else {
@@ -68,4 +73,45 @@ pub fn body(
     let _: async_openai::types::responses::CreateResponse =
         serde_json::from_value(body.clone()).map_err(|_| ProviderError::InvalidOutput)?;
     Ok(body)
+}
+
+/// Upstream rejects a strict function whose objects leave a declared property out of
+/// `required` or allow additional properties. Optional fields are not rewritten as
+/// required-but-nullable (in patch tools null clears and omission keeps), so such
+/// tools are sent `strict: false` and the agent validates their arguments.
+pub fn strict_compatible(schema: &Value) -> bool {
+    match schema {
+        Value::Object(map) => {
+            let is_object = map.contains_key("properties")
+                || match map.get("type") {
+                    Some(Value::String(t)) => t == "object",
+                    Some(Value::Array(types)) => types.iter().any(|t| t == "object"),
+                    _ => false,
+                };
+            if is_object {
+                if map.get("additionalProperties") != Some(&Value::Bool(false)) {
+                    return false;
+                }
+                let required: Vec<&str> = map
+                    .get("required")
+                    .and_then(Value::as_array)
+                    .map(|r| r.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                if let Some(properties) = map.get("properties").and_then(Value::as_object)
+                    && properties.keys().any(|k| !required.contains(&k.as_str()))
+                {
+                    return false;
+                }
+            }
+            // `properties` and `$defs` map names to schemas; the maps are not schemas.
+            map.iter().all(|(key, value)| match (key.as_str(), value) {
+                ("properties" | "$defs" | "definitions", Value::Object(named)) => {
+                    named.values().all(strict_compatible)
+                }
+                _ => strict_compatible(value),
+            })
+        }
+        Value::Array(items) => items.iter().all(strict_compatible),
+        _ => true,
+    }
 }
