@@ -466,12 +466,12 @@ async fn invitations_privacy_decline_cancel_and_member_permissions() -> Result<(
         }
         expected = Some(bytes);
     }
-    assert_eq!(
-        app.request("GET", &route, Value::Null, Some(&guest.token), &[])
-            .await?
-            .status,
-        StatusCode::OK
-    );
+    let member_view = app
+        .request("GET", &route, Value::Null, Some(&guest.token), &[])
+        .await?;
+    assert_eq!(member_view.status, StatusCode::OK);
+    // P71: a member sees only invitations it sent itself, not the owner's.
+    assert_eq!(member_view.json()["invitations"], json!([]));
     // P71: only the owner invites; a member cannot withdraw the owner's invitation.
     assert_eq!(
         write(

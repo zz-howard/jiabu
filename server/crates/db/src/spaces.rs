@@ -528,9 +528,11 @@ impl AppDb {
 }
 impl SpaceTx {
     pub async fn invitations(&self, space: SpaceId) -> Result<Value, Error> {
-        self.member(space);
+        // P71: the owner sees every invitation; anyone else only those it sent itself
+        // (a former owner's invitations from before a transfer).
+        let actor = self.member(space);
         let rows = self.tx.query_all_raw(Statement::from_sql_and_values(DbBackend::Postgres,
-            "select jsonb_build_object('id',i.id,'status',i.status,'invitee_username',u.username,'invited_by_member_id',i.invited_by_member_id,'created_at',i.created_at,'decided_at',i.decided_at) value from space_invitations i join users u on u.id=i.invitee_user_id where i.space_id=$1 order by i.created_at,i.id", [space.0.into()])).await?;
+            "select jsonb_build_object('id',i.id,'status',i.status,'invitee_username',u.username,'invited_by_member_id',i.invited_by_member_id,'created_at',i.created_at,'decided_at',i.decided_at) value from space_invitations i join users u on u.id=i.invitee_user_id where i.space_id=$1 and ($2 or i.invited_by_member_id=$3) order by i.created_at,i.id", [space.0.into(), actor.is_owner().into(), actor.id().0.into()])).await?;
         let mut invitations = Vec::new();
         for row in rows {
             invitations.push(normalize_fields(
