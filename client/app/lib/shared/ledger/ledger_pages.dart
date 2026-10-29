@@ -157,10 +157,12 @@ Widget liveRecordCard(
   BuildContext context,
   WidgetRef ref,
   LedgerSnapshot snapshot,
-  LedgerRow row,
-) => LedgerRecordCard(
+  LedgerRow row, {
+  int? versionAtReply,
+}) => LedgerRecordCard(
   snapshot: snapshot,
   row: row,
+  versionAtReply: versionAtReply,
   onOpen: () => row.syncState == 'conflict'
       ? openConflict(context, snapshot.spaceId, 'record', row.id)
       : openRecordDetails(context, snapshot.spaceId, row.id),

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:jiabu/data/api/api_client.dart';
 import 'package:jiabu/data/api/api_error.dart';
+import 'package:jiabu/data/api/chat_api.dart';
 import 'package:jiabu/data/api/dto/sync_dto.dart';
 import 'package:jiabu/data/db/daos/local_store.dart';
 import 'package:jiabu/data/services/log_redactor_service.dart';
@@ -26,10 +27,12 @@ final class OutboxProcessor {
     this.store,
     this.api,
     this.conflicts, {
+    this.chatApi,
     DateTime Function()? now,
   }) : now = now ?? DateTime.now;
   final LocalStore store;
   final ApiClient api;
+  final ChatApi? chatApi;
   final ConflictService conflicts;
   final DateTime Function() now;
 
@@ -53,8 +56,14 @@ final class OutboxProcessor {
         final batch = <LeasedOperation>[];
         for (var index = 0; index < all.length; index++) {
           final op = all[index];
-          // TODO(C5): register chat_send/chat_action/chat_retry uploaders.
-          if (op.kind != 'tool' && op.kind != 'blob') {
+          if (!const {
+                'tool',
+                'blob',
+                'chat_send',
+                'chat_action',
+                'chat_retry',
+              }.contains(op.kind) ||
+              (op.kind.startsWith('chat_') && chatApi == null)) {
             continue;
           }
           if (op.state != 'pending' &&
@@ -106,7 +115,7 @@ final class OutboxProcessor {
           if (blocked) {
             continue;
           }
-          if (op.kind == 'blob' && batch.isNotEmpty) {
+          if (op.kind != 'tool' && batch.isNotEmpty) {
             break;
           }
           final leaseUntil = instant + SyncPolicy.lease.inMilliseconds;
@@ -170,7 +179,7 @@ final class OutboxProcessor {
           }
           await store.lease(op, payload, leaseUntil);
           batch.add(LeasedOperation(op, fence, wire, leaseUntil));
-          if (op.kind == 'blob' || batch.length == SyncPolicy.maxBatchItems) {
+          if (op.kind != 'tool' || batch.length == SyncPolicy.maxBatchItems) {
             break;
           }
         }
@@ -199,7 +208,21 @@ final class OutboxProcessor {
         return;
       }
       try {
-        if (batch.first.op.kind == 'blob') {
+        // A lease does not authorize dispatch after a membership change.
+        final valid = await store.transaction(() async {
+          for (final sent in batch) {
+            if (!await _accepts(owner, sent)) {
+              return false;
+            }
+          }
+          return true;
+        });
+        if (!valid) {
+          return;
+        }
+        if (batch.first.op.kind.startsWith('chat_')) {
+          await uploadLeasedChat(owner, batch.single);
+        } else if (batch.first.op.kind == 'blob') {
           final sent = batch.single;
           final payload = sent.op.payload;
           final path = requireValue<String>(payload['path']);
@@ -254,20 +277,85 @@ final class OutboxProcessor {
           )) {
             await reconcile?.call();
           }
-          if (stop) return;
+          if (stop) {
+            return;
+          }
         }
       } on ApiError catch (error) {
+        if (batch.any((sent) => sent.op.kind.startsWith('chat_'))) {
+          Logger('chat').warning(
+            SafeLogEvent(
+              'chat_failed',
+              code: error.code,
+              requestId: error.requestId,
+            ),
+          );
+        }
         await store.transaction(() async {
           for (final sent in batch) {
             if (!await _accepts(owner, sent)) {
               continue;
             }
             final status = error.status;
+            if (sent.op.kind == 'chat_action' &&
+                const {
+                  'interrupt_resolved',
+                  'interrupt_expired',
+                }.contains(error.code)) {
+              final context =
+                  sent.op.payload['context']! as Map<String, Object?>;
+              await store.updateChatClientState(
+                sent.op.spaceId,
+                context['messageId']! as String,
+                (state) => {
+                  ...state,
+                  'action_refresh': true,
+                  'receipts': {
+                    ...?(state['receipts'] as Map<String, Object?>?),
+                    sent.op.id: {
+                      'protocolVersion': '0.1',
+                      'actionId': sent.op.id,
+                      'status': 'rejected',
+                      'error': {'code': error.code},
+                    },
+                  },
+                },
+              );
+              await store.removeOp(sent.op.spaceId, sent.op.id);
+              continue;
+            }
             final permanent =
                 status != null &&
-                status >= 400 &&
-                status < 500 &&
-                !const {401, 404, 409, 426, 429}.contains(status);
+                    status >= 400 &&
+                    status < 500 &&
+                    !const {401, 404, 409, 426, 429}.contains(status) ||
+                (sent.op.kind.startsWith('chat_') &&
+                    const {
+                      'retry_unavailable',
+                      'idempotency_conflict',
+                      'idempotency_key_mismatch',
+                      'runtime_conflict',
+                    }.contains(error.code));
+            if (permanent && sent.op.kind == 'chat_action') {
+              final context =
+                  sent.op.payload['context']! as Map<String, Object?>;
+              await store.updateChatClientState(
+                sent.op.spaceId,
+                context['messageId']! as String,
+                (state) => {
+                  ...state,
+                  'receipts': {
+                    ...?(state['receipts'] as Map<String, Object?>?),
+                    sent.op.id: {
+                      'protocolVersion': '0.1',
+                      'actionId': sent.op.id,
+                      'status': 'rejected',
+                      'error': {'code': error.code},
+                    },
+                  },
+                },
+              );
+            }
             await store.setOutboxState(
               sent.op.spaceId,
               sent.op.id,
@@ -294,6 +382,75 @@ final class OutboxProcessor {
         return;
       }
     }
+  }
+
+  Future<void> uploadLeasedChat(String owner, LeasedOperation sent) async {
+    if (!await _accepts(owner, sent)) {
+      return;
+    }
+    final api = chatApi;
+    if (api == null) {
+      throw const ApiError('chat_transport_missing');
+    }
+    final op = sent.op;
+    final endpoint = switch (op.kind) {
+      'chat_send' => 'messages',
+      'chat_action' => 'actions',
+      'chat_retry' => 'messages/${op.payload['messageId']}/retry',
+      _ => throw const ApiError('invalid_chat_kind'),
+    };
+    final response = await api.chatWrite(
+      spaceId: op.spaceId,
+      endpoint: endpoint,
+      payload: op.kind == 'chat_retry' ? const {} : op.payload,
+      joinEpoch: sent.fence.joinEpoch,
+      opId: op.id,
+      requestId: op.requestId,
+    );
+    await store.transaction(() async {
+      if (!await _accepts(owner, sent)) {
+        return;
+      }
+      if (op.kind == 'chat_action') {
+        final context = op.payload['context']! as Map<String, Object?>;
+        await store.updateChatClientState(
+          op.spaceId,
+          context['messageId']! as String,
+          (state) => {
+            ...state,
+            'receipts': {
+              ...?(state['receipts'] as Map<String, Object?>?),
+              op.id: response,
+            },
+          },
+        );
+      } else {
+        final user = response['userMessageId'];
+        final assistant = response['messageId'];
+        if (user is! String ||
+            assistant is! String ||
+            (op.kind == 'chat_send' && user != op.id)) {
+          throw const ApiError('invalid_chat_response');
+        }
+        await store.updateChatClientState(
+          op.spaceId,
+          user,
+          (state) => {
+            ...state,
+            'assistantId': assistant,
+            'delivery': 'waiting_ai',
+          },
+        );
+        if (op.kind == 'chat_retry') {
+          await store.updateChatClientState(
+            op.spaceId,
+            op.payload['messageId']! as String,
+            (state) => {...state, 'retryMessageId': assistant},
+          );
+        }
+      }
+      await store.removeOp(op.spaceId, op.id);
+    });
   }
 
   /// Validates the entire envelope before mutating anything. A null op_id is

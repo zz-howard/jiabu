@@ -338,7 +338,156 @@ final class LocalStore {
   Future<List<Map<String, Object?>>> conflicts(String spaceId) =>
       _read('SELECT * FROM entity_conflicts WHERE space_id = ?', [spaceId]);
 
+  /// Single reconciliation boundary for pull, streamed checkpoints and finals.
   Future<void> putEntity(
+    String spaceId,
+    String kind,
+    Map<String, Object?> data, {
+    String state = 'synced',
+    int? baseVersion,
+  }) async {
+    if (kind == 'chat_entry') {
+      await putChatEntry(
+        spaceId,
+        data,
+        authoritative: state == 'synced',
+        state: state,
+      );
+      return;
+    }
+    await _putEntity(
+      spaceId,
+      kind,
+      data,
+      state: state,
+      baseVersion: baseVersion,
+    );
+  }
+
+  Future<bool> putChatEntry(
+    String spaceId,
+    Map<String, Object?> data, {
+    required bool authoritative,
+    String state = 'synced',
+  }) => transaction(() async {
+    await lockRuntime();
+    final id = requireValue<String>(data['id']);
+    final rows = await _read(
+      'SELECT * FROM chat_entries WHERE space_id = ? AND id = ?',
+      [spaceId, id],
+    );
+    final old = rows.firstOrNull;
+    final raw = data['message_json'] ?? data['message'];
+    final message = raw is String ? jsonDecode(raw) : raw;
+    // Keep opaque legacy rows until a real message arrives through pull.
+    final rev =
+        (data['rev'] as int?) ??
+        (message is Map<String, Object?> ? message['rev'] as int? : null) ??
+        0;
+    final seq = (data['last_seq'] as int?) ?? 0;
+    if (!authoritative && old?['authoritative'] == 1) {
+      return false;
+    }
+    if (!authoritative &&
+        old != null &&
+        (rev < (old['rev']! as int) || seq < (old['last_seq']! as int))) {
+      return false;
+    }
+    if (rev == 0 &&
+        old != null &&
+        ((old['rev']! as int) > 0 || seq < (old['last_seq']! as int))) {
+      return false;
+    }
+    // Persisted pull revisions always replace, including a lower local rev.
+    final payload = <String, Object?>{
+      ...data,
+      'rev': rev,
+      'last_seq': seq,
+      'authoritative': authoritative && rev >= 1 ? 1 : 0,
+      'message_json': ?message,
+    };
+    await _putEntity(spaceId, 'chat_entry', payload, state: state);
+    return true;
+  });
+
+  Future<Map<String, Object?>?> chatEntry(String spaceId, String id) async =>
+      (await _read('SELECT * FROM chat_entries WHERE space_id = ? AND id = ?', [
+        spaceId,
+        id,
+      ])).firstOrNull;
+
+  Future<List<Map<String, Object?>>> chatEntries(
+    String spaceId,
+    String memberId,
+    String conversationId,
+  ) => _read(
+    'SELECT * FROM chat_entries WHERE space_id = ? AND member_id = ? AND '
+    'conversation_id = ? ORDER BY created_at, id',
+    [spaceId, memberId, conversationId],
+  );
+
+  Stream<void> watchChatChanges(String spaceId) {
+    const sql =
+        'SELECT spaces.space_id, sync_runtime.change_revision FROM spaces '
+        'CROSS JOIN sync_runtime WHERE space_id = ? AND sync_runtime.id = 1';
+    DaoScope.verify(sql);
+    return db
+        .customSelect(
+          sql,
+          variables: [Variable<String>(spaceId)],
+          readsFrom: {
+            for (final name in [
+              'spaces',
+              'chat_entries',
+              'conversations',
+              'chat_client_states',
+              'outbox',
+              'sync_runtime',
+            ])
+              ..._tables(name),
+          },
+        )
+        .watch()
+        .map((_) {});
+  }
+
+  Future<Map<String, Object?>> chatClientState(
+    String spaceId,
+    String messageId,
+  ) async {
+    final row = (await _read(
+      'SELECT state_json FROM chat_client_states WHERE space_id = ? AND '
+      'message_id = ?',
+      [spaceId, messageId],
+    )).firstOrNull;
+    return row == null
+        ? <String, Object?>{}
+        : (jsonDecode(row['state_json']! as String) as Map<String, Object?>);
+  }
+
+  Future<void> updateChatClientState(
+    String spaceId,
+    String messageId,
+    Map<String, Object?> Function(Map<String, Object?>) update,
+  ) => transaction(() async {
+    await lockRuntime();
+    final next = update(await chatClientState(spaceId, messageId));
+    await _write(
+      'chat_client_states',
+      'INSERT INTO chat_client_states (space_id, message_id, state_json) '
+          'VALUES (?, ?, ?) ON CONFLICT (space_id, message_id) DO UPDATE SET '
+          'state_json = excluded.state_json',
+      [spaceId, messageId, jsonEncode(next)],
+    );
+  });
+
+  Future<void> clearChat(String spaceId) => transaction(() async {
+    for (final table in ['chat_entries', 'chat_client_states']) {
+      await _write(table, 'DELETE FROM $table WHERE space_id = ?', [spaceId]);
+    }
+  });
+
+  Future<void> _putEntity(
     String spaceId,
     String kind,
     Map<String, Object?> data, {
@@ -581,6 +730,7 @@ final class LocalStore {
       'sync_cursors',
       'entity_conflicts',
       'blobs_local',
+      'chat_client_states',
     ]) {
       await _write(table, 'DELETE FROM $table WHERE space_id = ?', [spaceId]);
     }

@@ -358,5 +358,200 @@
   "ledgerRecentlyChanged": "这笔刚被别处改过，已刷新，请重新确认。",
   "ledgerAccountNameTaken": "已有同类同名账户，请换一个名称。",
   "ledgerReserveExists": "已有备用金，不能重复创建。",
-  "ledgerAccountCreateRejected": "服务器拒绝创建，可能已有同名账户或备用金；需删除后重建，本版暂不支持删除未上传账户。"
+  "ledgerAccountCreateRejected": "服务器拒绝创建，可能已有同名账户或备用金；需删除后重建，本版暂不支持删除未上传账户。",
+  "chatEmpty": "说说今天想记下的事。",
+  "chatAssistant": "家簿助手",
+  "chatSetup": "通过对话设置账户",
+  "chatSetupRequest": "请帮我设置真实资金账户和用途账户、起始余额及每月拨入计划。",
+  "chatSend": "发送",
+  "chatPhoto": "拍照",
+  "chatGallery": "选照片",
+  "chatInput": "记下文字或照片",
+  "chatLocked": "先回答上面的问题",
+  "chatReply": "回答：{question}",
+  "@chatReply": {
+    "placeholders": {
+      "question": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCancelAnswer": "取消回答",
+  "chatPending": "待上传",
+  "chatWaitingAi": "待 AI 处理",
+  "chatFailed": "上传失败，可重试",
+  "chatManualState": "已改为手动填写",
+  "chatManual": "改为手动填写",
+  "chatUnavailable": "AI 暂时不可用",
+  "chatManualEntry": "手动记一笔",
+  "chatRetry": "重试",
+  "chatIncomplete": "没有完成",
+  "chatStop": "停止生成",
+  "chatStopping": "正在停止…",
+  "chatStopped": "已停止",
+  "chatAnsweredElsewhere": "这个问题已在另一台设备上回答",
+  "chatExpired": "这个问题已过期",
+  "chatWithdrawn": "这个问题已关闭",
+  "chatOnlineRequired": "联网后才能取消原 AI 处理并改为手动填写",
+  "chatWaitUpload": "正在确认上传结果，请稍后重试",
+  "chatWaitStop": "正在确认停止结果，请稍后重试",
+  "chatAlreadyRecorded": "这条消息已有记录，请先查看上方记录卡",
+  "chatError": "暂时无法完成，请重试",
+  "chatLimit": "每条消息最多 8 张照片，文字最多 32 KB",
+  "chatRemovePhoto": "移除照片",
+  "chatPhotoCount": "已选 {count} 张照片",
+  "@chatPhotoCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatProcess": "过程",
+  "chatProcessSummary": "查了 {count} 项",
+  "@chatProcessSummary": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatProcessFailed": "{count} 项没有完成",
+  "@chatProcessFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDuration": "用时 {seconds} 秒",
+  "@chatDuration": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "chatSeconds": "{seconds} 秒",
+  "@chatSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "chatAwaitAnswer": "等你回答",
+  "chatAwaitConfirm": "等你确认",
+  "chatRunning": "处理中",
+  "chatSucceeded": "完成",
+  "chatExpand": "展开",
+  "chatCollapse": "收起",
+  "chatExpandAll": "展开全部",
+  "chatAsOf": "截至 {date}",
+  "@chatAsOf": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "chatConfirmedCount": "你确认了 {count} 项",
+  "@chatConfirmedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatRecordSyncing": "记录同步中",
+  "chatWeave000": "内容正在生成",
+  "chatWeave001": "正在生成…",
+  "chatWeave002": "暂无数据",
+  "chatWeave003": "是",
+  "chatWeave004": "否",
+  "chatWeave005": "查看图表",
+  "chatWeave006": "查看数据表",
+  "chatWeave007": "此内容无法显示",
+  "chatWeave008": "更新 App 可查看完整内容",
+  "chatWeave009": "提交",
+  "chatWeave010": "确认",
+  "chatWeave011": "取消",
+  "chatWeave012": "输入其他内容",
+  "chatWeave013": "仅可查看",
+  "chatWeave014": "重试",
+  "chatWeave015": "暂时无法确认结果，请重试",
+  "chatWeave016": "已排队，联网后提交",
+  "chatWeave017": "暂时无法确认结果，正在刷新…",
+  "chatWeave018": "提交中…",
+  "chatWeave019": "停止",
+  "chatWeave020": "已停止",
+  "chatWeave021": "正在停止…",
+  "chatWeave022": "正在处理…",
+  "chatWeave023": "复制",
+  "chatWeave024": "输入消息",
+  "chatWeave025": "先回答上面的问题",
+  "chatWeave026": "已锁定，先回答上面的问题",
+  "chatWeave027": "发送",
+  "chatWeave028": "取消回答，返回选项",
+  "chatWeave029": "ChatWeave 状态",
+  "chatWeave030": "复制诊断信息",
+  "chatWeave031": "打开链接",
+  "chatWeave032": "打开",
+  "chatWeave033": "请选择",
+  "chatWeave034": "请填写",
+  "chatWeave035": "文字太长",
+  "chatWeave036": "请输入有效数字",
+  "chatWeave037": "数值太小",
+  "chatWeave038": "数值太大",
+  "chatWeave039": "请输入有效日期",
+  "chatWeave040": "运行中",
+  "chatWeave041": "等待中",
+  "chatWeave042": "等你回答",
+  "chatWeave043": "等你确认",
+  "chatWeave044": "完成",
+  "chatWeave045": "没有完成",
+  "chatWeave046": "你已取消",
+  "chatWeave047": "你已确认",
+  "chatWeave048": "已过期",
+  "chatWeave049": "已被新的请求取代",
+  "chatWeave050": "已作废",
+  "chatWeave051": "已停止，没有等到回答",
+  "chatWeave052": "相关记录已被删除",
+  "chatWeave053": "相关记录已变化",
+  "chatWeave054": "权限已变化",
+  "chatWeave055": "请求已撤回",
+  "chatWeave056": "问题已过期，草稿已保留",
+  "chatWeave057": "生成已停止，草稿已保留",
+  "chatWeave058": "问题已撤回，草稿已保留",
+  "chatWeave059": "问题已在别处回答，草稿已保留",
+  "chatWeave060": "序列",
+  "chatWeave061": "时间",
+  "chatWeave062": "数值",
+  "chatWeave063": "项目",
+  "chatWeave064": "回答者：",
+  "chatWeave065": "步",
+  "chatWeave066": "图片：",
+  "chatWeave067": "显示",
+  "chatWeave068": "共",
+  "chatWeave069": "条",
+  "chatWeave070": "再次确认：",
+  "chatWeave071": "需要你回答：",
+  "chatWeave072": "第",
+  "chatWeave073": "层",
+  "chatWeave074": "查了",
+  "chatWeave075": "项",
+  "chatWeave076": "你确认了",
+  "chatWeave077": "用时",
+  "chatWeave078": "项没有完成",
+  "chatWeave079": "过程：",
+  "chatWeave080": "已展开",
+  "chatWeave081": "已收起",
+  "chatWeave082": "秒",
+  "chatWeave083": "有",
+  "chatWeave084": "条新内容",
+  "chatWeave085": "回答：",
+  "chatWeave086": "你的回答：",
+  "chatWeave087": "已回答：",
+  "chatWeave088": "已提交：",
+  "chatWeave089": "已作废 · "
 }

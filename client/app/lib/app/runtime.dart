@@ -4,9 +4,12 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:jiabu/data/api/api_client.dart';
+import 'package:jiabu/data/api/api_error.dart';
+import 'package:jiabu/data/api/chat_api.dart';
 import 'package:jiabu/data/api/dio_api_client.dart';
 import 'package:jiabu/data/db/database_manager.dart';
 import 'package:jiabu/data/repositories/auth_repository.dart';
+import 'package:jiabu/data/repositories/chat_repository.dart';
 import 'package:jiabu/data/repositories/ledger_repository.dart';
 import 'package:jiabu/data/repositories/local_mutations_repository.dart';
 import 'package:jiabu/data/repositories/records_repository.dart';
@@ -24,6 +27,7 @@ import 'package:jiabu/data/sync/outbox_processor.dart';
 import 'package:jiabu/data/sync/pull_applier.dart';
 import 'package:jiabu/data/sync/sync_engine.dart';
 import 'package:jiabu/data/sync/sync_triggers.dart';
+import 'package:jiabu/domain/chat.dart';
 import 'package:jiabu/domain/ledger.dart';
 import 'package:jiabu/domain/partition.dart';
 import 'package:jiabu/domain/required_value.dart';
@@ -76,6 +80,7 @@ final class AppRuntime {
   RecordsRepository? records;
   LedgerRepository? ledger;
   MediaService? media;
+  ChatRepository? chat;
   ConflictService? conflicts;
   FileLogSink? _logs;
   FileLogSink? _startupLogs;
@@ -181,6 +186,8 @@ final class AppRuntime {
     if (session != null) {
       status = SyncStatus.idle;
     }
+    final oldChat = chat;
+    chat = null;
     final oldTriggers = triggers;
     triggers = null;
     engine = null;
@@ -194,6 +201,7 @@ final class AppRuntime {
     _logs = null;
     _startupLogs = null;
     await oldTriggers?.dispose();
+    await oldChat?.dispose();
     await oldLogs?.close();
     await startupLogs?.close();
     if (capturedRevision != revision) {
@@ -268,7 +276,12 @@ final class AppRuntime {
         writeCache: (meta) => settings.saveMeta(session.partition.server, meta),
       ),
       memberships: memberships,
-      outbox: OutboxProcessor(store, client, conflictService),
+      outbox: OutboxProcessor(
+        store,
+        client,
+        conflictService,
+        chatApi: client as ChatApi,
+      ),
       pull: PullApplier(store),
       currentSpace: () => currentSpace,
       onStatus: (next) {
@@ -320,14 +333,29 @@ final class AppRuntime {
       conflictService,
       api: client,
     );
-    media = MediaService(
+    final mediaService = MediaService(
       store: store,
       directory: handle.blobs,
       picker: PlatformImagePicker(),
       compressor: PlatformImageCompressor(),
       onEnqueued: notifyEnqueued,
     );
+    media = mediaService;
+    chat = LocalChatRepository(
+      dao: store,
+      api: client as ChatApi,
+      sync: (spaceId) async {
+        await sync.runRound();
+        if (sync.status != SyncStatus.idle) throw const ApiError('unavailable');
+        await sync.refreshChat(spaceId);
+      },
+      media: mediaService,
+      memberForSpace: (id) async =>
+          (await store.entity(id, 'space', id))?.data['member_id'] as String?,
+      onEnqueued: notifyEnqueued,
+    );
     if (capturedRevision != revision) {
+      await chat?.dispose();
       return;
     }
     if (!background) {
@@ -359,6 +387,12 @@ final class AppRuntime {
         sync,
         client,
         store,
+        onChatForeground: () async {
+          await chat?.foreground();
+        },
+        onChatDisconnect: () async {
+          await chat?.disconnect();
+        },
         onDatabaseChanged: (row) async {
           if (capturedRevision != revision) {
             return;
@@ -433,6 +467,7 @@ final class AppRuntime {
     await sessionWork;
     await auth.logoutWork;
     await triggers?.dispose();
+    await chat?.dispose();
     await _logs?.close();
     await _startupLogs?.close();
     await databases.close();

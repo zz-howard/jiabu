@@ -4,6 +4,8 @@ abstract final class SyncPolicy {
   static const databasePoll = Duration(seconds: 1);
   static const metaTtl = Duration(hours: 1);
   static const requestTimeout = Duration(seconds: 30);
+  static const chatStreamTimeout = Duration(minutes: 6);
+  static const chatCheckpoint = Duration(seconds: 1);
   static const blobTimeout = Duration(minutes: 10);
   static const lease = Duration(minutes: 12);
   static const heartbeat = Duration(seconds: 20);

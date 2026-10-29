@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:jiabu/features/catalog/c3_cases.dart';
+import 'package:jiabu/features/catalog/c5_cases.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
@@ -16,6 +17,15 @@ class CatalogCase {
 
 /// The dev catalog and all visual tests consume this same exhaustive registry.
 List<CatalogCase> catalogCases() => [
+  for (final state in c5States)
+    CatalogCase(
+      'c5',
+      state,
+      (_) => SizedBox(
+        height: JiabuChatMetrics.pageHeight,
+        child: C5Preview(state: state),
+      ),
+    ),
   // PaperRow is exercised by the existing C3 settings, pending-record and
   // allocation-plan states on their real decorated paper surfaces.
   for (final state in c3States)

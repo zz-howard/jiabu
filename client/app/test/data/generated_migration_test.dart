@@ -9,11 +9,11 @@ import 'package:jiabu/data/db/database.dart';
 import '../generated_migrations/schema.dart';
 
 void main() {
-  test('drift_schema_verifier_validates_v1_snapshot', () async {
+  test('drift_schema_verifier_validates_v1_to_v2', () async {
     final verifier = SchemaVerifier(GeneratedHelper());
     final schema = await verifier.schemaAt(1);
     final database = JiabuDatabase(schema.newConnection());
     addTearDown(database.close);
-    await verifier.migrateAndValidate(database, 1);
+    await verifier.migrateAndValidate(database, 2);
   });
 }

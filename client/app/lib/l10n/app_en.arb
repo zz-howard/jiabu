@@ -358,5 +358,200 @@
   "ledgerRecentlyChanged": "This entry changed elsewhere. Review the refreshed values and confirm again.",
   "ledgerAccountNameTaken": "An active account of this kind already uses that name.",
   "ledgerReserveExists": "A reserve account already exists.",
-  "ledgerAccountCreateRejected": "The server rejected this account; its name or reserve setting may already be in use. It needs to be deleted and recreated; deleting unuploaded accounts is not supported yet."
+  "ledgerAccountCreateRejected": "The server rejected this account; its name or reserve setting may already be in use. It needs to be deleted and recreated; deleting unuploaded accounts is not supported yet.",
+  "chatEmpty": "What would you like to record today?",
+  "chatAssistant": "Jiabu assistant",
+  "chatSetup": "Set up accounts in chat",
+  "chatSetupRequest": "Help me set up real and purpose accounts, opening balances and monthly allocations.",
+  "chatSend": "Send",
+  "chatPhoto": "Take photo",
+  "chatGallery": "Choose photos",
+  "chatInput": "Write a message or add photos",
+  "chatLocked": "Answer the question above first",
+  "chatReply": "Answer: {question}",
+  "@chatReply": {
+    "placeholders": {
+      "question": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCancelAnswer": "Cancel answer",
+  "chatPending": "Waiting to upload",
+  "chatWaitingAi": "Waiting for AI",
+  "chatFailed": "Upload failed; retry",
+  "chatManualState": "Switched to manual entry",
+  "chatManual": "Switch to manual entry",
+  "chatUnavailable": "AI is temporarily unavailable",
+  "chatManualEntry": "Add an entry manually",
+  "chatRetry": "Retry",
+  "chatIncomplete": "Not completed",
+  "chatStop": "Stop",
+  "chatStopping": "Stopping…",
+  "chatStopped": "Stopped",
+  "chatAnsweredElsewhere": "This question was answered on another device",
+  "chatExpired": "This question has expired",
+  "chatWithdrawn": "This question is closed",
+  "chatOnlineRequired": "Connect to cancel AI processing and switch to manual entry",
+  "chatWaitUpload": "Checking upload status. Try again shortly.",
+  "chatWaitStop": "Checking that processing stopped. Try again shortly.",
+  "chatAlreadyRecorded": "This message has saved records. Review the record cards first.",
+  "chatError": "Unable to finish. Please retry.",
+  "chatLimit": "Up to 8 photos and 32 KB of text per message",
+  "chatRemovePhoto": "Remove photo",
+  "chatPhotoCount": "{count} photos selected",
+  "@chatPhotoCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatProcess": "Process",
+  "chatProcessSummary": "Checked {count} items",
+  "@chatProcessSummary": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatProcessFailed": "{count} items did not finish",
+  "@chatProcessFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDuration": "Took {seconds} seconds",
+  "@chatDuration": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "chatSeconds": "{seconds} seconds",
+  "@chatSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "chatAwaitAnswer": "Waiting for your answer",
+  "chatAwaitConfirm": "Waiting for confirmation",
+  "chatRunning": "Working",
+  "chatSucceeded": "Completed",
+  "chatExpand": "Expand",
+  "chatCollapse": "Collapse",
+  "chatExpandAll": "Show all",
+  "chatAsOf": "As of {date}",
+  "@chatAsOf": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "chatConfirmedCount": "You confirmed {count} items",
+  "@chatConfirmedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatRecordSyncing": "Syncing record",
+  "chatWeave000": "Content is being generated",
+  "chatWeave001": "Generating…",
+  "chatWeave002": "No data",
+  "chatWeave003": "Yes",
+  "chatWeave004": "No",
+  "chatWeave005": "View chart",
+  "chatWeave006": "View data table",
+  "chatWeave007": "Unable to display content",
+  "chatWeave008": "Update the app to view this content",
+  "chatWeave009": "Submit",
+  "chatWeave010": "Confirm",
+  "chatWeave011": "Cancel",
+  "chatWeave012": "Enter another answer",
+  "chatWeave013": "Read only",
+  "chatWeave014": "Retry",
+  "chatWeave015": "Could not confirm the result. Please retry.",
+  "chatWeave016": "Queued; will submit when online",
+  "chatWeave017": "Checking the result…",
+  "chatWeave018": "Submitting…",
+  "chatWeave019": "Stop",
+  "chatWeave020": "Stopped",
+  "chatWeave021": "Stopping…",
+  "chatWeave022": "Working…",
+  "chatWeave023": "Copy",
+  "chatWeave024": "Message",
+  "chatWeave025": "Answer the question above first",
+  "chatWeave026": "Locked; answer the question above first",
+  "chatWeave027": "Send",
+  "chatWeave028": "Cancel answer and return to options",
+  "chatWeave029": "ChatWeave status",
+  "chatWeave030": "Copy diagnostics",
+  "chatWeave031": "Open link",
+  "chatWeave032": "Open",
+  "chatWeave033": "Select a value",
+  "chatWeave034": "Required",
+  "chatWeave035": "Text is too long",
+  "chatWeave036": "Enter a valid number",
+  "chatWeave037": "Value is too small",
+  "chatWeave038": "Value is too large",
+  "chatWeave039": "Enter a valid date",
+  "chatWeave040": "Running",
+  "chatWeave041": "Waiting",
+  "chatWeave042": "Awaiting your answer",
+  "chatWeave043": "Awaiting your confirmation",
+  "chatWeave044": "Completed",
+  "chatWeave045": "Failed",
+  "chatWeave046": "You cancelled",
+  "chatWeave047": "You confirmed",
+  "chatWeave048": "Expired",
+  "chatWeave049": "Replaced by a newer request",
+  "chatWeave050": "Withdrawn",
+  "chatWeave051": "Stopped before an answer arrived",
+  "chatWeave052": "The record was deleted",
+  "chatWeave053": "The record changed",
+  "chatWeave054": "Permissions changed",
+  "chatWeave055": "The request was withdrawn",
+  "chatWeave056": "Question expired; draft kept",
+  "chatWeave057": "Generation stopped; draft kept",
+  "chatWeave058": "Question withdrawn; draft kept",
+  "chatWeave059": "Answered elsewhere; draft kept",
+  "chatWeave060": "Series",
+  "chatWeave061": "Time",
+  "chatWeave062": "Value",
+  "chatWeave063": "Attribute",
+  "chatWeave064": "Answered by: ",
+  "chatWeave065": "steps",
+  "chatWeave066": "Image: ",
+  "chatWeave067": "Showing",
+  "chatWeave068": "of",
+  "chatWeave069": "rows",
+  "chatWeave070": "Confirm again: ",
+  "chatWeave071": "Your answer is needed: ",
+  "chatWeave072": "Level",
+  "chatWeave073": "",
+  "chatWeave074": "Checked",
+  "chatWeave075": "items",
+  "chatWeave076": "You confirmed",
+  "chatWeave077": "Duration",
+  "chatWeave078": "items failed",
+  "chatWeave079": "Process: ",
+  "chatWeave080": "Expanded",
+  "chatWeave081": "Collapsed",
+  "chatWeave082": "s",
+  "chatWeave083": "There are",
+  "chatWeave084": "new messages",
+  "chatWeave085": "Answer: ",
+  "chatWeave086": "Your answer: ",
+  "chatWeave087": "Answered: ",
+  "chatWeave088": "Submitted: ",
+  "chatWeave089": "Withdrawn · "
 }

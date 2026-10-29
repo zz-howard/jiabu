@@ -52,6 +52,42 @@ final class SyncEngine {
     _running = null;
   });
 
+  /// CW authoritative refresh must contact the server even when another isolate
+  /// owns the upload round. Cursor compare-and-set prevents a late read from
+  /// overwriting a newer committed pull page.
+  Future<void> refreshChat(String spaceId) async {
+    while (true) {
+      final captured = await store.fence(spaceId);
+      if (captured == null) {
+        throw const ApiError('stale_response');
+      }
+      final cursor = await store.cursor(spaceId);
+      final response = await api.pull(
+        PullRequestDto(spaces: {spaceId: cursor}),
+      );
+      if (response.unavailable.contains(spaceId)) {
+        throw const ApiError('not_found', status: 404);
+      }
+      final page = response.spaces
+          .where((page) => page.spaceId == spaceId)
+          .single;
+      final accepted = await store.transaction(() async {
+        await store.lockRuntime();
+        if (!await store.accepts(captured)) {
+          throw const ApiError('stale_response');
+        }
+        if (await store.cursor(spaceId) != cursor) {
+          return false;
+        }
+        await pull.applyPage(page, requestedCursor: cursor);
+        return true;
+      });
+      if (accepted && !page.hasMore) {
+        return;
+      }
+    }
+  }
+
   Future<void> _run() async {
     if ((await store.runtime())['authenticated'] != 1) {
       _status(SyncStatus.loginRequired);

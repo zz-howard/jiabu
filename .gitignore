@@ -94,3 +94,6 @@ Thumbs.db
 # ---------- Python ----------
 __pycache__/
 *.pyc
+
+# Local workspace/package dependency sources
+**/pubspec_overrides.yaml

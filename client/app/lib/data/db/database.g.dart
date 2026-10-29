@@ -10163,6 +10163,51 @@ class ChatEntries extends Table with TableInfo<ChatEntries, ChatEntry> {
     requiredDuringInsert: false,
     $customConstraints: '',
   );
+  static const VerificationMeta _messageJsonMeta = const VerificationMeta(
+    'messageJson',
+  );
+  late final GeneratedColumn<String> messageJson = GeneratedColumn<String>(
+    'message_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: '',
+  );
+  static const VerificationMeta _revMeta = const VerificationMeta('rev');
+  late final GeneratedColumn<int> rev = GeneratedColumn<int>(
+    'rev',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
+  static const VerificationMeta _lastSeqMeta = const VerificationMeta(
+    'lastSeq',
+  );
+  late final GeneratedColumn<int> lastSeq = GeneratedColumn<int>(
+    'last_seq',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
+  static const VerificationMeta _authoritativeMeta = const VerificationMeta(
+    'authoritative',
+  );
+  late final GeneratedColumn<int> authoritative = GeneratedColumn<int>(
+    'authoritative',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
   static const VerificationMeta _serverPayloadJsonMeta = const VerificationMeta(
     'serverPayloadJson',
   );
@@ -10192,6 +10237,10 @@ class ChatEntries extends Table with TableInfo<ChatEntries, ChatEntry> {
     changeSeq,
     createdAt,
     updatedAt,
+    messageJson,
+    rev,
+    lastSeq,
+    authoritative,
     serverPayloadJson,
   ];
   @override
@@ -10310,6 +10359,36 @@ class ChatEntries extends Table with TableInfo<ChatEntries, ChatEntry> {
         updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
       );
     }
+    if (data.containsKey('message_json')) {
+      context.handle(
+        _messageJsonMeta,
+        messageJson.isAcceptableOrUnknown(
+          data['message_json']!,
+          _messageJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('rev')) {
+      context.handle(
+        _revMeta,
+        rev.isAcceptableOrUnknown(data['rev']!, _revMeta),
+      );
+    }
+    if (data.containsKey('last_seq')) {
+      context.handle(
+        _lastSeqMeta,
+        lastSeq.isAcceptableOrUnknown(data['last_seq']!, _lastSeqMeta),
+      );
+    }
+    if (data.containsKey('authoritative')) {
+      context.handle(
+        _authoritativeMeta,
+        authoritative.isAcceptableOrUnknown(
+          data['authoritative']!,
+          _authoritativeMeta,
+        ),
+      );
+    }
     if (data.containsKey('server_payload_json')) {
       context.handle(
         _serverPayloadJsonMeta,
@@ -10388,6 +10467,22 @@ class ChatEntries extends Table with TableInfo<ChatEntries, ChatEntry> {
         DriftSqlType.string,
         data['${effectivePrefix}updated_at'],
       ),
+      messageJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}message_json'],
+      ),
+      rev: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}rev'],
+      )!,
+      lastSeq: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}last_seq'],
+      )!,
+      authoritative: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}authoritative'],
+      )!,
       serverPayloadJson: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}server_payload_json'],
@@ -10422,6 +10517,10 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
   final int? changeSeq;
   final String? createdAt;
   final String? updatedAt;
+  final String? messageJson;
+  final int rev;
+  final int lastSeq;
+  final int authoritative;
   final String? serverPayloadJson;
   const ChatEntry({
     this.id,
@@ -10439,6 +10538,10 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     this.changeSeq,
     this.createdAt,
     this.updatedAt,
+    this.messageJson,
+    required this.rev,
+    required this.lastSeq,
+    required this.authoritative,
     this.serverPayloadJson,
   });
   @override
@@ -10483,6 +10586,12 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     if (!nullToAbsent || updatedAt != null) {
       map['updated_at'] = Variable<String>(updatedAt);
     }
+    if (!nullToAbsent || messageJson != null) {
+      map['message_json'] = Variable<String>(messageJson);
+    }
+    map['rev'] = Variable<int>(rev);
+    map['last_seq'] = Variable<int>(lastSeq);
+    map['authoritative'] = Variable<int>(authoritative);
     if (!nullToAbsent || serverPayloadJson != null) {
       map['server_payload_json'] = Variable<String>(serverPayloadJson);
     }
@@ -10526,6 +10635,12 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
       updatedAt: updatedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(updatedAt),
+      messageJson: messageJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(messageJson),
+      rev: Value(rev),
+      lastSeq: Value(lastSeq),
+      authoritative: Value(authoritative),
       serverPayloadJson: serverPayloadJson == null && nullToAbsent
           ? const Value.absent()
           : Value(serverPayloadJson),
@@ -10553,6 +10668,10 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
       changeSeq: serializer.fromJson<int?>(json['change_seq']),
       createdAt: serializer.fromJson<String?>(json['created_at']),
       updatedAt: serializer.fromJson<String?>(json['updated_at']),
+      messageJson: serializer.fromJson<String?>(json['message_json']),
+      rev: serializer.fromJson<int>(json['rev']),
+      lastSeq: serializer.fromJson<int>(json['last_seq']),
+      authoritative: serializer.fromJson<int>(json['authoritative']),
       serverPayloadJson: serializer.fromJson<String?>(
         json['server_payload_json'],
       ),
@@ -10577,6 +10696,10 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
       'change_seq': serializer.toJson<int?>(changeSeq),
       'created_at': serializer.toJson<String?>(createdAt),
       'updated_at': serializer.toJson<String?>(updatedAt),
+      'message_json': serializer.toJson<String?>(messageJson),
+      'rev': serializer.toJson<int>(rev),
+      'last_seq': serializer.toJson<int>(lastSeq),
+      'authoritative': serializer.toJson<int>(authoritative),
       'server_payload_json': serializer.toJson<String?>(serverPayloadJson),
     };
   }
@@ -10597,6 +10720,10 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     Value<int?> changeSeq = const Value.absent(),
     Value<String?> createdAt = const Value.absent(),
     Value<String?> updatedAt = const Value.absent(),
+    Value<String?> messageJson = const Value.absent(),
+    int? rev,
+    int? lastSeq,
+    int? authoritative,
     Value<String?> serverPayloadJson = const Value.absent(),
   }) => ChatEntry(
     id: id.present ? id.value : this.id,
@@ -10618,6 +10745,10 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     changeSeq: changeSeq.present ? changeSeq.value : this.changeSeq,
     createdAt: createdAt.present ? createdAt.value : this.createdAt,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
+    messageJson: messageJson.present ? messageJson.value : this.messageJson,
+    rev: rev ?? this.rev,
+    lastSeq: lastSeq ?? this.lastSeq,
+    authoritative: authoritative ?? this.authoritative,
     serverPayloadJson: serverPayloadJson.present
         ? serverPayloadJson.value
         : this.serverPayloadJson,
@@ -10649,6 +10780,14 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
       changeSeq: data.changeSeq.present ? data.changeSeq.value : this.changeSeq,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      messageJson: data.messageJson.present
+          ? data.messageJson.value
+          : this.messageJson,
+      rev: data.rev.present ? data.rev.value : this.rev,
+      lastSeq: data.lastSeq.present ? data.lastSeq.value : this.lastSeq,
+      authoritative: data.authoritative.present
+          ? data.authoritative.value
+          : this.authoritative,
       serverPayloadJson: data.serverPayloadJson.present
           ? data.serverPayloadJson.value
           : this.serverPayloadJson,
@@ -10673,6 +10812,10 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
           ..write('changeSeq: $changeSeq, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('messageJson: $messageJson, ')
+          ..write('rev: $rev, ')
+          ..write('lastSeq: $lastSeq, ')
+          ..write('authoritative: $authoritative, ')
           ..write('serverPayloadJson: $serverPayloadJson')
           ..write(')'))
         .toString();
@@ -10695,6 +10838,10 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     changeSeq,
     createdAt,
     updatedAt,
+    messageJson,
+    rev,
+    lastSeq,
+    authoritative,
     serverPayloadJson,
   );
   @override
@@ -10716,6 +10863,10 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
           other.changeSeq == this.changeSeq &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
+          other.messageJson == this.messageJson &&
+          other.rev == this.rev &&
+          other.lastSeq == this.lastSeq &&
+          other.authoritative == this.authoritative &&
           other.serverPayloadJson == this.serverPayloadJson);
 }
 
@@ -10735,6 +10886,10 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
   final Value<int?> changeSeq;
   final Value<String?> createdAt;
   final Value<String?> updatedAt;
+  final Value<String?> messageJson;
+  final Value<int> rev;
+  final Value<int> lastSeq;
+  final Value<int> authoritative;
   final Value<String?> serverPayloadJson;
   final Value<int> rowid;
   const ChatEntriesCompanion({
@@ -10753,6 +10908,10 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     this.changeSeq = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.messageJson = const Value.absent(),
+    this.rev = const Value.absent(),
+    this.lastSeq = const Value.absent(),
+    this.authoritative = const Value.absent(),
     this.serverPayloadJson = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -10772,6 +10931,10 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     this.changeSeq = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.messageJson = const Value.absent(),
+    this.rev = const Value.absent(),
+    this.lastSeq = const Value.absent(),
+    this.authoritative = const Value.absent(),
     this.serverPayloadJson = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : spaceId = Value(spaceId);
@@ -10791,6 +10954,10 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     Expression<int>? changeSeq,
     Expression<String>? createdAt,
     Expression<String>? updatedAt,
+    Expression<String>? messageJson,
+    Expression<int>? rev,
+    Expression<int>? lastSeq,
+    Expression<int>? authoritative,
     Expression<String>? serverPayloadJson,
     Expression<int>? rowid,
   }) {
@@ -10810,6 +10977,10 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
       if (changeSeq != null) 'change_seq': changeSeq,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (messageJson != null) 'message_json': messageJson,
+      if (rev != null) 'rev': rev,
+      if (lastSeq != null) 'last_seq': lastSeq,
+      if (authoritative != null) 'authoritative': authoritative,
       if (serverPayloadJson != null) 'server_payload_json': serverPayloadJson,
       if (rowid != null) 'rowid': rowid,
     });
@@ -10831,6 +11002,10 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     Value<int?>? changeSeq,
     Value<String?>? createdAt,
     Value<String?>? updatedAt,
+    Value<String?>? messageJson,
+    Value<int>? rev,
+    Value<int>? lastSeq,
+    Value<int>? authoritative,
     Value<String?>? serverPayloadJson,
     Value<int>? rowid,
   }) {
@@ -10850,6 +11025,10 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
       changeSeq: changeSeq ?? this.changeSeq,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      messageJson: messageJson ?? this.messageJson,
+      rev: rev ?? this.rev,
+      lastSeq: lastSeq ?? this.lastSeq,
+      authoritative: authoritative ?? this.authoritative,
       serverPayloadJson: serverPayloadJson ?? this.serverPayloadJson,
       rowid: rowid ?? this.rowid,
     );
@@ -10903,6 +11082,18 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<String>(updatedAt.value);
     }
+    if (messageJson.present) {
+      map['message_json'] = Variable<String>(messageJson.value);
+    }
+    if (rev.present) {
+      map['rev'] = Variable<int>(rev.value);
+    }
+    if (lastSeq.present) {
+      map['last_seq'] = Variable<int>(lastSeq.value);
+    }
+    if (authoritative.present) {
+      map['authoritative'] = Variable<int>(authoritative.value);
+    }
     if (serverPayloadJson.present) {
       map['server_payload_json'] = Variable<String>(serverPayloadJson.value);
     }
@@ -10930,7 +11121,285 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
           ..write('changeSeq: $changeSeq, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('messageJson: $messageJson, ')
+          ..write('rev: $rev, ')
+          ..write('lastSeq: $lastSeq, ')
+          ..write('authoritative: $authoritative, ')
           ..write('serverPayloadJson: $serverPayloadJson, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ChatClientStates extends Table
+    with TableInfo<ChatClientStates, ChatClientState> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  ChatClientStates(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _spaceIdMeta = const VerificationMeta(
+    'spaceId',
+  );
+  late final GeneratedColumn<String> spaceId = GeneratedColumn<String>(
+    'space_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  static const VerificationMeta _messageIdMeta = const VerificationMeta(
+    'messageId',
+  );
+  late final GeneratedColumn<String> messageId = GeneratedColumn<String>(
+    'message_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  static const VerificationMeta _stateJsonMeta = const VerificationMeta(
+    'stateJson',
+  );
+  late final GeneratedColumn<String> stateJson = GeneratedColumn<String>(
+    'state_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT \'{}\'',
+    defaultValue: const CustomExpression('\'{}\''),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [spaceId, messageId, stateJson];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'chat_client_states';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ChatClientState> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('space_id')) {
+      context.handle(
+        _spaceIdMeta,
+        spaceId.isAcceptableOrUnknown(data['space_id']!, _spaceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_spaceIdMeta);
+    }
+    if (data.containsKey('message_id')) {
+      context.handle(
+        _messageIdMeta,
+        messageId.isAcceptableOrUnknown(data['message_id']!, _messageIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_messageIdMeta);
+    }
+    if (data.containsKey('state_json')) {
+      context.handle(
+        _stateJsonMeta,
+        stateJson.isAcceptableOrUnknown(data['state_json']!, _stateJsonMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {spaceId, messageId};
+  @override
+  ChatClientState map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ChatClientState(
+      spaceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}space_id'],
+      )!,
+      messageId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}message_id'],
+      )!,
+      stateJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state_json'],
+      )!,
+    );
+  }
+
+  @override
+  ChatClientStates createAlias(String alias) {
+    return ChatClientStates(attachedDatabase, alias);
+  }
+
+  @override
+  List<String> get customConstraints => const [
+    'PRIMARY KEY(space_id, message_id)',
+  ];
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class ChatClientState extends DataClass implements Insertable<ChatClientState> {
+  final String spaceId;
+  final String messageId;
+  final String stateJson;
+  const ChatClientState({
+    required this.spaceId,
+    required this.messageId,
+    required this.stateJson,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['space_id'] = Variable<String>(spaceId);
+    map['message_id'] = Variable<String>(messageId);
+    map['state_json'] = Variable<String>(stateJson);
+    return map;
+  }
+
+  ChatClientStatesCompanion toCompanion(bool nullToAbsent) {
+    return ChatClientStatesCompanion(
+      spaceId: Value(spaceId),
+      messageId: Value(messageId),
+      stateJson: Value(stateJson),
+    );
+  }
+
+  factory ChatClientState.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ChatClientState(
+      spaceId: serializer.fromJson<String>(json['space_id']),
+      messageId: serializer.fromJson<String>(json['message_id']),
+      stateJson: serializer.fromJson<String>(json['state_json']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'space_id': serializer.toJson<String>(spaceId),
+      'message_id': serializer.toJson<String>(messageId),
+      'state_json': serializer.toJson<String>(stateJson),
+    };
+  }
+
+  ChatClientState copyWith({
+    String? spaceId,
+    String? messageId,
+    String? stateJson,
+  }) => ChatClientState(
+    spaceId: spaceId ?? this.spaceId,
+    messageId: messageId ?? this.messageId,
+    stateJson: stateJson ?? this.stateJson,
+  );
+  ChatClientState copyWithCompanion(ChatClientStatesCompanion data) {
+    return ChatClientState(
+      spaceId: data.spaceId.present ? data.spaceId.value : this.spaceId,
+      messageId: data.messageId.present ? data.messageId.value : this.messageId,
+      stateJson: data.stateJson.present ? data.stateJson.value : this.stateJson,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChatClientState(')
+          ..write('spaceId: $spaceId, ')
+          ..write('messageId: $messageId, ')
+          ..write('stateJson: $stateJson')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(spaceId, messageId, stateJson);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ChatClientState &&
+          other.spaceId == this.spaceId &&
+          other.messageId == this.messageId &&
+          other.stateJson == this.stateJson);
+}
+
+class ChatClientStatesCompanion extends UpdateCompanion<ChatClientState> {
+  final Value<String> spaceId;
+  final Value<String> messageId;
+  final Value<String> stateJson;
+  final Value<int> rowid;
+  const ChatClientStatesCompanion({
+    this.spaceId = const Value.absent(),
+    this.messageId = const Value.absent(),
+    this.stateJson = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ChatClientStatesCompanion.insert({
+    required String spaceId,
+    required String messageId,
+    this.stateJson = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : spaceId = Value(spaceId),
+       messageId = Value(messageId);
+  static Insertable<ChatClientState> custom({
+    Expression<String>? spaceId,
+    Expression<String>? messageId,
+    Expression<String>? stateJson,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (spaceId != null) 'space_id': spaceId,
+      if (messageId != null) 'message_id': messageId,
+      if (stateJson != null) 'state_json': stateJson,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ChatClientStatesCompanion copyWith({
+    Value<String>? spaceId,
+    Value<String>? messageId,
+    Value<String>? stateJson,
+    Value<int>? rowid,
+  }) {
+    return ChatClientStatesCompanion(
+      spaceId: spaceId ?? this.spaceId,
+      messageId: messageId ?? this.messageId,
+      stateJson: stateJson ?? this.stateJson,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (spaceId.present) {
+      map['space_id'] = Variable<String>(spaceId.value);
+    }
+    if (messageId.present) {
+      map['message_id'] = Variable<String>(messageId.value);
+    }
+    if (stateJson.present) {
+      map['state_json'] = Variable<String>(stateJson.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChatClientStatesCompanion(')
+          ..write('spaceId: $spaceId, ')
+          ..write('messageId: $messageId, ')
+          ..write('stateJson: $stateJson, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -13662,6 +14131,11 @@ abstract class _$JiabuDatabase extends GeneratedDatabase {
     'chat_entries_space',
     'CREATE INDEX chat_entries_space ON chat_entries (space_id)',
   );
+  late final Index chatEntriesConversation = Index(
+    'chat_entries_conversation',
+    'CREATE INDEX chat_entries_conversation ON chat_entries (space_id, member_id, conversation_id, created_at, id)',
+  );
+  late final ChatClientStates chatClientStates = ChatClientStates(this);
   late final Outbox outbox = Outbox(this);
   late final Index outboxFifo = Index(
     'outbox_fifo',
@@ -13700,6 +14174,8 @@ abstract class _$JiabuDatabase extends GeneratedDatabase {
     conversationsSpace,
     chatEntries,
     chatEntriesSpace,
+    chatEntriesConversation,
+    chatClientStates,
     outbox,
     outboxFifo,
     syncCursors,
@@ -18264,6 +18740,10 @@ typedef $ChatEntriesCreateCompanionBuilder = ChatEntriesCompanion Function({
   Value<int?> changeSeq,
   Value<String?> createdAt,
   Value<String?> updatedAt,
+  Value<String?> messageJson,
+  Value<int> rev,
+  Value<int> lastSeq,
+  Value<int> authoritative,
   Value<String?> serverPayloadJson,
   Value<int> rowid,
 });
@@ -18283,6 +18763,10 @@ typedef $ChatEntriesUpdateCompanionBuilder = ChatEntriesCompanion Function({
   Value<int?> changeSeq,
   Value<String?> createdAt,
   Value<String?> updatedAt,
+  Value<String?> messageJson,
+  Value<int> rev,
+  Value<int> lastSeq,
+  Value<int> authoritative,
   Value<String?> serverPayloadJson,
   Value<int> rowid,
 });
@@ -18368,6 +18852,26 @@ class $ChatEntriesFilterComposer
 
   ColumnFilters<String> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get messageJson => $composableBuilder(
+    column: $table.messageJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get rev => $composableBuilder(
+    column: $table.rev,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lastSeq => $composableBuilder(
+    column: $table.lastSeq,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get authoritative => $composableBuilder(
+    column: $table.authoritative,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -18461,6 +18965,26 @@ class $ChatEntriesOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get messageJson => $composableBuilder(
+    column: $table.messageJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get rev => $composableBuilder(
+    column: $table.rev,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lastSeq => $composableBuilder(
+    column: $table.lastSeq,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get authoritative => $composableBuilder(
+    column: $table.authoritative,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get serverPayloadJson => $composableBuilder(
     column: $table.serverPayloadJson,
     builder: (column) => ColumnOrderings(column),
@@ -18531,6 +19055,22 @@ class $ChatEntriesAnnotationComposer
   GeneratedColumn<String> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 
+  GeneratedColumn<String> get messageJson => $composableBuilder(
+    column: $table.messageJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get rev =>
+      $composableBuilder(column: $table.rev, builder: (column) => column);
+
+  GeneratedColumn<int> get lastSeq =>
+      $composableBuilder(column: $table.lastSeq, builder: (column) => column);
+
+  GeneratedColumn<int> get authoritative => $composableBuilder(
+    column: $table.authoritative,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get serverPayloadJson => $composableBuilder(
     column: $table.serverPayloadJson,
     builder: (column) => column,
@@ -18580,6 +19120,10 @@ class $ChatEntriesTableManager
                 Value<int?> changeSeq = const Value.absent(),
                 Value<String?> createdAt = const Value.absent(),
                 Value<String?> updatedAt = const Value.absent(),
+                Value<String?> messageJson = const Value.absent(),
+                Value<int> rev = const Value.absent(),
+                Value<int> lastSeq = const Value.absent(),
+                Value<int> authoritative = const Value.absent(),
                 Value<String?> serverPayloadJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatEntriesCompanion(
@@ -18598,6 +19142,10 @@ class $ChatEntriesTableManager
                 changeSeq: changeSeq,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                messageJson: messageJson,
+                rev: rev,
+                lastSeq: lastSeq,
+                authoritative: authoritative,
                 serverPayloadJson: serverPayloadJson,
                 rowid: rowid,
               ),
@@ -18618,6 +19166,10 @@ class $ChatEntriesTableManager
                 Value<int?> changeSeq = const Value.absent(),
                 Value<String?> createdAt = const Value.absent(),
                 Value<String?> updatedAt = const Value.absent(),
+                Value<String?> messageJson = const Value.absent(),
+                Value<int> rev = const Value.absent(),
+                Value<int> lastSeq = const Value.absent(),
+                Value<int> authoritative = const Value.absent(),
                 Value<String?> serverPayloadJson = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatEntriesCompanion.insert(
@@ -18636,6 +19188,10 @@ class $ChatEntriesTableManager
                 changeSeq: changeSeq,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                messageJson: messageJson,
+                rev: rev,
+                lastSeq: lastSeq,
+                authoritative: authoritative,
                 serverPayloadJson: serverPayloadJson,
                 rowid: rowid,
               ),
@@ -18668,6 +19224,177 @@ typedef $ChatEntriesProcessedTableManager =
       $ChatEntriesUpdateCompanionBuilder,
       (ChatEntry, BaseReferences<_$JiabuDatabase, ChatEntries, ChatEntry>),
       ChatEntry,
+      PrefetchHooks Function()
+    >;
+typedef $ChatClientStatesCreateCompanionBuilder =
+    ChatClientStatesCompanion Function({
+      required String spaceId,
+      required String messageId,
+      Value<String> stateJson,
+      Value<int> rowid,
+    });
+typedef $ChatClientStatesUpdateCompanionBuilder =
+    ChatClientStatesCompanion Function({
+      Value<String> spaceId,
+      Value<String> messageId,
+      Value<String> stateJson,
+      Value<int> rowid,
+    });
+
+class $ChatClientStatesFilterComposer
+    extends Composer<_$JiabuDatabase, ChatClientStates> {
+  $ChatClientStatesFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get spaceId => $composableBuilder(
+    column: $table.spaceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get messageId => $composableBuilder(
+    column: $table.messageId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get stateJson => $composableBuilder(
+    column: $table.stateJson,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $ChatClientStatesOrderingComposer
+    extends Composer<_$JiabuDatabase, ChatClientStates> {
+  $ChatClientStatesOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get spaceId => $composableBuilder(
+    column: $table.spaceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get messageId => $composableBuilder(
+    column: $table.messageId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get stateJson => $composableBuilder(
+    column: $table.stateJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $ChatClientStatesAnnotationComposer
+    extends Composer<_$JiabuDatabase, ChatClientStates> {
+  $ChatClientStatesAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get spaceId =>
+      $composableBuilder(column: $table.spaceId, builder: (column) => column);
+
+  GeneratedColumn<String> get messageId =>
+      $composableBuilder(column: $table.messageId, builder: (column) => column);
+
+  GeneratedColumn<String> get stateJson =>
+      $composableBuilder(column: $table.stateJson, builder: (column) => column);
+}
+
+class $ChatClientStatesTableManager
+    extends
+        RootTableManager<
+          _$JiabuDatabase,
+          ChatClientStates,
+          ChatClientState,
+          $ChatClientStatesFilterComposer,
+          $ChatClientStatesOrderingComposer,
+          $ChatClientStatesAnnotationComposer,
+          $ChatClientStatesCreateCompanionBuilder,
+          $ChatClientStatesUpdateCompanionBuilder,
+          (
+            ChatClientState,
+            BaseReferences<_$JiabuDatabase, ChatClientStates, ChatClientState>,
+          ),
+          ChatClientState,
+          PrefetchHooks Function()
+        > {
+  $ChatClientStatesTableManager(_$JiabuDatabase db, ChatClientStates table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $ChatClientStatesFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $ChatClientStatesOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $ChatClientStatesAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> spaceId = const Value.absent(),
+                Value<String> messageId = const Value.absent(),
+                Value<String> stateJson = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChatClientStatesCompanion(
+                spaceId: spaceId,
+                messageId: messageId,
+                stateJson: stateJson,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String spaceId,
+                required String messageId,
+                Value<String> stateJson = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChatClientStatesCompanion.insert(
+                spaceId: spaceId,
+                messageId: messageId,
+                stateJson: stateJson,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<ChatClientStates, ChatClientState>(table),
+                  BaseReferences<
+                    _$JiabuDatabase,
+                    ChatClientStates,
+                    ChatClientState
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $ChatClientStatesProcessedTableManager =
+    ProcessedTableManager<
+      _$JiabuDatabase,
+      ChatClientStates,
+      ChatClientState,
+      $ChatClientStatesFilterComposer,
+      $ChatClientStatesOrderingComposer,
+      $ChatClientStatesAnnotationComposer,
+      $ChatClientStatesCreateCompanionBuilder,
+      $ChatClientStatesUpdateCompanionBuilder,
+      (
+        ChatClientState,
+        BaseReferences<_$JiabuDatabase, ChatClientStates, ChatClientState>,
+      ),
+      ChatClientState,
       PrefetchHooks Function()
     >;
 typedef $OutboxCreateCompanionBuilder = OutboxCompanion Function({
@@ -20053,6 +20780,8 @@ class $JiabuDatabaseManager {
       $ConversationsTableManager(_db, _db.conversations);
   $ChatEntriesTableManager get chatEntries =>
       $ChatEntriesTableManager(_db, _db.chatEntries);
+  $ChatClientStatesTableManager get chatClientStates =>
+      $ChatClientStatesTableManager(_db, _db.chatClientStates);
   $OutboxTableManager get outbox => $OutboxTableManager(_db, _db.outbox);
   $SyncCursorsTableManager get syncCursors =>
       $SyncCursorsTableManager(_db, _db.syncCursors);
