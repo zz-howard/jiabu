@@ -428,7 +428,7 @@ async fn invitations_are_owner_only_and_survive_transfer() -> Result<()> {
     let host = fixture.seed("host", "unused").await?;
     let guest = fixture.seed("guest", "unused").await?;
     let third = fixture.seed("third", "unused").await?;
-    let fourth = fixture.seed("fourth", "unused").await?;
+    let _fourth = fixture.seed("fourth", "unused").await?;
     let db = AppDb::connect(&fixture.app_url).await?;
     let space = SpaceId(Uuid::now_v7());
     db.create_space(
@@ -491,7 +491,13 @@ async fn invitations_are_owner_only_and_survive_transfer() -> Result<()> {
     .await?;
     change(&db, host.user_id, space, Change::Leave).await?;
     // Rule 2: the new owner may withdraw an invitation it did not send.
-    change(&db, guest.user_id, space, Change::Cancel { invitation: other }).await?;
+    change(
+        &db,
+        guest.user_id,
+        space,
+        Change::Cancel { invitation: other },
+    )
+    .await?;
     db.decide_invitation(
         third.user_id,
         pending,
