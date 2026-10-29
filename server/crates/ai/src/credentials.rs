@@ -61,6 +61,16 @@ pub trait TokenStore: Send + Sync {
 pub struct RefreshGate {
     lock: Mutex<()>,
     usable: AtomicBool,
+    /// A rotation the store did not accept. Upstream may already have invalidated the
+    /// stored refresh token, so this copy wins while the store still holds exactly the
+    /// revision and refresh token it replaced. Lives here so configuration reloads that
+    /// rebuild managers keep it.
+    unpersisted: std::sync::Mutex<Option<Unpersisted>>,
+}
+struct Unpersisted {
+    revision: i64,
+    replaced: Zeroizing<String>,
+    rotated: OAuthCredentials,
 }
 /// Usable until a tombstone, corrupt credential or definite rejection is seen.
 impl Default for RefreshGate {
@@ -68,6 +78,7 @@ impl Default for RefreshGate {
         Self {
             lock: Mutex::new(()),
             usable: AtomicBool::new(true),
+            unpersisted: std::sync::Mutex::new(None),
         }
     }
 }
@@ -75,10 +86,6 @@ pub struct CredentialManager {
     store: Arc<dyn TokenStore>,
     oauth: OAuthClient,
     refresh: Arc<RefreshGate>,
-    /// A rotation the store did not accept, keyed by the stored revision it replaced.
-    /// Upstream may already have invalidated the stored refresh token, so this copy
-    /// wins until it is persisted or the store moves to another revision.
-    unpersisted: std::sync::Mutex<Option<(i64, OAuthCredentials)>>,
 }
 impl CredentialManager {
     pub async fn new(store: Arc<dyn TokenStore>, oauth: OAuthClient) -> Self {
@@ -94,7 +101,6 @@ impl CredentialManager {
             store,
             oauth,
             refresh,
-            unpersisted: std::sync::Mutex::new(None),
         };
         {
             let _guard = manager.refresh.lock.lock().await;
@@ -131,6 +137,20 @@ impl CredentialManager {
             }
         }
     }
+    fn take_unpersisted(&self) -> Option<Unpersisted> {
+        self.refresh
+            .unpersisted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+    fn keep_unpersisted(&self, pending: Unpersisted) {
+        *self
+            .refresh
+            .unpersisted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(pending);
+    }
     /// Retries transient storage failures; false when the rotation is not stored.
     async fn persist(&self, revision: i64, next: &OAuthCredentials) -> bool {
         for attempt in 0..3u32 {
@@ -151,14 +171,19 @@ impl CredentialManager {
     ) -> Result<OAuthCredentials, ProviderError> {
         let _guard = self.refresh.lock.lock().await;
         let (mut revision, mut current) = self.load().await?;
-        let pending = self.unpersisted.lock().unwrap().take();
-        if let Some((base, rotated)) = pending.filter(|(base, _)| *base == revision) {
-            if self.persist(base, &rotated).await {
-                revision = base + 1;
+        // The token the store holds, which a later pending rotation must still match.
+        let mut stored = Zeroizing::new(current.refresh_token.clone());
+        let pending = self.take_unpersisted();
+        if let Some(pending) = pending.filter(|p| {
+            p.revision == revision && *p.replaced == current.refresh_token
+        }) {
+            current = pending.rotated.clone();
+            if self.persist(revision, &current).await {
+                revision += 1;
+                stored = Zeroizing::new(current.refresh_token.clone());
             } else {
-                *self.unpersisted.lock().unwrap() = Some((base, rotated.clone()));
+                self.keep_unpersisted(pending);
             }
-            current = rotated;
         }
         if rejected.is_some_and(|token| token != current.access_token) {
             return Ok(current);
@@ -173,7 +198,11 @@ impl CredentialManager {
                     // unpersisted rotation is kept in memory and retried later.
                     if !self.persist(revision, &next).await {
                         eprintln!("SIWC credential rotation not persisted; kept in memory");
-                        *self.unpersisted.lock().unwrap() = Some((revision, next.clone()));
+                        self.keep_unpersisted(Unpersisted {
+                            revision,
+                            replaced: stored.clone(),
+                            rotated: next.clone(),
+                        });
                     }
                     return Ok(next);
                 }

@@ -575,3 +575,60 @@ async fn unpersisted_rotation_is_reused_for_the_next_refresh() {
         assert!(manager.available());
     }
 }
+
+#[tokio::test]
+async fn unpersisted_rotation_survives_manager_rebuild_but_not_a_new_credential() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-refresh&"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-rotated-refresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-third-access","refresh_token":"synthetic-third-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+    let manager = |gate: Arc<jiabu_ai::credentials::RefreshGate>| {
+        let store = Arc::new(RejectingWrite {
+            tokens: tokens.clone(),
+            error: false,
+        });
+        let uri = server.uri();
+        async move {
+            CredentialManager::with_gate(store, OAuthClient::at(&uri).unwrap(), gate).await
+        }
+    };
+    manager(gate.clone()).await.access().await.unwrap();
+    // A configuration reload builds a new manager on the same gate.
+    let rebuilt = manager(gate.clone()).await;
+    assert_eq!(
+        rebuilt.access().await.unwrap().access_token,
+        "synthetic-new-access"
+    );
+    assert_eq!(
+        rebuilt
+            .refresh_after_rejection("synthetic-new-access")
+            .await
+            .unwrap()
+            .refresh_token,
+        "synthetic-third-refresh"
+    );
+    // An operator-supplied credential at the same revision replaces the pending copy.
+    {
+        let mut stored = tokens.0.lock().unwrap();
+        stored.credentials.access_token = "synthetic-login-access".into();
+        stored.credentials.refresh_token = "synthetic-login-refresh".into();
+        stored.credentials.expires_at = chrono::Utc::now().timestamp() + 3600;
+    }
+    assert_eq!(
+        manager(gate).await.access().await.unwrap().access_token,
+        "synthetic-login-access"
+    );
+}
