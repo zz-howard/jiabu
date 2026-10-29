@@ -84,7 +84,7 @@ void main() {
     expect(spaces.actions, isEmpty);
   });
   testWidgets(
-    'member_has_no_owner_actions_and_personal_has_no_leave_or_invite',
+    'member_can_invite_but_has_no_owner_actions_and_personal_has_no_leave_or_invite',
     (tester) async {
       await pumpC4Widget(
         tester,
@@ -95,7 +95,9 @@ void main() {
       );
       expect(find.text('移除成员'), findsNothing);
       expect(find.text('转让所有者'), findsNothing);
-      expect(find.text('邀请成员'), findsNothing);
+      // Any active member may invite; only owners rename/remove/transfer.
+      expect(find.text('邀请成员'), findsOneWidget);
+      expect(find.text('发出的邀请'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
       await pumpC4Widget(

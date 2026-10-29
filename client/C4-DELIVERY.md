@@ -1,5 +1,9 @@
 # C4 交付说明
 
+## Review 第 1 轮修正
+
+- 邀请入口与「发出的邀请」恢复为任何活跃成员可见（仅默认个人空间隐藏），与服务端一致：`Change::requires_owner()` 只含改名/删除/移除/转让，撤回仅限邀请人。构建机第 2 轮把它误改成 owner-only（当时失败的测试本身写错），现已改回，组件测试改为断言 member 能看到邀请入口。
+
 ## 构建机第 4 轮视觉修正
 
 第 4 轮 format、analyze、rules、icons、workspace、design package 与 app 门禁全部通过。空间切换测试挂死已在提交 `1eb2938` 修复：preview runtime 的 `runtime.close()` 不返回，且测试需等待新空间实际渲染；本轮保留该修复，不修改 `c4_space_switch_test.dart`。构建机生成但尚未提交的 135 张 C4 golden 仅用于人工审图，本轮未修改任何 PNG。

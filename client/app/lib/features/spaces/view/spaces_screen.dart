@@ -157,7 +157,7 @@ class SpacesScreen extends ConsumerWidget {
               true,
               () => context.push<void>('/spaces/${space.id}/members'),
             ),
-            if (space.owner && !space.isDefault) ...[
+            if (!space.isDefault) ...[
               _action(
                 context,
                 l.c4Invite,
