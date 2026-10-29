@@ -632,3 +632,62 @@ async fn unpersisted_rotation_survives_manager_rebuild_but_not_a_new_credential(
         "synthetic-login-access"
     );
 }
+struct HangingWrite {
+    tokens: Arc<Tokens>,
+}
+#[async_trait::async_trait]
+impl TokenStore for HangingWrite {
+    async fn load(&self) -> Result<jiabu_ai::credentials::TokenRead, ProviderError> {
+        self.tokens.load().await
+    }
+    async fn compare_exchange(
+        &self,
+        _revision: i64,
+        _next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        std::future::pending().await
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn rotation_survives_a_request_cancelled_while_persisting() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-refresh&"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+    let hanging = CredentialManager::with_gate(
+        Arc::new(HangingWrite {
+            tokens: tokens.clone(),
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+        gate.clone(),
+    )
+    .await;
+    // The request deadline fires while the store write is still pending.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(500), hanging.access())
+            .await
+            .is_err()
+    );
+    let rebuilt = CredentialManager::with_gate(
+        Arc::new(RejectingWrite {
+            tokens: tokens.clone(),
+            error: false,
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+        gate,
+    )
+    .await;
+    assert_eq!(
+        rebuilt.access().await.unwrap().access_token,
+        "synthetic-new-access"
+    );
+}

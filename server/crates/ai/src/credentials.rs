@@ -64,9 +64,11 @@ pub struct RefreshGate {
     /// A rotation the store did not accept. Upstream may already have invalidated the
     /// stored refresh token, so this copy wins while the store still holds exactly the
     /// revision and refresh token it replaced. Lives here so configuration reloads that
-    /// rebuild managers keep it.
+    /// rebuild managers keep it. It is cleared only once stored, so a cancelled request
+    /// cannot drop it.
     unpersisted: std::sync::Mutex<Option<Unpersisted>>,
 }
+#[derive(Clone)]
 struct Unpersisted {
     revision: i64,
     replaced: Zeroizing<String>,
@@ -137,19 +139,19 @@ impl CredentialManager {
             }
         }
     }
-    fn take_unpersisted(&self) -> Option<Unpersisted> {
+    fn unpersisted(&self) -> Option<Unpersisted> {
         self.refresh
             .unpersisted
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
+            .clone()
     }
-    fn keep_unpersisted(&self, pending: Unpersisted) {
+    fn set_unpersisted(&self, pending: Option<Unpersisted>) {
         *self
             .refresh
             .unpersisted
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(pending);
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = pending;
     }
     /// Retries transient storage failures; false when the rotation is not stored.
     async fn persist(&self, revision: i64, next: &OAuthCredentials) -> bool {
@@ -173,16 +175,16 @@ impl CredentialManager {
         let (mut revision, mut current) = self.load().await?;
         // The token the store holds, which a later pending rotation must still match.
         let mut stored = Zeroizing::new(current.refresh_token.clone());
-        let pending = self.take_unpersisted();
-        if let Some(pending) = pending.filter(|p| {
-            p.revision == revision && *p.replaced == current.refresh_token
-        }) {
-            current = pending.rotated.clone();
-            if self.persist(revision, &current).await {
-                revision += 1;
-                stored = Zeroizing::new(current.refresh_token.clone());
+        if let Some(pending) = self.unpersisted() {
+            if pending.revision == revision && *pending.replaced == current.refresh_token {
+                current = pending.rotated;
+                if self.persist(revision, &current).await {
+                    revision += 1;
+                    stored = Zeroizing::new(current.refresh_token.clone());
+                    self.set_unpersisted(None);
+                }
             } else {
-                self.keep_unpersisted(pending);
+                self.set_unpersisted(None);
             }
         }
         if rejected.is_some_and(|token| token != current.access_token) {
@@ -194,15 +196,17 @@ impl CredentialManager {
         {
             match self.oauth.refresh(&current).await {
                 Ok(next) => {
-                    // The old refresh token may already be dead upstream, so an
-                    // unpersisted rotation is kept in memory and retried later.
-                    if !self.persist(revision, &next).await {
+                    // The old refresh token may already be dead upstream, so the rotation
+                    // is held in memory before persisting and retried later if not stored.
+                    self.set_unpersisted(Some(Unpersisted {
+                        revision,
+                        replaced: stored.clone(),
+                        rotated: next.clone(),
+                    }));
+                    if self.persist(revision, &next).await {
+                        self.set_unpersisted(None);
+                    } else {
                         eprintln!("SIWC credential rotation not persisted; kept in memory");
-                        self.keep_unpersisted(Unpersisted {
-                            revision,
-                            replaced: stored.clone(),
-                            rotated: next.clone(),
-                        });
                     }
                     return Ok(next);
                 }
