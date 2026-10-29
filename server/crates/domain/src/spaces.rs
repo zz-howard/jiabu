@@ -34,7 +34,11 @@ impl Change {
     pub fn requires_owner(&self) -> bool {
         matches!(
             self,
-            Self::Rename { .. } | Self::Delete { .. } | Self::Remove { .. } | Self::Transfer { .. }
+            Self::Rename { .. }
+                | Self::Invite { .. }
+                | Self::Delete { .. }
+                | Self::Remove { .. }
+                | Self::Transfer { .. }
         )
     }
 }

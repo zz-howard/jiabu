@@ -466,17 +466,31 @@ async fn invitations_privacy_decline_cancel_and_member_permissions() -> Result<(
         }
         expected = Some(bytes);
     }
-    assert_eq!(
-        app.request("GET", &route, Value::Null, Some(&guest.token), &[])
-            .await?
-            .status,
-        StatusCode::OK
-    );
-    let third_invitation = invite(&app, &guest.token, space, "third", 1).await?;
+    let member_view = app
+        .request("GET", &route, Value::Null, Some(&guest.token), &[])
+        .await?;
+    assert_eq!(member_view.status, StatusCode::OK);
+    // P71: a member sees only invitations it sent itself, not the owner's.
+    assert_eq!(member_view.json()["invitations"], json!([]));
+    // P71: only the owner invites; a member cannot withdraw the owner's invitation.
     assert_eq!(
         write(
             &app,
-            &token,
+            &guest.token,
+            "POST",
+            &format!("/v1/spaces/{space}/invitations"),
+            json!({"username":"third"}),
+            1
+        )
+        .await?
+        .status,
+        StatusCode::NOT_FOUND
+    );
+    let third_invitation = invite(&app, &token, space, "third", 1).await?;
+    assert_eq!(
+        write(
+            &app,
+            &guest.token,
             "POST",
             &format!("/v1/spaces/{space}/invitations/{third_invitation}/cancel"),
             Value::Null,
@@ -676,7 +690,7 @@ async fn leave_remove_invalidate_invitations_cancel_runs_and_rejoin_reuses_membe
     let app = TestApp::new(false).await?;
     let token = app.token().await?;
     let guest = actor(&app, "guest").await?;
-    let waiting = actor(&app, "waiting").await?;
+    let _waiting = actor(&app, "waiting").await?;
     let space = create(&app, &token).await?;
     let joined = accept(&app, &guest, invite(&app, &token, space, "guest", 1).await?).await?;
     let member = Uuid::parse_str(
@@ -718,7 +732,7 @@ async fn leave_remove_invalidate_invitations_cancel_runs_and_rejoin_reuses_membe
         .bind(member)
         .fetch_one(&owner)
         .await?;
-    let pending = invite(&app, &guest.token, space, "waiting", 1).await?;
+    let pending = invite(&app, &token, space, "waiting", 1).await?;
     let grants_before: Vec<i64> = sqlx::query_scalar(
         "select change_seq from space_member_grants where member_id=$1 order by module",
     )
@@ -753,19 +767,20 @@ async fn leave_remove_invalidate_invitations_cancel_runs_and_rejoin_reuses_membe
         .bind(pending)
         .fetch_one(&owner)
         .await?;
-    assert_eq!(state, "cancelled"); // Must already be invalid before the invitee tries acceptance.
+    // P71: another member leaving does not touch the owner's pending invitation.
+    assert_eq!(state, "pending");
     assert_eq!(
         write(
             &app,
-            &waiting.token,
+            &token,
             "POST",
-            &format!("/v1/me/invitations/{pending}/accept"),
+            &format!("/v1/spaces/{space}/invitations/{pending}/cancel"),
             Value::Null,
             1
         )
         .await?
         .status,
-        StatusCode::NOT_FOUND
+        StatusCode::OK
     );
     assert_runs(&owner, &runs, true).await?;
     assert_runs(&owner, &other_member_runs, false).await?;
@@ -837,7 +852,7 @@ async fn leave_remove_invalidate_invitations_cancel_runs_and_rejoin_reuses_membe
         Err(jiabu_db::BeginError::MembershipChanged)
     ));
     db.close().await?;
-    let pending = invite(&app, &guest.token, space, "waiting", 2).await?;
+    let pending = invite(&app, &token, space, "waiting", 1).await?;
     let removed_runs = seed_runs(&owner, space, member).await?;
     assert_eq!(
         write(
@@ -858,19 +873,19 @@ async fn leave_remove_invalidate_invitations_cancel_runs_and_rejoin_reuses_membe
         .bind(pending)
         .fetch_one(&owner)
         .await?;
-    assert_eq!(cancelled, "cancelled");
+    assert_eq!(cancelled, "pending"); // P71: removing a member leaves the owner's invitation.
     assert_eq!(
         write(
             &app,
-            &waiting.token,
+            &token,
             "POST",
-            &format!("/v1/me/invitations/{pending}/accept"),
+            &format!("/v1/spaces/{space}/invitations/{pending}/cancel"),
             Value::Null,
             1
         )
         .await?
         .status,
-        StatusCode::NOT_FOUND
+        StatusCode::OK
     );
     let reason: String = sqlx::query_scalar("select left_reason from space_members where id=$1")
         .bind(member)
