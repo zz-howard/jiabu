@@ -133,7 +133,9 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
                       onRetry: () => unawaited(
                         vm.command(() => session.retryUpload(message.id)),
                       ),
-                      onManual: () => unawaited(manual(message.id)),
+                      onManual: ledger?.writable == true
+                          ? () => unawaited(manual(message.id))
+                          : null,
                     ),
                     messageFrameBuilder: (context, message, child) {
                       if (message['role'] == 'user' || child is! MessageView) {

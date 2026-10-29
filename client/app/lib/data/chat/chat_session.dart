@@ -733,6 +733,8 @@ final class LocalChatSession implements ChatConversation {
       return;
     }
     _foreground = false;
+    online = false;
+    _notify();
     transport.disconnect();
     await persistence.flush();
     await _stream.dispose();
