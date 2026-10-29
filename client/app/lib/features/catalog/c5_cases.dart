@@ -187,7 +187,6 @@ Message c5Message(String state) {
         'state': {
           'status': 'resolved',
           'selected': ['credit'],
-          'freeText': '信用卡',
           'resolvedAt': '2026-10-29T12:00:00Z',
           'resolvedBy': '用户A',
         },
@@ -401,7 +400,7 @@ class _C5PreviewState extends State<C5Preview> {
         child: Wrap(
           children: [
             Text(l.chatUnavailable),
-            TextButton(onPressed: () {}, child: Text(l.ledgerManual)),
+            TextButton(onPressed: () {}, child: Text(l.chatManualEntry)),
           ],
         ),
       );

@@ -84,7 +84,7 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
                       onPressed: ledger?.writable == true
                           ? () => openManualEntry(context, spaceId)
                           : null,
-                      child: Text(l.ledgerManual),
+                      child: Text(l.chatManualEntry),
                     ),
                   ],
                 ),

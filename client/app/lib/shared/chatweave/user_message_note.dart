@@ -47,7 +47,6 @@ class UserMessageNote extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: JiabuChatMetrics.gap),
                   child: Polaroid(
-                    degrees: 0,
                     caption: l.handOriginalSaved,
                     image: image == null
                         ? const JiabuIcon(JiabuIcons.uiImage)

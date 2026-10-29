@@ -34,7 +34,7 @@ class JiabuMessageView extends StatelessWidget {
     final l = AppLocalizations.of(context);
     final active = const {'streaming', 'paused'}.contains(message.status);
     return Align(
-      alignment: Alignment.centerLeft,
+      alignment: Alignment.topLeft,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: JiabuChatMetrics.width),
         child: Column(

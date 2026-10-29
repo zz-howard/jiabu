@@ -383,6 +383,7 @@
   "chatManualState": "已改为手动填写",
   "chatManual": "改为手动填写",
   "chatUnavailable": "AI 暂时不可用",
+  "chatManualEntry": "手动记一笔",
   "chatRetry": "重试",
   "chatIncomplete": "没有完成",
   "chatStop": "停止生成",

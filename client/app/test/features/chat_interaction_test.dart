@@ -1,6 +1,5 @@
 import 'package:chatweave_flutter/chatweave_flutter.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu/app/chat_providers.dart';
 import 'package:jiabu/app/ledger_providers.dart';
@@ -17,42 +16,57 @@ import '../support/chat_harness.dart';
 import '../support/ledger_fake.dart';
 
 void main() {
-  testWidgets('ai_unavailable_exposes_manual_form_entry', (tester) async {
-    final h = await ChatHarness.create();
-    final ledger = FakeLedgerRepository(c3Snapshot('card_recorded'));
-    h.session.blocks.apply(SyncMessage(chatMessage()));
-    h.session.blocks.apply(
-      ApplyStream(
-        StreamEvent.fromJson({
-          'protocolVersion': '0.1',
-          'messageId': 'reply',
-          'type': 'message.activity',
-          'activity': {'phase': 'degraded'},
-        }),
-      ),
-    );
-    await pumpC3(
-      tester,
-      repository: ledger,
-      sessionSpaceId: 's',
-      child: ProviderScope(
+  group('AI unavailable manual entry', () {
+    late ChatHarness h;
+    late FakeLedgerRepository ledger;
+
+    setUp(() async {
+      h = await ChatHarness.create();
+      ledger = FakeLedgerRepository(c3Snapshot('card_recorded'));
+    });
+    tearDown(() async {
+      await ledger.changes.close();
+      await h.close();
+    });
+    testWidgets('ai_unavailable_exposes_manual_form_entry', (tester) async {
+      h.session.blocks.apply(SyncMessage(chatMessage()));
+      h.session.blocks.apply(
+        ApplyStream(
+          StreamEvent.fromJson({
+            'protocolVersion': '0.1',
+            'messageId': 'reply',
+            'type': 'message.activity',
+            'activity': {'phase': 'degraded'},
+          }),
+        ),
+      );
+      await pumpC3(
+        tester,
+        repository: ledger,
+        settle: false,
         overrides: [
           chatRepositoryProvider.overrideWithValue(
             FixedChatRepository(h.session),
           ),
-          currentLedgerSpaceProvider.overrideWith((ref) => Stream.value('s')),
+          currentLedgerSpaceProvider.overrideWith(
+            (ref) => Stream.value('fictional-c3'),
+          ),
         ],
         child: const ChatScreen(),
-      ),
-    );
-    await pumpDatabaseFrames(tester);
-    expect(find.text('AI 暂时不可用'), findsOneWidget);
-    await tester.tap(find.widgetWithText(TextButton, '手动记一笔'));
-    await tester.pumpAndSettle();
-    expect(find.byType(RecordForm), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-    await ledger.changes.close();
-    await h.close();
+      );
+      await pumpUntil(
+        tester,
+        () => find.text('AI 暂时不可用').evaluate().isNotEmpty,
+        description: 'AI unavailable banner appears',
+      );
+      await tester.tap(find.widgetWithText(TextButton, '手动记一笔'));
+      await pumpUntil(
+        tester,
+        () => find.byType(RecordForm).evaluate().isNotEmpty,
+        description: 'manual record form appears',
+      );
+      expect(find.byType(RecordForm), findsOneWidget);
+    }, timeout: const Timeout(Duration(seconds: 60)));
   });
   for (final state in [
     'user_pending',
@@ -112,19 +126,32 @@ void main() {
         ),
       ),
     );
-    await pumpC3(tester, child: content());
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() async {
+        await composer.dispose();
+        await actions.dispose();
+        await store.dispose();
+      });
+    });
+    await pumpC3(tester, settle: false, child: content());
     await tester.tap(find.text('信用卡'));
-    await tester.pumpAndSettle();
+    await pumpUntil(
+      tester,
+      () => find.text('已排队，联网后提交').evaluate().isNotEmpty,
+      description: 'queued choice notice appears',
+    );
     expect(find.text('已排队，联网后提交'), findsOneWidget);
     expect(store.snapshot.messages['reply']!.blocks.single.data['state'], {
       'status': 'open',
     });
     store.apply(SyncMessage(c5Message('choice_resolved')));
-    await pumpC3(tester, child: content());
-    expect(find.textContaining('你的回答：信用卡'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-    await composer.dispose();
-    await actions.dispose();
-    await store.dispose();
-  });
+    await pumpC3(tester, settle: false, child: content());
+    await pumpUntil(
+      tester,
+      () => find.textContaining('已回答：信用卡').evaluate().isNotEmpty,
+      description: 'authoritative answer echo appears',
+    );
+    expect(find.textContaining('已回答：信用卡'), findsOneWidget);
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }

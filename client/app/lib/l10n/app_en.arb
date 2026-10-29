@@ -383,6 +383,7 @@
   "chatManualState": "Switched to manual entry",
   "chatManual": "Switch to manual entry",
   "chatUnavailable": "AI is temporarily unavailable",
+  "chatManualEntry": "Add an entry manually",
   "chatRetry": "Retry",
   "chatIncomplete": "Not completed",
   "chatStop": "Stop",

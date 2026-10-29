@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu/app/ledger_providers.dart';
 import 'package:jiabu/domain/ledger.dart';
@@ -21,6 +22,9 @@ Future<void> pumpC3(
   bool settle = true,
   String sessionSpaceId = 'fictional-c3',
   LedgerPresentationSession? Function()? session,
+  // Root-scope overrides: providers without `dependencies` resolve in the
+  // root container, so overriding them in a nested ProviderScope is ignored.
+  List<Override> overrides = const [],
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 844);
@@ -39,6 +43,7 @@ Future<void> pumpC3(
         ),
         if (repository != null)
           ledgerRepositoryProvider.overrideWithValue(repository),
+        ...overrides,
       ],
       child: MaterialApp(
         theme: JiabuTheme.light(),
@@ -75,4 +80,26 @@ Future<void> pumpDatabaseFrames(WidgetTester tester) async {
     );
     await tester.pump(const Duration(milliseconds: 50));
   }
+}
+
+/// Pump real-I/O and widget frames until [condition] becomes true.
+///
+/// Unlike `pumpAndSettle`, this remains bounded when the page intentionally
+/// contains an active stream or animation.
+Future<void> pumpUntil(
+  WidgetTester tester,
+  bool Function() condition, {
+  required String description,
+  int maxFrames = 20,
+}) async {
+  for (var frame = 0; frame < maxFrames; frame++) {
+    if (condition()) {
+      return;
+    }
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+  fail('Condition not met after $maxFrames frames: $description');
 }
