@@ -388,6 +388,17 @@ void main() {
     });
   }
 
+  // Expected message per code, written out independently of authError so a
+  // swapped or collapsed mapping fails.
+  final expectedMessage = <String, String Function(AppLocalizations)>{
+    'unauthenticated': (l) => l.authInvalidCredentials,
+    'rate_limited': (l) => l.authRateLimited,
+    'session_expired': (l) => l.authSessionExpired,
+    'account_disabled': (l) => l.authAccountDisabled,
+    'network': (l) => l.authOffline,
+    'invalid_server_address': (l) => l.authInvalidAddress,
+    'invalid_new_password': (l) => l.authPasswordValidation,
+  };
   for (final (screen, codes) in [
     (
       'login',
@@ -421,9 +432,9 @@ void main() {
             onBack: () {},
           ),
         });
-        final context = tester.element(find.byType(AuthFrame));
-        final message = authError(context, code);
-        expect(message, isNot(AppLocalizations.of(context).authRequestFailed));
+        final l = AppLocalizations.of(tester.element(find.byType(AuthFrame)));
+        final message = expectedMessage[code]!(l);
+        expect(message, isNot(l.authRequestFailed));
         expect(find.text(message), findsOneWidget);
       });
     }
