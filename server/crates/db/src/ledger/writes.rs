@@ -349,20 +349,33 @@ impl SpaceTx {
         original: Option<&Value>,
     ) -> Result<(), Error> {
         let record: Record = decode(value_with_seq(value.clone()))?;
-        if record.amount_minor <= 0
-            || record
-                .note
-                .as_ref()
-                .is_some_and(|s| s.chars().count() > 500)
-        {
-            return Err(Error::invalid());
+        if record.amount_minor <= 0 {
+            return Err(Error::invalid_at("/amount_minor", "positive"));
         }
-        if !valid_record_shape(&record) {
-            return Err(Error::invalid());
+        if record
+            .note
+            .as_ref()
+            .is_some_and(|s| s.chars().count() > 500)
+        {
+            return Err(Error::invalid_at("/note", "max_length_500"));
+        }
+        let shape = record_shape_issues(&record);
+        if !shape.is_empty() {
+            let mut error = Error::invalid();
+            error.errors = Some(
+                shape
+                    .into_iter()
+                    .map(|(field, rule)| crate::ValidationIssue {
+                        pointer: format!("/{field}"),
+                        rule: rule.into(),
+                    })
+                    .collect(),
+            );
+            return Err(error);
         }
         let mut tags = std::collections::HashSet::new();
         if record.tag_ids.iter().any(|id| !tags.insert(*id)) {
-            return Err(Error::invalid());
+            return Err(Error::invalid_at("/tag_ids", "unique"));
         }
         for (field, id, kind) in [
             ("account_id", record.account_id, "real"),
@@ -371,22 +384,35 @@ impl SpaceTx {
             ("to_purpose_id", record.to_purpose_id, "purpose"),
         ] {
             if let Some(id) = id {
-                let account = self.ledger_snapshot(space, Entity::Account, id).await?;
+                let account = self
+                    .ledger_snapshot(space, Entity::Account, id)
+                    .await
+                    .map_err(|error| at_field(error, field))?;
                 if account["kind"] != kind {
-                    return Err(Error::invalid());
+                    return Err(Error::invalid_at(
+                        &format!("/{field}"),
+                        if kind == "real" {
+                            "real_account_required"
+                        } else {
+                            "purpose_account_required"
+                        },
+                    ));
                 }
                 if original.is_none_or(|before| before[field] != value[field]) {
-                    active(&account, "archived_at")?;
+                    active(&account, "archived_at").map_err(|error| at_field(error, field))?;
                 }
             }
         }
         for id in record.tag_ids {
-            let tag = self.ledger_snapshot(space, Entity::Tag, id).await?;
+            let tag = self
+                .ledger_snapshot(space, Entity::Tag, id)
+                .await
+                .map_err(|error| at_field(error, "tag_ids"))?;
             let retained = original
                 .and_then(|before| before["tag_ids"].as_array())
                 .is_some_and(|tags| tags.contains(&json!(id)));
             if !retained && !tag["deleted_at"].is_null() {
-                return Err(Error::not_found());
+                return Err(at_field(Error::not_found(), "tag_ids"));
             }
         }
         for sha in record.attachments {
@@ -395,7 +421,7 @@ impl SpaceTx {
                     .bytes()
                     .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             {
-                return Err(Error::invalid());
+                return Err(Error::invalid_at("/attachments", "sha256_hex"));
             }
             self.ledger_blob_ref(space, &sha).await?;
         }
@@ -627,4 +653,15 @@ fn check_parent(parent: &Value) -> Result<(), Error> {
         return Err(Error::new(422, "parent_voided"));
     }
     Ok(())
+}
+/// Name the request field behind a lookup failure (`not_found`, `account_archived`) so
+/// the Agent can tell the model which argument to fix. Other errors pass through.
+fn at_field(mut error: Error, field: &str) -> Error {
+    if error.status < 500 && error.errors.is_none() {
+        error.errors = Some(vec![crate::ValidationIssue {
+            pointer: format!("/{field}"),
+            rule: error.code.into(),
+        }]);
+    }
+    error
 }

@@ -48,6 +48,12 @@ pub enum RequestItem {
     },
     /// Replay in its original output position, only when all scope identifiers match.
     ProviderBlob(ProviderBlob),
+    /// A model output message replayed in its original position, with its `phase`.
+    AssistantMessage {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phase: Option<String>,
+    },
 }
 /// Never log provider blobs; scope must match all three identifiers.
 #[derive(Clone, Serialize, Deserialize)]
@@ -85,6 +91,12 @@ pub enum TurnEvent {
         args_raw: String,
     },
     ProviderBlob(ProviderBlob),
+    /// One complete output message, in output order after its text was streamed as
+    /// deltas. Carries the full text so replay can keep its position and `phase`.
+    MessageDone {
+        text: String,
+        phase: Option<String>,
+    },
     /// The agent must persist this note before a new measured attempt.
     Note(String),
     Done {

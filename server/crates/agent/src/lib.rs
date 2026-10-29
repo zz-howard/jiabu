@@ -32,6 +32,27 @@ pub struct Lease {
     pub owner: Uuid,
     pub epoch: i64,
 }
+/// Rejected arguments or failed validation, per tool, that the model may correct
+/// before the run fails: the first attempt plus this many corrections.
+pub const MAX_TOOL_CORRECTIONS: usize = 2;
+/// Tool-result error codes that ask the model to change its arguments.
+pub const CORRECTABLE_ERRORS: [&str; 3] =
+    ["invalid_arguments", "unknown_tool", "validation_failed"];
+
+/// What the model sees for a failed call: the code plus field-level issues when known.
+pub fn tool_error_output(error: &OperationError) -> serde_json::Value {
+    let mut output = serde_json::json!({"error": error.code});
+    if let Some(errors) = &error.errors {
+        output["errors"] = serde_json::json!(errors);
+    }
+    if CORRECTABLE_ERRORS.contains(&error.code) {
+        output["note"] = serde_json::json!(
+            "Fix the listed fields and call the tool again, or ask the user for the missing information."
+        );
+    }
+    output
+}
+
 /// New calls only. A user retry copies the original stored key verbatim.
 pub fn tool_idempotency_key(run_id: Uuid, call_id: &str) -> Uuid {
     Uuid::new_v5(&run_id, call_id.as_bytes())
@@ -95,7 +116,7 @@ mod executor;
 pub mod render;
 mod runtime;
 mod service;
-pub use decision::{NextAction, next_action};
+pub use decision::{NextAction, corrections_exhausted, next_action};
 pub use executor::ToolExecutor;
 pub use runtime::{ImageLoader, Runtime, RuntimeHandle};
 pub use service::ScopedRuns;

@@ -216,10 +216,7 @@ impl<T: TypedTool> AgentTool for TypedAdapter<T> {
     fn validate(&self, raw: Value) -> Result<Box<dyn ValidatedCall>, ToolError> {
         if !self.validator.is_valid(&raw) {
             let mut error = ToolError::invalid();
-            error.errors = Some(vec![jiabu_db::ValidationIssue {
-                pointer: "/".into(),
-                rule: "schema".into(),
-            }]);
+            error.errors = Some(schema_issues(&self.validator, &raw));
             return Err(error);
         }
         let args: T::Args = serde_json::from_value(raw).map_err(|_| ToolError::invalid())?;
@@ -244,4 +241,41 @@ impl<T: TypedTool> AgentTool for TypedAdapter<T> {
             args,
         }))
     }
+}
+/// Field-level schema violations: JSON pointer plus the failing keyword. Only
+/// schema-side names are reported; instance values never appear (they may be user text).
+fn schema_issues(validator: &jsonschema::Validator, raw: &Value) -> Vec<jiabu_db::ValidationIssue> {
+    use jsonschema::error::ValidationErrorKind;
+    const LIMIT: usize = 16;
+    let mut issues = Vec::new();
+    for error in validator.iter_errors(raw) {
+        let path = error.instance_path().to_string();
+        match error.kind() {
+            ValidationErrorKind::Required { property } => issues.push(jiabu_db::ValidationIssue {
+                pointer: format!("{path}/{}", property.as_str().unwrap_or("")),
+                rule: "required".into(),
+            }),
+            ValidationErrorKind::AdditionalProperties { unexpected } => {
+                issues.extend(unexpected.iter().map(|name| jiabu_db::ValidationIssue {
+                    pointer: format!("{path}/{}", name.chars().take(64).collect::<String>()),
+                    rule: "unknown_property".into(),
+                }));
+            }
+            kind => issues.push(jiabu_db::ValidationIssue {
+                pointer: if path.is_empty() { "/".into() } else { path },
+                rule: kind.keyword().into(),
+            }),
+        }
+        if issues.len() >= LIMIT {
+            issues.truncate(LIMIT);
+            break;
+        }
+    }
+    if issues.is_empty() {
+        issues.push(jiabu_db::ValidationIssue {
+            pointer: "/".into(),
+            rule: "schema".into(),
+        });
+    }
+    issues
 }

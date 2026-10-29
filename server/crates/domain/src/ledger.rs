@@ -410,6 +410,10 @@ pub struct StatsResult {
 
 /// IO-free record shape, shared with persistence validation.
 pub fn valid_record_shape(record: &Record) -> bool {
+    record_shape_issues(record).is_empty()
+}
+/// `(field, rule)` for every shape violation, so callers can say which field to fix.
+pub fn record_shape_issues(record: &Record) -> Vec<(&'static str, &'static str)> {
     let expected = match record.kind {
         RecordKind::Expense => [true, false, true, false, false],
         RecordKind::Income => [true, false, false, false, false],
@@ -419,17 +423,34 @@ pub fn valid_record_shape(record: &Record) -> bool {
         RecordKind::Refund => [true, false, true, false, true],
     };
     let ids = [
-        record.account_id,
-        record.to_account_id,
-        record.purpose_id,
-        record.to_purpose_id,
-        record.refund_of_id,
+        ("account_id", record.account_id),
+        ("to_account_id", record.to_account_id),
+        ("purpose_id", record.purpose_id),
+        ("to_purpose_id", record.to_purpose_id),
+        ("refund_of_id", record.refund_of_id),
     ];
-    ids.iter()
+    let mut issues: Vec<_> = ids
+        .iter()
         .zip(expected)
-        .all(|(id, required)| id.is_some() == required)
-        && !(record.kind == RecordKind::Transfer && record.account_id == record.to_account_id)
-        && !(record.kind == RecordKind::Reallocation && record.purpose_id == record.to_purpose_id)
+        .filter(|((_, id), required)| id.is_some() != *required)
+        .map(|((field, _), required)| {
+            (
+                *field,
+                if required {
+                    "required_for_kind"
+                } else {
+                    "forbidden_for_kind"
+                },
+            )
+        })
+        .collect();
+    if record.kind == RecordKind::Transfer && record.account_id == record.to_account_id {
+        issues.push(("to_account_id", "differs_from_account_id"));
+    }
+    if record.kind == RecordKind::Reallocation && record.purpose_id == record.to_purpose_id {
+        issues.push(("to_purpose_id", "differs_from_purpose_id"));
+    }
+    issues
 }
 pub fn refund_within_limit(already: i64, additional: i64, original: i64) -> bool {
     crate::Money(already)

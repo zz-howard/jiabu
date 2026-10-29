@@ -216,9 +216,9 @@ impl SiwcProvider {
             }
             if status.as_u16() == 403 {
                 return Err(match mapped {
-                    ProviderError::InvalidOutput | ProviderError::Auth => {
-                        ProviderError::Unsupported("permission denied")
-                    }
+                    ProviderError::InvalidOutput
+                    | ProviderError::UpstreamFailed { .. }
+                    | ProviderError::Auth => ProviderError::Unsupported("permission denied"),
                     error => error,
                 });
             }

@@ -94,7 +94,14 @@ pub fn render_request(
     for item in journal {
         match item.kind.as_str() {
             "model_turn" => {
-                if let Some(text) = item.payload["text"].as_str().filter(|t| !t.is_empty()) {
+                // Turns journaled with `assistant_message` items replay every output item
+                // in order. Older turns only kept the text, which replays first.
+                let ordered = item.payload["items"]
+                    .as_array()
+                    .is_some_and(|i| i.iter().any(|v| v["kind"] == "assistant_message"));
+                if !ordered
+                    && let Some(text) = item.payload["text"].as_str().filter(|t| !t.is_empty())
+                {
                     items.push(RequestItem::Message {
                         role: "assistant".into(),
                         text: text.into(),

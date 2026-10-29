@@ -120,7 +120,7 @@ impl ToolExecutor<'_> {
                 }
                 (value, "succeeded")
             }
-            Err(error) => (json!({"error":error.code}), "failed"),
+            Err(error) => (crate::tool_error_output(&error), "failed"),
         };
         tx.append_journal(
             space,
@@ -230,7 +230,7 @@ impl ToolExecutor<'_> {
         for ((call, result), step) in calls.iter().zip(results).zip(steps) {
             let (output, status) = match result {
                 Ok(v) => (v, "succeeded"),
-                Err(e) if e.status < 500 => (json!({"error":e.code}), "failed"),
+                Err(e) if e.status < 500 => (crate::tool_error_output(&e), "failed"),
                 Err(e) => return Err(e),
             };
             if status == "succeeded"

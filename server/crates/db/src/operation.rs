@@ -34,6 +34,15 @@ impl Error {
     pub fn invalid() -> Self {
         Self::new(422, "validation_failed")
     }
+    /// `validation_failed` naming the offending field (JSON pointer) and rule.
+    pub fn invalid_at(pointer: &str, rule: &str) -> Self {
+        let mut error = Self::invalid();
+        error.errors = Some(vec![ValidationIssue {
+            pointer: pointer.into(),
+            rule: rule.into(),
+        }]);
+        error
+    }
     pub fn internal() -> Self {
         Self::new(500, "internal")
     }
