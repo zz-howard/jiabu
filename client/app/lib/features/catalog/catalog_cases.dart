@@ -18,12 +18,37 @@ class CatalogCase {
 
 /// The dev catalog and all visual tests consume this same exhaustive registry.
 List<CatalogCase> catalogCases() => [
-  // This isolated component uses the identical seal already covered by the
-  // C4 unlock goldens; no second set of PNGs is requested.
   CatalogCase(
-    'c4',
-    'jiabu_logo_seal_placeholder',
-    (_) => const JiabuLogoSealPlaceholder(),
+    'c4b',
+    'jiabu_logo_variants',
+    // The dark variant is a paper disc for dark surfaces; show it on ink so
+    // the disc is visible in the golden.
+    (context) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const JiabuLogo(size: 120),
+        const SizedBox(width: 24),
+        ColoredBox(
+          color: context.jiabu.colors.ink,
+          child: const Padding(
+            padding: EdgeInsets.all(12),
+            child: JiabuLogo(size: 120, variant: JiabuLogoVariant.dark),
+          ),
+        ),
+      ],
+    ),
+  ),
+  CatalogCase(
+    'c4b',
+    'jiabu_mascot_poses',
+    (_) => const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        JiabuMascot(pose: JiabuMascotPose.greet, size: 96),
+        JiabuMascot(pose: JiabuMascotPose.pen, size: 96),
+        JiabuMascot(pose: JiabuMascotPose.idle, size: 96),
+      ],
+    ),
   ),
   for (final state in c4States)
     CatalogCase('c4', state, (_) => C4Preview(state: state)),

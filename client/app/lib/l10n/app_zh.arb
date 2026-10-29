@@ -86,13 +86,54 @@
   },
   "handE4Amount": "¥1,842.60",
   "handE4Negative": "−¥180.00",
-  "authServerTitle": "服务端地址",
+  "handAuthStep": "{current} / {total}",
+  "@handAuthStep": {
+    "placeholders": {
+      "current": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "handAuthWelcomeTagline": "一家人的小账本",
+  "handAuthBrandEnglish": "My Home Diary",
+  "handAuthWelcomeGreeting": "你好呀！花了什么，说一句，我就帮你记下来。",
+  "handAuthServerHint": "一般不用改，直接点「继续」就好",
+  "handAuthWelcomeHome": "欢迎回家",
+  "handAuthWelcomeHomeEnglish": "Welcome home",
+  "authWelcomeStart": "开始使用",
+  "authWelcomeExisting": "已经有账号？",
+  "authWelcomeDirectLogin": "直接登录",
+  "authServerTitle": "连接家里的账本",
   "authServerAddress": "服务端地址",
+  "authUseDefaultServer": "使用默认服务端",
+  "authDefaultServerDescription": "家簿自带的连接方式，大多数家庭都用它",
+  "authAdvancedSettings": "高级设置",
+  "authCustomServerTitle": "服务端地址",
+  "authCustomServerDescription": "填家里管理员给你的地址",
+  "authServerSelfHostedHint": "家里自建服务端、或管理员给了新地址时才要改。",
+  "authRestoreDefault": "恢复默认",
+  "authHttpsHint": "以 https:// 开头",
+  "authServerLaterHint": "以后也能在登录页点「更改」修改",
   "authContinue": "继续",
   "authLoginTitle": "登录家簿",
   "authUsername": "用户名",
   "authPassword": "密码",
   "authLogin": "登录",
+  "authShowPassword": "显示密码",
+  "authHidePassword": "隐藏密码",
+  "authForgotPassword": "忘了密码？请家里的管理员帮你重置",
+  "authNoAccount": "还没有账号",
+  "authJoinFamily": "注册 / 加入家庭",
+  "authInviteHint": "收到家人的邀请码？从这里加入",
+  "authConnected": "✓ 已连接",
+  "authConnectedDefaultServer": "连的是默认服务端",
+  "authConnectedServer": "连的是 {address}",
+  "@authConnectedServer": {
+    "placeholders": {"address": {"type": "String"}}
+  },
+  "authChange": "更改",
+  "authInviteComingTitle": "用邀请码加入",
+  "authInviteComingBody": "邀请码加入即将开放。现在请家里的管理员先帮你创建账号。",
+  "authInviteClose": "知道了",
   "authChangeServer": "切换服务端或账号",
   "authChangePassword": "修改密码",
   "authTemporaryPassword": "你正在使用临时密码，请先修改密码。返回将退出登录。",
@@ -103,7 +144,7 @@
   "authLogout": "退出登录",
   "authBack": "返回",
   "authSignedIn": "已登录",
-  "authInvalidAddress": "请输入以 http:// 或 https:// 开头的有效服务端地址。",
+  "authInvalidAddress": "请输入以 https:// 开头的有效服务端地址。",
   "authCredentialsRequired": "请输入用户名和密码。",
   "authInvalidCredentials": "用户名或密码不正确。",
   "authRateLimited": "尝试过于频繁，请稍后重试。",
@@ -723,6 +764,6 @@
       }
     }
   },
-  "c4Locked": "家簿已上锁",
-  "c4KeysSubtitle": "让你的脚本和 agent 以你的身份用家簿"
+  "handC4Locked": "家簿已上锁",
+  "handC4KeysSubtitle": "让你的脚本和 agent 以你的身份用家簿"
 }

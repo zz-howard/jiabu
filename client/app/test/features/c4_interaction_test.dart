@@ -295,7 +295,7 @@ void main() {
     expect(find.text('fictional private content'), findsNothing);
     expect(biometrics.prompts, 0);
   });
-  testWidgets('lock_gate_removes_business_content_and_uses_placeholder', (
+  testWidgets('lock_gate_removes_business_content_and_uses_formal_logo', (
     tester,
   ) async {
     final runtime = c4Runtime();
@@ -312,6 +312,6 @@ void main() {
       child: const AppLockGate(child: Text('fictional private amount 900')),
     );
     expect(find.text('fictional private amount 900'), findsNothing);
-    expect(find.byType(JiabuLogoSealPlaceholder), findsOneWidget);
+    expect(find.byType(JiabuLogo), findsOneWidget);
   });
 }

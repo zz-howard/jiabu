@@ -15,6 +15,11 @@ dev_dependencies:
   yaml: ^3.1.3
 flutter:
   assets:
+    - assets/brand/logo-standard.png
+    - assets/brand/logo-dark-disc.png
+    - assets/brand/mascot/hamster-greet.png
+    - assets/brand/mascot/hamster-pen.png
+    - assets/brand/mascot/hamster-idle.png
     - assets/licenses/
   fonts:
     - family: Caveat

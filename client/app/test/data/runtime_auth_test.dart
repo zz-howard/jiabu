@@ -212,4 +212,61 @@ void main() {
       }
     });
   }
+
+  test(
+    'close_does_not_wait_for_in_flight_requests_on_a_dead_network',
+    () async {
+      final directory = await Directory.systemTemp.createTemp('jiabu-close-');
+      final adapter = StalledNetworkAdapter();
+      final runtime = AppRuntime(
+        databases: DatabaseManager(directory),
+        settings: AppSettingsService(MemorySettings()),
+        sessions: MemorySessions(),
+        device: await loadTestDevice('stable'),
+        background: true,
+        createDio: () => Dio()..httpClientAdapter = adapter,
+      );
+      try {
+        final login = await runtime.auth.login(
+          'https://example.invalid/',
+          'fictional',
+          'fictional-password',
+        );
+        expect(login, isA<Ok<AuthSession>>());
+        // Session setup must not await the network.
+        await runtime.sessionWork.timeout(const Duration(seconds: 10));
+        unawaited(runtime.engine!.runRound());
+        for (var i = 0; i < 100 && adapter.stalled.isEmpty; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(
+          adapter.stalled,
+          isNotEmpty,
+          reason: 'a request must be in flight',
+        );
+        await runtime.close().timeout(const Duration(seconds: 10));
+      } finally {
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+}
+
+/// Answers sign-in, then behaves like a dead network: every other request
+/// stays in flight forever.
+class StalledNetworkAdapter extends SessionRuntimeAdapter {
+  final stalled = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) {
+    if (options.path == 'v1/auth/login' || options.path == 'v1/me') {
+      return super.fetch(options, requestStream, cancelFuture);
+    }
+    stalled.add(options.path);
+    return Completer<ResponseBody>().future;
+  }
 }

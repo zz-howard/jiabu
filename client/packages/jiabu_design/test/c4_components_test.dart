@@ -3,18 +3,64 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 void main() {
-  testWidgets('logo_placeholder_is_the_only_replaceable_seal', (tester) async {
+  testWidgets('logo_has_size_tilt_semantics_and_dark_variant', (tester) async {
+    final semantics = tester.ensureSemantics();
     await tester.pumpWidget(
       MaterialApp(
         theme: JiabuTheme.light(),
-        home: const Scaffold(body: JiabuLogoSealPlaceholder()),
+        home: const Scaffold(body: JiabuLogo(size: 96)),
+      ),
+    );
+    expect(tester.getSize(find.byType(JiabuLogo)), const Size(96, 96));
+    expect(tester.widget<Tilt>(find.byType(Tilt)).degrees, -8);
+    expect(find.bySemanticsLabel('家簿'), findsOneWidget);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: JiabuTheme.light(),
+        home: const Scaffold(body: JiabuLogo(variant: JiabuLogoVariant.dark)),
       ),
     );
     expect(
-      tester.getSize(find.byType(JiabuLogoSealPlaceholder)),
-      const Size(88, 88),
+      tester.widget<Image>(find.byType(Image)).image,
+      isA<AssetImage>().having(
+        (image) => image.assetName,
+        'assetName',
+        contains('logo-dark-disc.png'),
+      ),
     );
-    expect(tester.widget<Tilt>(find.byType(Tilt)).degrees, -8);
+    semantics.dispose();
+  });
+  testWidgets('mascot poses map to distinct resolution-aware assets', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: JiabuTheme.light(),
+        home: const Scaffold(
+          body: Row(
+            children: [
+              JiabuMascot(pose: JiabuMascotPose.greet),
+              JiabuMascot(pose: JiabuMascotPose.pen),
+              JiabuMascot(pose: JiabuMascotPose.idle),
+            ],
+          ),
+        ),
+      ),
+    );
+    final assets = tester
+        .widgetList<Image>(find.byType(Image))
+        .map((image) => (image.image as AssetImage).assetName)
+        .toSet();
+    expect(
+      assets,
+      containsAll(
+        [
+          'hamster-greet.png',
+          'hamster-pen.png',
+          'hamster-idle.png',
+        ].map((name) => 'packages/jiabu_design/assets/brand/mascot/$name'),
+      ),
+    );
   });
   testWidgets('accent_controls_have_48px_targets_and_eight_named_choices', (
     tester,
