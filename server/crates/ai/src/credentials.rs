@@ -84,8 +84,6 @@ impl Default for RefreshGate {
         }
     }
 }
-/// Bounds each store call, since a detached refresh holds the gate meanwhile.
-const STORE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 #[derive(Clone)]
 pub struct CredentialManager {
     store: Arc<dyn TokenStore>,
@@ -127,8 +125,7 @@ impl CredentialManager {
         self.access_inner(Some(access_token)).await
     }
     async fn load(&self) -> Result<(i64, OAuthCredentials), ProviderError> {
-        let read = tokio::time::timeout(STORE_TIMEOUT, self.store.load()).await;
-        match read.unwrap_or(Ok(TokenRead::Unavailable)) {
+        match self.store.load().await {
             Ok(TokenRead::Present {
                 revision,
                 credentials,
@@ -160,21 +157,22 @@ impl CredentialManager {
     /// Retries transient storage failures; false when the rotation is not stored.
     async fn persist(&self, revision: i64, next: &OAuthCredentials) -> bool {
         for attempt in 0..3u32 {
-            let write = self.store.compare_exchange(revision, next);
-            match tokio::time::timeout(STORE_TIMEOUT, write).await {
-                Ok(Ok(true)) => return true,
-                Ok(Ok(false)) => return false,
-                _ if attempt < 2 => {
+            match self.store.compare_exchange(revision, next).await {
+                Ok(true) => return true,
+                Ok(false) => return false,
+                Err(_) if attempt < 2 => {
                     tokio::time::sleep(std::time::Duration::from_millis(200 << attempt)).await;
                 }
-                _ => {}
+                Err(_) => {}
             }
         }
         false
     }
     /// Waiting for the gate stays cancellable. Once held, the work is detached so a
     /// caller cancelled by its deadline cannot drop a rotation upstream has already
-    /// made, and at most one detached task runs per gate.
+    /// made, and at most one detached task runs per gate. Store calls are never
+    /// abandoned: a write that commits after being given up on would race the next
+    /// rotation, so a stalled store only makes callers time out while waiting.
     async fn access_inner(
         &self,
         rejected: Option<&str>,
@@ -269,8 +267,7 @@ pub struct FileTokenStore {
     pub path: PathBuf,
 }
 impl FileTokenStore {
-    /// File locks and fsync block, so they run off the async workers where the
-    /// manager's store timeout can still fire.
+    /// File locks and fsync block, so they run off the async workers.
     async fn blocking<T: Send + 'static>(
         op: impl FnOnce() -> Result<T, ProviderError> + Send + 'static,
     ) -> Result<T, ProviderError> {
