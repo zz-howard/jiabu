@@ -946,6 +946,7 @@ async fn recorded_request_rejection_fails_fast_with_upstream_code() {
         error,
         ProviderError::Rejected {
             code: "invalid_function_parameters".into(),
+            param: "tools".into(),
             message: "Invalid schema for function 'ask_user': At schema path /, required must include declared property \"fields\"".into(),
         }
     );

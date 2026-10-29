@@ -535,12 +535,24 @@ impl Runtime {
                         self.db.finish_abandoned_run_calls(run.id).await?;
                         let timeout = matches!(&error, ProviderError::Timeout)
                             || matches!(&error,ProviderError::PartialOutput{source} if matches!(source.as_ref(),ProviderError::Timeout));
-                        if let ProviderError::Rejected { code, message } = &error {
+                        if let ProviderError::Rejected {
+                            code,
+                            param,
+                            message,
+                        } = &error
+                        {
                             // Not transient: waiting for AI would resend the same request.
+                            // Only tool-schema messages are logged; others may echo input.
+                            let schema_message = if param == "tools" {
+                                message.as_str()
+                            } else {
+                                ""
+                            };
                             tracing::warn!(
                                 error_kind = "request_rejected",
                                 upstream_code = %code,
-                                upstream_message = %message,
+                                upstream_param = %param,
+                                upstream_message = %schema_message,
                                 "AI request rejected by provider"
                             );
                             self.end_owned(

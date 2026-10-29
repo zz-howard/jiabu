@@ -17,9 +17,14 @@ pub enum ProviderError {
     #[error("invalid upstream output")]
     InvalidOutput,
     /// Upstream refused the request itself (e.g. a tool schema); resending cannot help.
-    /// `code` is a sanitized upstream code; `message` is truncated upstream text.
+    /// `code` and `param` are sanitized identifiers. `message` is truncated upstream text
+    /// that may echo request values, so only schema (`param == "tools"`) messages are logged.
     #[error("request rejected: {code}")]
-    Rejected { code: String, message: String },
+    Rejected {
+        code: String,
+        param: String,
+        message: String,
+    },
     #[error("encrypted reasoning rejected")]
     BlobRejected,
     #[error("provider timed out")]

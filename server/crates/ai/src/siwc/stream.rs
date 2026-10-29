@@ -235,21 +235,26 @@ pub fn error(event: &Value) -> ProviderError {
         | "model_access_denied" => ProviderError::Unsupported("permission denied"),
         "invalid_encrypted_content" | "encrypted_content_invalid" => ProviderError::BlobRejected,
         "rate_limit_exceeded" => ProviderError::RateLimited { retry_after: None },
-        _ if err["type"].as_str() == Some("invalid_request_error") => ProviderError::Rejected {
-            code: err["code"]
-                .as_str()
-                .unwrap_or("invalid_request_error")
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
-                .take(64)
-                .collect(),
-            message: err["message"]
-                .as_str()
-                .unwrap_or("")
-                .chars()
-                .take(300)
-                .collect(),
-        },
+        _ if err["type"].as_str() == Some("invalid_request_error") => {
+            let identifier = |v: &Value, fallback: &str| -> String {
+                v.as_str()
+                    .unwrap_or(fallback)
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '[' | ']'))
+                    .take(64)
+                    .collect()
+            };
+            ProviderError::Rejected {
+                code: identifier(&err["code"], "invalid_request_error"),
+                param: identifier(&err["param"], ""),
+                message: err["message"]
+                    .as_str()
+                    .unwrap_or("")
+                    .chars()
+                    .take(300)
+                    .collect(),
+            }
+        }
         _ => ProviderError::InvalidOutput,
     }
 }

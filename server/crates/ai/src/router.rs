@@ -242,7 +242,9 @@ impl AiRouter {
                 }
             }
             .await;
-            permit.finish(result.is_ok());
+            // A refused request says nothing about provider health, and resending it on
+            // another route cannot help, so it neither trips the breaker nor falls back.
+            permit.finish(result.is_ok() || matches!(result, Err(ProviderError::Rejected { .. })));
             let result = if output.visible {
                 result.map_err(|error| ProviderError::PartialOutput {
                     source: Box::new(error),
@@ -255,6 +257,7 @@ impl AiRouter {
                 Err(
                     e @ (ProviderError::Sink
                     | ProviderError::Meter
+                    | ProviderError::Rejected { .. }
                     | ProviderError::PartialOutput { .. }),
                 ) => {
                     return Err(e);
