@@ -16,6 +16,7 @@ class C4Form extends ConsumerWidget {
     this.submitLabel,
     this.requiresOnline = true,
     this.enabled = true,
+    this.showTitle = true,
     super.key,
   });
   final String id;
@@ -25,6 +26,7 @@ class C4Form extends ConsumerWidget {
   final String? submitLabel;
   final bool requiresOnline;
   final bool enabled;
+  final bool showTitle;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
@@ -33,10 +35,12 @@ class C4Form extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        HandUnderline(
-          child: Text(title, style: context.jiabu.type.sectionTitle),
-        ),
-        SizedBox(height: context.jiabu.decor.cardGap),
+        if (showTitle) ...[
+          HandUnderline(
+            child: Text(title, style: context.jiabu.type.sectionTitle),
+          ),
+          const SizedBox(height: JiabuSpacing.cardGap),
+        ],
         ...children,
         if (requiresOnline && !state.online) Text(l.c4Offline),
         if (state.error case final String code)

@@ -66,6 +66,43 @@ void main() {
     expect(find.text('有冲突'), findsOneWidget);
     expect(find.widgetWithText(TextButton, '去处理'), findsOneWidget);
   });
+  testWidgets('record card wraps long title and seven digit amount at 200%', (
+    tester,
+  ) async {
+    final base = c3Snapshot('card_recorded');
+    const title = '一个非常长的虚构记录名称用于验证换行';
+    final record = LedgerRow({
+      ...base.records.first.data,
+      'note': title,
+      'amount_minor': 123456789,
+    });
+    final snapshot = LedgerSnapshot(
+      spaceId: base.spaceId,
+      space: base.space,
+      records: [record],
+      accounts: base.accounts,
+      members: base.members,
+      tags: base.tags,
+      plans: base.plans,
+      events: base.events,
+      pending: base.pending,
+      conflicts: base.conflicts,
+    );
+    await pumpC3(
+      tester,
+      scale: 2,
+      child: LedgerRecordCard(snapshot: snapshot, row: record),
+    );
+    expect(tester.takeException(), isNull);
+    final titleRect = tester.getRect(
+      find.byKey(const Key('record-card-title')),
+    );
+    final amountRect = tester.getRect(
+      find.byKey(const Key('record-card-amount')),
+    );
+    expect(amountRect.top, greaterThanOrEqualTo(titleRect.bottom));
+    expect(amountRect.right, lessThanOrEqualTo(360));
+  });
   for (final lockedBy in ['permission', 'sending']) {
     testWidgets('record_card_actions_disabled_for_$lockedBy', (tester) async {
       final base = c3Snapshot('card_recorded');

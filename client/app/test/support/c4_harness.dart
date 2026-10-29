@@ -80,10 +80,7 @@ Future<void> pumpC4Preview(
       ),
       home: Scaffold(
         body: PaperBackground(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: C4Preview(state: state, accent: accent),
-          ),
+          child: C4Preview(state: state, accent: accent),
         ),
       ),
     ),

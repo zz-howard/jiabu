@@ -100,7 +100,7 @@ void main() {
             builder: (context) => Scaffold(
               body: TextButton(
                 onPressed: () async {
-                  await PaperSheet.show<void>(
+                  await JiabuSheet.show<void>(
                     context: context,
                     builder: (_) =>
                         const SizedBox(height: 2000, child: Text('示例')),
@@ -115,8 +115,8 @@ void main() {
     );
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
-    expect(find.byType(PaperSheet), findsOneWidget);
-    final context = tester.element(find.byType(PaperSheet));
+    expect(find.byType(JiabuSheet), findsOneWidget);
+    final context = tester.element(find.byType(JiabuSheet));
     final route = ModalRoute.of(context)! as ModalBottomSheetRoute<void>;
     const motion = JiabuMotion();
     expect(route.transitionDuration, Duration.zero);
@@ -124,7 +124,7 @@ void main() {
     expect(route.sheetAnimationStyle?.duration, Duration.zero);
     expect(route.sheetAnimationStyle?.curve, motion.sheetCurve);
     expect(
-      tester.getSize(find.byType(PaperSheet)).height,
+      tester.getSize(find.byType(JiabuSheet)).height,
       lessThanOrEqualTo(MediaQuery.sizeOf(context).height * .88),
     );
     expect(tester.takeException(), isNull);

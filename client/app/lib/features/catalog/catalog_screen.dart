@@ -15,19 +15,21 @@ class CatalogScreen extends StatelessWidget {
       appBar: AppBar(title: Text(l.catalogTitle)),
       body: PaperBackground(
         child: ListView.builder(
-          padding: const EdgeInsets.all(18),
+          padding: EdgeInsets.all(context.jiabu.spacing.page),
           itemCount: cases.length,
           itemBuilder: (context, index) {
             final sample = cases[index];
             return Padding(
-              padding: const EdgeInsets.only(bottom: 30),
+              padding: const EdgeInsets.only(bottom: JiabuSpacing.sectionTop),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (index == 0 ||
                       cases[index - 1].component != sample.component)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.only(
+                        bottom: JiabuSpacing.sectionBottom,
+                      ),
                       child: Text(
                         l.catalogCategory(sample.component),
                         style: context.jiabu.type.sectionTitle,
@@ -37,7 +39,7 @@ class CatalogScreen extends StatelessWidget {
                     l.catalogCaseLabel(sample.component, sample.state),
                     style: context.jiabu.type.caption,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: JiabuSpacing.lg),
                   sample.builder(context),
                 ],
               ),

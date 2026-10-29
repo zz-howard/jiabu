@@ -56,7 +56,7 @@ void main() {
           case 'card':
             paper = PaperCard(child: row);
           case 'sheet':
-            paper = PaperSheet(child: row);
+            paper = JiabuSheet(child: row);
           default:
             paper = NegativeBalanceNote(
               title: '虚构账户',

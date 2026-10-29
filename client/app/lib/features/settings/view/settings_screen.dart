@@ -8,6 +8,7 @@ import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/c4/c4_confirmation.dart';
 import 'package:jiabu/shared/c4/c4_form.dart';
 import 'package:jiabu/shared/c4/c4_view_model.dart';
+import 'package:jiabu/shared/navigation.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -26,13 +27,11 @@ class SettingsScreen extends ConsumerWidget {
     final id = 'settings:$page';
     final state = ref.watch(c4ViewModelProvider(id));
     final vm = ref.read(c4ViewModelProvider(id).notifier);
-    Widget row(String title, String route, {String? subtitle}) => PaperRow(
-      child: ListTile(
-        title: Text(title),
-        subtitle: subtitle == null ? null : Text(subtitle),
-        trailing: const JiabuIcon(JiabuIcons.uiRight),
-        onTap: () => context.push<void>(route),
-      ),
+    Widget row(String title, String route, {String? subtitle}) => JiabuListRow(
+      title: title,
+      subtitle: subtitle,
+      showChevron: true,
+      onTap: () => context.push<void>(route),
     );
     final title = switch (page) {
       'account' => l.c4Account,
@@ -41,33 +40,39 @@ class SettingsScreen extends ConsumerWidget {
       'about' => l.c4About,
       _ => l.ledgerSettings,
     };
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(context.jiabu.decor.pageInset),
-      child: C4Form(
-        id: id,
-        title: title,
-        requiresOnline: page == 'password' || page == 'language',
-        onSubmit: page != 'password'
-            ? null
-            : () async {
-                final current = state.values['current'] as String? ?? '';
-                final next = state.values['new'] as String? ?? '';
-                if (current.isEmpty || next.length < 8) {
-                  vm.fail('validation_failed');
-                  return;
-                }
-                if (await vm.run(
-                      () => runtime.auth.changePassword(current, next),
-                    ) &&
-                    context.mounted) {
-                  context.go('/settings/account');
-                }
-              },
-        children: [
-          if (page == 'settings')
-            PaperCard(
-              pattern: PaperPattern.ruled,
-              child: Column(
+    return JiabuPageScaffold(
+      title: title,
+      onBack: () => popOrGo(context, switch (page) {
+        'settings' => '/chat',
+        'password' => '/settings/account',
+        _ => '/settings',
+      }),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.all(context.jiabu.spacing.page),
+        child: C4Form(
+          id: id,
+          title: title,
+          showTitle: false,
+          requiresOnline: page == 'password' || page == 'language',
+          onSubmit: page != 'password'
+              ? null
+              : () async {
+                  final current = state.values['current'] as String? ?? '';
+                  final next = state.values['new'] as String? ?? '';
+                  if (current.isEmpty || next.length < 8) {
+                    vm.fail('validation_failed');
+                    return;
+                  }
+                  if (await vm.run(
+                        () => runtime.auth.changePassword(current, next),
+                      ) &&
+                      context.mounted) {
+                    context.go('/settings/account');
+                  }
+                },
+          children: [
+            if (page == 'settings')
+              JiabuSettingsGroup(
                 children: [
                   // C3's account management entry retains its label and route.
                   row(l.ledgerAccounts, '/settings/accounts'),
@@ -93,74 +98,86 @@ class SettingsScreen extends ConsumerWidget {
                   row(l.c4About, '/settings/about'),
                 ],
               ),
-            ),
-          if (page == 'account') ...[
-            Text(runtime.auth.current?.user.username ?? ''),
-            row(l.c4Password, '/settings/account/password'),
-            OutlinedButton(
-              onPressed: () async {
-                final confirmed = await PaperSheet.show<bool>(
+            if (page == 'account') ...[
+              Text(runtime.auth.current?.user.username ?? ''),
+              JiabuSettingsGroup(
+                children: [row(l.c4Password, '/settings/account/password')],
+              ),
+              OutlinedButton(
+                onPressed: () async {
+                  final confirmed = await JiabuSheet.show<bool>(
+                    context: context,
+                    builder: (sheetContext) => C4Confirmation(
+                      message: l.c4Logout,
+                      onConfirm: () => Navigator.of(sheetContext).pop(true),
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await runtime.auth.logout();
+                  }
+                },
+                child: Text(l.c4Logout),
+              ),
+            ],
+            if (page == 'password') ...[
+              C4Field(
+                id: id,
+                field: 'current',
+                label: l.c4CurrentPassword,
+                obscure: true,
+              ),
+              C4Field(
+                id: id,
+                field: 'new',
+                label: l.c4NewPassword,
+                obscure: true,
+              ),
+            ],
+            if (page == 'language')
+              JiabuSettingsGroup(
+                children: [
+                  for (final entry in {
+                    'system': l.c4System,
+                    'zh-Hans': l.c4Chinese,
+                    'en': l.c4English,
+                  }.entries)
+                    Semantics(
+                      key: ValueKey('language-${entry.key}'),
+                      selected: runtime.auth.current?.user.locale == entry.key,
+                      child: JiabuListRow(
+                        title: entry.value,
+                        enabled: state.online && !state.busy,
+                        trailing: runtime.auth.current?.user.locale == entry.key
+                            ? const Text('✓')
+                            : null,
+                        onTap: !state.online || state.busy
+                            ? null
+                            : () async {
+                                if (await vm.run(
+                                  () => runtime.auth.setLocale(entry.key),
+                                )) {
+                                  runtime.notify();
+                                }
+                              },
+                      ),
+                    ),
+                ],
+              ),
+            if (page == 'about') ...[
+              Text(
+                l.c4Version(runtime.device.appVersion, runtime.device.build),
+              ),
+              TextButton(
+                onPressed: () => showLicensePage(
                   context: context,
-                  builder: (sheetContext) => C4Confirmation(
-                    message: l.c4Logout,
-                    onConfirm: () => Navigator.of(sheetContext).pop(true),
-                  ),
-                );
-                if (confirmed == true) {
-                  await runtime.auth.logout();
-                }
-              },
-              child: Text(l.c4Logout),
-            ),
-          ],
-          if (page == 'password') ...[
-            C4Field(
-              id: id,
-              field: 'current',
-              label: l.c4CurrentPassword,
-              obscure: true,
-            ),
-            C4Field(
-              id: id,
-              field: 'new',
-              label: l.c4NewPassword,
-              obscure: true,
-            ),
-          ],
-          if (page == 'language')
-            for (final entry in {
-              'system': l.c4System,
-              'zh-Hans': l.c4Chinese,
-              'en': l.c4English,
-            }.entries)
-              ListTile(
-                title: Text(entry.value),
-                selected: runtime.auth.current?.user.locale == entry.key,
-                trailing: runtime.auth.current?.user.locale == entry.key
-                    ? const Text('✓')
-                    : null,
-                onTap: !state.online || state.busy
-                    ? null
-                    : () async {
-                        if (await vm.run(
-                          () => runtime.auth.setLocale(entry.key),
-                        )) {
-                          runtime.notify();
-                        }
-                      },
+                  applicationName: l.c4ProductName,
+                  applicationVersion: runtime.device.appVersion,
+                ),
+                child: Text(l.c4Licenses),
               ),
-          if (page == 'about') ...[
-            Text(l.c4Version(runtime.device.appVersion, runtime.device.build)),
-            TextButton(
-              onPressed: () => showLicensePage(
-                context: context,
-                applicationName: l.c4ProductName,
-                applicationVersion: runtime.device.appVersion,
-              ),
-              child: Text(l.c4Licenses),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

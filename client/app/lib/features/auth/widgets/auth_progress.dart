@@ -29,7 +29,7 @@ class AuthProgress extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: JiabuSpacing.sm),
             ],
             HandText(AppLocalizations.of(context).handAuthStep(step, total)),
           ],

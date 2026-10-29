@@ -14,7 +14,7 @@ Future<void> openSpaceAction(
   String action, {
   String? target,
   int pending = 0,
-}) => PaperSheet.show<void>(
+}) => JiabuSheet.show<void>(
   context: context,
   builder: (_) => SpaceActionForm(
     space: space,

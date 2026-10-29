@@ -144,7 +144,7 @@ Widget formField(
   bool numeric = false,
   int? maxLength,
 }) => Padding(
-  padding: EdgeInsets.only(bottom: context.jiabu.decor.cardGap),
+  padding: const EdgeInsets.only(bottom: JiabuSpacing.cardGap),
   child: const ['occurred_on', 'opening_on', 'from', 'through'].contains(key)
       ? LedgerDateField(
           value: state.values[key]?.toString() ?? '',
@@ -173,7 +173,7 @@ Widget formError(BuildContext context, String? code) => code == null
     : Semantics(
         liveRegion: true,
         child: Padding(
-          padding: EdgeInsets.all(context.jiabu.decor.cardGap),
+          padding: const EdgeInsets.all(JiabuSpacing.cardGap),
           child: Text(
             ledgerError(AppLocalizations.of(context), code),
             style: context.jiabu.type.secondary.copyWith(
@@ -214,7 +214,7 @@ Widget accountChoices(
       Text(label, style: context.jiabu.type.listTitle),
       if (rows.isEmpty) Text(l.ledgerSelectAccount),
       Wrap(
-        spacing: context.jiabu.decor.cardGap,
+        spacing: JiabuSpacing.cardGap,
         children: [
           for (final a in rows)
             ChoiceChip(
@@ -298,7 +298,7 @@ class RecordForm extends ConsumerWidget {
             ),
             if (original == null && !isRefund)
               Wrap(
-                spacing: context.jiabu.decor.cardGap,
+                spacing: JiabuSpacing.cardGap,
                 children: [
                   for (final type in [
                     'expense',
@@ -397,7 +397,7 @@ class RecordForm extends ConsumerWidget {
             if (hasTags) ...[
               Text(l.ledgerTags, style: context.jiabu.type.listTitle),
               Wrap(
-                spacing: context.jiabu.decor.cardGap,
+                spacing: JiabuSpacing.cardGap,
                 children: [
                   for (final tag in snapshot.tags.where(
                     (tag) =>
@@ -590,7 +590,7 @@ class AccountForm extends ConsumerWidget {
           ),
           if (account == null)
             Wrap(
-              spacing: context.jiabu.decor.cardGap,
+              spacing: JiabuSpacing.cardGap,
               children: [
                 for (final kind in ['real', 'purpose'])
                   ChoiceChip(

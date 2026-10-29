@@ -5,7 +5,7 @@ import 'package:jiabu_design/jiabu_design.dart';
 // TODO(invite-signup): replace this explanation only after the server exposes
 // an invitation-based account creation API. Public registration stays closed.
 Future<void> showInviteSignupSheet(BuildContext context) async {
-  await PaperSheet.show<void>(
+  await JiabuSheet.show<void>(
     context: context,
     builder: (sheetContext) {
       final l = AppLocalizations.of(sheetContext);
@@ -18,9 +18,9 @@ Future<void> showInviteSignupSheet(BuildContext context) async {
             l.authInviteComingTitle,
             style: sheetContext.jiabu.type.cardTitle,
           ),
-          SizedBox(height: sheetContext.jiabu.decor.cardGap),
+          const SizedBox(height: JiabuSpacing.cardGap),
           Text(l.authInviteComingBody, style: sheetContext.jiabu.type.body),
-          SizedBox(height: sheetContext.jiabu.decor.sectionBottom),
+          const SizedBox(height: JiabuSpacing.sectionBottom),
           FilledButton(
             onPressed: () => Navigator.of(sheetContext).pop(),
             child: Text(l.authInviteClose),

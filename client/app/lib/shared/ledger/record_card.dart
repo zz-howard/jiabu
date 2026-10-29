@@ -94,27 +94,74 @@ class LedgerRecordCard extends StatelessWidget {
       role: AmountRole.record,
       kind: ledgerLabels(l)[value.text('kind')],
     );
+    final titleStyle = value.text('note').isEmpty
+        ? context.jiabu.type.cardTitle
+        : context.jiabu.type.listTitle;
     final titleWidget = Text(
       title,
+      key: const Key('record-card-title'),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: value.text('note').isEmpty
-          ? context.jiabu.type.cardTitle
-          : context.jiabu.type.listTitle,
+      style: titleStyle,
     );
-    final balanceTitle = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (value.active) titleWidget else PencilStrike(child: titleWidget),
-        if (value.active) amount else PencilStrike(child: amount),
-      ],
+    final balanceTitle = LayoutBuilder(
+      builder: (context, constraints) {
+        final textScaler = MediaQuery.textScalerOf(context);
+        final direction = Directionality.of(context);
+        final titlePainter = TextPainter(
+          text: TextSpan(text: title, style: titleStyle),
+          textDirection: direction,
+          textScaler: textScaler,
+          maxLines: 1,
+        )..layout();
+        final amountPainter = TextPainter(
+          text: TextSpan(
+            text: formatMinor(
+              value.number('amount_minor'),
+              snapshot.currency,
+              l.localeName,
+            ),
+            style: context.jiabu.type.recordAmount,
+          ),
+          textDirection: direction,
+          textScaler: textScaler,
+          maxLines: 1,
+        )..layout();
+        final stacked =
+            titlePainter.width + JiabuSpacing.md + amountPainter.width >
+            constraints.maxWidth;
+        final displayedTitle = value.active
+            ? titleWidget
+            : PencilStrike(child: titleWidget);
+        final displayedAmount = KeyedSubtree(
+          key: const Key('record-card-amount'),
+          child: value.active ? amount : PencilStrike(child: amount),
+        );
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              displayedTitle,
+              const SizedBox(height: JiabuSpacing.xs),
+              Align(alignment: Alignment.centerRight, child: displayedAmount),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: displayedTitle),
+            const SizedBox(width: JiabuSpacing.md),
+            displayedAmount,
+          ],
+        );
+      },
     );
     return ConstrainedBox(
       constraints: const BoxConstraints(
         maxWidth: JiabuLedgerMetrics.recordWidth,
       ),
       child: Padding(
-        padding: EdgeInsets.only(top: context.jiabu.decor.cardGap),
+        padding: const EdgeInsets.only(top: JiabuSpacing.cardGap),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -127,39 +174,31 @@ class LedgerRecordCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Sticker(category: recordStickerCategory(value)),
-                      SizedBox(width: context.jiabu.decor.cardGap),
+                      const SizedBox(width: JiabuSpacing.cardGap),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Wrap(
+                          spacing: JiabuSpacing.messageGap,
+                          runSpacing: JiabuSpacing.xs,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             Text(
                               ledgerLabels(l)[value.text('kind')] ?? '',
                               style: context.jiabu.type.badge,
                             ),
                             Text(
-                              ledgerDate(value.text('occurred_on'), l),
-                              style: context.jiabu.type.caption,
+                              '· ${ledgerDate(value.text('occurred_on'), l)}',
                             ),
-                            Wrap(
-                              spacing: context.jiabu.decor.messageGap,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                Text(
-                                  memberLabel(snapshot, value, l),
-                                  style: context.jiabu.type.caption,
-                                ),
-                                if (keyName.isNotEmpty)
-                                  Semantics(
-                                    label: l.ledgerApiKey(keyName),
-                                    child: const ExcludeSemantics(
-                                      child: JiabuIcon(
-                                        JiabuIcons.uiKey,
-                                        size: JiabuLedgerMetrics.keyIcon,
-                                      ),
-                                    ),
+                            Text(memberLabel(snapshot, value, l)),
+                            if (keyName.isNotEmpty)
+                              Semantics(
+                                label: l.ledgerApiKey(keyName),
+                                child: const ExcludeSemantics(
+                                  child: JiabuIcon(
+                                    JiabuIcons.uiKey,
+                                    size: JiabuLedgerMetrics.keyIcon,
                                   ),
-                              ],
-                            ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -178,8 +217,8 @@ class LedgerRecordCard extends StatelessWidget {
                   InkWell(
                     onTap: onOpen,
                     child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        vertical: context.jiabu.decor.cardGap,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: JiabuSpacing.cardGap,
                       ),
                       child: balanceTitle,
                     ),
@@ -242,7 +281,7 @@ class LedgerRecordCard extends StatelessWidget {
                       ),
                     ),
                     child: Wrap(
-                      spacing: context.jiabu.decor.cardGap,
+                      spacing: JiabuSpacing.cardGap,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         if (state == RecordDisplay.recorded ||
@@ -289,7 +328,7 @@ class LedgerRecordCard extends StatelessWidget {
               ),
             ),
             Positioned(
-              left: context.jiabu.decor.cardGap,
+              left: JiabuSpacing.cardGap,
               top: -context.jiabu.decor.compactHeaderInset,
               child: const ExcludeSemantics(child: Tape()),
             ),

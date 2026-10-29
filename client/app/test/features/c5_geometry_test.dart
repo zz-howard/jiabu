@@ -12,6 +12,19 @@ import 'package:jiabu_design/jiabu_design.dart';
 import '../support/c3_harness.dart';
 
 void main() {
+  testWidgets('localized process seconds use complete Sans coverage', (
+    tester,
+  ) async {
+    final message = c5Message('process_failed');
+    final process = ProcessState()..setExpanded(message.id, true);
+    await pumpC3(
+      tester,
+      child: JiabuProcessStrip(message: message, state: process),
+    );
+    final seconds = tester.widget<Text>(find.textContaining('0.8 秒'));
+    expect(seconds.style?.fontFamily, JiabuType.systemSansFamily);
+  });
+
   testWidgets('component_fill_preserves_text_top_left_jiabu', (tester) async {
     final registry = jiabuChatRegistry(
       recordBuilder: (_, _) => const SizedBox(),

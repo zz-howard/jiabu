@@ -78,7 +78,7 @@ class _ServerAddressScreenState extends State<ServerAddressScreen> {
             onPressed: widget.state.busy ? null : _submit,
             child: Text(l.authContinue),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: JiabuSpacing.sm),
           Text(
             l.authServerLaterHint,
             textAlign: TextAlign.center,
@@ -93,14 +93,14 @@ class _ServerAddressScreenState extends State<ServerAddressScreen> {
           clipBehavior: Clip.none,
           children: [
             PaperCard(
-              padding: EdgeInsets.all(context.jiabu.decor.cardInset),
+              padding: const EdgeInsets.all(JiabuSpacing.cardInset),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
                     children: [
                       const Sticker(category: 'home'),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: JiabuSpacing.md),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -125,7 +125,7 @@ class _ServerAddressScreenState extends State<ServerAddressScreen> {
                     ],
                   ),
                   if (hasDefault) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: JiabuSpacing.gap14),
                     Divider(color: context.jiabu.colors.lineStrong),
                     TextButton(
                       key: const Key('advanced-settings'),
@@ -144,7 +144,7 @@ class _ServerAddressScreenState extends State<ServerAddressScreen> {
                     ),
                   ],
                   if (_advanced) ...[
-                    const SizedBox(height: 4),
+                    const SizedBox(height: JiabuSpacing.xs),
                     TextField(
                       key: const Key('server-address'),
                       controller: _address,
@@ -156,7 +156,7 @@ class _ServerAddressScreenState extends State<ServerAddressScreen> {
                         helperText: l.authHttpsHint,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: JiabuSpacing.sm),
                     Text(
                       l.authServerSelfHostedHint,
                       style: context.jiabu.type.caption.copyWith(

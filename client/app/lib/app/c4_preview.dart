@@ -421,6 +421,7 @@ class C4Preview extends StatelessWidget {
           : [],
     );
     return ProviderScope(
+      key: ValueKey('c4-preview-scope:$state'),
       overrides: [
         appRuntimeProvider.overrideWith((ref) => runtime),
         ledgerClockProvider.overrideWithValue(() => DateTime.utc(2026, 10, 29)),
@@ -443,14 +444,35 @@ class C4Preview extends StatelessWidget {
         ),
       ],
       child: SizedBox(
-        height: 760,
+        height: 760, // rules:allow-literal fixed C4 preview viewport
         child: Material(
-          child: locked ? child : SingleChildScrollView(child: child),
+          child: locked || _c4PreviewUsesFullPage(state)
+              ? child
+              : SingleChildScrollView(child: child),
         ),
       ),
     );
   }
 }
+
+bool _c4PreviewUsesFullPage(String state) =>
+    (state.startsWith('space_') &&
+        !const {
+          'space_new',
+          'space_edit',
+          'space_validation',
+        }.contains(state)) ||
+    state.startsWith('members') ||
+    state.startsWith('settings') ||
+    state.startsWith('account') ||
+    state.startsWith('password') ||
+    state.startsWith('language') ||
+    state.startsWith('about') ||
+    state.startsWith('lock_') ||
+    state.startsWith('keys_') ||
+    state == 'sent_invitations' ||
+    state.startsWith('received') ||
+    state == 'invitation_expired';
 
 (String, Widget) c4PreviewBody(String state, SpaceInfo space) {
   if (const [
@@ -499,7 +521,10 @@ class C4Preview extends StatelessWidget {
     final sent = state == 'sent_invitations';
     return (
       'invitations:${sent ? space.id : 'received'}',
-      InvitationsBody(space: sent ? space : null),
+      SpacesScreen(
+        page: sent ? 'invitations' : 'received',
+        spaceId: sent ? space.id : null,
+      ),
     );
   }
   if (state == 'invite' ||

@@ -72,7 +72,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
     return PaperBackground(
       child: SafeArea(
         child: SingleChildScrollView(
-          padding: EdgeInsets.all(context.jiabu.decor.pageInset),
+          padding: EdgeInsets.all(context.jiabu.spacing.page),
           child: Column(
             children: [
               const JiabuLogo(),

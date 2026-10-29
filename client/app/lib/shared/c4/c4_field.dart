@@ -21,7 +21,7 @@ class C4Field extends ConsumerWidget {
   final TextInputType? keyboard;
   @override
   Widget build(BuildContext context, WidgetRef ref) => Padding(
-    padding: EdgeInsets.only(bottom: context.jiabu.decor.cardGap),
+    padding: const EdgeInsets.only(bottom: JiabuSpacing.cardGap),
     child: TextFormField(
       key: ValueKey('$id:$field'),
       initialValue: initial,

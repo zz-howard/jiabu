@@ -9,6 +9,8 @@ class JiabuIcon extends StatelessWidget {
     this.size = 24,
     this.color,
     this.strokeWidth,
+    this.flipX = false,
+    this.flipY = false,
     super.key,
   });
 
@@ -16,6 +18,8 @@ class JiabuIcon extends StatelessWidget {
   final double size;
   final Color? color;
   final double? strokeWidth;
+  final bool flipX;
+  final bool flipY;
 
   @override
   Widget build(BuildContext context) => ExcludeSemantics(
@@ -27,6 +31,8 @@ class JiabuIcon extends StatelessWidget {
           icon,
           color ?? context.jiabu.colors.ink,
           strokeWidth,
+          flipX: flipX,
+          flipY: flipY,
         ),
       ),
     ),
@@ -34,17 +40,29 @@ class JiabuIcon extends StatelessWidget {
 }
 
 class _IconPainter extends CustomPainter {
-  const new(this.icon, this.color, this.strokeWidth);
+  const new(
+    this.icon,
+    this.color,
+    this.strokeWidth, {
+    required this.flipX,
+    required this.flipY,
+  });
 
   final JiabuIconData icon;
   final Color color;
   final double? strokeWidth;
+  final bool flipX;
+  final bool flipY;
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas
       ..save()
-      ..scale(size.width / icon.width, size.height / icon.height);
+      ..translate(flipX ? size.width : 0, flipY ? size.height : 0)
+      ..scale(
+        (flipX ? -1 : 1) * size.width / icon.width,
+        (flipY ? -1 : 1) * size.height / icon.height,
+      );
     final paint = Paint()
       ..color = color
       ..strokeWidth = strokeWidth ?? icon.strokeWidth
@@ -67,5 +85,7 @@ class _IconPainter extends CustomPainter {
   bool shouldRepaint(_IconPainter oldDelegate) =>
       icon != oldDelegate.icon ||
       color != oldDelegate.color ||
-      strokeWidth != oldDelegate.strokeWidth;
+      strokeWidth != oldDelegate.strokeWidth ||
+      flipX != oldDelegate.flipX ||
+      flipY != oldDelegate.flipY;
 }

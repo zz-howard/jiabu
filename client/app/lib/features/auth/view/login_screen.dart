@@ -74,13 +74,15 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
+            padding: const EdgeInsets.symmetric(horizontal: JiabuSpacing.sm),
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: context.jiabu.colors.ink3,
                 shape: BoxShape.circle,
               ),
-              child: const SizedBox.square(dimension: 3),
+              child: const SizedBox.square(
+                dimension: 3, // rules:allow-literal status dot diameter
+              ),
             ),
           ),
           TextButton(
@@ -104,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     autocorrect: false,
                     decoration: InputDecoration(labelText: l.authUsername),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: JiabuSpacing.gap14),
                   TextField(
                     key: const Key('password'),
                     controller: _password,
@@ -125,7 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: JiabuSpacing.xl),
                   FilledButton(
                     key: const Key('login-submit'),
                     onPressed: widget.state.busy
@@ -137,7 +139,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                     child: Text(l.authLogin),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: JiabuSpacing.sm),
                   Text(
                     l.authForgotPassword,
                     textAlign: TextAlign.center,
@@ -165,12 +167,12 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
           ],
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: JiabuSpacing.xl),
         Row(
           children: [
             Expanded(child: Divider(color: context.jiabu.colors.lineStrong)),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.symmetric(horizontal: JiabuSpacing.sm),
               child: Text(
                 l.authNoAccount,
                 style: context.jiabu.type.secondary.copyWith(
@@ -181,12 +183,12 @@ class _LoginScreenState extends State<LoginScreen> {
             Expanded(child: Divider(color: context.jiabu.colors.lineStrong)),
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: JiabuSpacing.sm),
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             const JiabuMascot(pose: JiabuMascotPose.pen, size: 74),
-            const SizedBox(width: 6),
+            const SizedBox(width: JiabuSpacing.sm),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -200,7 +202,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                     child: Text(l.authJoinFamily),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: JiabuSpacing.sm),
                   Text(
                     l.authInviteHint,
                     textAlign: TextAlign.center,

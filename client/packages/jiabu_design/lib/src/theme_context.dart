@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:jiabu_design/src/tokens/colors.dart';
 import 'package:jiabu_design/src/tokens/decor.dart';
 import 'package:jiabu_design/src/tokens/motion.dart';
+import 'package:jiabu_design/src/tokens/spacing.dart';
 import 'package:jiabu_design/src/tokens/type.dart';
 
 extension JiabuContext on BuildContext {
@@ -25,4 +26,7 @@ class JiabuThemeTokens {
         Theme.of(context).extension<JiabuMotion>() ?? const JiabuMotion();
     return MediaQuery.disableAnimationsOf(context) ? value.reduced : value;
   }
+
+  JiabuSpacing get spacing =>
+      JiabuSpacing.forWidth(MediaQuery.sizeOf(context).width);
 }

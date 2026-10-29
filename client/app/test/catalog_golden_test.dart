@@ -15,21 +15,22 @@ void main() {
         sample.component != 'c4b' &&
         sample.component != 'c5',
   )) {
-    for (final width in [360.0, 430.0]) {
-      for (final scale in [1.0, 2.0]) {
-        final name =
-            '${sample.id}_light_w${width.toInt()}_'
-            'text${(scale * 100).toInt()}';
-        testWidgets(name, (tester) async {
-          await pumpCatalogCase(tester, sample, width: width, scale: scale);
-          expect(tester.takeException(), isNull);
-          expectCatalogFits(tester, name);
-          await expectLater(
-            find.byKey(catalogBoundary),
-            matchesGoldenFile('goldens/catalog/$name.png'),
-          );
-        });
-      }
+    final variants = sample.component.startsWith('ui1_')
+        ? const [(360.0, 1.0), (430.0, 2.0)]
+        : const [(360.0, 1.0), (360.0, 2.0), (430.0, 1.0), (430.0, 2.0)];
+    for (final (width, scale) in variants) {
+      final name =
+          '${sample.id}_light_w${width.toInt()}_'
+          'text${(scale * 100).toInt()}';
+      testWidgets(name, (tester) async {
+        await pumpCatalogCase(tester, sample, width: width, scale: scale);
+        expect(tester.takeException(), isNull);
+        expectCatalogFits(tester, name);
+        await expectLater(
+          find.byKey(catalogBoundary),
+          matchesGoldenFile('goldens/catalog/$name.png'),
+        );
+      });
     }
   }
 }

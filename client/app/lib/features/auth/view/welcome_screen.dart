@@ -29,14 +29,14 @@ class WelcomeScreen extends StatelessWidget {
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Padding(
-                  padding: EdgeInsets.all(context.jiabu.decor.pageInset),
+                  padding: EdgeInsets.all(context.jiabu.spacing.page),
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 520),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const SizedBox(height: 24),
+                          const SizedBox(height: JiabuSpacing.xl),
                           Stack(
                             clipBehavior: Clip.none,
                             children: [
@@ -52,7 +52,7 @@ class WelcomeScreen extends StatelessWidget {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: JiabuSpacing.sm),
                           HandText(
                             l.handAuthWelcomeTagline,
                             textAlign: TextAlign.center,
@@ -69,7 +69,7 @@ class WelcomeScreen extends StatelessWidget {
                               style: context.jiabu.type.englishSubtitle
                                   .copyWith(fontSize: 18),
                             ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: JiabuSpacing.xl),
                           Wrap(
                             alignment: WrapAlignment.center,
                             crossAxisAlignment: WrapCrossAlignment.end,
@@ -105,7 +105,7 @@ class WelcomeScreen extends StatelessWidget {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 32),
+                          const SizedBox(height: JiabuSpacing.xxl),
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton(

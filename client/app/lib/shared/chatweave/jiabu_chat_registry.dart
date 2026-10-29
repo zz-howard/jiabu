@@ -51,29 +51,34 @@ class JiabuBlockSkeleton extends StatelessWidget {
   const JiabuBlockSkeleton({required this.type, super.key});
   final String type;
   @override
-  Widget build(BuildContext context) => ConstrainedBox(
-    constraints: const BoxConstraints(maxWidth: JiabuChatMetrics.width),
-    child: Semantics(
-      label: ChatWeaveLocalizations.text(context, '内容正在生成'),
-      child: PaperCard(
-        child: SizedBox(
-          height: JiabuChatMetrics.skeletonHeight,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              for (var line = 0; line < 3; line++)
-                SizedBox(
-                  width: line == 2
-                      ? JiabuChatMetrics.skeletonShort
-                      : double.infinity,
-                  height: JiabuChatMetrics.skeletonLine,
-                  child: ColoredBox(color: context.jiabu.colors.line),
-                ),
-            ],
+  Widget build(BuildContext context) {
+    const lineWidths = <double>[
+      double.infinity,
+      double.infinity,
+      JiabuChatMetrics.skeletonShort,
+    ];
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: JiabuChatMetrics.width),
+      child: Semantics(
+        label: ChatWeaveLocalizations.text(context, '内容正在生成'),
+        child: PaperCard(
+          child: SizedBox(
+            height: JiabuChatMetrics.skeletonHeight,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                for (final width in lineWidths)
+                  SizedBox(
+                    width: width,
+                    height: JiabuSpacing.md,
+                    child: ColoredBox(color: context.jiabu.colors.line),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

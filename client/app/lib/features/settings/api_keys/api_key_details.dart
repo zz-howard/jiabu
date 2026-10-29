@@ -55,7 +55,7 @@ class ApiKeyDetails extends ConsumerWidget {
           '${l.c4LastUsed}: ${keyTime(l, row['last_used_at'], l.c4NeverUsed)}',
         ),
         Text(l.c4KeyImmutable),
-        SizedBox(height: context.jiabu.decor.cardGap),
+        const SizedBox(height: JiabuSpacing.cardGap),
         C4Field(
           id: id,
           field: 'name',
@@ -66,7 +66,7 @@ class ApiKeyDetails extends ConsumerWidget {
           onPressed: !state.online || state.busy
               ? null
               : () async {
-                  final confirmed = await PaperSheet.show<bool>(
+                  final confirmed = await JiabuSheet.show<bool>(
                     context: context,
                     builder: (sheetContext) => C4Confirmation(
                       message: l.c4RevokeWarning,

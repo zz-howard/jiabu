@@ -28,14 +28,9 @@ Future<void> pumpAuth(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   final theme = JiabuTheme.light();
-  final colors = theme.extension<JiabuColors>()!;
   await tester.pumpWidget(
     MaterialApp(
-      theme: theme.copyWith(
-        colorScheme: theme.colorScheme.copyWith(
-          primary: colors.spaceAccents[accent],
-        ),
-      ),
+      theme: theme,
       locale: Locale(locale),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
@@ -54,6 +49,48 @@ Future<void> pumpAuth(
 }
 
 void main() {
+  testWidgets('space accent never changes the auth primary color', (
+    tester,
+  ) async {
+    await pumpAuth(
+      tester,
+      WelcomeScreen(busy: false, onStart: () {}, onLogin: () {}),
+    );
+    final context = tester.element(find.byType(WelcomeScreen));
+    expect(Theme.of(context).colorScheme.primary, context.jiabu.colors.primary);
+  });
+
+  for (final locale in ['zh', 'en']) {
+    for (final width in [360.0, 430.0]) {
+      for (final scale in [1.0, 2.0]) {
+        testWidgets('auth layout $locale $width $scale has no overflow', (
+          tester,
+        ) async {
+          await pumpAuth(
+            tester,
+            LoginScreen(
+              state: const AuthUiState(
+                page: AuthPage.login,
+                server: 'https://example.invalid/',
+              ),
+              onLogin: (_, _) {},
+              onServer: () {},
+            ),
+            locale: locale,
+            width: width,
+            scale: scale,
+          );
+          expect(tester.takeException(), isNull);
+          final pageInset = width <= 380 ? 14.0 : 18.0;
+          expect(
+            tester.getRect(find.byType(PaperCard).first).left,
+            closeTo(pageInset, .1),
+          );
+        });
+      }
+    }
+  }
+
   testWidgets('auth_progress_has_three_dots_and_active_geometry', (
     tester,
   ) async {
@@ -135,7 +172,7 @@ void main() {
     final context = tester.element(prompt);
     final tape = tester.getRect(find.byType(Tape));
     final text = tester.getRect(find.textContaining('还有 3 条没上传'));
-    // PaperSheet already owns its handle gap; the prompt adds a form gap.
+    // JiabuSheet already owns its handle gap; the prompt adds a form gap.
     expect(
       text.top - tape.bottom,
       greaterThanOrEqualTo(2 * context.jiabu.decor.cardGap),
