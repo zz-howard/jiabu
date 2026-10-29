@@ -177,11 +177,23 @@ impl CredentialManager {
         let mut stored = Zeroizing::new(current.refresh_token.clone());
         if let Some(pending) = self.unpersisted() {
             if pending.revision == revision && *pending.replaced == current.refresh_token {
-                current = pending.rotated;
-                if self.persist(revision, &current).await {
+                if self.persist(revision, &pending.rotated).await {
                     revision += 1;
+                    current = pending.rotated;
                     stored = Zeroizing::new(current.refresh_token.clone());
                     self.set_unpersisted(None);
+                } else {
+                    // False is either a source that never stores (env:) or a lost race.
+                    // Only an unchanged store still needs the pending copy.
+                    let (latest, credentials) = self.load().await?;
+                    if latest == revision && credentials.refresh_token == *stored {
+                        current = pending.rotated;
+                    } else {
+                        self.set_unpersisted(None);
+                        revision = latest;
+                        stored = Zeroizing::new(credentials.refresh_token.clone());
+                        current = credentials;
+                    }
                 }
             } else {
                 self.set_unpersisted(None);

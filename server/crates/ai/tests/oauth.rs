@@ -691,3 +691,81 @@ async fn rotation_survives_a_request_cancelled_while_persisting() {
         "synthetic-new-access"
     );
 }
+/// Loses every compare-exchange to an operator re-login that bumps the revision.
+struct RacingLogin {
+    tokens: Arc<Tokens>,
+}
+#[async_trait::async_trait]
+impl TokenStore for RacingLogin {
+    async fn load(&self) -> Result<jiabu_ai::credentials::TokenRead, ProviderError> {
+        self.tokens.load().await
+    }
+    async fn compare_exchange(
+        &self,
+        _revision: i64,
+        _next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        let mut stored = self.tokens.0.lock().unwrap();
+        stored.revision = 2;
+        stored.credentials.access_token = "synthetic-login-access".into();
+        stored.credentials.refresh_token = "synthetic-login-refresh".into();
+        stored.credentials.expires_at = chrono::Utc::now().timestamp() + 3600;
+        Ok(false)
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn pending_rotation_yields_to_a_store_that_moved_during_persist() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-refresh&"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-rotated-refresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-third-access","refresh_token":"synthetic-third-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+    CredentialManager::with_gate(
+        Arc::new(RejectingWrite {
+            tokens: tokens.clone(),
+            error: false,
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+        gate.clone(),
+    )
+    .await
+    .access()
+    .await
+    .unwrap();
+    let racing = CredentialManager::with_gate(
+        Arc::new(RacingLogin {
+            tokens: tokens.clone(),
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+        gate,
+    )
+    .await;
+    // The pending copy is not refreshed or kept once the store holds a newer login.
+    assert_eq!(
+        racing
+            .refresh_after_rejection("synthetic-new-access")
+            .await
+            .unwrap()
+            .access_token,
+        "synthetic-login-access"
+    );
+    assert_eq!(
+        racing.access().await.unwrap().access_token,
+        "synthetic-login-access"
+    );
+}
