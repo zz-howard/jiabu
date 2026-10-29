@@ -25,7 +25,7 @@ class ApiKeyCreate extends ConsumerWidget {
         if (didPop || key == null) {
           return;
         }
-        final confirmed = await PaperSheet.show<bool>(
+        final confirmed = await JiabuSheet.show<bool>(
           context: context,
           builder: (sheetContext) => C4Confirmation(
             message: l.c4SavedConfirm,
@@ -59,7 +59,7 @@ class ApiKeyCreate extends ConsumerWidget {
                 C4Field(id: id, field: 'name', label: l.c4Name),
                 Text(l.c4Expiry),
                 Wrap(
-                  spacing: context.jiabu.decor.cardGap,
+                  spacing: JiabuSpacing.cardGap,
                   children: [
                     for (final entry in {
                       7: l.c4Days7,
@@ -177,7 +177,7 @@ class ApiKeyCreate extends ConsumerWidget {
                     ),
                   ),
                   child: Padding(
-                    padding: EdgeInsets.all(context.jiabu.decor.cardGap),
+                    padding: const EdgeInsets.all(JiabuSpacing.cardGap),
                     child: Text(
                       l.c4KeyOnceWarning,
                       style: context.jiabu.type.secondary.copyWith(

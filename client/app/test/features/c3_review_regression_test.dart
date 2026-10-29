@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu/app/ledger_providers.dart';
@@ -28,6 +29,23 @@ LedgerSnapshot withRecord(LedgerSnapshot base, LedgerRow row) => LedgerSnapshot(
 Finder input(String label) => find.byWidgetPredicate(
   (widget) => widget is TextField && widget.decoration?.labelText == label,
 );
+
+void expectFullyWrappedExplanation(
+  WidgetTester tester,
+  Key key,
+  String expected,
+) {
+  final finder = find.byKey(key);
+  expect(finder, findsOneWidget);
+  final text = tester.widget<Text>(finder);
+  expect(text.data, expected);
+  expect(text.maxLines, isNull);
+  expect(text.overflow, isNull);
+  expect(
+    tester.renderObject<RenderParagraph>(finder).didExceedMaxLines,
+    isFalse,
+  );
+}
 
 void main() {
   for (final surface in ['image', 'edit']) {
@@ -275,7 +293,135 @@ void main() {
       child: AccountsPage(snapshot: data),
     );
     expect(find.text('上传失败'), findsOneWidget);
-    expect(find.textContaining('本版暂不支持删除未上传账户'), findsOneWidget);
+    expectFullyWrappedExplanation(
+      tester,
+      const Key('account-create-rejected-explanation'),
+      '服务器拒绝创建，可能已有同名账户或备用金；需删除后重建，本版暂不支持删除未上传账户。',
+    );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed account rename shows failure without create guidance', (
+    tester,
+  ) async {
+    final base = c3Snapshot('accounts');
+    final data = LedgerSnapshot(
+      spaceId: base.spaceId,
+      space: base.space,
+      accounts: [
+        LedgerRow(base.accounts.first.data, syncState: 'pending'),
+        ...base.accounts.skip(1),
+      ],
+      pending: [
+        LedgerRow({
+          'id': 'failed-rename',
+          'tool': 'update_account',
+          'state': 'failed',
+          'entity_ids': ['account:${base.accounts.first.id}'],
+        }),
+      ],
+    );
+    final repo = FakeLedgerRepository(data);
+    addTearDown(repo.changes.close);
+    await pumpC3(
+      tester,
+      repository: repo,
+      child: AccountsPage(snapshot: data),
+    );
+    expect(find.text('上传失败'), findsOneWidget);
+    expect(
+      find.byKey(const Key('account-create-rejected-explanation')),
+      findsNothing,
+    );
+    expect(find.textContaining('需删除后重建'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('archived balance explanation wraps completely at 200 percent', (
+    tester,
+  ) async {
+    final base = c3Snapshot('accounts');
+    final data = LedgerSnapshot(
+      spaceId: base.spaceId,
+      space: base.space,
+      accounts: [
+        LedgerRow({...base.accounts.first.data, 'archived_at': '2026-10-28'}),
+        ...base.accounts.skip(1),
+      ],
+      records: base.records,
+      members: base.members,
+    );
+    final repo = FakeLedgerRepository(data);
+    addTearDown(repo.changes.close);
+    await pumpC3(
+      tester,
+      repository: repo,
+      scale: 2,
+      child: AccountsPage(snapshot: data),
+    );
+    expectFullyWrappedExplanation(
+      tester,
+      const Key('archived-account-balance-explanation'),
+      '此归档账户因旧账更正重新出现余额。当前服务端暂不支持从归档账户转走余额，请核查旧账。',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('readonly and archived conflicts keep only conflict action', (
+    tester,
+  ) async {
+    final base = c3Snapshot('accounts');
+    final data = LedgerSnapshot(
+      spaceId: base.spaceId,
+      space: LedgerRow({
+        ...base.space.data,
+        'modules': {'ledger': 'read'},
+      }),
+      accounts: [
+        LedgerRow(base.accounts.first.data, syncState: 'conflict'),
+        LedgerRow({
+          ...base.accounts[1].data,
+          'archived_at': '2026-10-28',
+        }, syncState: 'conflict'),
+        ...base.accounts.skip(2),
+      ],
+      records: base.records,
+    );
+    final repo = FakeLedgerRepository(data);
+    addTearDown(repo.changes.close);
+    await pumpC3(
+      tester,
+      repository: repo,
+      child: AccountsPage(snapshot: data),
+    );
+
+    final menus = find.byType(PopupMenuButton<String>);
+    expect(menus, findsNWidgets(2));
+    for (var index = 0; index < 2; index++) {
+      expect(
+        tester.widget<PopupMenuButton<String>>(menus.at(index)).enabled,
+        isTrue,
+      );
+      await tester.tap(menus.at(index));
+      await tester.pumpAndSettle();
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is PopupMenuItem<String> && widget.value == 'conflict',
+        ),
+        findsOneWidget,
+      );
+      for (final value in ['rename', 'plan', 'archive']) {
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is PopupMenuItem<String> && widget.value == value,
+          ),
+          findsNothing,
+        );
+      }
+      Navigator.of(tester.element(find.byType(AccountsPage))).pop();
+      await tester.pumpAndSettle();
+    }
   });
 }

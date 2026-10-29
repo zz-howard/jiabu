@@ -206,7 +206,7 @@ class RecordActions extends ConsumerWidget {
                   child: Text(l.ledgerVoid),
                 ),
               ),
-              SizedBox(width: context.jiabu.decor.cardGap),
+              const SizedBox(width: JiabuSpacing.cardGap),
               Expanded(
                 child: FilledButton(
                   style: FilledButton.styleFrom(
@@ -399,7 +399,7 @@ class EventRow extends StatelessWidget {
         )
         .length;
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: context.jiabu.decor.cardGap),
+      padding: const EdgeInsets.symmetric(vertical: JiabuSpacing.cardGap),
       child: DecoratedBox(
         decoration: BoxDecoration(
           border: Border(
@@ -407,7 +407,7 @@ class EventRow extends StatelessWidget {
           ),
         ),
         child: Padding(
-          padding: EdgeInsets.only(left: context.jiabu.decor.cardGap),
+          padding: const EdgeInsets.only(left: JiabuSpacing.cardGap),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -574,9 +574,9 @@ class ConflictSheet extends ConsumerWidget {
           (l.ledgerMyVersion, mine),
         ])
           Padding(
-            padding: EdgeInsets.symmetric(
-              vertical: context.jiabu.decor.sectionBottom,
-              horizontal: context.jiabu.decor.cardGap,
+            padding: const EdgeInsets.symmetric(
+              vertical: JiabuSpacing.sectionBottom,
+              horizontal: JiabuSpacing.cardGap,
             ),
             child: PaperCard(
               child: Column(

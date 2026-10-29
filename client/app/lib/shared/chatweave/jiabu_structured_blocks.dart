@@ -19,15 +19,16 @@ class JiabuStructuredBlock extends StatelessWidget {
         builder: (context, constraints) {
           final items = objects(data['metrics']);
           final single = MediaQuery.textScalerOf(context).scale(1) >= 2;
+          final itemWidth = single
+              ? constraints.maxWidth
+              : (constraints.maxWidth - JiabuSpacing.sm) / 2;
           return Wrap(
-            spacing: JiabuChatMetrics.gap,
-            runSpacing: JiabuChatMetrics.gap,
+            spacing: JiabuSpacing.sm,
+            runSpacing: JiabuSpacing.sm,
             children: [
               for (final item in items)
                 SizedBox(
-                  width: single
-                      ? constraints.maxWidth
-                      : (constraints.maxWidth - JiabuChatMetrics.gap) / 2,
+                  width: itemWidth,
                   child: _Metric(data: item, compact: true),
                 ),
             ],

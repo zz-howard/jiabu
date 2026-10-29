@@ -17,10 +17,10 @@
     {
       "id": "offline_member_actions",
       "file": "client/app/lib/features/spaces/view/spaces_screen.dart",
-      "find": "onPressed: runtime.managementOnline\n                              ? () => openSpaceAction(\n                                  context,\n                                  space,\n                                  'remove',",
-      "replace": "onPressed: true\n                              ? () => openSpaceAction(\n                                  context,\n                                  space,\n                                  'remove',",
+      "find": "member.id != space.memberId\n                    ? PopupMenuButton<String>(\n                        enabled: runtime.managementOnline,",
+      "replace": "member.id != space.memberId\n                    ? PopupMenuButton<String>(\n                        enabled: true,",
       "expected_occurrences": 1,
-      "find_regex": "onPressed:\\s*runtime\\.managementOnline\\s*\\?\\s*\\(\\s*\\)\\s*=>\\s*openSpaceAction\\(\\s*context,\\s*space,\\s*'remove',",
+      "find_regex": "member\\.id\\s*!\\s*=\\s*space\\.memberId\\s*\\?\\s*PopupMenuButton\\s*<\\s*String\\s*>\\s*\\(\\s*enabled:\\s*runtime\\.managementOnline,",
       "test_file": "client/app/test/features/c4_interaction_test.dart",
       "test_names": [
         "offline_member_management_buttons_are_disabled"

@@ -193,7 +193,7 @@ class _JiabuProcessStripState extends State<JiabuProcessStrip> {
                               l.chatSeconds(
                                 (duration / 1000).toStringAsFixed(1),
                               ),
-                              style: context.jiabu.type.date,
+                              style: context.jiabu.type.caption,
                             ),
                         ],
                       ),

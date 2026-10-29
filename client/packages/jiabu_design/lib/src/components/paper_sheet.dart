@@ -1,10 +1,16 @@
+// Compatibility is required for one migration window; production usage is
+// rejected by tool/check_rules.dart.
+// ignore_for_file: remove_deprecations_in_breaking_versions
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:jiabu_design/src/components/tape.dart';
 import 'package:jiabu_design/src/theme_context.dart';
 
+@Deprecated('Use JiabuSheet')
 class PaperSheet extends StatelessWidget {
+  @Deprecated('Use JiabuSheet')
   const PaperSheet({required this.child, this.footer, super.key});
 
   final Widget child;

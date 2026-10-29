@@ -35,6 +35,7 @@
   "handCarryOver": "没花完的钱会一直留在各自账户里，按月结转。",
   "handPersonalSpaceOnly": "这里只有你能看到",
   "handNoResults": "没有找到符合条件的记录",
+  "handNothingHere": "这里还没有内容",
   "handToday": "今天",
   "handYesterday": "昨天",
   "handTodayTime": "今天 {time}",

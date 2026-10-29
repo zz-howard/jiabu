@@ -30,6 +30,7 @@ const c3States = <String>[
   'overview_conflict',
   'history_empty',
   'history_grouped',
+  'history_24',
   'history_search',
   'history_filters',
   'card_denied',
@@ -58,6 +59,7 @@ const c3States = <String>[
   'void_refunds',
   'accounts_empty',
   'accounts',
+  'accounts_long_6',
   'account_real',
   'account_purpose',
   'account_rename',
@@ -87,13 +89,23 @@ const c3EnglishRepresentatives = <String>[
 LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
   const s = 'fictional-c3';
   final empty = state.endsWith('_empty');
+  final accountFixtures = state == 'accounts_long_6'
+      ? const [
+          ('real-a', 'real', '招商银行信用卡（虚构家庭日常共同支出账户）'),
+          ('real-b', 'real', '中国银行长期储蓄账户（虚构）'),
+          ('purpose-a', 'purpose', '孩子教育与课外活动专项预算（虚构）'),
+          ('purpose-b', 'purpose', '家庭紧急备用金与医疗储备（虚构）'),
+          ('purpose-c', 'purpose', '年度旅行和探亲交通预算（虚构）'),
+          ('purpose-d', 'purpose', '居家维修及大件家电更新（虚构）'),
+        ]
+      : const [
+          ('real-a', 'real', '虚构银行卡A'),
+          ('real-b', 'real', '虚构银行卡B'),
+          ('purpose-a', 'purpose', '虚构日常'),
+          ('purpose-b', 'purpose', '虚构备用金'),
+        ];
   final accounts = <LedgerRow>[
-    for (final item in [
-      ('real-a', 'real', '虚构银行卡A'),
-      ('real-b', 'real', '虚构银行卡B'),
-      ('purpose-a', 'purpose', '虚构日常'),
-      ('purpose-b', 'purpose', '虚构备用金'),
-    ])
+    for (final item in accountFixtures)
       LedgerRow({
         'id': item.$1,
         'space_id': s,
@@ -148,7 +160,20 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
       'modules': {'ledger': 'write'},
     }),
     accounts: empty ? [] : accounts,
-    records: empty ? [] : [row],
+    records: empty
+        ? []
+        : state == 'history_24'
+        ? [
+            for (var index = 0; index < 24; index++)
+              LedgerRow({
+                ...row.data,
+                'id': 'record-$index',
+                'note': '虚构记录 ${index + 1}',
+                'amount_minor': 100 + index * 25,
+                'occurred_on': '2026-10-${28 - index ~/ 8}',
+              }),
+          ]
+        : [row],
     members: [
       LedgerRow({
         'id': 'member-a',
@@ -449,7 +474,7 @@ class C3Preview extends StatelessWidget {
       );
     }
     if (state == 'conflict' || state == 'conflict_voided') {
-      return PaperSheet(
+      return JiabuSheet(
         child: ConflictSheet(
           spaceId: s,
           entityKind: 'record',
@@ -458,21 +483,21 @@ class C3Preview extends StatelessWidget {
       );
     }
     if (state.startsWith('details')) {
-      return PaperSheet(
+      return JiabuSheet(
         footer: RecordActions(spaceId: s, recordId: 'record-a'),
         child: RecordDetails(spaceId: s, recordId: 'record-a'),
       );
     }
     if (state == 'edit') {
-      return PaperSheet(
+      return JiabuSheet(
         child: RecordForm(spaceId: s, record: data.records.first),
       );
     }
     if (state.startsWith('manual_')) {
-      return PaperSheet(child: RecordForm(spaceId: s));
+      return JiabuSheet(child: RecordForm(spaceId: s));
     }
     if (state.startsWith('refund')) {
-      return PaperSheet(
+      return JiabuSheet(
         child: RecordForm(
           spaceId: s,
           initial: const {
@@ -484,13 +509,18 @@ class C3Preview extends StatelessWidget {
       );
     }
     if (state == 'void_refunds') {
-      return PaperSheet(child: Text(l.ledgerHasRefunds));
+      return JiabuSheet(child: Text(l.ledgerHasRefunds));
     }
     if (state.startsWith('accounts')) {
-      return AccountsPage(snapshot: data);
+      return JiabuPageScaffold(
+        title: l.ledgerAccounts,
+        onBack: () {},
+        action: TextButton(onPressed: () {}, child: Text(l.ledgerAddTag)),
+        body: AccountsPage(snapshot: data),
+      );
     }
     if (state.startsWith('account_')) {
-      return PaperSheet(
+      return JiabuSheet(
         child: AccountForm(
           spaceId: s,
           initialDate: '2026-10-28',
@@ -499,7 +529,7 @@ class C3Preview extends StatelessWidget {
       );
     }
     if (state.startsWith('archive_')) {
-      return PaperSheet(
+      return JiabuSheet(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -511,7 +541,7 @@ class C3Preview extends StatelessWidget {
       );
     }
     if (state.startsWith('plan_')) {
-      return PaperSheet(
+      return JiabuSheet(
         child: AllocationPlanForm(spaceId: s, accountId: 'purpose-a'),
       );
     }

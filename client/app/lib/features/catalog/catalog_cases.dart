@@ -27,11 +27,11 @@ List<CatalogCase> catalogCases() => [
       mainAxisSize: MainAxisSize.min,
       children: [
         const JiabuLogo(size: 120),
-        const SizedBox(width: 24),
+        const SizedBox(width: JiabuSpacing.xl),
         ColoredBox(
           color: context.jiabu.colors.ink,
           child: const Padding(
-            padding: EdgeInsets.all(12),
+            padding: EdgeInsets.all(JiabuSpacing.md),
             child: JiabuLogo(size: 120, variant: JiabuLogoVariant.dark),
           ),
         ),
@@ -67,8 +67,82 @@ List<CatalogCase> catalogCases() => [
     CatalogCase(
       'c3',
       state,
-      (_) => SizedBox(height: 720, child: C3Preview(state: state)),
+      (_) => SizedBox(
+        height: 720, // rules:allow-literal fixed C3 catalog viewport
+        child: C3Preview(state: state),
+      ),
     ),
+  CatalogCase(
+    'ui1_page_scaffold',
+    'basic',
+    (context) => SizedBox(
+      height: 320, // rules:allow-literal component preview viewport
+      child: JiabuPageScaffold(
+        title: _l(context).catalogSampleTitle,
+        onBack: () {},
+        body: Center(child: Text(_l(context).catalogSampleBody)),
+      ),
+    ),
+  ),
+  CatalogCase(
+    'ui1_page_header',
+    'action',
+    (context) => JiabuPageHeader(
+      title: _l(context).catalogSampleTitle,
+      onBack: () {},
+      action: TextButton(
+        onPressed: () {},
+        child: Text(_l(context).catalogOpenSheet),
+      ),
+    ),
+  ),
+  CatalogCase(
+    'ui1_list_row',
+    'basic',
+    (context) => JiabuListRow(
+      title: _l(context).catalogSampleTitle,
+      subtitle: _l(context).catalogSampleBody,
+      showChevron: true,
+    ),
+  ),
+  CatalogCase(
+    'ui1_list_row',
+    'long_name',
+    (context) => JiabuListRow(
+      title: '${_l(context).catalogLongBody} ${_l(context).catalogLongBody}',
+      value: '¥12,345.67',
+      showChevron: true,
+    ),
+  ),
+  CatalogCase(
+    'ui1_section_header',
+    'basic',
+    (context) => JiabuSectionHeader(title: _l(context).catalogSampleTitle),
+  ),
+  CatalogCase(
+    'ui1_empty_state',
+    'action',
+    (context) => JiabuEmptyState(
+      message: HandText(_l(context).handNoResults, textAlign: TextAlign.center),
+      actionLabel: _l(context).catalogOpenSheet,
+      onAction: () {},
+    ),
+  ),
+  CatalogCase(
+    'ui1_settings_group',
+    'basic',
+    (context) => JiabuSettingsGroup(
+      children: [
+        JiabuListRow(title: _l(context).catalogSampleTitle),
+        JiabuListRow(title: _l(context).catalogSampleBody),
+      ],
+    ),
+  ),
+  CatalogCase(
+    'ui1_sheet',
+    'short_content',
+    (context) => JiabuSheet(child: Text(_l(context).catalogSampleBody)),
+  ),
   for (final degrees in [-5.0, 0.0, 5.0])
     CatalogCase(
       'tilt',
@@ -262,7 +336,7 @@ List<CatalogCase> catalogCases() => [
     CatalogCase(
       'paper_sheet',
       long ? 'scrollable_content' : 'short_content',
-      (context) => PaperSheet(
+      (context) => JiabuSheet(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -277,7 +351,7 @@ List<CatalogCase> catalogCases() => [
     'modal',
     (context) => TextButton(
       onPressed: () async {
-        await PaperSheet.show<void>(
+        await JiabuSheet.show<void>(
           context: context,
           builder: (sheetContext) => Text(_l(sheetContext).catalogLongBody),
         );
@@ -292,7 +366,7 @@ List<CatalogCase> catalogCases() => [
         '${state}_${position.name}',
         (context) => SizedBox(
           width: double.infinity,
-          height: 520,
+          height: 520, // rules:allow-literal snackbar position preview
           child: Stack(
             children: [
               Positioned(
@@ -319,7 +393,10 @@ List<CatalogCase> catalogCases() => [
       pattern.name,
       (_) => PaperBackground(
         pattern: pattern,
-        child: const SizedBox(width: double.infinity, height: 180),
+        child: const SizedBox(
+          width: double.infinity,
+          height: 180, // rules:allow-literal snackbar preview canvas
+        ),
       ),
     ),
   for (final category in ['ui', 'doodle', 'stroke-decor'])

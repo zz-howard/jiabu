@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu/features/catalog/c4_cases.dart';
 import 'package:jiabu_design/jiabu_design.dart';
@@ -55,6 +56,38 @@ void main() {
                     -6.0,
                     0.0,
                   ], contains((element.widget as Tilt).degrees));
+                }
+                if (find.byType(JiabuPageScaffold).evaluate().isNotEmpty) {
+                  final header = tester.getRect(find.byType(JiabuPageHeader));
+                  final body = tester.getRect(
+                    find.byKey(const Key('jiabu-page-body')),
+                  );
+                  expect(body.top, greaterThanOrEqualTo(header.bottom));
+                  final pageInset = width <= 380 ? 14.0 : 18.0;
+                  expect(
+                    tester
+                        .getRect(find.byKey(const Key('jiabu-page-back')))
+                        .left,
+                    closeTo(pageInset, .1),
+                  );
+                  for (final group
+                      in find.byType(JiabuSettingsGroup).evaluate()) {
+                    expect(
+                      tester.getRect(find.byWidget(group.widget)).left,
+                      closeTo(pageInset, .1),
+                    );
+                  }
+                }
+                if (state == 'members') {
+                  final group = find.byType(JiabuSettingsGroup);
+                  expect(group, findsOneWidget);
+                  expect(
+                    find.descendant(
+                      of: group,
+                      matching: find.byType(JiabuListRow),
+                    ),
+                    findsNWidgets(2),
+                  );
                 }
                 final decor = tester
                     .element(find.byType(C4Preview))
@@ -139,4 +172,146 @@ void main() {
       }
     }
   }
+  testWidgets('secondary routed pages expose a back button and title', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      for (final state in const [
+        'settings',
+        'account',
+        'password',
+        'language',
+        'about',
+        'lock_disabled',
+        'keys_list',
+        'members',
+        'received',
+        'sent_invitations',
+      ]) {
+        await pumpC4Preview(tester, state: state);
+        final header = find.byType(JiabuPageHeader);
+        expect(header, findsOneWidget, reason: state);
+        final back = find.byKey(const Key('jiabu-page-back'));
+        expect(back, findsOneWidget, reason: state);
+        expect(tester.getSize(back).width, greaterThanOrEqualTo(48));
+        expect(tester.getSize(back).height, greaterThanOrEqualTo(48));
+        final label = MaterialLocalizations.of(tester.element(header))
+            .backButtonTooltip;
+        expect(find.bySemanticsLabel(label), findsOneWidget, reason: state);
+      }
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('settings group has no ruled paper or margin decoration', (
+    tester,
+  ) async {
+    await pumpC4Preview(tester, state: 'settings');
+    expect(JiabuSettingsGroup.paperPattern, isNull);
+    expect(find.byType(JiabuSettingsGroup), findsOneWidget);
+    final group = find.byType(JiabuSettingsGroup);
+    expect(
+      find.descendant(of: group, matching: find.byType(PaperBackground)),
+      findsNothing,
+    );
+  });
+
+  testWidgets('api key rows keep expiry, usage, warning, and inactive stamps', (
+    tester,
+  ) async {
+    await pumpC4Preview(tester, state: 'keys_inactive', scale: 2);
+    expect(tester.takeException(), isNull);
+    expect(find.text('永不过期'), findsOneWidget);
+    expect(find.text('从未使用'), findsNWidgets(3));
+    final neverExpires = tester.widget<Text>(find.text('永不过期'));
+    expect(
+      neverExpires.style?.color,
+      tester.element(find.text('永不过期')).jiabu.colors.warn,
+    );
+    expect(find.widgetWithText(Stamp, '已撤销'), findsOneWidget);
+    expect(find.widgetWithText(Stamp, '已过期'), findsOneWidget);
+  });
+
+  testWidgets('api key permissions remain visible beside long prefixes', (
+    tester,
+  ) async {
+    for (final (width, scale) in [(360.0, 1.0), (430.0, 2.0)]) {
+      await pumpC4Preview(
+        tester,
+        state: 'keys_list',
+        width: width,
+        scale: scale,
+      );
+      final permission = find.text('只读');
+      expect(permission, findsOneWidget, reason: '$width at ${scale}x');
+      expect(
+        tester.renderObject<RenderParagraph>(permission).didExceedMaxLines,
+        isFalse,
+        reason: '$width at ${scale}x',
+      );
+    }
+  });
+
+  testWidgets('api key group and primary action use the card gap token', (
+    tester,
+  ) async {
+    await pumpC4Preview(tester, state: 'keys_list');
+    final groupBottom = tester
+        .getRect(find.byType(JiabuSettingsGroup).last)
+        .bottom;
+    final buttonTop = tester.getRect(find.byType(FilledButton)).top;
+    expect(buttonTop - groupBottom, greaterThanOrEqualTo(JiabuSpacing.cardGap));
+  });
+
+  testWidgets('language row exposes selected semantics', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await pumpC4Preview(tester, state: 'language');
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('language-zh-Hans'))),
+        isSemantics(hasSelectedState: true, isSelected: true),
+      );
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('inactive key row exposes expanded and collapsed semantics', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await pumpC4Preview(tester, state: 'keys_inactive');
+      expect(
+        tester.getSemantics(find.byKey(const Key('inactive-keys-toggle'))),
+        isSemantics(hasExpandedState: true, isExpanded: true),
+      );
+      final expandedIcon = tester.widget<JiabuIcon>(
+        find.descendant(
+          of: find.byKey(const Key('inactive-keys-toggle')),
+          matching: find.byType(JiabuIcon),
+        ),
+      );
+      expect(expandedIcon.icon, JiabuIcons.uiDown);
+      expect(expandedIcon.flipY, isTrue);
+
+      await pumpC4Preview(tester, state: 'keys_list');
+      expect(
+        tester.getSemantics(find.byKey(const Key('inactive-keys-toggle'))),
+        isSemantics(hasExpandedState: true, isExpanded: false),
+      );
+      final collapsedIcon = tester.widget<JiabuIcon>(
+        find.descendant(
+          of: find.byKey(const Key('inactive-keys-toggle')),
+          matching: find.byType(JiabuIcon),
+        ),
+      );
+      expect(collapsedIcon.icon, JiabuIcons.uiDown);
+      expect(collapsedIcon.flipY, isFalse);
+    } finally {
+      semantics.dispose();
+    }
+  });
 }

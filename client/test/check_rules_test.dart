@@ -230,6 +230,55 @@ final color = context.jiabu.accent;
     expect(violationsFor(2), hasLength(1));
   });
 
+  test('rule 10 rejects literal spacing and accepts tokens and zero', () {
+    const path = 'app/lib/features/home/home_screen.dart';
+    write(path, '''
+final bad = Padding(padding: EdgeInsets.all(18));
+final gap = SizedBox(height: 12);
+final zero = EdgeInsets.only(left: 0);
+final good = EdgeInsets.all(context.jiabu.spacing.page);
+final nested = SizedBox(child: Widget(width: 18));
+''');
+    expect(violationsFor(10), hasLength(2));
+    write(path, '''
+final zero = EdgeInsets.only(left: 0);
+final good = EdgeInsets.all(context.jiabu.spacing.page);
+''');
+    expect(violationsFor(10), isEmpty);
+  });
+
+  const nestedInsetSource =
+      'final inset = EdgeInsets.only( '
+      'left: MediaQuery.paddingOf(context).left, right: 18);';
+  for (final source in [
+    'final inset = EdgeInsetsDirectional.only(start: 18);',
+    'final box = SizedBox.fromSize(size: Size(12, 12));',
+    nestedInsetSource,
+    'final widget = Padding(padding: const .all(18));',
+  ]) {
+    test('rule 10 scans balanced and directional constructor: $source', () {
+      write('app/lib/features/home/home_screen.dart', '$source\n');
+      expect(violationsFor(10), isNotEmpty);
+    });
+  }
+
+  test('literal spacing allowance requires a non-empty same-line reason', () {
+    const path = 'app/lib/features/home/home_screen.dart';
+    write(path, '''
+final bad = SizedBox(height: 72); // rules:allow-literal
+final good = SizedBox(height: 72); // rules:allow-literal fixed preview canvas
+''');
+    expect(violationsFor(10), hasLength(1));
+  });
+
+  test('production UI cannot use deprecated PaperSheet', () {
+    write(
+      'app/lib/shared/example.dart',
+      'final route = PaperSheet.show<void>(context: context, builder: build);',
+    );
+    expect(violationsFor(10), hasLength(1));
+  });
+
   group('design package color literals outside tokens/colors.dart', () {
     const path = 'packages/jiabu_design/lib/src/components/example.dart';
     for (final source in [

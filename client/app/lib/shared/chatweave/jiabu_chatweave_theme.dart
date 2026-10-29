@@ -31,7 +31,6 @@ class JiabuChatWeaveTheme extends StatelessWidget {
           caption: type.caption.copyWith(color: colors.ink2),
           title: type.question.copyWith(color: colors.ink),
           numeric: type.recordAmount.copyWith(color: colors.ink),
-          spacing: context.jiabu.decor.cardGap,
           radius: context.jiabu.decor.cardRadius,
         ),
         child: child,

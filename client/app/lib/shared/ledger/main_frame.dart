@@ -35,50 +35,50 @@ class MainFrame extends StatelessWidget {
         bottom: false,
         child: Column(
           children: [
-            Padding(
-              padding: EdgeInsets.only(
-                left:
-                    MediaQuery.sizeOf(context).width <=
-                        JiabuLedgerMetrics.narrowWidth
-                    ? context.jiabu.decor.narrowHeaderInset
-                    : context.jiabu.decor.pageInset,
-                right:
-                    MediaQuery.sizeOf(context).width <=
-                        JiabuLedgerMetrics.narrowWidth
-                    ? context.jiabu.decor.compactHeaderInset
-                    : context.jiabu.decor.pageInset,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: onSpace,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(minHeight: 48),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: SpaceHeading(
-                                name: spaceName,
-                                accent: accent,
-                                style: onSpace == null
-                                    ? null
-                                    : context.jiabu.type.question,
+            ColoredBox(
+              key: const Key('main-frame-header'),
+              color: context.jiabu.colors.bg,
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: context.jiabu.spacing.page,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: onSpace,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 48),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: SpaceHeading(
+                                  name: spaceName,
+                                  accent: accent,
+                                  style: onSpace == null
+                                      ? null
+                                      : context.jiabu.type.question,
+                                ),
                               ),
-                            ),
-                            if (onSpace != null)
-                              const JiabuIcon(JiabuIcons.uiDown),
-                          ],
+                              if (onSpace != null)
+                                const JiabuIcon(JiabuIcons.uiDown),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  MeSealButton(label: settingsLabel, onPressed: onSettings),
-                ],
+                    MeSealButton(label: settingsLabel, onPressed: onSettings),
+                  ],
+                ),
               ),
             ),
             ?status,
-            Expanded(child: child),
+            Expanded(
+              child: ClipRect(
+                key: const Key('main-frame-content'),
+                child: child,
+              ),
+            ),
           ],
         ),
       ),

@@ -1,0 +1,85 @@
+{
+  "instructions": "Build host only; cwd client/app. Apply ONE control, require the named assertion or rules command to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly.",
+  "controls": [
+    {
+      "id": "literal_padding_not_reported",
+      "file": "client/app/lib/features/settings/view/settings_screen.dart",
+      "find": "padding: EdgeInsets.all(context.jiabu.spacing.page),",
+      "replace": "padding: const EdgeInsets.all(18),",
+      "expected_occurrences": 1,
+      "test_file": "client/test/check_rules_test.dart",
+      "test_names": ["rule 10 rejects literal spacing and accepts tokens and zero"],
+      "command": "cd .. && dart run tool/check_rules.dart"
+    },
+    {
+      "id": "hand_missing_glyph_not_reported",
+      "file": "client/app/lib/l10n/app_zh.arb",
+      "find": "\"handNoResults\": \"没有找到符合条件的记录\"",
+      "replace": "\"handNoResults\": \"没有找到符合条件的记录龘\"",
+      "expected_occurrences": 1,
+      "test_file": "client/packages/jiabu_design/test/font_coverage_test.dart",
+      "test_names": ["every declared source is covered; Caveat never contains Han"],
+      "command": "cd ../packages/jiabu_design && flutter test test/font_coverage_test.dart"
+    },
+    {
+      "id": "secondary_page_without_back",
+      "file": "client/packages/jiabu_design/lib/src/components/page_header.dart",
+      "find": "if (showBack)\n                  Semantics(",
+      "replace": "if (showBack && false)\n                  Semantics(",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c4_layout_test.dart",
+      "test_names": ["secondary routed pages expose a back button and title"],
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"secondary routed pages expose a back button and title\""
+    },
+    {
+      "id": "settings_group_uses_ruled_paper",
+      "file": "client/packages/jiabu_design/lib/src/components/settings_group.dart",
+      "find": "static const PaperPattern? paperPattern = null;",
+      "replace": "static const PaperPattern? paperPattern = PaperPattern.ruled;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c4_layout_test.dart",
+      "test_names": ["settings group has no ruled paper or margin decoration"],
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"settings group has no ruled paper or margin decoration\""
+    },
+    {
+      "id": "login_primary_uses_space_accent",
+      "file": "client/app/test/features/auth_screens_test.dart",
+      "find": "theme: theme,",
+      "replace": "theme: theme.copyWith(colorScheme: theme.colorScheme.copyWith(primary: theme.extension<JiabuColors>()!.spaceAccents[accent])),",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/auth_screens_test.dart",
+      "test_names": ["space accent never changes the auth primary color"],
+      "command": "flutter test test/features/auth_screens_test.dart --plain-name \"space accent never changes the auth primary color\""
+    },
+    {
+      "id": "text200_header_content_overlap",
+      "file": "client/app/lib/shared/ledger/main_frame.dart",
+      "find": "child: ClipRect(\n                key: const Key('main-frame-content'),",
+      "replace": "child: Transform.translate(\n                offset: const Offset(0, -80),\n                key: const Key('main-frame-content'),",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c3_layout_test.dart",
+      "test_names": ["chat content starts below header zh 360.0 2.0"],
+      "command": "flutter test test/features/c3_layout_test.dart --plain-name \"chat content starts below header zh 360.0 2.0\""
+    },
+    {
+      "id": "structural_transform_not_reported",
+      "file": "client/packages/jiabu_design/lib/src/components/page_header.dart",
+      "find": "child: const SizedBox(\n                          key: Key('jiabu-page-back'),\n                          width: JiabuSpacing.minTapTarget,\n                          height: JiabuSpacing.minTapTarget,\n                          child: Center(\n                            child: JiabuIcon(JiabuIcons.uiRight, flipX: true),\n                          ),\n                        ),",
+      "replace": "child: SizedBox(\n                          key: const Key('jiabu-page-back'),\n                          width: JiabuSpacing.minTapTarget,\n                          height: JiabuSpacing.minTapTarget,\n                          child: Center(\n                            child: Transform.rotate(\n                              angle: .1,\n                              child: const JiabuIcon(JiabuIcons.uiRight, flipX: true),\n                            ),\n                          ),\n                        ),",
+      "expected_occurrences": 1,
+      "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
+      "test_names": ["layout components stay at zero rotation"],
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"layout components stay at zero rotation\""
+    },
+    {
+      "id": "empty_route_stack_back_throws",
+      "file": "client/app/lib/shared/navigation.dart",
+      "find": "void popOrGo(BuildContext context, String fallbackLocation) {\n  final router = GoRouter.of(context);\n  if (router.canPop()) {\n    router.pop();\n    return;\n  }\n  router.go(fallbackLocation);\n}",
+      "replace": "void popOrGo(BuildContext context, String fallbackLocation) {\n  GoRouter.of(context).pop();\n}",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c4_interaction_test.dart",
+      "test_names": ["deep linked space members back falls to space settings"],
+      "command": "flutter test test/features/c4_interaction_test.dart --plain-name \"deep linked space members back falls to space settings\""
+    }
+  ]
+}

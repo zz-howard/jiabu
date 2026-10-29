@@ -9,8 +9,8 @@ class BlankScreen extends StatelessWidget {
     body: Center(
       child: SizedBox(
         key: const Key('blank-accent'),
-        width: 96,
-        height: 96,
+        width: 96, // rules:allow-literal B0 visual baseline square
+        height: 96, // rules:allow-literal B0 visual baseline square
         child: ColoredBox(color: context.jiabu.colors.primary),
       ),
     ),

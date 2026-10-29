@@ -35,6 +35,7 @@
   "handCarryOver": "Unspent money stays in each account and rolls over each month.",
   "handPersonalSpaceOnly": "Only you can see this space",
   "handNoResults": "No matching entries",
+  "handNothingHere": "Nothing here yet",
   "handToday": "Today",
   "handYesterday": "Yesterday",
   "handTodayTime": "Today {time}",

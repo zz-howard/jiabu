@@ -15,11 +15,11 @@ class SwitchPartitionPrompt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return PaperSheet(
+    return JiabuSheet(
       child: Padding(
-        padding: EdgeInsets.only(top: context.jiabu.decor.cardGap),
+        padding: const EdgeInsets.only(top: JiabuSpacing.cardGap),
         child: Column(
-          spacing: context.jiabu.decor.cardGap,
+          spacing: JiabuSpacing.cardGap,
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

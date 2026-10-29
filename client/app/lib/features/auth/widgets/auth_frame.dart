@@ -27,7 +27,7 @@ class AuthFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final content = Column(
-      spacing: context.jiabu.decor.cardGap,
+      spacing: JiabuSpacing.cardGap,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -53,7 +53,7 @@ class AuthFrame extends StatelessWidget {
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Padding(
-                  padding: EdgeInsets.all(context.jiabu.decor.pageInset),
+                  padding: EdgeInsets.all(context.jiabu.spacing.page),
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 520),
@@ -64,7 +64,7 @@ class AuthFrame extends StatelessWidget {
                           children: [
                             if (step case final int value) ...[
                               AuthProgress(step: value),
-                              const SizedBox(height: 18),
+                              const SizedBox(height: JiabuSpacing.lg),
                             ],
                             Text(title, style: context.jiabu.type.pageTitle),
                             const Align(
@@ -72,17 +72,17 @@ class AuthFrame extends StatelessWidget {
                               child: JiabuIcon(JiabuIcons.squig, size: 112),
                             ),
                             if (subtitle != null) ...[
-                              const SizedBox(height: 4),
+                              const SizedBox(height: JiabuSpacing.xs),
                               subtitle!,
                             ],
                             if (busy) ...[
-                              const SizedBox(height: 12),
+                              const SizedBox(height: JiabuSpacing.md),
                               const LinearProgressIndicator(),
                             ],
-                            const SizedBox(height: 28),
+                            const SizedBox(height: JiabuSpacing.xl),
                             if (card) PaperCard(child: content) else content,
                             if (footer != null) ...[
-                              const SizedBox(height: 24),
+                              const SizedBox(height: JiabuSpacing.xl),
                               footer!,
                             ],
                           ],

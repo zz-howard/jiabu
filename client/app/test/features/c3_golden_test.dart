@@ -922,6 +922,38 @@ const c3Goldens =
         scale: 100,
         path: '../goldens/c3/card_recorded_zh_indigo_w360_text100.png',
       ),
+      (
+        state: 'history_24',
+        locale: 'zh',
+        accent: 'pine',
+        width: 360,
+        scale: 100,
+        path: '../goldens/c3/history_24_zh_pine_w360_text100.png',
+      ),
+      (
+        state: 'history_24',
+        locale: 'zh',
+        accent: 'pine',
+        width: 430,
+        scale: 200,
+        path: '../goldens/c3/history_24_zh_pine_w430_text200.png',
+      ),
+      (
+        state: 'accounts_long_6',
+        locale: 'zh',
+        accent: 'pine',
+        width: 360,
+        scale: 100,
+        path: '../goldens/c3/accounts_long_6_zh_pine_w360_text100.png',
+      ),
+      (
+        state: 'accounts_long_6',
+        locale: 'zh',
+        accent: 'pine',
+        width: 430,
+        scale: 200,
+        path: '../goldens/c3/accounts_long_6_zh_pine_w430_text200.png',
+      ),
     ];
 void main() {
   test(

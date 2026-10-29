@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:jiabu/app/c4_providers.dart';
+import 'package:jiabu/app/ledger_providers.dart';
+import 'package:jiabu/app/providers.dart';
 import 'package:jiabu/data/services/biometric_auth_service.dart';
 import 'package:jiabu/domain/app_lock.dart';
 import 'package:jiabu/domain/result.dart';
@@ -8,6 +13,7 @@ import 'package:jiabu/features/catalog/c4_cases.dart';
 import 'package:jiabu/features/lock/view/app_lock_gate.dart';
 import 'package:jiabu/features/settings/api_keys/api_keys_screen.dart';
 import 'package:jiabu/features/spaces/view/spaces_screen.dart';
+import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/c4/c4_view_model.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
@@ -43,6 +49,67 @@ class FailingInvitationsSpaces extends C4FakeSpaces {
 }
 
 void main() {
+  testWidgets('deep linked space members back falls to space settings', (
+    tester,
+  ) async {
+    final runtime = c4Runtime()..currentSpace = 'space-a';
+    final spaces = C4FakeSpaces();
+    final router = GoRouter(
+      initialLocation: '/spaces/space-a/members',
+      routes: [
+        GoRoute(
+          path: '/spaces/:spaceId/settings',
+          builder: (context, state) => SpacesScreen(
+            page: 'settings',
+            spaceId: state.pathParameters['spaceId'],
+          ),
+        ),
+        GoRoute(
+          path: '/spaces/:spaceId/members',
+          builder: (context, state) => SpacesScreen(
+            page: 'members',
+            spaceId: state.pathParameters['spaceId'],
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          appRuntimeProvider.overrideWith((ref) => runtime),
+          spacesRepositoryProvider.overrideWithValue(spaces),
+          spacesDirectoryProvider.overrideWith((ref) => spaces.watch()),
+          ledgerPresentationSessionProvider.overrideWith(
+            (ref) => (partition: 'fictional', spaceId: runtime.currentSpace),
+          ),
+        ],
+        child: MaterialApp.router(
+          theme: JiabuTheme.light(),
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      router.routeInformationProvider.value.uri.path,
+      '/spaces/space-a/members',
+    );
+
+    await tester.tap(find.byKey(const Key('jiabu-page-back')));
+    await tester.pumpAndSettle();
+    expect(
+      router.routeInformationProvider.value.uri.path,
+      '/spaces/space-a/settings',
+    );
+    expect(find.text('空间设置'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('leave_shows_pending_count_before_sending_request', (
     tester,
   ) async {
@@ -55,7 +122,8 @@ void main() {
       keys: C4FakeKeys(),
       child: const SpacesScreen(page: 'settings', spaceId: 'space-a'),
     );
-    await tester.ensureVisible(find.text('退出空间'));
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('退出空间'));
     await tester.pumpAndSettle();
     expect(find.text('有 3 条还没上传，退出后会丢弃'), findsOneWidget);
@@ -65,23 +133,57 @@ void main() {
     expect(spaces.actions, ['leave']);
   });
   testWidgets('offline_member_management_buttons_are_disabled', (tester) async {
+    final semantics = tester.ensureSemantics();
     final spaces = C4FakeSpaces();
-    await pumpC4Widget(
-      tester,
-      runtime: c4Runtime(online: false),
-      spaces: spaces,
-      keys: C4FakeKeys(),
-      child: const SpacesScreen(page: 'settings', spaceId: 'space-a'),
-    );
-    for (final text in ['改名与点缀色', '邀请成员', '移除成员', '转让所有者', '退出空间']) {
-      final button = find.ancestor(
-        of: find.text(text),
-        matching: find.bySubtype<ButtonStyleButton>(),
+    try {
+      await pumpC4Widget(
+        tester,
+        runtime: c4Runtime(online: false),
+        spaces: spaces,
+        keys: C4FakeKeys(),
+        child: const SpacesScreen(page: 'settings', spaceId: 'space-a'),
       );
-      expect(button, findsOneWidget);
-      expect(tester.widget<ButtonStyleButton>(button).onPressed, isNull);
+      final disabled = tester
+          .element(find.byType(SpacesScreen))
+          .jiabu
+          .colors
+          .ink
+          .withValues(alpha: .38);
+      for (final text in ['改名与点缀色', '我在空间里的显示名', '邀请成员']) {
+        final row = find.ancestor(
+          of: find.text(text),
+          matching: find.byType(JiabuListRow),
+        );
+        expect(row, findsOneWidget);
+        expect(tester.widget<JiabuListRow>(row).enabled, isFalse);
+        expect(
+          tester.getSemantics(row),
+          isSemantics(hasEnabledState: true, isEnabled: false),
+        );
+        final arrow = find.descendant(
+          of: row,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is JiabuIcon && widget.icon == JiabuIcons.uiRight,
+          ),
+        );
+        expect(arrow, findsOneWidget);
+        expect(tester.widget<JiabuIcon>(arrow).color, disabled);
+        await tester.tap(row);
+        await tester.pumpAndSettle();
+        expect(find.byType(JiabuSheet), findsNothing);
+      }
+      final menus = find.byType(PopupMenuButton<String>);
+      expect(menus, findsNWidgets(2));
+      for (final menu in menus.evaluate()) {
+        final widget = menu.widget as PopupMenuButton<String>;
+        expect(widget.enabled, isFalse);
+        expect((widget.icon! as JiabuIcon).color, disabled);
+      }
+      expect(spaces.actions, isEmpty);
+    } finally {
+      semantics.dispose();
     }
-    expect(spaces.actions, isEmpty);
   });
   testWidgets('member_cannot_invite_or_manage_personal_hides_all', (
     tester,

@@ -13,7 +13,7 @@ abstract final class LedgerSheet {
     required WidgetBuilder builder,
     WidgetBuilder? footerBuilder,
     bool requireWrite = false,
-  }) => PaperSheet.show<T>(
+  }) => JiabuSheet.show<T>(
     context: context,
     builder: builder,
     footerBuilder: footerBuilder,

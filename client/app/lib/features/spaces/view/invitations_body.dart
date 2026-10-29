@@ -53,10 +53,11 @@ class _InvitationsBodyState extends ConsumerState<InvitationsBody> {
     final state = ref.watch(c4ViewModelProvider(id));
     final vm = ref.read(c4ViewModelProvider(id).notifier);
     return SingleChildScrollView(
-      padding: EdgeInsets.all(context.jiabu.decor.pageInset),
+      padding: EdgeInsets.all(context.jiabu.spacing.page),
       child: C4Form(
         id: id,
         title: widget.space == null ? l.c4Received : l.c4Invitations,
+        showTitle: false,
         children: [
           for (final row in state.rows)
             PaperCard(
@@ -135,7 +136,12 @@ class _InvitationsBodyState extends ConsumerState<InvitationsBody> {
                 ],
               ),
             ),
-          if (state.rows.isEmpty) Text(state.busy ? l.c4Loading : l.c4Empty),
+          if (state.rows.isEmpty)
+            JiabuEmptyState(
+              message: state.busy
+                  ? Text(l.c4Loading)
+                  : HandText(l.handNothingHere, textAlign: TextAlign.center),
+            ),
           if (_loadFailed)
             TextButton(
               onPressed: state.online && !state.busy ? _load : null,

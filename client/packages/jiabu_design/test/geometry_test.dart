@@ -199,11 +199,11 @@ void main() {
     );
   });
   testWidgets('sheet handle is horizontal and 74 by 20', (tester) async {
-    await _pump(tester, const PaperSheet(child: Text('午饭')));
+    await _pump(tester, const JiabuSheet(child: Text('午饭')));
     expect(tester.getSize(find.byType(Tape)), const Size(74, 20));
     expect(tester.widget<Tilt>(find.byType(Tilt)).degrees, 0);
     expect(
-      tester.getSize(find.byType(PaperSheet)).height,
+      tester.getSize(find.byType(JiabuSheet)).height,
       lessThanOrEqualTo(780 * .88),
     );
   });

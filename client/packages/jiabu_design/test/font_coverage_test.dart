@@ -75,6 +75,32 @@ void main() {
       expect(entry['source_url'], spec['url']);
     }
   });
+  test('every production HandText call uses a hand-prefixed ARB getter', () {
+    final root = Directory('../../app/lib');
+    final invalid = <String>[];
+    for (final entity in root.listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) {
+        continue;
+      }
+      final source = entity.readAsStringSync();
+      for (final match in RegExp(
+        r'\bHandText\s*\(\s*([^,\n\)]+)',
+      ).allMatches(source)) {
+        final argument = match.group(1) ?? '';
+        final catalogHelper =
+            entity.path.contains('/features/catalog/') &&
+            argument.trimLeft().startsWith('_l(');
+        if (!RegExp(r'\.hand[A-Z]').hasMatch(argument) &&
+            !argument.contains('AppLocalizations.of') &&
+            !catalogHelper) {
+          final line =
+              '\n'.allMatches(source.substring(0, match.start)).length + 1;
+          invalid.add('${entity.path}:$line: $argument');
+        }
+      }
+    }
+    expect(invalid, isEmpty, reason: invalid.join('\n'));
+  });
 }
 
 String _describe(int code) {

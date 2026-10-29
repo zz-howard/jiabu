@@ -59,8 +59,9 @@ List<Violation> scanProject(Directory root) {
         continue;
       }
       final file = _relative(root, entity.path);
-      final source = _withoutComments(entity.readAsStringSync());
-      _checkSource(file, source, packages, violations);
+      final original = entity.readAsStringSync();
+      final source = _withoutComments(original);
+      _checkSource(file, source, original, packages, violations);
     }
   }
   return violations;
@@ -241,6 +242,7 @@ final _rotation = RegExp(
 void _checkSource(
   String file,
   String source,
+  String original,
   Map<String, String> packages,
   List<Violation> violations,
 ) {
@@ -250,6 +252,7 @@ void _checkSource(
   }
 
   final isDesign = file.startsWith('packages/jiabu_design/lib/');
+  final isUi = RegExp('^app/lib/(?:app|features|shared)/').hasMatch(file);
   final feature = _feature(file);
   if (isDesign && file != 'packages/jiabu_design/lib/src/tokens/colors.dart') {
     for (final match in _colorLiteral.allMatches(source)) {
@@ -268,6 +271,14 @@ void _checkSource(
     // tokens: AGENTS.md forbids Color/Colors/fontFamily/Duration literals.
     for (final match in _appLiteral.allMatches(source)) {
       report(1, match.start, 'Use design tokens instead of UI literals.');
+    }
+  }
+  if (isUi) {
+    _checkSpacingLiterals(source, original, report);
+    for (final match in RegExp(
+      r'\bPaperSheet(?:\s*\.\s*show)?\b',
+    ).allMatches(source)) {
+      report(10, match.start, 'Use JiabuSheet in production UI.');
     }
   }
   if (!isDesign && file != 'app/lib/data/sync/sync_policy.dart') {
@@ -339,6 +350,172 @@ void _checkSource(
       }
     }
   }
+}
+
+void _checkSpacingLiterals(
+  String source,
+  String original,
+  void Function(int rule, int offset, String message) report,
+) {
+  final constructors = <(RegExp, String, bool)>[
+    (
+      RegExp(
+        r'\bEdgeInsets(?:Directional)?\s*\.\s*'
+        r'(?:all|only|symmetric|fromLTRB|fromSTEB)\s*\(',
+      ),
+      'Use JiabuSpacing instead of literal EdgeInsets.',
+      false,
+    ),
+    (
+      RegExp(
+        r'\b(?:[A-Za-z_]\w*)?(?:padding|margin)\s*:\s*'
+        r'(?:const\s+)?\.\s*'
+        r'(?:all|only|symmetric|fromLTRB|fromSTEB)\s*\(',
+        caseSensitive: false,
+      ),
+      'Use JiabuSpacing instead of literal EdgeInsets.',
+      false,
+    ),
+    (
+      RegExp(r'\bSizedBox(?:\s*\.\s*(?:square|fromSize))?\s*\('),
+      'Use JiabuSpacing instead of literal SizedBox spacing.',
+      true,
+    ),
+  ];
+  final nonZero = RegExp(r'(?<![\w.])(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)');
+  for (final entry in constructors) {
+    for (final match in entry.$1.allMatches(source)) {
+      final openParen = match.end - 1;
+      final closeParen = _matchingParen(source, openParen);
+      if (closeParen == null) {
+        continue;
+      }
+      final bodyStart = openParen + 1;
+      final body = source.substring(bodyStart, closeParen);
+      final constructor = match.group(0) ?? '';
+      final fromSize = entry.$3 && constructor.contains('fromSize');
+      final numbers = entry.$3
+          ? _namedArgumentNumberOffsets(
+              body,
+              fromSize
+                  ? const {'size'}
+                  : const {'width', 'height', 'dimension'},
+              nonZero,
+            )
+          : nonZero.allMatches(body).map((match) => match.start);
+      for (final numberOffset in numbers) {
+        final offset = bodyStart + numberOffset;
+        if (!_hasLiteralAllowance(original, offset)) {
+          report(10, offset, entry.$2);
+        }
+      }
+    }
+  }
+}
+
+Iterable<int> _namedArgumentNumberOffsets(
+  String body,
+  Set<String> names,
+  RegExp number,
+) sync* {
+  var start = 0;
+  var parentheses = 0;
+  var brackets = 0;
+  var braces = 0;
+  String? quote;
+  for (var index = 0; index <= body.length; index++) {
+    final atEnd = index == body.length;
+    final current = atEnd ? '' : body[index];
+    if (quote != null) {
+      if (current == r'\') {
+        index++;
+      } else if (current == quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (current == "'" || current == '"') {
+      quote = current;
+      continue;
+    }
+    if (current == '(') {
+      parentheses++;
+    } else if (current == ')') {
+      parentheses--;
+    } else if (current == '[') {
+      brackets++;
+    } else if (current == ']') {
+      brackets--;
+    } else if (current == '{') {
+      braces++;
+    } else if (current == '}') {
+      braces--;
+    }
+    final separator =
+        atEnd ||
+        (current == ',' && parentheses == 0 && brackets == 0 && braces == 0);
+    if (!separator) {
+      continue;
+    }
+    final argument = body.substring(start, index);
+    final named = RegExp(r'^\s*([A-Za-z_]\w*)\s*:').firstMatch(argument);
+    if (named != null && names.contains(named.group(1))) {
+      for (final match in number.allMatches(argument, named.end)) {
+        yield start + match.start;
+      }
+    }
+    start = index + 1;
+  }
+}
+
+int? _matchingParen(String source, int openParen) {
+  var depth = 1;
+  var index = openParen + 1;
+  String? quote;
+  var triple = false;
+  while (index < source.length) {
+    final current = source[index];
+    if (quote != null) {
+      if (current == r'\') {
+        index += 2;
+        continue;
+      }
+      final delimiter = triple ? '$quote$quote$quote' : quote;
+      if (source.startsWith(delimiter, index)) {
+        index += delimiter.length;
+        quote = null;
+      } else {
+        index++;
+      }
+      continue;
+    }
+    if (current == "'" || current == '"') {
+      quote = current;
+      triple = source.startsWith('$current$current$current', index);
+      index += triple ? 3 : 1;
+      continue;
+    }
+    if (current == '(') {
+      depth++;
+    } else if (current == ')') {
+      depth--;
+      if (depth == 0) {
+        return index;
+      }
+    }
+    index++;
+  }
+  return null;
+}
+
+bool _hasLiteralAllowance(String source, int offset) {
+  final lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+  final lineEnd = source.indexOf('\n', offset);
+  final line = source.substring(
+    lineStart,
+    lineEnd < 0 ? source.length : lineEnd,
+  );
+  return RegExp(r'//\s*rules:allow-literal\s+\S.*$').hasMatch(line);
 }
 
 const _forbiddenPackages = <String>{

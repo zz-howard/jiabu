@@ -10,7 +10,7 @@ import 'package:jiabu/shared/c4/c4_view_model.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 Future<void> openSpaceForm(BuildContext context, {SpaceInfo? space}) =>
-    PaperSheet.show<void>(
+    JiabuSheet.show<void>(
       context: context,
       builder: (_) => SpaceForm(space: space),
       wrapperBuilder: (_, child) => C4ScopeFence(child: child),
@@ -102,7 +102,7 @@ class SpaceForm extends ConsumerWidget {
         ),
         if (space == null) ...[
           Text(l.c4Currency),
-          SizedBox(height: context.jiabu.decor.messageGap),
+          const SizedBox(height: JiabuSpacing.messageGap),
           Wrap(
             children: [
               for (final currency in const [
@@ -120,7 +120,7 @@ class SpaceForm extends ConsumerWidget {
                 ),
             ],
           ),
-          SizedBox(height: context.jiabu.decor.cardGap),
+          const SizedBox(height: JiabuSpacing.cardGap),
           C4Field(
             id: id,
             field: 'timezone',
