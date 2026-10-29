@@ -81,7 +81,7 @@ impl ToolCall {
         }
     }
 }
-pub use registry::ToolRegistry;
+pub use registry::{PreparedToolCall, ToolRegistry};
 pub use tool::{
     AgentTool, Effect, Exposure, StepKind, StepLabel, StepSummary, TypedTool, ValidatedCall,
 };
@@ -161,3 +161,4 @@ mod registry_tests {
         Ok(())
     }
 }
+pub use ask_user::{AskArgs, AskField, AskOption};

@@ -169,6 +169,56 @@ impl SpaceTx {
             None => panic!("space must be in transaction scope"),
         }
     }
+    /// Checked binding for a borrowed tool transaction; never panics on foreign scope.
+    pub fn tool_member(
+        &self,
+        space: SpaceId,
+        user: UserId,
+        epoch: Option<JoinEpoch>,
+        write: bool,
+    ) -> Result<&ActiveMember, BeginError> {
+        let member = self
+            .members
+            .iter()
+            .find(|member| member.space_id() == space)
+            .filter(|member| member.user_id() == user)
+            .ok_or(BeginError::NotFound)?;
+        if epoch.is_some_and(|epoch| epoch != member.join_epoch()) {
+            return Err(BeginError::MembershipChanged);
+        }
+        if write && !self.locked {
+            return Err(BeginError::InvalidScope);
+        }
+        Ok(member)
+    }
+    /// Borrowed tool execution is serialized by &mut SpaceTx. No raw SQL escapes db.
+    pub async fn begin_tool_savepoint(&mut self) -> Result<(), DbErr> {
+        self.tx
+            .execute_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "savepoint jiabu_tool_step".to_owned(),
+            ))
+            .await?;
+        Ok(())
+    }
+    pub async fn rollback_tool_savepoint(&mut self) -> Result<(), DbErr> {
+        self.tx
+            .execute_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "rollback to savepoint jiabu_tool_step".to_owned(),
+            ))
+            .await?;
+        self.release_tool_savepoint().await
+    }
+    pub async fn release_tool_savepoint(&mut self) -> Result<(), DbErr> {
+        self.tx
+            .execute_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "release savepoint jiabu_tool_step".to_owned(),
+            ))
+            .await?;
+        Ok(())
+    }
     pub(crate) fn assert_write(&self) {
         assert!(self.locked, "space mutation requires a write lock");
     }

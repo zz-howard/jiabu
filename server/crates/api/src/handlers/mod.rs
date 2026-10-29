@@ -27,3 +27,5 @@ pub(crate) mod blobs;
 pub(crate) mod sync;
 
 pub(crate) mod templates;
+
+pub(crate) mod chat;

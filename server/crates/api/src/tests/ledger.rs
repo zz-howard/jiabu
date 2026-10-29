@@ -785,7 +785,7 @@ async fn exposure_status_schemas_and_oneof_are_public_contracts() -> Result<()> 
             .err()
             .unwrap()
             .code,
-        "unavailable"
+        "not_found"
     );
     let call_schema = serde_json::to_value(schemars::schema_for!(jiabu_tools::ToolCall))?;
     let call_validator = jsonschema::validator_for(&call_schema)

@@ -1,8 +1,8 @@
 use crate::{
     AppState,
     handlers::{
-        api_keys, auth, blobs, client_logs, invitations, me, meta, spaces, status, sync, templates,
-        tools,
+        api_keys, auth, blobs, chat, client_logs, invitations, me, meta, spaces, status, sync,
+        templates, tools,
     },
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -38,6 +38,28 @@ fn build() -> (
     mount!("POST", "/v1/sync/pull", sync::pull);
     mount!("PUT", "/v1/spaces/{space_id}/blobs/{sha256}", blobs::upload);
     mount!("GET", "/v1/spaces/{space_id}/blobs/{sha256}", blobs::get);
+    mount!("POST", "/v1/spaces/{space_id}/chat/messages", chat::send);
+    mount!(
+        "GET",
+        "/v1/spaces/{space_id}/chat/messages/{message_id}/stream",
+        chat::stream
+    );
+    mount!("POST", "/v1/spaces/{space_id}/chat/actions", chat::action);
+    mount!(
+        "POST",
+        "/v1/spaces/{space_id}/chat/messages/{message_id}/stop",
+        chat::stop
+    );
+    mount!(
+        "POST",
+        "/v1/spaces/{space_id}/chat/messages/{message_id}/retry",
+        chat::retry
+    );
+    mount!(
+        "GET",
+        "/v1/spaces/{space_id}/chat/active-messages",
+        chat::active
+    );
     mount!("GET", "/v1/status", status::get);
     mount!("GET", "/v1/templates", templates::get);
     mount!("GET", "/v1/spaces/{space_id}/tools", tools::list);

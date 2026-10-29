@@ -42,6 +42,7 @@ pub(crate) async fn authorization_probe(
 struct TestApp {
     fixture: support::TestDb,
     router: Router,
+    state: AppState,
     plan: jiabu_domain::space_init::SpaceInit,
     purge: std::sync::Arc<tokio::sync::Notify>,
 }
@@ -91,7 +92,8 @@ impl TestApp {
         Ok(Self {
             fixture,
             purge,
-            router: crate::router(state),
+            router: crate::router(state.clone()),
+            state,
             plan,
         })
     }
@@ -183,6 +185,21 @@ impl TestApp {
 }
 // The matrix is separate from mounting so forgetting a registration actually fails.
 const ISOLATION_MATRIX: &[(&str, &str)] = &[
+    ("POST", "/v1/spaces/{space_id}/chat/messages"),
+    (
+        "GET",
+        "/v1/spaces/{space_id}/chat/messages/{message_id}/stream",
+    ),
+    ("POST", "/v1/spaces/{space_id}/chat/actions"),
+    (
+        "POST",
+        "/v1/spaces/{space_id}/chat/messages/{message_id}/stop",
+    ),
+    (
+        "POST",
+        "/v1/spaces/{space_id}/chat/messages/{message_id}/retry",
+    ),
+    ("GET", "/v1/spaces/{space_id}/chat/active-messages"),
     ("POST", "/v1/spaces/{space_id}/tools/list_subjects"),
     ("POST", "/v1/spaces/{space_id}/tools/search_documents"),
     ("POST", "/v1/spaces/{space_id}/tools/get_document"),
@@ -313,6 +330,7 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
             for id in ids {
                 let path = pattern
                     .replace("{space_id}", &id.to_string())
+                    .replace("{message_id}", &Uuid::now_v7().to_string())
                     .replace("{inv_id}", &foreign_invitation.to_string())
                     .replace("{member_id}", &foreign_member.to_string());
                 let reply = if pattern.contains("/blobs/") {
@@ -356,7 +374,14 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
                 };
                 assert_eq!(reply.status, expected, "{method} {pattern}");
                 if expected == StatusCode::FORBIDDEN {
-                    assert_eq!(reply.json()["code"], "api_key_not_allowed");
+                    assert_eq!(
+                        reply.json()["code"],
+                        if pattern.contains("/chat/") {
+                            "api_key_ai_not_allowed"
+                        } else {
+                            "api_key_not_allowed"
+                        }
+                    );
                 }
                 let normalized = normalize_request_id(&reply)?;
                 if let Some(expected) = &previous {

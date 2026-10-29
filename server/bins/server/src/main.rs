@@ -1,4 +1,5 @@
 mod ai_runtime;
+mod chat_runtime;
 mod config;
 mod tasks;
 mod templates;
@@ -39,7 +40,7 @@ async fn main() -> Result<()> {
             jiabu_tools::api_key::ApiKeyLimiter::configured(settings.api_keys),
         ))
         .map_err(anyhow::Error::msg)?;
-    let ai_task = ai_runtime::start(state.db.clone(), state.ai.clone(), app_url).await?;
+    let ai_task = ai_runtime::start(state.db.clone(), state.ai.clone(), app_url.clone()).await?;
     if templates::load(&state.db, &state.templates, &settings.data_dir)
         .await
         .is_err()
@@ -63,16 +64,66 @@ async fn main() -> Result<()> {
         state.clock.clone(),
     ));
     let allocation_task = tokio::spawn(tasks::monthly_allocation::run(state.db.clone()));
+    let runtime = chat_runtime::runtime(&state, state.chat_hub.clone());
+    runtime.sweep().await?;
+    let agent_tasks = runtime.clone().spawn();
+    let notification_task = tokio::spawn(async move {
+        // Polling remains authoritative if LISTEN is temporarily unavailable.
+        loop {
+            if runtime
+                .notifications(app_url.expose_secret())
+                .await
+                .is_err()
+            {
+                tracing::warn!(
+                    error_kind = "agent_notifications",
+                    "Agent notification connection failed"
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
     let listener = tokio::net::TcpListener::bind(&settings.listen_addr)
         .await
         .context("Failed to bind HTTP listener")?;
     tracing::info!(address=%listener.local_addr()?,"Public HTTP listener ready");
-    let result = axum::serve(
+    let (http_stop, http_stopped) = tokio::sync::oneshot::channel();
+    let (drain_start, drain_started) = tokio::sync::oneshot::channel();
+    let shutdown_task = tokio::spawn(async move {
+        chat_runtime::shutdown_signal().await;
+        agent_tasks.stop_claiming();
+        let _ = http_stop.send(());
+        let _ = drain_start.send(());
+        // Run the 20-second worker grace concurrently with HTTP draining.
+        agent_tasks.shutdown().await;
+    });
+    let serve = axum::serve(
         listener,
         jiabu_api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .await
-    .context("HTTP server failed");
+    .with_graceful_shutdown(async move {
+        let _ = http_stopped.await;
+    });
+    // SSE for queued / waiting_ai / paused replies never ends on its own; clients
+    // reconnect after restart, so draining stops at the worker grace plus a margin.
+    let result = tokio::select! {
+        result = serve => result.context("HTTP server failed"),
+        _ = async {
+            if drain_started.await.is_err() {
+                std::future::pending::<()>().await;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(
+                jiabu_agent::SHUTDOWN_GRACE_SECS + 5,
+            ))
+            .await;
+        } => Ok(()),
+    };
+    notification_task.abort();
+    if result.is_ok() {
+        let _ = shutdown_task.await;
+    } else {
+        shutdown_task.abort();
+    }
     #[cfg(unix)]
     template_task.abort();
     ai_task.abort();

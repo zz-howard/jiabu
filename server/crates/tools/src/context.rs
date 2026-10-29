@@ -20,6 +20,7 @@ pub struct Invocation {
 /// After parameter validation, invoke opens the write transaction and rechecks the
 /// live member/epoch under its space lock. No arbitrary member can be supplied.
 pub struct ToolCtx {
+    pub(crate) run_lease: Option<jiabu_db::chat_runtime::RunLease>,
     pub space_id: SpaceId,
     pub member: ActiveMember,
     pub(crate) bound_space: SpaceId,
@@ -61,6 +62,7 @@ impl ToolCtx {
             _ => (None, None),
         };
         Ok(Self {
+            run_lease: None,
             space_id,
             member,
             bound_space: space_id,
@@ -79,6 +81,57 @@ impl ToolCtx {
             audit_completed: Arc::new(AtomicBool::new(false)),
             api_key_operation: None,
         })
+    }
+    /// Agent callers first prepare arguments outside the write lock, then build
+    /// context from their guarded transaction. This context owns no transaction.
+    pub fn for_transaction(
+        db: &AppDb,
+        principal: Principal,
+        tx: &SpaceTx,
+        space_id: SpaceId,
+        epoch: JoinEpoch,
+        effect: Effect,
+        invocation: Invocation,
+    ) -> Result<Self, ToolError> {
+        principal.require_ai_session()?;
+        let member = tx
+            .tool_member(
+                space_id,
+                principal.user_id,
+                Some(epoch),
+                effect == Effect::LocalWrite,
+            )?
+            .clone();
+        Ok(Self {
+            run_lease: None,
+            space_id,
+            member,
+            bound_space: space_id,
+            bound_effect: effect,
+            db: db.clone(),
+            epoch: Some(epoch),
+            principal,
+            idempotency_key: invocation.idempotency_key,
+            run_id: invocation.run_id,
+            request_id: invocation.request_id,
+            via_api_key_id: None,
+            via_api_key_name: None,
+            now: invocation.now,
+            replay_key: invocation.replay_key,
+            tx: Mutex::new(None),
+            audit_completed: Arc::new(AtomicBool::new(false)),
+            api_key_operation: None,
+        })
+    }
+    pub fn bind_run_lease(
+        mut self,
+        lease: jiabu_db::chat_runtime::RunLease,
+    ) -> Result<Self, ToolError> {
+        if self.run_id != Some(lease.run_id) {
+            return Err(ToolError::not_found());
+        }
+        self.run_lease = Some(lease);
+        Ok(self)
     }
     pub(crate) fn key_audit(
         &self,
@@ -121,8 +174,13 @@ impl ToolCtx {
         }
     }
     pub fn new_id(&self, supplied: Option<Uuid>) -> Result<Uuid, ToolError> {
-        supplied
-            .or(self.idempotency_key)
-            .ok_or_else(|| ToolError::new(400, "idempotency_key_required"))
+        // Agent-created entities use the durable call identity, even when a
+        // model supplies an unrelated ID. Retry copies that identity verbatim.
+        (if self.run_id.is_some() {
+            self.idempotency_key
+        } else {
+            supplied.or(self.idempotency_key)
+        })
+        .ok_or_else(|| ToolError::new(400, "idempotency_key_required"))
     }
 }

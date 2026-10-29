@@ -158,3 +158,67 @@
 
 - 刷新成功但写库失败时，新 refresh token 只用于本次调用；若上游已作废旧 refresh token，需要重新登录。
 - 调用截止时间取消刷新时，可能丢失上游已轮换的新 refresh token，需要重新登录。
+
+## PR ②：持久运行与聊天接口
+
+实现依据：`~/zylos/workspace/jiabu-s7/go2.md`，以末尾“补充：控制复杂度”为最高口径。
+
+### 本 PR 内容
+
+- 迁移 0009：运行状态增加 `interrupted`，增加 `waiting_ai_since`、`journal_compacted_at`、动作 SHA-256 请求指纹；FIFO 索引 `(conversation_id, created_at, id)`；保留期函数 `retain_agent_journals(int)`（终态 7 天清 provider_blob、30 天压缩 journal 与工具原始参数并标不可重试），由 jiabu_owner 持有、固定 search_path、撤销 PUBLIC EXECUTE、仅授予 jiabu_app。0010 只为 ChatWeave 检查点保存私有 `step_work_ms`。
+- `db::chat_runtime`：全部运行 SQL。worker 写入前的 guard 同时检查运行、空间、成员、join_epoch、lease_owner、lease_epoch、租约有效期与 cancel_requested。领取按 `(created_at, id)` FIFO，同会话有 running / paused 或更早的 queued / waiting_ai 时不领取后面的运行。
+- `tools`：HTTP 与 Agent 共用执行核心，Agent 不能绕过注册表；ApiOnly 不对 Agent 开放，AgentOnly 的 `ask_user` 只由运行时解释为中断，没有公开路由。执行、审计、幂等占位用 SAVEPOINT 包围，业务失败整体回滚到保存点；工具调用幂等键 `uuidv5(run_id, call_id)`，重试复制原键。
+- `chat`：复用 ChatWeave MessageStream / FoldState / ResumeService / SSE。事件先进暂存批次，连同 journal、工具状态、检查点在一个受租约保护的 SpaceTx 内提交，提交后才广播。记录卡 / 文档卡只含 ID 与版本；统计、余额、明细等卡片从工具结构化结果映射，不从模型文字提取。暂停 / 回答 rev=0，最终 rev=1，最终后修订增加 rev 与 change_seq。事件日志 10 分钟清理，清理后按能力协商返回快照。
+- `agent`：固定两个 worker，NOTIFY 唤醒加 5 秒轮询；租约 60 秒、20 秒续租；30 秒清扫器。六段 renderer 递归规范化对象键、保留数组次序与原 args_raw，`s7-renderer` 子命令供两个独立进程比对字节。运行开始时冻结空间上下文、工具定义、时间与 locale，历史按上下文字节预算无状态截断。动作处理先查身份 / epoch / 会话 / 持久块 / 原工具权限 / 冻结环境，再查绑定指纹的回执。
+- 接口：提交消息、SSE、动作、停止、重试、活跃回复六条路由。key 双重拒绝（路由 SessionOnly + 服务层 `require_ai_session()`，错误码 `api_key_ai_not_allowed`）。SSE 先查成员与消息归属，Last-Event-ID 优先于 `after`，15 秒心跳、5 分钟空闲期限（ping 不续期）。路由与 worker 共用同一个 StreamHub。`/sync/push` 伪装的聊天提交不产生运行。
+
+### 有意简化（覆盖原计划）
+
+1. 租约过期、优雅停机超时（约 20 秒）、模型 PartialOutput 一律把运行标 `interrupted`，收尾已持久的消息并发 `message.end`，只由用户显式重试。不自动重排、不续跑模型流、停机不释放回队列。暂停后回答是正常的持久中断流程，不受影响。
+2. 不加 queue_seq，同时间戳以 UUIDv7 id 排序。
+3. 不加活跃时间累计检查点，活跃预算只在进程内计。
+4. 不加会话历史整理状态，运行开始时按预算截取最近完整历史，运行内不重排。
+5. 不引入 proptest，`next_action()` 用表驱动单元测试；前缀稳定只验收“两个独立进程渲染同一 journal 字节相同”。
+6. 预算：20 轮、活跃 10 分钟、waiting_ai 10 分钟、单次模型调用 5 分钟、模型流空闲 60 秒、工具 10 秒。超限标 `failed`，用确定性服务端文案收尾，不再调模型。
+7. 原运行遇到工具 schema 变化安全失败；显式重试的新运行使用当前定义，已提交结果保留且不重复执行。
+8. worker 只依赖 AiRouter，不接触凭据内部状态。
+
+### 文档没写清、我是这么做的
+
+- 既有 `chat_actions` 行的请求指纹为 NULL，不编造旧哈希；这类旧回执的回放按指纹不符拒绝。
+- 压缩后的 journal 保留 kind / call_id / created_at 与工具名 / 状态，删除 payload 原文；`history_item` 是单独保留的聊天历史，不按 journal 规则删除。`journal_compacted_at` 是拒绝重试的依据。
+- 停止时若模型 markdown 块尚未关闭，由库终结它，数量说明进 terminal_summary，避免出现第二个打开的 markdown 块。
+- 流式输出期间，所有空间事务都在持有暂存锁时进行；50ms 刷新 tick 只 `try_lock`，续租与模型调用并行轮询。否则 tick 或续租在 `select!` 分支里等锁时，持锁的模型 future 不再被轮询，回复会永久卡住（第一轮评审发现）。
+
+- 工具结果映射出的卡片超过协议上限（如 13 个账户余额超过 metric_group 的 12 项，或累计超过 256 KiB 消息上限）时不显示该卡片（在当前流的副本上试发判断），完整 tool_result 照常给模型，由模型用文字回答，不让整个回复失败。
+- 暂停期间成员权限变化（如转让空间所有权）后回答追问：拒绝（404，仍在查回执之前），同时把该回复收尾为 `failed(permission_changed)`，不让它挂到 7 天过期；用户另发新消息即可。ChatWeave 只能用 stop / 过期终结暂停中的流，`close_run` 对暂停流的其他原因统一走 stop。
+- 优雅停机时，排队 / waiting_ai / 暂停回复的 SSE 不会自己结束；HTTP 排空最多等 worker 宽限加 5 秒（约 25 秒）后退出，客户端重连续传。
+
+### 应以通用形式进库（ChatWeave）
+
+- `action/dispatch.rs::dispatch()` 在 `handler.authorize` 前调用 `find_result`。家簿在同事务里先授权再查回执；建议库提供“授权后读取回执”的严格顺序。
+- `stream.rs` 的存检查点、append、publish 是分开的存储调用。家簿用暂存批次加一个受 epoch 保护的事务提交，提交后广播；建议库提供宿主原子提交批次的接口。
+
+### 已知限制
+
+- 运行中断后由用户点重试，不自动恢复；重试会重新调用模型（已提交的工具结果不重复执行）。
+- 进程崩溃时，正在进行的回复要等租约过期（最多约 60 秒）加下一次清扫（最多 30 秒）才显示为中断。
+
+### 验证
+
+构建机：fmt、clippy `-D warnings`、nextest 全部、cargo deny、cargo audit、四个检查脚本、OpenAPI 导出。
+
+负对照（构建机临时改坏、跑对应测试、撤回，不提交损坏实现）：
+
+| 改坏 | 结果 |
+|---|---|
+| worker guard 去掉 lease_epoch 条件 | `reclaimed_run_rejects_writes_from_the_same_owners_earlier_epoch` 失败。原 `stale_lease_epoch_*` 测试因清扫后状态已非 running 抓不到，补了这条同一 owner 只差 epoch 的测试 |
+| 领取去掉“更早的 queued / waiting_ai 阻塞” | `later_message_waits_behind_earlier_run_backing_off_for_ai` 失败（同上，原并发测试抓不到，已补） |
+| 领取不再被 paused 阻塞（B/A 先后） | `queued_b_remains_blocked_when_running_a_later_pauses` 失败 |
+| 新消息不关闭暂停中的 A | `new_c_closes_paused_a_but_does_not_overtake_queued_b` 失败 |
+| 重试复制工具调用时重新生成幂等键 | `retry_lunch_50_parking_10_*` 失败 |
+| 服务层去掉 `require_ai_session()` | `service_layer_key_rejected_without_runs_or_model_calls` 失败 |
+| 重试把已成功调用改回 proposed | 测试仍通过：执行器以 journal 中的 tool_result 为准跳过，状态复制是第二道 |
+| 动作去掉工具模块授权 | 测试仍通过：权限变化先被冻结环境校验以 404 拒绝（同样在查回执之前），模块授权是第二道 |
+| 恢复 SQL 去掉 paused / interrupt ID 条件 | 测试仍通过：服务层在行锁内已检查同样条件，SQL 条件是第二道 |
+| RunEmitter::commit 改为先广播后提交 | **未被抓到**：`sse_commit_before_broadcast_survives_crash` 只验证“已提交未广播可重放”，没走 `commit()`；确定性地让提交在广播后失败需要故障注入，未做。顺序由 `commit()` 三行代码保证 |
