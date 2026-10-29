@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:chatweave_core/chatweave_core.dart';
 import 'package:dio/dio.dart';
 import 'package:jiabu/data/api/api_client.dart';
 import 'package:jiabu/data/api/api_error.dart';
+import 'package:jiabu/data/api/chat_api.dart';
 import 'package:jiabu/data/api/dto/auth_dto.dart';
 import 'package:jiabu/data/api/dto/client_logs_dto.dart';
 import 'package:jiabu/data/api/dto/meta_dto.dart';
@@ -14,7 +16,7 @@ import 'package:jiabu/data/sync/sync_policy.dart';
 import 'package:jiabu/domain/partition.dart';
 import 'package:uuid/uuid.dart';
 
-final class DioApiClient implements ApiClient {
+final class DioApiClient implements ApiClient, ChatApi {
   DioApiClient({
     required String server,
     required String clientHeader,
@@ -87,19 +89,26 @@ final class DioApiClient implements ApiClient {
     bool anonymous = false,
     ResponseType responseType = ResponseType.json,
     bool blob = false,
+    bool stream = false,
+    CancelToken? cancelToken,
   }) async {
     try {
       final response = await dio.request<T>(
         path,
         data: data,
         queryParameters: query,
+        cancelToken: cancelToken,
         options: Options(
           method: method,
           headers: headers,
           extra: {'anonymous': anonymous},
           responseType: responseType,
           sendTimeout: blob ? SyncPolicy.blobTimeout : null,
-          receiveTimeout: blob ? SyncPolicy.blobTimeout : null,
+          receiveTimeout: blob
+              ? SyncPolicy.blobTimeout
+              : stream
+              ? SyncPolicy.chatStreamTimeout
+              : null,
         ),
       );
       final guard = acceptResponse;
@@ -120,6 +129,12 @@ final class DioApiClient implements ApiClient {
         await onUpgradeRequired?.call();
       }
       Object? body = error.response?.data;
+      if (body is ResponseBody) {
+        body = await body.stream.fold<List<int>>(
+          <int>[],
+          (all, chunk) => all..addAll(chunk),
+        );
+      }
       if (body is List<int>) {
         try {
           body = jsonDecode(utf8.decode(body));
@@ -151,6 +166,67 @@ final class DioApiClient implements ApiClient {
       throw const ApiError('invalid_response');
     }
     return body;
+  }
+
+  @override
+  Future<Map<String, Object?>> chatWrite({
+    required String spaceId,
+    required String endpoint,
+    required Map<String, Object?> payload,
+    required int joinEpoch,
+    required String opId,
+    required String requestId,
+  }) async {
+    final response = await _request<Map<String, Object?>>(
+      'v1/spaces/$spaceId/chat/$endpoint',
+      method: 'POST',
+      data: payload,
+      headers: {
+        'X-Jiabu-Join-Epoch': joinEpoch,
+        'Idempotency-Key': opId,
+        'X-Request-Id': requestId,
+      },
+    );
+    return response.data ?? <String, Object?>{};
+  }
+
+  @override
+  Future<List<ActiveMessage>> chatActive(String spaceId) async {
+    final response = await _request<Map<String, Object?>>(
+      'v1/spaces/$spaceId/chat/active-messages',
+    );
+    return (response.data?['messages'] as List<Object?>? ?? const [])
+        .map((item) => ActiveMessage.fromJson(item! as Map<String, Object?>))
+        .toList();
+  }
+
+  @override
+  Future<StreamConnection> chatStream(
+    String spaceId,
+    String messageId, {
+    required String capabilities,
+    int? afterSeq,
+    CancelToken? cancelToken,
+  }) async {
+    final response = await _request<ResponseBody>(
+      'v1/spaces/$spaceId/chat/messages/$messageId/stream',
+      responseType: ResponseType.stream,
+      stream: true,
+      cancelToken: cancelToken,
+      headers: {
+        'Accept': 'text/event-stream',
+        'ChatWeave-Capabilities': capabilities,
+        if (afterSeq != null) 'Last-Event-ID': afterSeq.toString(),
+      },
+    );
+    final body = response.data;
+    return StreamConnection(
+      status: response.statusCode ?? 200,
+      headers: response.headers.map.map(
+        (key, value) => MapEntry(key.toLowerCase(), value.join(',')),
+      ),
+      bytes: body == null ? const Stream<List<int>>.empty() : body.stream,
+    );
   }
 
   @override

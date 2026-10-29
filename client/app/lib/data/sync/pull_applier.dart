@@ -24,13 +24,6 @@ final class PullApplier {
       if (change.entity != 'chat_entry' && local?.syncState == 'pending') {
         continue;
       }
-      if (change.entity == 'chat_entry' &&
-          local != null &&
-          change.data['rev'] == 0 &&
-          ((change.data['last_seq'] as int?) ?? 0) <
-              ((local.data['last_seq'] as int?) ?? 0)) {
-        continue;
-      }
       final data = change.entity == 'space' && local != null
           ? {...local.data, ...change.data}
           : change.data;

@@ -225,6 +225,10 @@ const entityColumns = <String, List<String>>{
     'change_seq',
     'created_at',
     'updated_at',
+    'message_json',
+    'rev',
+    'last_seq',
+    'authoritative',
     'server_payload_json',
   ],
 };

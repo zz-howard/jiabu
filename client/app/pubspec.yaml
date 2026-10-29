@@ -6,6 +6,18 @@ environment:
   sdk: ^3.13.7
   flutter: 3.47.8
 dependencies:
+  chatweave_core:
+    git:
+      url: https://github.com/zz-howard/chatweave
+      ref: f11bd4f66479d8a06160b6af5f9c8d0f980577ef
+      path: dart/packages/chatweave_core
+  chatweave_flutter:
+    git:
+      url: https://github.com/zz-howard/chatweave
+      ref: f11bd4f66479d8a06160b6af5f9c8d0f980577ef
+      path: dart/packages/chatweave_flutter
+  flutter_markdown_plus: ^1.0.12
+  markdown: ^7.3.1
   connectivity_plus: ^7.3.2
   crypto: ^3.0.8
   device_info_plus: ^13.3.0

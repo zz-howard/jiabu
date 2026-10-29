@@ -19,6 +19,7 @@ final class LogRedactorService {
     'uncaught_error',
     'log_upload_failed',
     'background_sync',
+    'chat_failed',
   };
   static const _codes = {
     'network',

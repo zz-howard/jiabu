@@ -80,6 +80,7 @@ final class MediaService {
     String spaceId,
     String module, {
     bool camera = false,
+    int limit = 9,
   }) async {
     final fence = await store.fence(spaceId);
     if (fence == null) {
@@ -95,7 +96,7 @@ final class MediaService {
       return const Failure('stale_response');
     }
     final hashes = <String>[];
-    for (final bytes in selected.take(9)) {
+    for (final bytes in selected.take(limit.clamp(0, 9))) {
       final result = await importImage(spaceId, module, bytes, captured: fence);
       switch (result) {
         case Ok<String>(:final value):

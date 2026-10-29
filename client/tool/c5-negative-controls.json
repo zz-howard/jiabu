@@ -1,0 +1,148 @@
+{
+  "instructions": "Build host only; cwd client/app. Apply ONE control; require assertion failure, restore before the next. Compiler errors are not successful controls. Paths are repository-relative. Require exactly one find/find_regex match; regex replacement uses a lambda to preserve literals.",
+  "controls": [
+    {
+      "id": "persisted_rev_always_replaces",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "    // Persisted pull revisions always replace, including a lower local rev.",
+      "replace": "    if (authoritative && rev >= 1 && old != null && rev < (old['rev'] as int)) return false;",
+      "expected_occurrences": 1,
+      "find_regex": "/\\s*/\\s*Persisted\\s*pull\\s*revisions\\s*always\\s*replace\\s*,\\s*including\\s*a\\s*lower\\s*local\\s*rev\\s*\\.",
+      "test_file": "client/app/test/data/chatweave_store_test.dart",
+      "test_names": [
+        "synced_persisted_revision_replaces_local"
+      ],
+      "command": "flutter test test/data/chatweave_store_test.dart --plain-name synced_persisted_revision_replaces_local"
+    },
+    {
+      "id": "checkpoint_seq_never_regresses",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "    if (rev == 0 && old != null &&\n        ((old['rev'] as int) > 0 || seq < (old['last_seq'] as int))) return false;",
+      "replace": "    if (rev == 0 && old != null && (old['rev'] as int) > 0) return false;",
+      "expected_occurrences": 1,
+      "find_regex": "if\\s*\\(\\s*rev\\s*=\\s*=\\s*0\\s*\\&\\s*\\&\\s*old\\s*!\\s*=\\s*null\\s*\\&\\s*\\&\\s*\\(\\s*\\(\\s*old\\s*\\[\\s*'rev'\\s*(?:,\\s*)?\\]\\s*as\\s*int\\s*(?:,\\s*)?\\)\\s*>\\s*0\\s*\\|\\s*\\|\\s*seq\\s*<\\s*\\(\\s*old\\s*\\[\\s*'last_seq'\\s*(?:,\\s*)?\\]\\s*as\\s*int\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*return\\s*false\\s*;",
+      "test_file": "client/app/test/data/chatweave_store_test.dart",
+      "test_names": [
+        "older_checkpoint_cannot_regress_stream"
+      ],
+      "command": "flutter test test/data/chatweave_store_test.dart --plain-name older_checkpoint_cannot_regress_stream"
+    },
+    {
+      "id": "provisional_never_replaces_synced",
+      "file": "client/app/lib/data/db/daos/local_store.dart",
+      "find": "    if (!authoritative && old?['authoritative'] == 1) return false;",
+      "replace": "    if (!authoritative && old?['authoritative'] == 1) { await _putEntity(spaceId, 'chat_entry', {...data, 'message_json': message}, state: state); return true; }",
+      "expected_occurrences": 1,
+      "find_regex": "if\\s*\\(\\s*!\\s*authoritative\\s*\\&\\s*\\&\\s*old\\s*\\?\\s*\\[\\s*'authoritative'\\s*(?:,\\s*)?\\]\\s*=\\s*=\\s*1\\s*(?:,\\s*)?\\)\\s*return\\s*false\\s*;",
+      "test_file": "client/app/test/data/chatweave_store_test.dart",
+      "test_names": [
+        "delayed_provisional_cannot_replace_synced_final"
+      ],
+      "command": "flutter test test/data/chatweave_store_test.dart --plain-name delayed_provisional_cannot_replace_synced_final"
+    },
+    {
+      "id": "actions_never_optimistically_resolve",
+      "file": "client/app/lib/data/chat/chat_action_transport.dart",
+      "find": "    return const ActionSubmission.queued();",
+      "replace": "    return ActionSubmission.result(ActionResult.fromJson({'status': 'accepted', 'patches': [{'messageId': message, 'blockId': context['blockId'], 'rev': 1, 'patch': {'data': {'state': {'status': 'resolved', 'selected': ['credit']}}}}]}));",
+      "expected_occurrences": 1,
+      "find_regex": "return\\s*const\\s*ActionSubmission\\s*\\.\\s*queued\\s*\\(\\s*(?:,\\s*)?\\)\\s*;",
+      "test_file": "client/app/test/features/chat_composer_test.dart",
+      "test_names": [
+        "queued_action_keeps_authoritative_block_open"
+      ],
+      "command": "flutter test test/features/chat_composer_test.dart --plain-name queued_action_keeps_authoritative_block_open"
+    },
+    {
+      "id": "interrupt_answer_is_not_user_message",
+      "file": "client/app/lib/shared/chatweave/chat_composer.dart",
+      "find": "      await widget.composer.submitOtherInput(_text.text);",
+      "replace": "      await widget.onSend(_text.text);",
+      "expected_occurrences": 1,
+      "find_regex": "await\\s*widget\\s*\\.\\s*composer\\s*\\.\\s*submitOtherInput\\s*\\(\\s*_text\\s*\\.\\s*text\\s*(?:,\\s*)?\\)\\s*;",
+      "test_file": "client/app/test/features/chat_composer_test.dart",
+      "test_names": [
+        "other_input_enqueues_action_without_user_entry"
+      ],
+      "command": "flutter test test/features/chat_composer_test.dart --plain-name other_input_enqueues_action_without_user_entry"
+    },
+    {
+      "id": "fence_checked_before_chat_dispatch",
+      "file": "client/app/lib/data/sync/outbox_processor.dart",
+      "find": "  Future<void> uploadLeasedChat(String owner, LeasedOperation sent) async {\n    if (!await _accepts(owner, sent)) return;",
+      "replace": "  Future<void> uploadLeasedChat(String owner, LeasedOperation sent) async {",
+      "expected_occurrences": 1,
+      "find_regex": "Future\\s*<\\s*void\\s*>\\s*uploadLeasedChat\\s*\\(\\s*String\\s*owner\\s*,\\s*LeasedOperation\\s*sent\\s*(?:,\\s*)?\\)\\s*async\\s*\\{\\s*if\\s*\\(\\s*!\\s*await\\s*_accepts\\s*\\(\\s*owner\\s*,\\s*sent\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*return\\s*;",
+      "test_file": "client/app/test/data/chat_outbox_test.dart",
+      "test_names": [
+        "epoch_change_before_dispatch_sends_no_request"
+      ],
+      "command": "flutter test test/data/chat_outbox_test.dart --plain-name epoch_change_before_dispatch_sends_no_request"
+    },
+    {
+      "id": "fence_checked_before_chat_ack",
+      "file": "client/app/lib/data/sync/outbox_processor.dart",
+      "find": "    await store.transaction(() async {\n      if (!await _accepts(owner, sent)) return;\n      if (op.kind == 'chat_action') {",
+      "replace": "    await store.transaction(() async {\n      if (op.kind == 'chat_action') {",
+      "expected_occurrences": 1,
+      "find_regex": "await\\s*store\\s*\\.\\s*transaction\\s*\\(\\s*\\(\\s*(?:,\\s*)?\\)\\s*async\\s*\\{\\s*if\\s*\\(\\s*!\\s*await\\s*_accepts\\s*\\(\\s*owner\\s*,\\s*sent\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*return\\s*;\\s*if\\s*\\(\\s*op\\s*\\.\\s*kind\\s*=\\s*=\\s*'chat_action'\\s*(?:,\\s*)?\\)\\s*\\{",
+      "test_file": "client/app/test/data/chat_outbox_test.dart",
+      "test_names": [
+        "chat_send_late_ack_cannot_cross_fence"
+      ],
+      "command": "flutter test test/data/chat_outbox_test.dart --plain-name chat_send_late_ack_cannot_cross_fence"
+    },
+    {
+      "id": "offline_action_id_is_stable",
+      "file": "client/app/lib/data/chat/chat_action_transport.dart",
+      "find": "await dao.enqueue(OutboxOperation(id: request.id,",
+      "replace": "await dao.enqueue(OutboxOperation(id: '${request.id}-${DateTime.now().microsecondsSinceEpoch}',",
+      "expected_occurrences": 1,
+      "find_regex": "await\\s*dao\\s*\\.\\s*enqueue\\s*\\(\\s*OutboxOperation\\s*\\(\\s*id\\s*:\\s*request\\s*\\.\\s*id\\s*,",
+      "test_file": "client/app/test/data/chat_outbox_test.dart",
+      "test_names": [
+        "offline_action_replays_identical_id_and_payload"
+      ],
+      "command": "flutter test test/data/chat_outbox_test.dart --plain-name offline_action_replays_identical_id_and_payload"
+    },
+    {
+      "id": "blob_receipt_before_chat_reference",
+      "file": "client/app/lib/data/sync/outbox_processor.dart",
+      "find": "              if (matches.isEmpty ||\n                  matches.any((blob) => blob['uploaded'] != 1)) {\n                blocked = true;\n              }",
+      "replace": "              if (matches.isEmpty || matches.any((blob) => blob['uploaded'] != 1)) { blocked = false; }",
+      "expected_occurrences": 1,
+      "find_regex": "if\\s*\\(\\s*matches\\s*\\.\\s*isEmpty\\s*\\|\\s*\\|\\s*matches\\s*\\.\\s*any\\s*\\(\\s*\\(\\s*blob\\s*(?:,\\s*)?\\)\\s*=\\s*>\\s*blob\\s*\\[\\s*'uploaded'\\s*(?:,\\s*)?\\]\\s*!\\s*=\\s*1\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*\\{\\s*blocked\\s*=\\s*true\\s*;\\s*(?:,\\s*)?\\}",
+      "test_file": "client/app/test/data/chat_outbox_test.dart",
+      "test_names": [
+        "chat_send_waits_for_blob_receipt"
+      ],
+      "command": "flutter test test/data/chat_outbox_test.dart --plain-name chat_send_waits_for_blob_receipt"
+    },
+    {
+      "id": "component_keeps_preceding_text_position",
+      "file": "client/app/lib/shared/chatweave/jiabu_message_view.dart",
+      "find": "          for (final block in message.blocks) KeyedSubtree(",
+      "replace": "          if (message.blocks.any((block) => block.type != 'markdown' && block['status'] == 'complete')) const SizedBox(height: JiabuChatMetrics.gap),\n          for (final block in message.blocks) KeyedSubtree(",
+      "expected_occurrences": 1,
+      "find_regex": "for\\s*\\(\\s*final\\s*block\\s*in\\s*message\\s*\\.\\s*blocks\\s*(?:,\\s*)?\\)\\s*KeyedSubtree\\s*\\(",
+      "test_file": "client/app/test/features/c5_geometry_test.dart",
+      "test_names": [
+        "component_fill_preserves_text_top_left_jiabu"
+      ],
+      "command": "flutter test test/features/c5_geometry_test.dart --plain-name component_fill_preserves_text_top_left_jiabu"
+    },
+    {
+      "id": "manual_takeover_cancels_original_send",
+      "file": "client/app/lib/data/chat/chat_session.dart",
+      "find": "        await dao.removeOp(spaceId, op.id); localOnly = true;",
+      "replace": "        localOnly = true;",
+      "expected_occurrences": 1,
+      "find_regex": "await\\s*dao\\s*\\.\\s*removeOp\\s*\\(\\s*spaceId\\s*,\\s*op\\s*\\.\\s*id\\s*(?:,\\s*)?\\)\\s*;\\s*localOnly\\s*=\\s*true\\s*;",
+      "test_file": "client/app/test/data/chat_outbox_test.dart",
+      "test_names": [
+        "manual_takeover_prevents_later_ai_duplicate"
+      ],
+      "command": "flutter test test/data/chat_outbox_test.dart --plain-name manual_takeover_prevents_later_ai_duplicate"
+    }
+  ]
+}

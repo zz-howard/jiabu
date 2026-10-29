@@ -18,6 +18,8 @@ final class SyncTriggers {
     this.scheduleTask,
     this.observeLifecycle = true,
     this.onDatabaseChanged,
+    this.onChatForeground,
+    this.onChatDisconnect,
     Timer Function(Duration, void Function())? timer,
   }) : timer = timer ?? Timer.new;
   final SyncEngine engine;
@@ -26,6 +28,8 @@ final class SyncTriggers {
   final Stream<List<ConnectivityResult>>? connectivity;
   final Future<void> Function()? scheduleTask;
   final bool observeLifecycle;
+  final Future<void> Function()? onChatForeground;
+  final Future<void> Function()? onChatDisconnect;
   final Future<void> Function(Map<String, Object?>)? onDatabaseChanged;
   final Timer Function(Duration, void Function()) timer;
   AppLifecycleListener? _lifecycle;
@@ -71,11 +75,13 @@ final class SyncTriggers {
     await refreshDatabase();
     if (!_disposed) {
       await engine.runRound();
+      await onChatForeground?.call();
     }
   }
 
   void _pause() {
     _inForeground = false;
+    unawaited(onChatDisconnect?.call());
     _databasePoll?.cancel();
     _databasePoll = null;
   }
@@ -116,11 +122,13 @@ final class SyncTriggers {
     final online = results.any((result) => result != ConnectivityResult.none);
     final recovered = online && !_wasOnline;
     _wasOnline = online;
+    if (!online) unawaited(onChatDisconnect?.call());
     if (recovered && !_disposed && _inForeground) {
       try {
         await api.health();
         if (!_disposed) {
           await engine.runRound();
+          await onChatForeground?.call();
         }
       } on ApiError {
         /* A network interface is not proof of reachability. */

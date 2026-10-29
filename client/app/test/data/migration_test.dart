@@ -6,14 +6,14 @@ import 'package:jiabu/data/db/database.dart';
 import 'package:jiabu/data/db/tables.dart';
 
 void main() {
-  test('schema_v1_reopens_and_every_business_table_has_space_id', () async {
+  test('schema_v2_reopens_and_every_business_table_has_space_id', () async {
     final directory = await Directory.systemTemp.createTemp(
       'jiabu-migrations-',
     );
     final file = File('${directory.path}/schema.db');
     final first = JiabuDatabase(NativeDatabase(file));
     await first.customSelect('SELECT * FROM sync_runtime').get();
-    expect(first.schemaVersion, 1);
+    expect(first.schemaVersion, 2);
     await first.close();
     final reopened = JiabuDatabase(NativeDatabase(file));
     addTearDown(() async {
@@ -25,7 +25,7 @@ void main() {
           .data
           .values
           .single,
-      1,
+      2,
     );
     expect(
       (await reopened.customSelect('PRAGMA integrity_check').getSingle())
@@ -40,6 +40,7 @@ void main() {
       'sync_cursors',
       'entity_conflicts',
       'blobs_local',
+      'chat_client_states',
     ]) {
       final info = await reopened
           .customSelect('PRAGMA table_info($table)')
@@ -57,9 +58,6 @@ void main() {
     final chat = await reopened
         .customSelect('PRAGMA table_info(chat_entries)')
         .get();
-    expect(
-      chat.map((row) => row.data['name']),
-      isNot(contains('message_json')),
-    );
+    expect(chat.map((row) => row.data['name']), contains('message_json'));
   });
 }
