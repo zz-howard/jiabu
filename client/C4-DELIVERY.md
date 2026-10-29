@@ -2,7 +2,7 @@
 
 ## Review 第 1 轮修正
 
-- 邀请入口与「发出的邀请」恢复为任何活跃成员可见（仅默认个人空间隐藏），与服务端一致：`Change::requires_owner()` 只含改名/删除/移除/转让，撤回仅限邀请人。构建机第 2 轮把它误改成 owner-only（当时失败的测试本身写错），现已改回，组件测试改为断言 member 能看到邀请入口。
+- **2026-10-29 P71 取代本条：** 只有 owner 能邀请并看到「发出的邀请」（默认个人空间仍隐藏），服务端 `Change::requires_owner()` 含邀请；owner 可撤回任何待接受邀请，前任 owner 仍可撤回自己转让前发出的；邀请人离开后邀请仍有效。（原 Review 第 1 轮修正“任何活跃成员可邀请、撤回仅限邀请人”已作废。）
 
 ## 构建机第 4 轮视觉修正
 
@@ -146,7 +146,7 @@ client/tool/c4-negative-controls.json
 ## 实现
 
 - 顶栏空间入口、空间列表与当前标记、离线切换、上次空间恢复；创建、改名改色、成员列表、本人显示名、用户名邀请、发出/收到邀请、接受/拒绝/撤回、退出、移除、转让和输入准确名称删除。
-- 默认个人空间隐藏邀请、退出、删除；owner 操作按服务端权限隐藏；撤回仅邀请人可见。仅 active 成员参与删除/最后 owner 判断，历史成员显示已退出。
+- 默认个人空间隐藏邀请、退出、删除；owner 操作按服务端权限隐藏；邀请入口仅 owner 可见，撤回对 owner 和邀请人本人可见（P71）。仅 active 成员参与删除/最后 owner 判断，历史成员显示已退出。
 - 退出确认读取当前空间 outbox 条数；包括 pending/sending/failed/blocked，是打开确认时的快照。最后 owner 显示转让/删除引导。成功退出/删除与被移出后的清除继续使用 C2 MembershipReconciler、purgeSpace 和缓存清理。
 - 新增在线管理 Repository，空间目录仍以 drift 为准。短命管理请求通过现有 ApiClient 的相对路径 JSON 入口发送，使用现有 spaces DTO 和新增领域 SpaceInfo；API key 明文不进入可自动打印的 freezed 状态。
 - 切换更新 currentSpace/lastSpace/展示代次；family ViewModel 按 spaceId 重建并取消旧订阅；旧弹层按分区/空间展示归属关闭。A→B→A 的展示代次也会变化。新的空间内容淡入，旧内容不留作交叉淡出。空间管理路由切到对应的新空间 ID。
@@ -166,7 +166,7 @@ client/tool/c4-negative-controls.json
 5. PIN/图案使用现有 crypto 的 PBKDF2-HMAC-SHA256，16 字节随机盐、100000 轮、32 字节摘要，保存版本/参数；派生放 compute，比较摘要。没有添加密码学依赖；安全存储只存盐、参数、摘要。
 6. **用户确认：邀请输入用户名**，无账号搜索接口，不实现虚构的搜索器；本人空间显示名走 members/me 和 expected_version。
 7. **用户确认：默认 90 天省略 expires_at，永久显式 null**；7/30/365 天用首次提交时计算并固定的绝对时间，永久有风险提示。权限值为 read/read_write。
-8. **用户确认：默认个人空间不可删；仅剩自己且名称准确才可删**。改名/改色仅 owner，任何活跃成员可邀请，只有邀请人能撤回。本人显示名所有在册成员可改。
+8. **用户确认：默认个人空间不可删；仅剩自己且名称准确才可删**。改名/改色仅 owner；邀请仅 owner，owner 或邀请人本人可撤回（P71，2026-10-29）。本人显示名所有在册成员可改。
 9. 新建币种选项与服务端一致：CNY/HKD/USD/EUR/GBP/JPY，默认 CNY。Android 用 TimeZone.getDefault().id 取得默认 IANA 时区，通过现有窗口通道读取；其他未实现原生平台的目录/测试回退 UTC，输入可编辑，服务端最终校验。点缀色取色板首个未使用颜色，全用过则回到首色。
 10. **用户确认：Kotlin 不写原生单元测试/instrumented test**。通道固定 `jiabu/secure_clipboard`、`jiabu/window_privacy`；Dart 用 TestDefaultBinaryMessengerBinding mock。Android 13+ Kotlin 设置 ClipDescription.EXTRA_IS_SENSITIVE，旧版本正常复制。
 11. 窗口安全状态合并「应用锁」「明文 key」原因，关闭 key 弹层不能解除仍开启的应用锁保护。FLAG_SECURE 会同时禁止截屏/录屏，设置页有说明。最近任务纯纸面遮罩与 FLAG_SECURE 同时交付，不承诺系统一定显示自定义缩略图。
@@ -200,7 +200,7 @@ Android 原生行为还需构建机编译及后续真机验证；Dart 通道测�
 - `test/data/c4_transport_test.dart`：代理子路径、相对路径、请求标识、join_epoch、显式 null。
 - `test/data/c4_repositories_test.dart`：空间命令版本/世代、仅当前空间未上传计数、离线不发送、有效成员目录切换、key 期限和错误码。
 - `test/features/c4_view_model_test.dart`：key 创建各期限与权限、无空间字段、内存明文清除、离线和幂等重放无明文。
-- `test/features/c4_interaction_test.dart`：退出先提示 N 后提交；成员离线按钮禁用；owner/默认个人空间权限；邀请接受/拒绝/失效；撤回仅邀请人可见；退出/移除/转让错误；删除名称精确匹配；明文关闭不可再见、敏感复制及两秒反馈；全局锁屏替换业务内容、未录入生物识别直接 PIN。
+- `test/features/c4_interaction_test.dart`：退出先提示 N 后提交；成员离线按钮禁用；owner/默认个人空间权限；邀请接受/拒绝/失效；邀请入口仅 owner、owner 可撤回任何邀请、前任 owner 仅可撤回自己发的（P71）；退出/移除/转让错误；删除名称精确匹配；明文关闭不可再见、敏感复制及两秒反馈；全局锁屏替换业务内容、未录入生物识别直接 PIN。
 - `test/features/c4_space_switch_test.dart`：总览/历史/账户分别用 A/B 的记录、账户、成员和不同金额做负对照，实际调用 runtime.switchSpace，断言只显示 B、A 订阅已取消、lastSpace 更新。聊天/资料的真实内容由 C5/C6 接入同一空间作用域，本片没有虚构它们的数据界面。
 - `test/features/c4_layout_test.dart`：54 状态 × 中英 × pine/indigo × 360/430 × 100%/200% = **864 组合**，异常、按钮尺寸、装饰角度与色板语义。
 - `packages/jiabu_design/test/c4_components_test.dart`：占位圆章尺寸/角度、色板八项与触控区、图案无障碍点选/去重。
