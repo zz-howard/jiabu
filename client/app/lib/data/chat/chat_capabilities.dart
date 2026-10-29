@@ -6,5 +6,6 @@ String chatCapabilitiesHeader(ClientCapabilities caps) {
   final names = blocks.keys.toList()..sort();
   final features = (json['features']! as List<Object?>).cast<String>().toList()
     ..sort();
-  return 'v=0.1; blocks=${names.map((name) => '$name:${blocks[name]}').join(',')}; features=${features.join(',')}';
+  final blockVersions = names.map((name) => '$name:${blocks[name]}').join(',');
+  return 'v=0.1; blocks=$blockVersions; features=${features.join(',')}';
 }

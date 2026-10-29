@@ -179,7 +179,7 @@ Message c5Message(String state) {
       ? 'x-jiabu.document_card'
       : 'markdown';
   var block = c5Block(type);
-  if (state == 'choice_resolved')
+  if (state == 'choice_resolved') {
     block = {
       ...block,
       'data': {
@@ -193,11 +193,13 @@ Message c5Message(String state) {
         },
       },
     };
-  if (state == 'ai_unavailable' || state == 'recovering')
+  }
+  if (state == 'ai_unavailable' || state == 'recovering') {
     block = {
       ...c5Block('markdown'),
       'data': {'text': '等待处理这条消息。'},
     };
+  }
   final hasSteps =
       state.startsWith('process_') || state == 'streaming' || state == 'paused';
   final status = paused
@@ -359,12 +361,13 @@ class _C5PreviewState extends State<C5Preview> {
       conversationId: 'conversation',
     );
     if (widget.state == 'composer_answering') _composer.beginOtherInput();
-    if (widget.state.contains('queued'))
+    if (widget.state.contains('queued')) {
       unawaited(
         _actions.submit('reply', 'card', {
           'selected': ['credit'],
         }),
       );
+    }
   }
 
   @override

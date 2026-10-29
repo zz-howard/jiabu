@@ -17,10 +17,10 @@
     {
       "id": "checkpoint_seq_never_regresses",
       "file": "client/app/lib/data/db/daos/local_store.dart",
-      "find": "    if (rev == 0 && old != null &&\n        ((old['rev'] as int) > 0 || seq < (old['last_seq'] as int))) return false;",
-      "replace": "    if (rev == 0 && old != null && (old['rev'] as int) > 0) return false;",
+      "find": "    if (rev == 0 &&\n        old != null &&\n        ((old['rev']! as int) > 0 || seq < (old['last_seq']! as int))) {\n      return false;\n    }",
+      "replace": "    if (rev == 0 && old != null && (old['rev']! as int) > 0) {\n      return false;\n    }",
       "expected_occurrences": 1,
-      "find_regex": "if\\s*\\(\\s*rev\\s*=\\s*=\\s*0\\s*\\&\\s*\\&\\s*old\\s*!\\s*=\\s*null\\s*\\&\\s*\\&\\s*\\(\\s*\\(\\s*old\\s*\\[\\s*'rev'\\s*(?:,\\s*)?\\]\\s*as\\s*int\\s*(?:,\\s*)?\\)\\s*>\\s*0\\s*\\|\\s*\\|\\s*seq\\s*<\\s*\\(\\s*old\\s*\\[\\s*'last_seq'\\s*(?:,\\s*)?\\]\\s*as\\s*int\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*return\\s*false\\s*;",
+      "find_regex": "if\\s*\\(\\s*rev\\s*=\\s*=\\s*0\\s*\\&\\s*\\&\\s*old\\s*!\\s*=\\s*null\\s*\\&\\s*\\&\\s*\\(\\s*\\(\\s*old\\s*\\[\\s*'rev'\\s*(?:,\\s*)?\\]\\s*!\\s*as\\s*int\\s*(?:,\\s*)?\\)\\s*>\\s*0\\s*\\|\\s*\\|\\s*seq\\s*<\\s*\\(\\s*old\\s*\\[\\s*'last_seq'\\s*(?:,\\s*)?\\]\\s*!\\s*as\\s*int\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*\\{\\s*return\\s*false\\s*;\\s*(?:,\\s*)?\\}",
       "test_file": "client/app/test/data/chatweave_store_test.dart",
       "test_names": [
         "older_checkpoint_cannot_regress_stream"
@@ -30,10 +30,10 @@
     {
       "id": "provisional_never_replaces_synced",
       "file": "client/app/lib/data/db/daos/local_store.dart",
-      "find": "    if (!authoritative && old?['authoritative'] == 1) return false;",
+      "find": "    if (!authoritative && old?['authoritative'] == 1) {\n      return false;\n    }",
       "replace": "    if (!authoritative && old?['authoritative'] == 1) { await _putEntity(spaceId, 'chat_entry', {...data, 'message_json': message}, state: state); return true; }",
       "expected_occurrences": 1,
-      "find_regex": "if\\s*\\(\\s*!\\s*authoritative\\s*\\&\\s*\\&\\s*old\\s*\\?\\s*\\[\\s*'authoritative'\\s*(?:,\\s*)?\\]\\s*=\\s*=\\s*1\\s*(?:,\\s*)?\\)\\s*return\\s*false\\s*;",
+      "find_regex": "if\\s*\\(\\s*!\\s*authoritative\\s*\\&\\s*\\&\\s*old\\s*\\?\\s*\\[\\s*'authoritative'\\s*(?:,\\s*)?\\]\\s*=\\s*=\\s*1\\s*(?:,\\s*)?\\)\\s*\\{\\s*return\\s*false\\s*;\\s*(?:,\\s*)?\\}",
       "test_file": "client/app/test/data/chatweave_store_test.dart",
       "test_names": [
         "delayed_provisional_cannot_replace_synced_final"
@@ -69,10 +69,10 @@
     {
       "id": "fence_checked_before_chat_dispatch",
       "file": "client/app/lib/data/sync/outbox_processor.dart",
-      "find": "  Future<void> uploadLeasedChat(String owner, LeasedOperation sent) async {\n    if (!await _accepts(owner, sent)) return;",
+      "find": "  Future<void> uploadLeasedChat(String owner, LeasedOperation sent) async {\n    if (!await _accepts(owner, sent)) {\n      return;\n    }",
       "replace": "  Future<void> uploadLeasedChat(String owner, LeasedOperation sent) async {",
       "expected_occurrences": 1,
-      "find_regex": "Future\\s*<\\s*void\\s*>\\s*uploadLeasedChat\\s*\\(\\s*String\\s*owner\\s*,\\s*LeasedOperation\\s*sent\\s*(?:,\\s*)?\\)\\s*async\\s*\\{\\s*if\\s*\\(\\s*!\\s*await\\s*_accepts\\s*\\(\\s*owner\\s*,\\s*sent\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*return\\s*;",
+      "find_regex": "Future\\s*<\\s*void\\s*>\\s*uploadLeasedChat\\s*\\(\\s*String\\s*owner\\s*,\\s*LeasedOperation\\s*sent\\s*(?:,\\s*)?\\)\\s*async\\s*\\{\\s*if\\s*\\(\\s*!\\s*await\\s*_accepts\\s*\\(\\s*owner\\s*,\\s*sent\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*\\{\\s*return\\s*;\\s*(?:,\\s*)?\\}",
       "test_file": "client/app/test/data/chat_outbox_test.dart",
       "test_names": [
         "epoch_change_before_dispatch_sends_no_request"
@@ -82,10 +82,10 @@
     {
       "id": "fence_checked_before_chat_ack",
       "file": "client/app/lib/data/sync/outbox_processor.dart",
-      "find": "    await store.transaction(() async {\n      if (!await _accepts(owner, sent)) return;\n      if (op.kind == 'chat_action') {",
+      "find": "    await store.transaction(() async {\n      if (!await _accepts(owner, sent)) {\n        return;\n      }\n      if (op.kind == 'chat_action') {",
       "replace": "    await store.transaction(() async {\n      if (op.kind == 'chat_action') {",
       "expected_occurrences": 1,
-      "find_regex": "await\\s*store\\s*\\.\\s*transaction\\s*\\(\\s*\\(\\s*(?:,\\s*)?\\)\\s*async\\s*\\{\\s*if\\s*\\(\\s*!\\s*await\\s*_accepts\\s*\\(\\s*owner\\s*,\\s*sent\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*return\\s*;\\s*if\\s*\\(\\s*op\\s*\\.\\s*kind\\s*=\\s*=\\s*'chat_action'\\s*(?:,\\s*)?\\)\\s*\\{",
+      "find_regex": "await\\s*store\\s*\\.\\s*transaction\\s*\\(\\s*\\(\\s*(?:,\\s*)?\\)\\s*async\\s*\\{\\s*if\\s*\\(\\s*!\\s*await\\s*_accepts\\s*\\(\\s*owner\\s*,\\s*sent\\s*(?:,\\s*)?\\)\\s*(?:,\\s*)?\\)\\s*\\{\\s*return\\s*;\\s*(?:,\\s*)?\\}\\s*if\\s*\\(\\s*op\\s*\\.\\s*kind\\s*=\\s*=\\s*'chat_action'\\s*(?:,\\s*)?\\)\\s*\\{",
       "test_file": "client/app/test/data/chat_outbox_test.dart",
       "test_names": [
         "chat_send_late_ack_cannot_cross_fence"
@@ -95,10 +95,10 @@
     {
       "id": "offline_action_id_is_stable",
       "file": "client/app/lib/data/chat/chat_action_transport.dart",
-      "find": "await dao.enqueue(OutboxOperation(id: request.id,",
-      "replace": "await dao.enqueue(OutboxOperation(id: '${request.id}-${DateTime.now().microsecondsSinceEpoch}',",
+      "find": "          id: request.id,",
+      "replace": "          id: '${request.id}-${DateTime.now().microsecondsSinceEpoch}',",
       "expected_occurrences": 1,
-      "find_regex": "await\\s*dao\\s*\\.\\s*enqueue\\s*\\(\\s*OutboxOperation\\s*\\(\\s*id\\s*:\\s*request\\s*\\.\\s*id\\s*,",
+      "find_regex": "id\\s*:\\s*request\\s*\\.\\s*id\\s*,",
       "test_file": "client/app/test/data/chat_outbox_test.dart",
       "test_names": [
         "offline_action_replays_identical_id_and_payload"
@@ -121,8 +121,8 @@
     {
       "id": "component_keeps_preceding_text_position",
       "file": "client/app/lib/shared/chatweave/jiabu_message_view.dart",
-      "find": "          for (final block in message.blocks) KeyedSubtree(",
-      "replace": "          if (message.blocks.any((block) => block.type != 'markdown' && block['status'] == 'complete')) const SizedBox(height: JiabuChatMetrics.gap),\n          for (final block in message.blocks) KeyedSubtree(",
+      "find": "            for (final block in message.blocks)\n              KeyedSubtree(",
+      "replace": "            if (message.blocks.any((block) => block.type != 'markdown' && block['status'] == 'complete')) const SizedBox(height: JiabuChatMetrics.gap),\n            for (final block in message.blocks)\n              KeyedSubtree(",
       "expected_occurrences": 1,
       "find_regex": "for\\s*\\(\\s*final\\s*block\\s*in\\s*message\\s*\\.\\s*blocks\\s*(?:,\\s*)?\\)\\s*KeyedSubtree\\s*\\(",
       "test_file": "client/app/test/features/c5_geometry_test.dart",
@@ -134,8 +134,8 @@
     {
       "id": "manual_takeover_cancels_original_send",
       "file": "client/app/lib/data/chat/chat_session.dart",
-      "find": "        await dao.removeOp(spaceId, op.id); localOnly = true;",
-      "replace": "        localOnly = true;",
+      "find": "          await dao.removeOp(spaceId, op.id);\n          localOnly = true;",
+      "replace": "          localOnly = true;",
       "expected_occurrences": 1,
       "find_regex": "await\\s*dao\\s*\\.\\s*removeOp\\s*\\(\\s*spaceId\\s*,\\s*op\\s*\\.\\s*id\\s*(?:,\\s*)?\\)\\s*;\\s*localOnly\\s*=\\s*true\\s*;",
       "test_file": "client/app/test/data/chat_outbox_test.dart",

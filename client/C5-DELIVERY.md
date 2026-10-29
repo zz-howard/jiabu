@@ -172,6 +172,15 @@ client/tool/server-it.sh
 5. 360/430、200%字号与复杂表单/图表的实际渲染；164张PNG需要人工看图，当前没有视觉验收结论。
 6. 真机图片拾取/编解码、离后台回来和第二个测试APK的手感检查，由构建机/设备完成。
 
+## 留给后续切片
+
+- C4 协调约定：C5 不新增任何系统通知。已核对聊天实现，当前仅有页面内提示、读屏播报和数据库/状态变更事件，没有系统通知发送路径。
+- 后续若接入系统通知，必须遵循应用锁的通知文字规则，并在通知接入点保留 `TODO(C4): route through app-lock notification text rule`；本切片不新增通知插件或发送逻辑。
+
+## 构建机 analyze 反馈修正
+
+构建机已通过 pub get、gen-l10n、build_runner、drift schema/helper 生成和 check_rules。本轮以 1b51846 的生成代码和格式化结果为基准，修正剩余 analyze 类型错误及 lint：void 流回调、SafeLogEvent 日志捕获、Tags 名称冲突、Future await、文件存在性检查、控制流花括号、长行、cascade、命名布尔参数、getter/setter 与依赖顺序。同步更新11项负对照的源码锚点，保留原来的故意破坏方式与测试命令。没有增加 ignore，也没有改生成代码；本机未运行 Dart/Flutter analyze 或测试。
+
 ## 改动文件清单
 
 以下为源实现和测试；生成文件/PNG由构建机另行提交。

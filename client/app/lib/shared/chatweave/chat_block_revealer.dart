@@ -32,9 +32,8 @@ class ChatBlockRevealer {
     if (await show()) return;
     final scrollable = _scrollable;
     if (_closed || scrollable == null || !scrollable.mounted) return;
-    final position = scrollable.position;
     // Reverse chat: zero is newest. A question can be above offline user notes.
-    position.jumpTo(0);
+    final position = scrollable.position..jumpTo(0);
     for (
       var page = 0;
       page < 200 && !_closed && generation == _generation;

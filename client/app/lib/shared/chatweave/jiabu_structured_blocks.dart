@@ -133,7 +133,9 @@ class _Metric extends StatelessWidget {
                 ? '↑'
                 : delta['direction'] == 'down'
                 ? '↓'
-                : '→'} ${formatValue(delta['value'], context: context)} ${delta['period'] ?? ''}',
+                : '→'} '
+            '${formatValue(delta['value'], context: context)} '
+            '${delta['period'] ?? ''}',
             style: context.jiabu.type.secondary,
           ),
         if (assessment.isNotEmpty)
@@ -359,8 +361,9 @@ class _JiabuChoiceBlockState extends State<JiabuChoiceBlock> {
         final multiple = block.data['selection'] == 'multiple';
         String label(String key) => ChatWeaveLocalizations.text(context, key);
         Future<void> submit(List<String> ids) async {
-          if (messageId != null)
+          if (messageId != null) {
             await interactions?.submit(messageId, block.id, {'selected': ids});
+          }
         }
 
         return Column(

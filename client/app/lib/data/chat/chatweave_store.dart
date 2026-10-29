@@ -20,7 +20,9 @@ final class JiabuChatWeaveStore implements ChatWeaveStore {
 
   static Message? decode(Map<String, Object?> row) {
     final raw = row['message_json'];
-    if (raw == null) return null;
+    if (raw == null) {
+      return null;
+    }
     return Message.fromJson(
       raw is String
           ? jsonDecode(raw) as Map<String, Object?>
@@ -31,7 +33,9 @@ final class JiabuChatWeaveStore implements ChatWeaveStore {
   @override
   Stream<List<Message>> watchConversation(String conversationId) async* {
     await for (final _ in dao.watchChatChanges(fence.spaceId)) {
-      if (_closed || !await dao.accepts(fence)) return;
+      if (_closed || !await dao.accepts(fence)) {
+        return;
+      }
       yield (await dao.chatEntries(
         fence.spaceId,
         memberId,
@@ -42,7 +46,9 @@ final class JiabuChatWeaveStore implements ChatWeaveStore {
 
   @override
   Future<Message?> load(String messageId) async {
-    if (_closed || !await dao.accepts(fence)) return null;
+    if (_closed || !await dao.accepts(fence)) {
+      return null;
+    }
     final row = await dao.chatEntry(fence.spaceId, messageId);
     return row == null || row['member_id'] != memberId ? null : decode(row);
   }
@@ -57,10 +63,13 @@ final class JiabuChatWeaveStore implements ChatWeaveStore {
 
   @override
   Future<void> saveProvisional(Message message, {required int lastSeq}) async {
-    if (_closed) return;
+    if (_closed) {
+      return;
+    }
     final old = _pending[message.id];
-    if (old == null || lastSeq >= old.seq)
+    if (old == null || lastSeq >= old.seq) {
       _pending[message.id] = (message: message, seq: lastSeq);
+    }
     final finished = message.blocks
         .where((b) => b['status'] == 'complete')
         .length;
@@ -92,9 +101,13 @@ final class JiabuChatWeaveStore implements ChatWeaveStore {
   }
 
   Future<void> _save(Message message, int seq) => dao.transaction(() async {
-    if (_closed || !await dao.accepts(fence)) return;
+    if (_closed || !await dao.accepts(fence)) {
+      return;
+    }
     final existing = await dao.chatEntry(fence.spaceId, message.id);
-    if (existing != null && existing['member_id'] != memberId) return;
+    if (existing != null && existing['member_id'] != memberId) {
+      return;
+    }
     await dao.putChatEntry(fence.spaceId, {
       'id': message.id,
       'member_id': memberId,
@@ -137,7 +150,9 @@ final class JiabuChatWeaveStore implements ChatWeaveStore {
   @override
   Future<void> saveClientState(String messageId, ClientState state) =>
       dao.transaction(() async {
-        if (_closed || !await dao.accepts(fence)) return;
+        if (_closed || !await dao.accepts(fence)) {
+          return;
+        }
         await dao.updateChatClientState(
           fence.spaceId,
           messageId,

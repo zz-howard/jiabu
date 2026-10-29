@@ -24,7 +24,7 @@ final class _Refresh implements AuthoritativeRefresh {
   @override
   Future<Message?> refresh(String messageId) async {
     await session.sync();
-    return session.persistence.load(messageId);
+    return await session.persistence.load(messageId);
   }
 }
 
@@ -122,7 +122,9 @@ final class LocalChatSession implements ChatConversation {
   final _checkpointSeq = <String, int>{};
 
   void _notify() {
-    if (!_closed) _events.add(null);
+    if (!_closed) {
+      _events.add(null);
+    }
   }
 
   void _log(String code) {
@@ -143,8 +145,9 @@ final class LocalChatSession implements ChatConversation {
       transport: JiabuActionTransport(dao, fence, onEnqueued: onEnqueued),
       nextId: () => const Uuid().v7(),
       onResume: (id) async {
-        if (_attached && _foreground)
+        if (_attached && _foreground) {
           unawaited(_subscribe(id, ResumeTrigger.action));
+        }
       },
       onRefresh: (_) async {
         await sync();
@@ -174,7 +177,7 @@ final class LocalChatSession implements ChatConversation {
       }
       _notify();
     });
-    _actions = interactions.changes.listen(_notify);
+    _actions = interactions.changes.listen((_) => _notify());
   }
 
   Future<void> initialize() async {
@@ -222,7 +225,9 @@ final class LocalChatSession implements ChatConversation {
     try {
       do {
         _readAgain = false;
-        if (_closed) return;
+        if (_closed) {
+          return;
+        }
         if (!await dao.accepts(fence)) {
           await _reset(conversationId);
           draft = '';
@@ -257,7 +262,9 @@ final class LocalChatSession implements ChatConversation {
                     ?.data['conversation_id']
                 as String?;
         final id = actual ?? inferred ?? conversationId;
-        if (id != conversationId) await _reset(id);
+        if (id != conversationId) {
+          await _reset(id);
+        }
         final queue = await dao.outbox(spaceId);
         if (queue.any(
           (op) => op.kind == 'chat_action' && op.state == 'failed',
@@ -271,9 +278,13 @@ final class LocalChatSession implements ChatConversation {
         for (final row in own) {
           final messageId = row.data['id']! as String;
           final raw = await dao.chatEntry(spaceId, messageId);
-          if (raw == null) continue;
+          if (raw == null) {
+            continue;
+          }
           var message = JiabuChatWeaveStore.decode(raw);
-          if (message == null) continue;
+          if (message == null) {
+            continue;
+          }
           if ((message['conversationId'] as String? ?? '').startsWith(
             'local:',
           )) {
@@ -290,7 +301,7 @@ final class LocalChatSession implements ChatConversation {
             _readAgain = true;
             break;
           }
-          // Don't erase fresher in-memory deltas during the disk throttle window.
+          // Keep fresher in-memory deltas during disk throttling.
           if (raw['authoritative'] == 1 ||
               (raw['last_seq']! as int) >=
                   (blocks.snapshot.cursors[messageId] ?? 0)) {
@@ -307,7 +318,9 @@ final class LocalChatSession implements ChatConversation {
             }
           }
           final local = await dao.chatClientState(spaceId, messageId);
-          if (local['stopRequested'] == true) nextStops.add(messageId);
+          if (local['stopRequested'] == true) {
+            nextStops.add(messageId);
+          }
           final assistantId = local['assistantId'] as String?;
           if (_attached &&
               _foreground &&
@@ -319,8 +332,9 @@ final class LocalChatSession implements ChatConversation {
           if (_attached &&
               _foreground &&
               retryId != null &&
-              _discovered.add(retryId))
+              _discovered.add(retryId)) {
             unawaited(_subscribe(retryId, ResumeTrigger.conversation));
+          }
           if (message['role'] == 'user') {
             final op = queue
                 .where((op) => op.kind == 'chat_send' && op.id == messageId)
@@ -350,23 +364,27 @@ final class LocalChatSession implements ChatConversation {
                 ? ChatDelivery.complete
                 : ChatDelivery.waitingAi;
           }
-          if (_restored.add(messageId)) await interactions.restore(messageId);
+          if (_restored.add(messageId)) {
+            await interactions.restore(messageId);
+          }
           final receipts = local['receipts'] as Map<String, Object?>? ?? {};
           for (final receipt in receipts.entries) {
             if (_receipts.add(receipt.key)) {
               await interactions.retryPending(messageId);
               final result = receipt.value! as Map<String, Object?>;
               if (result['resume'] case final Map<String, Object?> resume) {
-                if (_attached && _foreground)
+                if (_attached && _foreground) {
                   unawaited(
                     _subscribe(
                       resume['messageId']! as String,
                       ResumeTrigger.action,
                     ),
                   );
+                }
               }
-              if (local['action_refresh'] == true)
+              if (local['action_refresh'] == true) {
                 unawaited(_refreshAfterRejected());
+              }
             }
           }
         }
@@ -392,7 +410,9 @@ final class LocalChatSession implements ChatConversation {
   }
 
   Future<void> _subscribe(String id, ResumeTrigger trigger) async {
-    if (_closed || !_attached || !_foreground) return;
+    if (_closed || !_attached || !_foreground) {
+      return;
+    }
     final controller = _stream;
     try {
       await controller.subscribe(id, trigger: trigger);
@@ -410,7 +430,9 @@ final class LocalChatSession implements ChatConversation {
 
   @override
   Future<void> recover() {
-    if (_closed) return Future<void>.value();
+    if (_closed) {
+      return Future<void>.value();
+    }
     _attached = true;
     _foreground = true;
     return _recovery ??= _recover().whenComplete(() {
@@ -451,11 +473,13 @@ final class LocalChatSession implements ChatConversation {
 
   Future<Result<T>> _guard<T>(Future<T> Function() work) async {
     try {
-      if (_closed || !await dao.accepts(fence))
+      if (_closed || !await dao.accepts(fence)) {
         return const Failure('stale_response');
+      }
       final value = await work();
-      if (_closed || !await dao.accepts(fence))
+      if (_closed || !await dao.accepts(fence)) {
         return const Failure('stale_response');
+      }
       return Ok(value);
     } on ApiError catch (failure) {
       _log(failure.code);
@@ -469,18 +493,24 @@ final class LocalChatSession implements ChatConversation {
   @override
   Future<Result<void>> send(String text, List<String> images) =>
       _guard(() async {
-        if ((await dao.runtime())['write_allowed'] != 1)
+        if ((await dao.runtime())['write_allowed'] != 1) {
           throw const ApiError('client_too_old');
-        if (composer.state.mode != ComposerMode.free)
+        }
+        if (composer.state.mode != ComposerMode.free) {
           throw const ApiError('chat_answer_first');
-        if (text.trim().isEmpty && images.isEmpty)
+        }
+        if (text.trim().isEmpty && images.isEmpty) {
           throw const ApiError('chat_empty');
-        if (utf8.encode(text).length > 32000 || images.length > 8)
+        }
+        if (utf8.encode(text).length > 32000 || images.length > 8) {
           throw const ApiError('chat_too_large');
+        }
         final id = const Uuid().v7();
         await dao.transaction(() async {
           await dao.lockRuntime();
-          if (!await dao.accepts(fence)) throw const ApiError('stale_response');
+          if (!await dao.accepts(fence)) {
+            throw const ApiError('stale_response');
+          }
           final message = {
             'protocolVersion': '0.1',
             'id': id,
@@ -533,10 +563,13 @@ final class LocalChatSession implements ChatConversation {
         .firstOrNull;
     if (blob != null) {
       final file = File(blob['path']! as String);
-      if (await file.exists()) return file.readAsBytes();
+      if (file.existsSync()) {
+        return await file.readAsBytes();
+      }
     }
-    if (api is ApiClient)
-      return (api as ApiClient).downloadBlob(spaceId, hash, 'original');
+    if (api is ApiClient) {
+      return await (api as ApiClient).downloadBlob(spaceId, hash, 'original');
+    }
     throw const ApiError('image_unavailable');
   });
   @override
@@ -544,15 +577,19 @@ final class LocalChatSession implements ChatConversation {
       media.pick(spaceId, 'chat', camera: camera, limit: limit.clamp(0, 8));
   @override
   Future<Result<void>> retry(String messageId) => _guard(() async {
-    if ((await dao.runtime())['write_allowed'] != 1)
+    if ((await dao.runtime())['write_allowed'] != 1) {
       throw const ApiError('client_too_old');
+    }
     final current = blocks.snapshot.messages[messageId];
     if (current == null ||
-        !const {'error', 'interrupted'}.contains(current.status))
+        !const {'error', 'interrupted'}.contains(current.status)) {
       throw const ApiError('retry_unavailable');
+    }
     await dao.transaction(() async {
       await dao.lockRuntime();
-      if (!await dao.accepts(fence)) throw const ApiError('stale_response');
+      if (!await dao.accepts(fence)) {
+        throw const ApiError('stale_response');
+      }
       final existing = (await dao.outbox(spaceId))
           .where(
             (op) =>
@@ -585,19 +622,24 @@ final class LocalChatSession implements ChatConversation {
   @override
   Future<Result<void>> retryUpload(String userMessageId) => _guard(() async {
     await dao.transaction(() async {
-      if (!await dao.accepts(fence)) throw const ApiError('stale_response');
+      if (!await dao.accepts(fence)) {
+        throw const ApiError('stale_response');
+      }
       final ops = await dao.outbox(spaceId);
       final op = ops
           .where((op) => op.id == userMessageId && op.kind == 'chat_send')
           .firstOrNull;
-      if (op == null || op.state == 'sending') return;
+      if (op == null || op.state == 'sending') {
+        return;
+      }
       for (final blob in ops.where(
         (candidate) =>
             candidate.kind == 'blob' &&
             candidate.references.intersection(op.dependsOn).isNotEmpty,
       )) {
-        if (blob.state == 'failed')
+        if (blob.state == 'failed') {
           await dao.setOutboxState(spaceId, blob.id, 'pending');
+        }
       }
       await dao.setOutboxState(spaceId, op.id, 'pending');
       dao.afterCommit(onEnqueued);
@@ -605,76 +647,91 @@ final class LocalChatSession implements ChatConversation {
   });
   @override
   Future<Result<void>> stop(String messageId) => _guard(() async {
-    if (!online) throw const ApiError('chat_online_required');
+    if (!online) {
+      throw const ApiError('chat_online_required');
+    }
     await _stream.stop(messageId);
   });
   @override
-  Future<Result<Map<String, Object?>>> takeOver(String userMessageId) => _guard(
-    () async {
-      if ((await dao.chatClientState(spaceId, userMessageId))['manual'] == true)
-        return <String, Object?>{};
-      var localOnly = false;
-      await dao.transaction(() async {
-        await dao.lockRuntime();
-        if (!await dao.accepts(fence)) throw const ApiError('stale_response');
-        final op = (await dao.outbox(spaceId))
-            .where((op) => op.id == userMessageId && op.kind == 'chat_send')
-            .firstOrNull;
-        if (op != null &&
-            op.state != 'sending' &&
-            (op.attempts == 0 ||
-                (op.state == 'failed' && op.lastError?['status'] == 422))) {
-          await dao.removeOp(spaceId, op.id);
-          localOnly = true;
+  Future<Result<Map<String, Object?>>> takeOver(String userMessageId) =>
+      _guard(() async {
+        final clientState = await dao.chatClientState(spaceId, userMessageId);
+        if (clientState['manual'] == true) {
+          return <String, Object?>{};
+        }
+        var localOnly = false;
+        await dao.transaction(() async {
+          await dao.lockRuntime();
+          if (!await dao.accepts(fence)) {
+            throw const ApiError('stale_response');
+          }
+          final op = (await dao.outbox(spaceId))
+              .where((op) => op.id == userMessageId && op.kind == 'chat_send')
+              .firstOrNull;
+          if (op != null &&
+              op.state != 'sending' &&
+              (op.attempts == 0 ||
+                  (op.state == 'failed' && op.lastError?['status'] == 422))) {
+            await dao.removeOp(spaceId, op.id);
+            localOnly = true;
+            await dao.updateChatClientState(
+              spaceId,
+              userMessageId,
+              (state) => {...state, 'manual': true},
+            );
+          }
+        });
+        if (!localOnly) {
+          if (!online) {
+            throw const ApiError('chat_online_required');
+          }
+          await sync();
+          final local = await dao.chatClientState(spaceId, userMessageId);
+          var assistant = local['assistantId'] as String?;
+          assistant ??=
+              (await dao.entities(spaceId, 'chat_entry'))
+                      .where((row) => row.data['reply_to_id'] == userMessageId)
+                      .lastOrNull
+                      ?.data['id']
+                  as String?;
+          if (assistant == null) {
+            throw const ApiError('chat_wait_upload');
+          }
+          await transport.stop(assistant);
+          await sync();
+          final finalMessage = await persistence.load(assistant);
+          if (finalMessage == null || finalMessage.rev < 1) {
+            throw const ApiError('chat_wait_stop');
+          }
+          // A run may already have saved a record before it entered waiting_ai.
+          if (finalMessage.blocks.any(
+            (block) => block.type == 'x-jiabu.record_card',
+          )) {
+            throw const ApiError('chat_already_recorded');
+          }
           await dao.updateChatClientState(
             spaceId,
             userMessageId,
             (state) => {...state, 'manual': true},
           );
         }
+        await _reload();
+        // Never infer amount/account/purpose from natural-language input.
+        return <String, Object?>{};
       });
-      if (!localOnly) {
-        if (!online) throw const ApiError('chat_online_required');
-        await sync();
-        final local = await dao.chatClientState(spaceId, userMessageId);
-        var assistant = local['assistantId'] as String?;
-        assistant ??=
-            (await dao.entities(spaceId, 'chat_entry'))
-                    .where((row) => row.data['reply_to_id'] == userMessageId)
-                    .lastOrNull
-                    ?.data['id']
-                as String?;
-        if (assistant == null) throw const ApiError('chat_wait_upload');
-        await transport.stop(assistant);
-        await sync();
-        final finalMessage = await persistence.load(assistant);
-        if (finalMessage == null || finalMessage.rev < 1)
-          throw const ApiError('chat_wait_stop');
-        // A run may already have saved a record before it entered waiting_ai.
-        if (finalMessage.blocks.any(
-          (block) => block.type == 'x-jiabu.record_card',
-        ))
-          throw const ApiError('chat_already_recorded');
-        await dao.updateChatClientState(
-          spaceId,
-          userMessageId,
-          (state) => {...state, 'manual': true},
-        );
-      }
-      await _reload();
-      // Never infer amount/account/purpose from natural-language input.
-      return <String, Object?>{};
-    },
-  );
   @override
   Future<void> disconnect() async {
-    if (_closed) return;
+    if (_closed) {
+      return;
+    }
     _attached = false;
     await suspend();
   }
 
   Future<void> suspend() async {
-    if (_closed) return;
+    if (_closed) {
+      return;
+    }
     _foreground = false;
     transport.disconnect();
     await persistence.flush();
@@ -689,7 +746,9 @@ final class LocalChatSession implements ChatConversation {
   }
 
   Future<void> dispose() async {
-    if (_closed) return;
+    if (_closed) {
+      return;
+    }
     _closed = true;
     transport.dispose();
     await _database?.cancel();

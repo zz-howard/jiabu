@@ -16,8 +16,9 @@ final class JiabuStreamTransport implements StreamTransport {
   bool _closed = false;
 
   Future<void> _check() async {
-    if (_closed || !await store.accepts(fence))
+    if (_closed || !await store.accepts(fence)) {
       throw const ApiError('stale_response');
+    }
   }
 
   @override

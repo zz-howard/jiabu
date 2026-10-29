@@ -18,7 +18,9 @@ class ChatViewModel extends _$ChatViewModel {
     ChatConversation? owned;
     var connecting = false;
     Future<void> connect() async {
-      if (connecting || !ref.mounted) return;
+      if (connecting || !ref.mounted) {
+        return;
+      }
       connecting = true;
       try {
         final result = await repository.open(
@@ -26,7 +28,9 @@ class ChatViewModel extends _$ChatViewModel {
           registry.capabilities(locale: locale),
         );
         if (!ref.mounted) {
-          if (result is Ok<ChatConversation>) await result.value.disconnect();
+          if (result is Ok<ChatConversation>) {
+            await result.value.disconnect();
+          }
           return;
         }
         switch (result) {
@@ -40,7 +44,9 @@ class ChatViewModel extends _$ChatViewModel {
               error: null,
             );
             subscription = value.changes.listen((_) {
-              if (!ref.mounted) return;
+              if (!ref.mounted) {
+                return;
+              }
               if (value.error == 'stale_response') {
                 state = state.copyWith(
                   conversation: null,
@@ -60,7 +66,9 @@ class ChatViewModel extends _$ChatViewModel {
             state = state.copyWith(error: code);
         }
       } on Object {
-        if (ref.mounted) state = state.copyWith(error: 'local_read_failed');
+        if (ref.mounted) {
+          state = state.copyWith(error: 'local_read_failed');
+        }
       } finally {
         connecting = false;
       }
@@ -88,7 +96,9 @@ class ChatViewModel extends _$ChatViewModel {
 
   Future<void> photos({required bool camera}) async {
     final session = state.conversation;
-    if (session == null || state.busy) return;
+    if (session == null || state.busy) {
+      return;
+    }
     if (state.images.length >= 8) {
       state = state.copyWith(error: 'chat_too_large');
       return;
@@ -98,7 +108,9 @@ class ChatViewModel extends _$ChatViewModel {
       camera: camera,
       limit: 8 - state.images.length,
     );
-    if (!ref.mounted) return;
+    if (!ref.mounted) {
+      return;
+    }
     switch (result) {
       case Ok(:final value):
         final images = {...state.images, ...value}.toList();
@@ -115,10 +127,14 @@ class ChatViewModel extends _$ChatViewModel {
 
   Future<bool> send(String text) async {
     final session = state.conversation;
-    if (session == null || state.busy) return false;
+    if (session == null || state.busy) {
+      return false;
+    }
     state = state.copyWith(busy: true, error: null);
     final result = await session.send(text, state.images);
-    if (!ref.mounted) return false;
+    if (!ref.mounted) {
+      return false;
+    }
     if (result is Ok<void>) {
       state = state.copyWith(busy: false, draft: '', images: const []);
       await session.saveDraft('', const []);
@@ -130,10 +146,14 @@ class ChatViewModel extends _$ChatViewModel {
 
   Future<void> stop(String id) async {
     final session = state.conversation;
-    if (session == null || state.stopping.contains(id)) return;
+    if (session == null || state.stopping.contains(id)) {
+      return;
+    }
     state = state.copyWith(stopping: {...state.stopping, id});
     final result = await session.stop(id);
-    if (!ref.mounted) return;
+    if (!ref.mounted) {
+      return;
+    }
     state = state.copyWith(
       error: result is Failure<void> ? result.code : null,
       stopping: result is Failure<void> && result.code == 'chat_online_required'
@@ -144,18 +164,23 @@ class ChatViewModel extends _$ChatViewModel {
 
   Future<void> command(Future<Result<void>> Function() action) async {
     final result = await action();
-    if (ref.mounted)
+    if (ref.mounted) {
       state = state.copyWith(
         error: result is Failure<void> ? result.code : null,
       );
+    }
   }
 
   Future<Map<String, Object?>?> takeOver(String id) async {
     final session = state.conversation;
-    if (session == null || state.busy) return null;
+    if (session == null || state.busy) {
+      return null;
+    }
     state = state.copyWith(busy: true);
     final result = await session.takeOver(id);
-    if (!ref.mounted) return null;
+    if (!ref.mounted) {
+      return null;
+    }
     state = state.copyWith(
       busy: false,
       error: result is Failure<Map<String, Object?>> ? result.code : null,

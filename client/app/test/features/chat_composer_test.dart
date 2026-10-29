@@ -116,8 +116,7 @@ void main() {
       store: store,
       interactions: actions,
       conversationId: 'conversation',
-    );
-    composer.beginOtherInput();
+    )..beginOtherInput();
     store.apply(SyncMessage(c5Message('choice_resolved')));
     expect(composer.state.mode, ComposerMode.free);
     expect(composer.state.closedReason, 'answered_elsewhere');

@@ -20,22 +20,24 @@ class RecordCardBlock extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final snapshot = ref.watch(ledgerViewModelProvider(spaceId)).snapshot;
-    if (snapshot == null)
+    if (snapshot == null) {
       return PaperCard(
         child: Text(AppLocalizations.of(context).chatRecordSyncing),
       );
+    }
     final row = snapshot.find(snapshot.records, recordId);
     final allowed = const {'read', 'write', 'manage'}.contains(
       (snapshot.space.data['modules'] as Map<String, Object?>?)?['ledger'],
     );
-    if (!allowed)
+    if (!allowed) {
       return LedgerRecordCard(
         snapshot: snapshot,
         row: row,
         allowed: false,
         versionAtReply: versionAtReply,
       );
-    if (row != null)
+    }
+    if (row != null) {
       return liveRecordCard(
         context,
         ref,
@@ -43,6 +45,7 @@ class RecordCardBlock extends ConsumerWidget {
         row,
         versionAtReply: versionAtReply,
       );
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,

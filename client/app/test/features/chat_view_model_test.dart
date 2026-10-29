@@ -43,8 +43,7 @@ void main() {
       ) {
         await Future<void>.delayed(const Duration(milliseconds: 5));
       }
-      final vm = container.read(provider.notifier);
-      vm.draft('午饭 68');
+      final vm = container.read(provider.notifier)..draft('午饭 68');
       expect(await vm.send(''), false);
       expect(container.read(provider).draft, '午饭 68');
       expect(container.read(provider).error, 'chat_empty');

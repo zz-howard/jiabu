@@ -43,20 +43,20 @@ class _TrendPainter extends CustomPainter {
     const inset = JiabuChatMetrics.gap;
     final width = math.max(0, size.width - inset * 2);
     final height = math.max(0, size.height - inset * 2);
-    canvas.drawLine(
-      const Offset(inset, inset),
-      Offset(inset, inset + height),
-      Paint()
-        ..color = axis
-        ..strokeWidth = JiabuChatMetrics.chartAxis,
-    );
-    canvas.drawLine(
-      Offset(inset, inset + height),
-      Offset(inset + width, inset + height),
-      Paint()
-        ..color = axis
-        ..strokeWidth = JiabuChatMetrics.chartAxis,
-    );
+    final axisPaint = Paint()
+      ..color = axis
+      ..strokeWidth = JiabuChatMetrics.chartAxis;
+    canvas
+      ..drawLine(
+        const Offset(inset, inset),
+        Offset(inset, inset + height),
+        axisPaint,
+      )
+      ..drawLine(
+        Offset(inset, inset + height),
+        Offset(inset + width, inset + height),
+        axisPaint,
+      );
     for (var index = 0; index < series.length; index++) {
       final points = series[index];
       final path = Path();

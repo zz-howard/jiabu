@@ -16,7 +16,7 @@ void main() {
     final registry = jiabuChatRegistry(
       recordBuilder: (_, _) => const SizedBox(),
     );
-    Message message(bool ready) => Message.fromJson({
+    Message message({required bool ready}) => Message.fromJson({
       'protocolVersion': '0.1',
       'id': 'reply',
       'role': 'assistant',
@@ -35,28 +35,29 @@ void main() {
       ],
     });
     final process = ProcessState();
-    Widget frame(bool ready) => JiabuChatWeaveTheme(
+    Widget frame({required bool ready}) => JiabuChatWeaveTheme(
       child: JiabuMessageView(
         source: MessageView(
-          message: message(ready),
+          message: message(ready: ready),
           registry: registry,
           processState: process,
         ),
       ),
     );
-    await pumpC3(tester, child: frame(false));
+    await pumpC3(tester, child: frame(ready: false));
     final before = tester.getTopLeft(find.byKey(const ValueKey('text')));
-    await pumpC3(tester, child: frame(true));
+    await pumpC3(tester, child: frame(ready: true));
     expect(tester.getTopLeft(find.byKey(const ValueKey('text'))), before);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('process_growth_and_manual_collapse_preserve_scroll_anchor_jiabu', (
-    tester,
-  ) async {
+  testWidgets('process_growth_and_manual_collapse_'
+      'preserve_scroll_anchor_jiabu', (tester) async {
     final store = BlockStore();
     final registry = jiabuChatRegistry(
       recordBuilder: (_, _) => const SizedBox(),
     );
+    String seconds(String id) =>
+        id == 'target' ? '10' : id.substring(1).padLeft(2, '0');
     Message row(String id, {int steps = 0}) => Message.fromJson({
       'protocolVersion': '0.1',
       'id': id,
@@ -64,8 +65,7 @@ void main() {
       'role': 'assistant',
       'status': 'streaming',
       'rev': 0,
-      'createdAt':
-          '2026-10-29T12:00:${id == 'target' ? '10' : id.substring(1).padLeft(2, '0')}Z',
+      'createdAt': '2026-10-29T12:00:${seconds(id)}Z',
       'fallbackText': id,
       'blocks': [
         {

@@ -54,16 +54,18 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
     final session = state.conversation;
     final ledger = ref.watch(ledgerViewModelProvider(spaceId)).snapshot;
     final registry = ref.watch(chatRegistryProvider(spaceId));
-    if (session == null)
+    if (session == null) {
       return Center(
         child: Text(state.error == null ? l.ledgerLoading : l.chatError),
       );
+    }
     session.revealInterrupt = (message, block) =>
         unawaited(_revealer.reveal(message, block));
     Future<void> manual(String id) async {
       final initial = await vm.takeOver(id);
-      if (context.mounted && initial != null)
+      if (context.mounted && initial != null) {
         await openManualEntry(context, spaceId, initial: initial);
+      }
     }
 
     return JiabuChatWeaveTheme(
@@ -134,8 +136,9 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
                       onManual: () => unawaited(manual(message.id)),
                     ),
                     messageFrameBuilder: (context, message, child) {
-                      if (message['role'] == 'user' || child is! MessageView)
+                      if (message['role'] == 'user' || child is! MessageView) {
                         return child;
+                      }
                       _revealer.register(context, child);
                       return JiabuMessageView(
                         source: MessageView(

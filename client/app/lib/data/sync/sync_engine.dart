@@ -58,25 +58,33 @@ final class SyncEngine {
   Future<void> refreshChat(String spaceId) async {
     while (true) {
       final captured = await store.fence(spaceId);
-      if (captured == null) throw const ApiError('stale_response');
+      if (captured == null) {
+        throw const ApiError('stale_response');
+      }
       final cursor = await store.cursor(spaceId);
       final response = await api.pull(
         PullRequestDto(spaces: {spaceId: cursor}),
       );
-      if (response.unavailable.contains(spaceId))
+      if (response.unavailable.contains(spaceId)) {
         throw const ApiError('not_found', status: 404);
+      }
       final page = response.spaces
           .where((page) => page.spaceId == spaceId)
           .single;
       final accepted = await store.transaction(() async {
         await store.lockRuntime();
-        if (!await store.accepts(captured))
+        if (!await store.accepts(captured)) {
           throw const ApiError('stale_response');
-        if (await store.cursor(spaceId) != cursor) return false;
+        }
+        if (await store.cursor(spaceId) != cursor) {
+          return false;
+        }
         await pull.applyPage(page, requestedCursor: cursor);
         return true;
       });
-      if (accepted && !page.hasMore) return;
+      if (accepted && !page.hasMore) {
+        return;
+      }
     }
   }
 

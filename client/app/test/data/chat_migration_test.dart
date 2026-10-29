@@ -25,15 +25,19 @@ void main() {
         chatMessage(text: space, rev: space == 'a' ? 1 : 0, seq: 12),
       );
       await old.customStatement(
-        'INSERT INTO chat_entries (space_id, id, data_json, member_id, conversation_id) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO chat_entries (space_id, id, data_json, member_id, '
+        'conversation_id) VALUES (?, ?, ?, ?, ?)',
         [space, 'reply', jsonEncode(payload), 'm', 'conversation'],
       );
     }
     await old.customStatement(
-      "INSERT INTO chat_entries (space_id, id, data_json) VALUES ('a', 'legacy', '{}')",
+      "INSERT INTO chat_entries (space_id, id, data_json) VALUES ('a', "
+      "'legacy', '{}')",
     );
     await old.customStatement(
-      'INSERT INTO outbox (id, space_id, join_epoch, kind, payload_json, entity_ids, depends_on, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO outbox (id, space_id, join_epoch, kind, payload_json, '
+      'entity_ids, depends_on, request_id, created_at) VALUES (?, ?, ?, ?, '
+      '?, ?, ?, ?, ?)',
       ['op', 'a', 1, 'chat_send', '{}', '[]', '[]', 'request', 1],
     );
     await old.close();
@@ -47,7 +51,8 @@ void main() {
     );
     final rows = await db
         .customSelect(
-          "SELECT message_json, last_seq, authoritative FROM chat_entries WHERE id = 'reply' ORDER BY space_id",
+          'SELECT message_json, last_seq, authoritative FROM chat_entries '
+          "WHERE id = 'reply' ORDER BY space_id",
         )
         .get();
     expect(rows.map((row) => row.data['last_seq']), [12, 12]);

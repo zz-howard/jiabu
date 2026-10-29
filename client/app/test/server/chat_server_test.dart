@@ -2,7 +2,6 @@
 @Timeout(Duration(minutes: 5))
 library;
 
-import 'dart:async';
 import 'dart:io';
 
 import 'package:chatweave_flutter/chatweave_flutter.dart';
@@ -13,7 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu/data/api/api_error.dart';
 import 'package:jiabu/data/api/chat_api.dart';
 import 'package:jiabu/data/chat/chat_session.dart';
-import 'package:jiabu/data/db/database.dart';
+import 'package:jiabu/data/db/database.dart' hide Tags;
 import 'package:jiabu/data/repositories/ledger_repository.dart';
 import 'package:jiabu/data/services/media_service.dart';
 import 'package:jiabu/data/sync/outbox_processor.dart';
@@ -53,7 +52,9 @@ class _ObservedChat implements ChatApi {
     required String opId,
     required String requestId,
   }) async {
-    if (offline) throw const ApiError('network');
+    if (offline) {
+      throw const ApiError('network');
+    }
     await beforeWrite?.call(endpoint, payload);
     writes.add((endpoint: endpoint, id: opId));
     final result = await real.chatWrite(
@@ -73,8 +74,10 @@ class _ObservedChat implements ChatApi {
 
   @override
   Future<List<ActiveMessage>> chatActive(String spaceId) async {
-    if (offline) throw const ApiError('network');
-    return real.chatActive(spaceId);
+    if (offline) {
+      throw const ApiError('network');
+    }
+    return await real.chatActive(spaceId);
   }
 
   @override
@@ -85,9 +88,11 @@ class _ObservedChat implements ChatApi {
     int? afterSeq,
     CancelToken? cancelToken,
   }) async {
-    if (offline) throw const ApiError('network');
+    if (offline) {
+      throw const ApiError('network');
+    }
     opens.add((message: messageId, after: afterSeq));
-    return real.chatStream(
+    return await real.chatStream(
       spaceId,
       messageId,
       capabilities: capabilities,
@@ -120,8 +125,8 @@ class _Device {
     api: fixture.b,
   );
   static Future<_Device> create(ServerFixture fixture, {File? file}) async {
-    final observed = RecordedRealApi(fixture.b);
-    observed.spaceResponse = await fixture.b.spaces();
+    final observed = RecordedRealApi(fixture.b)
+      ..spaceResponse = await fixture.b.spaces();
     final h = await SyncHarness.create(
       api: observed,
       newId: uuid,
@@ -174,7 +179,9 @@ class _Device {
       memberId: member,
       caps: caps,
       sync: () async {
-        if (api.offline) throw const ApiError('network');
+        if (api.offline) {
+          throw const ApiError('network');
+        }
         await engine.runRound();
         await engine.refreshChat(fixture.space);
       },
@@ -186,7 +193,9 @@ class _Device {
   }
 
   Future<void> sync() async {
-    if (!api.offline) await engine.runRound();
+    if (!api.offline) {
+      await engine.runRound();
+    }
   }
 
   Future<void> close() async {
@@ -201,12 +210,14 @@ class _Device {
       if (session.blocks.snapshot.messages.values.any(
             (message) => message['role'] == 'assistant',
           ) &&
-          await condition())
+          await condition()) {
         return;
+      }
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     fail(
-      'C5 real-server condition timed out; check loopback endpoint support and fixture script',
+      'C5 real-server condition timed out; check loopback endpoint support '
+      'and fixture script',
     );
   }
 

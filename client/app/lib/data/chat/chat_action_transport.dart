@@ -14,9 +14,12 @@ final class JiabuActionTransport implements ActionTransport {
     ActionRequest request,
   ) => dao.transaction(() async {
     await dao.lockRuntime();
-    if (!await dao.accepts(fence)) throw const ApiError('stale_response');
-    if ((await dao.runtime())['write_allowed'] != 1)
+    if (!await dao.accepts(fence)) {
+      throw const ApiError('stale_response');
+    }
+    if ((await dao.runtime())['write_allowed'] != 1) {
       throw const ApiError('client_too_old');
+    }
     final context = request['context']! as Map<String, Object?>;
     final message = context['messageId']! as String;
     final state = await dao.chatClientState(fence.spaceId, message);

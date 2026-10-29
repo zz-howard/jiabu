@@ -29,17 +29,22 @@ final class LocalChatRepository implements ChatRepository {
     String spaceId,
     ClientCapabilities caps,
   ) async {
-    if (_closed) return const Failure('stale_response');
+    if (_closed) {
+      return const Failure('stale_response');
+    }
     final existing = _sessions[spaceId];
     if (existing != null) {
-      if (await dao.accepts(existing.fence)) return Ok(existing);
+      if (await dao.accepts(existing.fence)) {
+        return Ok(existing);
+      }
       _sessions.remove(spaceId);
       await existing.dispose();
     }
     final fence = await dao.fence(spaceId);
     final member = await memberForSpace(spaceId);
-    if (fence == null || member == null || _closed)
+    if (fence == null || member == null || _closed) {
       return const Failure('unauthenticated');
+    }
     final session = LocalChatSession(
       dao: dao,
       api: api,
@@ -64,7 +69,9 @@ final class LocalChatRepository implements ChatRepository {
   @override
   Future<void> foreground() async {
     for (final session in _sessions.values.toList()) {
-      if (session.attached) await session.recover();
+      if (session.attached) {
+        await session.recover();
+      }
     }
   }
 

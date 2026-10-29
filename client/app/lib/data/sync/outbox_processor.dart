@@ -211,11 +211,15 @@ final class OutboxProcessor {
         // A lease does not authorize dispatch after a membership change.
         final valid = await store.transaction(() async {
           for (final sent in batch) {
-            if (!await _accepts(owner, sent)) return false;
+            if (!await _accepts(owner, sent)) {
+              return false;
+            }
           }
           return true;
         });
-        if (!valid) return;
+        if (!valid) {
+          return;
+        }
         if (batch.first.op.kind.startsWith('chat_')) {
           await uploadLeasedChat(owner, batch.single);
         } else if (batch.first.op.kind == 'blob') {
@@ -273,7 +277,9 @@ final class OutboxProcessor {
           )) {
             await reconcile?.call();
           }
-          if (stop) return;
+          if (stop) {
+            return;
+          }
         }
       } on ApiError catch (error) {
         if (batch.any((sent) => sent.op.kind.startsWith('chat_'))) {
@@ -379,9 +385,13 @@ final class OutboxProcessor {
   }
 
   Future<void> uploadLeasedChat(String owner, LeasedOperation sent) async {
-    if (!await _accepts(owner, sent)) return;
+    if (!await _accepts(owner, sent)) {
+      return;
+    }
     final api = chatApi;
-    if (api == null) throw const ApiError('chat_transport_missing');
+    if (api == null) {
+      throw const ApiError('chat_transport_missing');
+    }
     final op = sent.op;
     final endpoint = switch (op.kind) {
       'chat_send' => 'messages',
@@ -398,7 +408,9 @@ final class OutboxProcessor {
       requestId: op.requestId,
     );
     await store.transaction(() async {
-      if (!await _accepts(owner, sent)) return;
+      if (!await _accepts(owner, sent)) {
+        return;
+      }
       if (op.kind == 'chat_action') {
         final context = op.payload['context']! as Map<String, Object?>;
         await store.updateChatClientState(
@@ -417,8 +429,9 @@ final class OutboxProcessor {
         final assistant = response['messageId'];
         if (user is! String ||
             assistant is! String ||
-            (op.kind == 'chat_send' && user != op.id))
+            (op.kind == 'chat_send' && user != op.id)) {
           throw const ApiError('invalid_chat_response');
+        }
         await store.updateChatClientState(
           op.spaceId,
           user,

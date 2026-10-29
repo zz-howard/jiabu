@@ -92,8 +92,9 @@ void main() {
     await h.enqueue('chat_send', 'one');
     await h.enqueue('chat_action', 'two');
     h.api.beforeReply = () async {
-      if (h.api.writes.length == 2)
+      if (h.api.writes.length == 2) {
         throw const ApiError('invalid', status: 422);
+      }
     };
     await h.processor.drain(await h.owner());
     final remaining = await h.h.store.outbox('s');

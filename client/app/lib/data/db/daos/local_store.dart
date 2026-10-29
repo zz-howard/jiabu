@@ -385,11 +385,14 @@ final class LocalStore {
         (message is Map<String, Object?> ? message['rev'] as int? : null) ??
         0;
     final seq = (data['last_seq'] as int?) ?? 0;
-    if (!authoritative && old?['authoritative'] == 1) return false;
+    if (!authoritative && old?['authoritative'] == 1) {
+      return false;
+    }
     if (!authoritative &&
         old != null &&
-        (rev < (old['rev']! as int) || seq < (old['last_seq']! as int)))
+        (rev < (old['rev']! as int) || seq < (old['last_seq']! as int))) {
       return false;
+    }
     if (rev == 0 &&
         old != null &&
         ((old['rev']! as int) > 0 || seq < (old['last_seq']! as int))) {
@@ -418,13 +421,15 @@ final class LocalStore {
     String memberId,
     String conversationId,
   ) => _read(
-    'SELECT * FROM chat_entries WHERE space_id = ? AND member_id = ? AND conversation_id = ? ORDER BY created_at, id',
+    'SELECT * FROM chat_entries WHERE space_id = ? AND member_id = ? AND '
+    'conversation_id = ? ORDER BY created_at, id',
     [spaceId, memberId, conversationId],
   );
 
   Stream<void> watchChatChanges(String spaceId) {
     const sql =
-        'SELECT spaces.space_id, sync_runtime.change_revision FROM spaces CROSS JOIN sync_runtime WHERE space_id = ? AND sync_runtime.id = 1';
+        'SELECT spaces.space_id, sync_runtime.change_revision FROM spaces '
+        'CROSS JOIN sync_runtime WHERE space_id = ? AND sync_runtime.id = 1';
     DaoScope.verify(sql);
     return db
         .customSelect(
@@ -451,7 +456,8 @@ final class LocalStore {
     String messageId,
   ) async {
     final row = (await _read(
-      'SELECT state_json FROM chat_client_states WHERE space_id = ? AND message_id = ?',
+      'SELECT state_json FROM chat_client_states WHERE space_id = ? AND '
+      'message_id = ?',
       [spaceId, messageId],
     )).firstOrNull;
     return row == null
@@ -468,7 +474,9 @@ final class LocalStore {
     final next = update(await chatClientState(spaceId, messageId));
     await _write(
       'chat_client_states',
-      'INSERT INTO chat_client_states (space_id, message_id, state_json) VALUES (?, ?, ?) ON CONFLICT (space_id, message_id) DO UPDATE SET state_json = excluded.state_json',
+      'INSERT INTO chat_client_states (space_id, message_id, state_json) '
+          'VALUES (?, ?, ?) ON CONFLICT (space_id, message_id) DO UPDATE SET '
+          'state_json = excluded.state_json',
       [spaceId, messageId, jsonEncode(next)],
     );
   });

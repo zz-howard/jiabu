@@ -26,6 +26,7 @@ abstract interface class ChatConversation {
   bool get online;
   bool get aiUnavailable;
   String? get error;
+  void Function(String messageId, String blockId)? get revealInterrupt;
   set revealInterrupt(
     void Function(String messageId, String blockId)? callback,
   );
