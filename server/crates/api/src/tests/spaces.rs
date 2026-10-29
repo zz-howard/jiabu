@@ -690,7 +690,7 @@ async fn leave_remove_invalidate_invitations_cancel_runs_and_rejoin_reuses_membe
     let app = TestApp::new(false).await?;
     let token = app.token().await?;
     let guest = actor(&app, "guest").await?;
-    let waiting = actor(&app, "waiting").await?;
+    let _waiting = actor(&app, "waiting").await?;
     let space = create(&app, &token).await?;
     let joined = accept(&app, &guest, invite(&app, &token, space, "guest", 1).await?).await?;
     let member = Uuid::parse_str(
