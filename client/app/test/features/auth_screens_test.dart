@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:jiabu/domain/sync_state.dart';
 import 'package:jiabu/features/auth/view/change_password_screen.dart';
 import 'package:jiabu/features/auth/view/login_screen.dart';
 import 'package:jiabu/features/auth/view/server_address_screen.dart';
@@ -11,6 +12,8 @@ import 'package:jiabu/features/auth/widgets/auth_progress.dart';
 import 'package:jiabu/features/auth/widgets/switch_partition_prompt.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
+
+import '../support/image_harness.dart';
 
 Future<void> pumpAuth(
   WidgetTester tester,
@@ -47,6 +50,7 @@ Future<void> pumpAuth(
     ),
   );
   await tester.pump(const Duration(milliseconds: 100));
+  await settleImages(tester);
 }
 
 void main() {
@@ -364,6 +368,66 @@ void main() {
     await tester.tap(find.byType(FilledButton));
     expect(continued, isTrue);
   });
+
+  for (final (status, text) in [
+    (SyncStatus.clientTooOld, (AppLocalizations l) => l.authClientTooOld),
+    (SyncStatus.serverTooOld, (AppLocalizations l) => l.authServerTooOld),
+  ]) {
+    testWidgets('session_status_shows_${status.name}_notice', (tester) async {
+      await pumpAuth(
+        tester,
+        SessionStatusScreen(
+          state: AuthUiState(page: AuthPage.session, syncStatus: status),
+          onPassword: () {},
+          onSwitch: () {},
+          onLogout: () {},
+        ),
+      );
+      final l = AppLocalizations.of(tester.element(find.byType(AuthFrame)));
+      expect(find.text(text(l)), findsOneWidget);
+    });
+  }
+
+  for (final (screen, codes) in [
+    (
+      'login',
+      [
+        'unauthenticated',
+        'rate_limited',
+        'session_expired',
+        'account_disabled',
+        'network',
+      ],
+    ),
+    ('server', ['invalid_server_address', 'network']),
+    ('password', ['invalid_new_password', 'network']),
+  ]) {
+    for (final code in codes) {
+      testWidgets('${screen}_error_${code}_shows_its_message', (tester) async {
+        final state = AuthUiState(
+          server: 'https://example.invalid/',
+          errorCode: code,
+        );
+        await pumpAuth(tester, switch (screen) {
+          'login' => LoginScreen(
+            state: state,
+            onLogin: (_, _) {},
+            onServer: () {},
+          ),
+          'server' => ServerAddressScreen(state: state, onSelect: (_) {}),
+          _ => ChangePasswordScreen(
+            state: state,
+            onSave: (_, _, _) {},
+            onBack: () {},
+          ),
+        });
+        final context = tester.element(find.byType(AuthFrame));
+        final message = authError(context, code);
+        expect(message, isNot(AppLocalizations.of(context).authRequestFailed));
+        expect(find.text(message), findsOneWidget);
+      });
+    }
+  }
 
   for (final width in [360.0, 430.0]) {
     for (final scale in [1.0, 2.0]) {

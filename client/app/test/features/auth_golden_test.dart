@@ -11,6 +11,7 @@ import 'package:jiabu/features/auth/view/welcome_screen.dart';
 import 'package:jiabu/features/auth/view_model/auth_ui_state.dart';
 import 'package:jiabu/features/auth/widgets/switch_partition_prompt.dart';
 
+import '../support/image_harness.dart';
 import 'auth_screens_test.dart' show pumpAuth;
 
 typedef _GoldenCase = ({
@@ -215,6 +216,7 @@ void main() {
             await tester.ensureVisible(target);
             await tester.tap(target);
             await tester.pumpAndSettle();
+            await settleImages(tester);
           }
           expect(tester.takeException(), isNull);
           await expectLater(

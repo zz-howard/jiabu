@@ -65,6 +65,10 @@ golden 原因排查和输入语义负对照的结果见 PR 说明。
 
 `TODO(invite-signup)` 留在 `invite_signup_sheet.dart`。首版不开放公开注册。
 
+`auth_invite_network_test` 用真实 `AuthShell`、auth repository 和 API client，只替换传输层
+（`RuntimeAdapter`），断言点击后请求数不增加；负对照（在点击里接上真实登录）会失败并列出
+`v1/auth/login`。
+
 ## 字体
 
 以下两条恢复 hand key 与 `HandText`：
@@ -203,6 +207,10 @@ app/test/goldens/c4/keys_failure_zh_pine_w430_text200.png
 app/test/goldens/c4/keys_inactive_zh_pine_w360_text100.png
 app/test/goldens/c4/keys_inactive_zh_pine_w430_text200.png
 ```
+
+Logo / 仓鼠用 `Image.asset`，golden 截图前由 `test/support/image_harness.dart` 的
+`settleImages()` 在 `runAsync` 里预解码全部图片，并断言可见图片都已解码（否则首张截图是空白纸面）。
+深色 Logo 是给深色底用的纸色圆盘，catalog 里放在 `ink` 底上展示。
 
 ## 负对照
 

@@ -21,12 +21,20 @@ List<CatalogCase> catalogCases() => [
   CatalogCase(
     'c4b',
     'jiabu_logo_variants',
-    (_) => const Row(
+    // The dark variant is a paper disc for dark surfaces; show it on ink so
+    // the disc is visible in the golden.
+    (context) => Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        JiabuLogo(size: 120),
-        SizedBox(width: 24),
-        JiabuLogo(size: 120, variant: JiabuLogoVariant.dark),
+        const JiabuLogo(size: 120),
+        const SizedBox(width: 24),
+        ColoredBox(
+          color: context.jiabu.colors.ink,
+          child: const Padding(
+            padding: EdgeInsets.all(12),
+            child: JiabuLogo(size: 120, variant: JiabuLogoVariant.dark),
+          ),
+        ),
       ],
     ),
   ),

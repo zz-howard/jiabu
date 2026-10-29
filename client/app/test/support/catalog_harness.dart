@@ -4,6 +4,8 @@ import 'package:jiabu/features/catalog/catalog_cases.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
+import 'image_harness.dart';
+
 const catalogBoundary = Key('catalog-boundary');
 const catalogContent = Key('catalog-content');
 
@@ -65,4 +67,5 @@ Future<void> pumpCatalogCase(
     await tester.tap(find.byType(TextButton));
     await tester.pumpAndSettle();
   }
+  await settleImages(tester);
 }
