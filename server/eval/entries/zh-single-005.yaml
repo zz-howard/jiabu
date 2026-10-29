@@ -1,6 +1,6 @@
 schema_version: 1
 id: "zh-single-005"
-locale: "zh-CN"
+locale: "zh-Hans"
 category: "colloquial_single"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"

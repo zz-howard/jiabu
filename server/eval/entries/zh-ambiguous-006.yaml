@@ -1,6 +1,6 @@
 schema_version: 1
 id: "zh-ambiguous-006"
-locale: "zh-CN"
+locale: "zh-Hans"
 category: "ambiguous_date"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"

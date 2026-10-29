@@ -1,6 +1,6 @@
 schema_version: 1
 id: "relative-003"
-locale: "zh-CN"
+locale: "zh-Hans"
 category: "relative_date"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"

@@ -34,7 +34,7 @@ python3 server/eval/tool/gen_receipts.py
 ```yaml
 schema_version: 1
 id: zh-example-001
-locale: zh-CN
+locale: zh-Hans
 category: colloquial_single
 today: "2026-10-21"
 timezone: Asia/Shanghai
@@ -69,7 +69,7 @@ expect:
 
 字段约定：
 
-- `id` 唯一，只含英文字母、数字、连字符；`locale` 为 `zh-CN` / `en-US`。
+- `id` 唯一，只含英文字母、数字、连字符；`locale` 为 `zh-Hans` / `en`（与 users.locale 约束一致）。
 - `category`：`colloquial_single`、`multi_record`、`relative_date`、`income`、`transfer`、
   `reallocation`、`refund`、`receipt`、`insufficient`、`confirmation`、`chat`、`english`、`ambiguous_date`。
   当前各类依次为 6、4、6、3、3、2、3、3、4、3、3、4、20 条；各类至少一条。

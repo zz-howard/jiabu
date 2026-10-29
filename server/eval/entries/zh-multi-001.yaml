@@ -1,6 +1,6 @@
 schema_version: 1
 id: "zh-multi-001"
-locale: "zh-CN"
+locale: "zh-Hans"
 category: "multi_record"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"

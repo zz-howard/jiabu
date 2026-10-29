@@ -1,6 +1,6 @@
 schema_version: 1
 id: "zh-reallocation-001"
-locale: "zh-CN"
+locale: "zh-Hans"
 category: "reallocation"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"

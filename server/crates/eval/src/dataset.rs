@@ -162,7 +162,7 @@ pub fn validate(entries: &[Entry],root: &Path) -> Result<()> {
     for e in entries {
         ensure!(e.schema_version==1 && !e.id.is_empty() && e.id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'),"invalid entry identity");
         ensure!(ids.insert(&e.id),"duplicate id: {}",e.id);
-        ensure!(matches!(e.locale.as_str(),"zh-CN"|"en-US"),"invalid locale");
+        ensure!(matches!(e.locale.as_str(),"zh-Hans"|"en"),"invalid locale");
         ensure!(matches!(e.timezone.as_str(),"UTC"|"Asia/Shanghai"|"Asia/Singapore"),"unsupported timezone");
         ensure!(CATEGORIES.contains(&e.category.as_str()),"unknown category"); categories.insert(e.category.as_str());
         ensure!(!e.input.text.trim().is_empty() && e.input.text.len()<=32000 && e.input.images.len()<=8,"invalid input size");
@@ -194,7 +194,7 @@ pub fn validate(entries: &[Entry],root: &Path) -> Result<()> {
         }
     }
     ensure!(outputs.iter().all(|file|referenced_images.contains(file)),"all receipt variants must be referenced");
-    ensure!(ambiguous.get("zh-CN")==Some(&10) && ambiguous.get("en-US")==Some(&10),"need exactly 10 ambiguous dates per language");
+    ensure!(ambiguous.get("zh-Hans")==Some(&10) && ambiguous.get("en")==Some(&10),"need exactly 10 ambiguous dates per language");
     ensure!(CATEGORIES.iter().all(|c|categories.contains(c)),"category coverage incomplete");
     Ok(())
 }

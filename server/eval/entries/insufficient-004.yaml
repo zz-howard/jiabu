@@ -1,6 +1,6 @@
 schema_version: 1
 id: "insufficient-004"
-locale: "en-US"
+locale: "en"
 category: "insufficient"
 today: "2026-10-21"
 timezone: "Asia/Singapore"

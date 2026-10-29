@@ -1,6 +1,6 @@
 schema_version: 1
 id: "zh-transfer-003"
-locale: "zh-CN"
+locale: "zh-Hans"
 category: "transfer"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"

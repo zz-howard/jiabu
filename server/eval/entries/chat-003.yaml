@@ -1,6 +1,6 @@
 schema_version: 1
 id: "chat-003"
-locale: "en-US"
+locale: "en"
 category: "chat"
 today: "2026-10-21"
 timezone: "Asia/Singapore"
