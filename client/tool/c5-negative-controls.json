@@ -134,8 +134,8 @@
     {
       "id": "manual_takeover_cancels_original_send",
       "file": "client/app/lib/data/chat/chat_session.dart",
-      "find": "          await dao.removeOp(spaceId, op.id);\n          localOnly = true;",
-      "replace": "          localOnly = true;",
+      "find": "            await dao.removeOp(spaceId, op.id);\n            localOnly = true;",
+      "replace": "            localOnly = true;",
       "expected_occurrences": 1,
       "find_regex": "await\\s*dao\\s*\\.\\s*removeOp\\s*\\(\\s*spaceId\\s*,\\s*op\\s*\\.\\s*id\\s*(?:,\\s*)?\\)\\s*;\\s*localOnly\\s*=\\s*true\\s*;",
       "test_file": "client/app/test/data/chat_outbox_test.dart",

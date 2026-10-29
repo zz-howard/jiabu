@@ -138,18 +138,22 @@ packages:
     source: hosted
     version: "1.4.0"
   chatweave_core:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
-      path: "/home/jiabu-build/work/chatweave-cw2/dart/packages/chatweave_core"
-      relative: false
-    source: path
+      path: "dart/packages/chatweave_core"
+      ref: f11bd4f66479d8a06160b6af5f9c8d0f980577ef
+      resolved-ref: f11bd4f66479d8a06160b6af5f9c8d0f980577ef
+      url: "https://github.com/zz-howard/chatweave"
+    source: git
     version: "0.1.0"
   chatweave_flutter:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
-      path: "/home/jiabu-build/work/chatweave-cw2/dart/packages/chatweave_flutter"
-      relative: false
-    source: path
+      path: "dart/packages/chatweave_flutter"
+      ref: f11bd4f66479d8a06160b6af5f9c8d0f980577ef
+      resolved-ref: f11bd4f66479d8a06160b6af5f9c8d0f980577ef
+      url: "https://github.com/zz-howard/chatweave"
+    source: git
     version: "0.1.0"
   checked_yaml:
     dependency: transitive
