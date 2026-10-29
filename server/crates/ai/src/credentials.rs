@@ -84,6 +84,7 @@ impl Default for RefreshGate {
         }
     }
 }
+#[derive(Clone)]
 pub struct CredentialManager {
     store: Arc<dyn TokenStore>,
     oauth: OAuthClient,
@@ -154,20 +155,34 @@ impl CredentialManager {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = pending;
     }
     /// Retries transient storage failures; false when the rotation is not stored.
+    /// Each write is bounded, since the detached refresh holds the lock meanwhile.
     async fn persist(&self, revision: i64, next: &OAuthCredentials) -> bool {
         for attempt in 0..3u32 {
-            match self.store.compare_exchange(revision, next).await {
-                Ok(true) => return true,
-                Ok(false) => return false,
-                Err(_) if attempt < 2 => {
+            let write = self.store.compare_exchange(revision, next);
+            match tokio::time::timeout(std::time::Duration::from_secs(10), write).await {
+                Ok(Ok(true)) => return true,
+                Ok(Ok(false)) => return false,
+                _ if attempt < 2 => {
                     tokio::time::sleep(std::time::Duration::from_millis(200 << attempt)).await;
                 }
-                Err(_) => {}
+                _ => {}
             }
         }
         false
     }
+    /// Detached so a caller cancelled by its deadline cannot drop a rotation upstream
+    /// has already made; the task still records it in the gate.
     async fn access_inner(
+        &self,
+        rejected: Option<&str>,
+    ) -> Result<OAuthCredentials, ProviderError> {
+        let manager = self.clone();
+        let rejected = rejected.map(str::to_owned);
+        tokio::spawn(async move { manager.access_locked(rejected.as_deref()).await })
+            .await
+            .unwrap_or(Err(ProviderError::Transport))
+    }
+    async fn access_locked(
         &self,
         rejected: Option<&str>,
     ) -> Result<OAuthCredentials, ProviderError> {

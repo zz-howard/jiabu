@@ -632,6 +632,7 @@ async fn unpersisted_rotation_survives_manager_rebuild_but_not_a_new_credential(
         "synthetic-login-access"
     );
 }
+/// A slow store write that does not accept the rotation.
 struct HangingWrite {
     tokens: Arc<Tokens>,
 }
@@ -645,7 +646,8 @@ impl TokenStore for HangingWrite {
         _revision: i64,
         _next: &jiabu_ai::siwc::oauth::OAuthCredentials,
     ) -> Result<bool, ProviderError> {
-        std::future::pending().await
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        Ok(false)
     }
     async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
         self.tokens.invalidate(revision).await
@@ -673,7 +675,7 @@ async fn rotation_survives_a_request_cancelled_while_persisting() {
     .await;
     // The request deadline fires while the store write is still pending.
     assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(500), hanging.access())
+        tokio::time::timeout(std::time::Duration::from_millis(50), hanging.access())
             .await
             .is_err()
     );
@@ -767,5 +769,39 @@ async fn pending_rotation_yields_to_a_store_that_moved_during_persist() {
     assert_eq!(
         racing.access().await.unwrap().access_token,
         "synthetic-login-access"
+    );
+}
+#[tokio::test]
+async fn rotation_survives_a_request_cancelled_while_refreshing() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-refresh&"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(std::time::Duration::from_millis(300))
+                .set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let manager = CredentialManager::new(
+        Arc::new(RejectingWrite {
+            tokens: tokens.clone(),
+            error: false,
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+    )
+    .await;
+    // The deadline fires after upstream received the refresh but before it answered.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), manager.access())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        manager.access().await.unwrap().access_token,
+        "synthetic-new-access"
     );
 }
