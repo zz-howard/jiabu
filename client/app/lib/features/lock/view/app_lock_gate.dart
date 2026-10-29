@@ -45,9 +45,7 @@ class _AppLockGateState extends ConsumerState<AppLockGate> {
     }
     if (lock.phase == LockPhase.loading || lock.phase == LockPhase.covered) {
       return const Material(
-        child: PaperBackground(
-          child: Center(child: JiabuLogoSealPlaceholder()),
-        ),
+        child: PaperBackground(child: Center(child: JiabuLogo())),
       );
     }
     if (lock.visible) {

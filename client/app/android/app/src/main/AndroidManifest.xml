@@ -4,7 +4,10 @@
     <application
         android:label="${appName}"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round">
+        <!-- TODO(notifications): set ic_stat_jia as the notification small icon
+             when notification delivery is implemented. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

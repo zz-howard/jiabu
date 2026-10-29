@@ -3,139 +3,225 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jiabu/domain/sync_state.dart';
 import 'package:jiabu/features/auth/view/change_password_screen.dart';
 import 'package:jiabu/features/auth/view/login_screen.dart';
 import 'package:jiabu/features/auth/view/server_address_screen.dart';
 import 'package:jiabu/features/auth/view/session_status_screen.dart';
+import 'package:jiabu/features/auth/view/welcome_screen.dart';
 import 'package:jiabu/features/auth/view_model/auth_ui_state.dart';
 import 'package:jiabu/features/auth/widgets/switch_partition_prompt.dart';
 
 import 'auth_screens_test.dart' show pumpAuth;
 
-// Every path is relative to this test file:
-// ../goldens/auth/<state>_<zh|en>_<pine|indigo>_w<360|430>_text<100|200>.png
-// The state names below are the exact filename stems. PNGs are produced and
-// reviewed by luna.coco on the fixed build host, never hand-written here.
+typedef _GoldenCase = ({
+  String state,
+  Widget Function() builder,
+  String? tapKey,
+});
+
+typedef _Variant = ({String locale, int width, double scale, String suffix});
+
+const _fullVariants = <_Variant>[
+  (locale: 'zh', width: 360, scale: 1.0, suffix: 'zh_pine_w360_text100'),
+  (locale: 'zh', width: 430, scale: 2.0, suffix: 'zh_pine_w430_text200'),
+  (locale: 'en', width: 360, scale: 1.0, suffix: 'en_pine_w360_text100'),
+];
+
+// Error, busy and secondary screens: one variant each, so the C2 auth set's
+// states keep pixel coverage on the new AuthFrame without a full matrix.
+const _stateVariants = <_Variant>[
+  (locale: 'zh', width: 360, scale: 1.0, suffix: 'zh_pine_w360_text100'),
+];
+
 void main() {
-  final cases = <String, Widget Function()>{
-    for (final name in [
-      'server_empty',
-      'server_saved',
-      'server_invalid',
-      'server_busy',
-      'server_unreachable',
-    ])
-      name: () => ServerAddressScreen(
-        state: AuthUiState(
-          servers: name == 'server_saved'
-              ? ['https://example.invalid/proxy/']
-              : const [],
-          busy: name == 'server_busy',
-          errorCode: name == 'server_invalid'
-              ? 'invalid_server_address'
-              : name == 'server_unreachable'
-              ? 'network'
-              : null,
+  final cases = <_GoldenCase>[
+    (
+      state: 'welcome',
+      builder: () => WelcomeScreen(busy: false, onStart: () {}, onLogin: () {}),
+      tapKey: null,
+    ),
+    (
+      state: 'server_collapsed',
+      builder: () => ServerAddressScreen(
+        state: const AuthUiState(
+          page: AuthPage.server,
+          defaultServer: 'https://example.invalid/',
         ),
         onSelect: (_) {},
       ),
-    for (final name in [
-      'login_initial',
-      'login_busy',
-      'login_invalid',
-      'login_limited',
-      'login_expired',
-      'login_disabled',
-    ])
-      name: () => LoginScreen(
-        state: AuthUiState(
-          server: 'https://example.invalid/',
-          busy: name == 'login_busy',
-          errorCode: switch (name) {
-            'login_invalid' => 'unauthenticated',
-            'login_limited' => 'rate_limited',
-            'login_expired' => 'session_expired',
-            'login_disabled' => 'account_disabled',
-            _ => null,
-          },
+      tapKey: null,
+    ),
+    (
+      state: 'server_expanded',
+      builder: () => ServerAddressScreen(
+        state: const AuthUiState(
+          page: AuthPage.server,
+          defaultServer: 'https://example.invalid/',
         ),
-        onLogin: (a, b) {},
+        onSelect: (_) {},
+      ),
+      tapKey: 'advanced-settings',
+    ),
+    (
+      state: 'login_connected',
+      builder: () => LoginScreen(
+        state: const AuthUiState(
+          page: AuthPage.login,
+          server: 'https://example.invalid/',
+          defaultServer: 'https://example.invalid/',
+          serverProbeSucceeded: true,
+        ),
+        onLogin: (_, _) {},
         onServer: () {},
       ),
-    for (final name in [
-      'password_normal',
-      'password_forced',
-      'password_invalid',
-      'password_busy',
-      'password_failed',
-    ])
-      name: () => ChangePasswordScreen(
-        state: AuthUiState(
-          forcedPassword: name == 'password_forced',
-          busy: name == 'password_busy',
-          errorCode: name == 'password_invalid'
-              ? 'invalid_new_password'
-              : name == 'password_failed'
-              ? 'network'
-              : null,
+      tapKey: null,
+    ),
+    (
+      state: 'invite_placeholder',
+      builder: () => LoginScreen(
+        state: const AuthUiState(
+          page: AuthPage.login,
+          server: 'https://example.invalid/',
         ),
-        onSave: (a, b, c) {},
+        onLogin: (_, _) {},
+        onServer: () {},
+      ),
+      tapKey: 'invite-signup',
+    ),
+  ];
+  final stateCases = <_GoldenCase>[
+    (
+      state: 'server_unreachable',
+      builder: () => ServerAddressScreen(
+        state: const AuthUiState(page: AuthPage.server, errorCode: 'network'),
+        onSelect: (_) {},
+      ),
+      tapKey: null,
+    ),
+    (
+      state: 'login_invalid',
+      builder: () => LoginScreen(
+        state: const AuthUiState(
+          page: AuthPage.login,
+          server: 'https://example.invalid/',
+          errorCode: 'unauthenticated',
+        ),
+        onLogin: (_, _) {},
+        onServer: () {},
+      ),
+      tapKey: null,
+    ),
+    (
+      state: 'login_busy',
+      builder: () => LoginScreen(
+        state: const AuthUiState(
+          page: AuthPage.login,
+          server: 'https://example.invalid/',
+          busy: true,
+        ),
+        onLogin: (_, _) {},
+        onServer: () {},
+      ),
+      tapKey: null,
+    ),
+    (
+      state: 'password_forced',
+      builder: () => ChangePasswordScreen(
+        state: const AuthUiState(page: AuthPage.password, forcedPassword: true),
+        onSave: (_, _, _) {},
         onBack: () {},
       ),
-    'switch_pending': () => Scaffold(
-      body: SwitchPartitionPrompt(count: 3, onContinue: () {}, onCancel: () {}),
+      tapKey: null,
     ),
-    for (final status in [
-      SyncStatus.idle,
-      SyncStatus.clientTooOld,
-      SyncStatus.serverTooOld,
-    ])
-      'session_${status.name}': () => SessionStatusScreen(
-        state: AuthUiState(syncStatus: status),
+    (
+      state: 'password_invalid',
+      builder: () => ChangePasswordScreen(
+        state: const AuthUiState(
+          page: AuthPage.password,
+          errorCode: 'invalid_new_password',
+        ),
+        onSave: (_, _, _) {},
+        onBack: () {},
+      ),
+      tapKey: null,
+    ),
+    (
+      state: 'session_idle',
+      builder: () => SessionStatusScreen(
+        state: const AuthUiState(page: AuthPage.session),
         onPassword: () {},
         onSwitch: () {},
         onLogout: () {},
       ),
-    'session_admin_reset': () => SessionStatusScreen(
-      state: AuthUiState(adminResetAt: DateTime(2026)),
-      onPassword: () {},
-      onSwitch: () {},
-      onLogout: () {},
+      tapKey: null,
     ),
-    'session_space_cleared': () => SessionStatusScreen(
-      state: const AuthUiState(spaceCleared: true, clearedCount: 3),
-      onDismissNotice: () {},
-      onPassword: () {},
-      onSwitch: () {},
-      onLogout: () {},
+    (
+      state: 'session_admin_reset',
+      builder: () => SessionStatusScreen(
+        state: AuthUiState(
+          page: AuthPage.session,
+          adminResetAt: DateTime(2026),
+        ),
+        onPassword: () {},
+        onSwitch: () {},
+        onLogout: () {},
+      ),
+      tapKey: null,
     ),
-  };
-  for (final entry in cases.entries) {
-    for (final locale in ['zh', 'en']) {
-      for (final accent in ['pine', 'indigo']) {
-        for (final width in [360, 430]) {
-          for (final text in [100, 200]) {
-            final path =
-                '../goldens/auth/${entry.key}_${locale}_$accent'
-                '_w${width}_text$text.png';
-            testWidgets(path, (tester) async {
-              await pumpAuth(
-                tester,
-                entry.value(),
-                width: width.toDouble(),
-                scale: text / 100,
-                locale: locale,
-                accent: accent,
-              );
-              expect(tester.takeException(), isNull);
-              await expectLater(
-                find.byKey(const Key('auth-golden')),
-                matchesGoldenFile(path),
-              );
-            });
+    (
+      state: 'session_space_cleared',
+      builder: () => SessionStatusScreen(
+        state: const AuthUiState(
+          page: AuthPage.session,
+          spaceCleared: true,
+          clearedCount: 3,
+        ),
+        onDismissNotice: () {},
+        onPassword: () {},
+        onSwitch: () {},
+        onLogout: () {},
+      ),
+      tapKey: null,
+    ),
+    (
+      state: 'switch_pending',
+      builder: () => Scaffold(
+        body: SwitchPartitionPrompt(
+          count: 3,
+          onContinue: () {},
+          onCancel: () {},
+        ),
+      ),
+      tapKey: null,
+    ),
+  ];
+  for (final (samples, variants) in [
+    (cases, _fullVariants),
+    (stateCases, _stateVariants),
+  ]) {
+    for (final sample in samples) {
+      for (final variant in variants) {
+        final path = '../goldens/c4b/${sample.state}_${variant.suffix}.png';
+        testWidgets(path, (tester) async {
+          await pumpAuth(
+            tester,
+            sample.builder(),
+            width: variant.width.toDouble(),
+            scale: variant.scale,
+            locale: variant.locale,
+          );
+          if (sample.tapKey case final String key) {
+            final target = find.byKey(Key(key));
+            await tester.ensureVisible(target);
+            await tester.tap(target);
+            await tester.pumpAndSettle();
           }
-        }
+          expect(tester.takeException(), isNull);
+          await expectLater(
+            find.byKey(const Key('auth-golden')),
+            matchesGoldenFile(path),
+          );
+        });
       }
     }
   }

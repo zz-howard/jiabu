@@ -58,7 +58,7 @@ class _ApiKeysScreenState extends ConsumerState<ApiKeysScreen> {
         id: id,
         title: l.c4Keys,
         children: [
-          Text(l.c4KeysSubtitle, style: context.jiabu.type.secondary),
+          HandText(l.handC4KeysSubtitle),
           if (state.online) ...[
             if (state.rows.isEmpty) Text(state.busy ? l.c4Loading : l.c4Empty),
             for (final row in state.rows.where(

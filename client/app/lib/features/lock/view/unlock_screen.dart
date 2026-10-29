@@ -75,8 +75,8 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
           padding: EdgeInsets.all(context.jiabu.decor.pageInset),
           child: Column(
             children: [
-              const JiabuLogoSealPlaceholder(),
-              Text(l.c4Locked, style: context.jiabu.type.body),
+              const JiabuLogo(),
+              HandText(l.handC4Locked),
               if (lock.waiting) Text(l.c4LockWait),
               if (state.error case final String error) Text(c4Error(l, error)),
               if (state.values['recovery'] != true) ...[

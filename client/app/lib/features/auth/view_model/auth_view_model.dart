@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:jiabu/app/providers.dart';
+import 'package:jiabu/app/server_config.dart';
 import 'package:jiabu/data/api/api_error.dart';
 import 'package:jiabu/data/repositories/auth_repository.dart';
 import 'package:jiabu/data/services/version_handshake_service.dart';
@@ -54,7 +55,7 @@ class AuthViewModel extends _$AuthViewModel {
 
   AuthRepository get _auth => ref.read(authRepositoryProvider);
 
-  Future<void> initialize() async {
+  Future<void> initialize({String defaultServer = defaultServerAddress}) async {
     if (_initialized) {
       return;
     }
@@ -63,12 +64,22 @@ class AuthViewModel extends _$AuthViewModel {
     final settings = ref.read(appRuntimeProvider).settings;
     final servers = await settings.servers();
     final saved = await settings.current();
+    final hasConfiguredServer = saved != null || servers.isNotEmpty;
+    var configuredDefault = '';
+    if (defaultServer.trim().isNotEmpty) {
+      try {
+        configuredDefault = _normalizeSecureServer(defaultServer);
+      } on FormatException {
+        configuredDefault = '';
+      }
+    }
     if (!ref.mounted) {
       return;
     }
     state = state.copyWith(
       servers: servers,
       server: saved?.server ?? servers.firstOrNull ?? '',
+      defaultServer: configuredDefault,
     );
     final result = await _auth.resume();
     if (!ref.mounted) {
@@ -81,7 +92,7 @@ class AuthViewModel extends _$AuthViewModel {
         } else {
           state = state.copyWith(
             busy: false,
-            page: servers.isEmpty ? AuthPage.server : AuthPage.login,
+            page: hasConfiguredServer ? AuthPage.login : AuthPage.welcome,
           );
         }
       case Failure<AuthSession?>(:final code, :final status):
@@ -93,6 +104,21 @@ class AuthViewModel extends _$AuthViewModel {
               : code,
         );
     }
+  }
+
+  void startSetup() {
+    if (!state.busy) {
+      state = state.copyWith(page: AuthPage.server, errorCode: null);
+    }
+  }
+
+  Future<void> useDefaultServer() async {
+    if (state.defaultServer.isEmpty) {
+      startSetup();
+      return;
+    }
+    state = state.copyWith(page: AuthPage.server, errorCode: null);
+    await selectServer(state.defaultServer);
   }
 
   void _apply(AuthSession session) {
@@ -115,8 +141,12 @@ class AuthViewModel extends _$AuthViewModel {
       return;
     }
     try {
-      final server = normalizeServer(address);
-      state = state.copyWith(busy: true, errorCode: null);
+      final server = _normalizeSecureServer(address);
+      state = state.copyWith(
+        busy: true,
+        errorCode: null,
+        serverProbeSucceeded: false,
+      );
       final runtime = ref.read(appRuntimeProvider);
       final handshake = VersionHandshakeService(
         runtime.api(server, null),
@@ -139,11 +169,20 @@ class AuthViewModel extends _$AuthViewModel {
         errorCode: null,
         servers: servers,
         syncStatus: compatible,
+        serverProbeSucceeded: true,
       );
     } on FormatException {
-      state = state.copyWith(busy: false, errorCode: 'invalid_server_address');
+      state = state.copyWith(
+        busy: false,
+        errorCode: 'invalid_server_address',
+        serverProbeSucceeded: false,
+      );
     } on ApiError catch (error) {
-      state = state.copyWith(busy: false, errorCode: error.code);
+      state = state.copyWith(
+        busy: false,
+        errorCode: error.code,
+        serverProbeSucceeded: false,
+      );
     }
   }
 
@@ -244,6 +283,7 @@ class AuthViewModel extends _$AuthViewModel {
       switchCount: null,
       adminResetAt: null,
       errorCode: null,
+      serverProbeSucceeded: false,
     );
   }
 
@@ -260,4 +300,11 @@ class AuthViewModel extends _$AuthViewModel {
       errorCode: null,
     );
   }
+}
+
+String _normalizeSecureServer(String address) {
+  if (!address.trimLeft().toLowerCase().startsWith('https://')) {
+    throw const FormatException('invalid_server_address');
+  }
+  return normalizeServer(address);
 }
