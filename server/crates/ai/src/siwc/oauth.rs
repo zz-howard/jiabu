@@ -166,6 +166,11 @@ impl OAuthClient {
             host_id: login.host_id,
         })
     }
+    /// Once the token endpoint has answered, the refresh token may already be rotated
+    /// upstream, so nothing after that point may discard the response. A refreshed
+    /// id_token that is missing, unparsable or lacks the account claim keeps the stored
+    /// `account_id`; a different account claim is adopted so encrypted reasoning bound to
+    /// the old account is no longer replayed.
     pub async fn refresh(&self, old: &OAuthCredentials) -> Result<OAuthCredentials, ProviderError> {
         let token = self
             .token(&[
@@ -175,14 +180,24 @@ impl OAuthClient {
                 ("resource", RESOURCE),
             ])
             .await?;
-        if let Some(id) = &token.id_token {
-            let claims = self
-                .claims(id, &old.client_id, None)
-                .map_err(|_| ProviderError::Transport)?;
-            if claims.account_id().map_err(|_| ProviderError::Transport)? != old.account_id {
-                return Err(ProviderError::Transport);
+        let account_id = match token
+            .id_token
+            .as_deref()
+            .map(|id| self.claims(id, &old.client_id, None))
+        {
+            Some(Ok(claims)) => match claims.account_claim() {
+                Some(account) if account != old.account_id => {
+                    eprintln!("SIWC refresh: account claim changed; reasoning replay reset");
+                    account
+                }
+                _ => old.account_id.clone(),
+            },
+            Some(Err(_)) => {
+                eprintln!("SIWC refresh: id_token not accepted; keeping stored account");
+                old.account_id.clone()
             }
-        }
+            None => old.account_id.clone(),
+        };
         Ok(OAuthCredentials {
             access_token: token.access_token.clone(),
             refresh_token: token
@@ -190,8 +205,9 @@ impl OAuthClient {
                 .clone()
                 .unwrap_or_else(|| old.refresh_token.clone()),
             client_id: old.client_id.clone(),
-            account_id: old.account_id.clone(),
-            expires_at: expiry(token.expires_in).map_err(|_| ProviderError::Transport)?,
+            account_id,
+            // An unusable lifetime forces another refresh instead of dropping the rotation.
+            expires_at: expiry(token.expires_in).unwrap_or_else(|_| chrono::Utc::now().timestamp()),
             host_id: old.host_id,
         })
     }
@@ -300,17 +316,30 @@ struct Claims {
     aud: serde_json::Value,
     exp: i64,
     nonce: Option<String>,
+    sub: Option<String>,
     #[serde(rename = "https://api.openai.com/auth")]
     auth: Option<serde_json::Value>,
 }
 impl Claims {
-    fn account_id(&self) -> Result<String, ProviderError> {
+    /// The ChatGPT account claim, when the issuer includes it.
+    fn account_claim(&self) -> Option<String> {
         self.auth
             .as_ref()
             .and_then(|a| a.get("chatgpt_account_id"))
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
             .map(str::to_owned)
+    }
+    /// Internal replay key only; never sent upstream. Dynamic agent clients receive
+    /// id_tokens without `chatgpt_account_id`, so the OIDC subject is the fallback.
+    fn account_id(&self) -> Result<String, ProviderError> {
+        self.account_claim()
+            .or_else(|| {
+                self.sub
+                    .as_deref()
+                    .filter(|v| !v.is_empty())
+                    .map(|sub| format!("sub:{sub}"))
+            })
             .ok_or(ProviderError::Auth)
     }
 }

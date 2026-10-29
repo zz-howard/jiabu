@@ -59,18 +59,32 @@ pub trait TokenStore: Send + Sync {
 }
 /// Shared by provider/source across configuration generations.
 pub struct RefreshGate {
-    lock: Mutex<()>,
+    lock: Arc<Mutex<()>>,
     usable: AtomicBool,
+    /// A rotation the store did not accept. Upstream may already have invalidated the
+    /// stored refresh token, so this copy wins while the store still holds exactly the
+    /// revision and refresh token it replaced. Lives here so configuration reloads that
+    /// rebuild managers keep it. It is cleared only once stored, so a cancelled request
+    /// cannot drop it.
+    unpersisted: std::sync::Mutex<Option<Unpersisted>>,
+}
+#[derive(Clone)]
+struct Unpersisted {
+    revision: i64,
+    replaced: Zeroizing<String>,
+    rotated: OAuthCredentials,
 }
 /// Usable until a tombstone, corrupt credential or definite rejection is seen.
 impl Default for RefreshGate {
     fn default() -> Self {
         Self {
-            lock: Mutex::new(()),
+            lock: Arc::new(Mutex::new(())),
             usable: AtomicBool::new(true),
+            unpersisted: std::sync::Mutex::new(None),
         }
     }
 }
+#[derive(Clone)]
 pub struct CredentialManager {
     store: Arc<dyn TokenStore>,
     oauth: OAuthClient,
@@ -126,12 +140,84 @@ impl CredentialManager {
             }
         }
     }
+    fn unpersisted(&self) -> Option<Unpersisted> {
+        self.refresh
+            .unpersisted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+    fn set_unpersisted(&self, pending: Option<Unpersisted>) {
+        *self
+            .refresh
+            .unpersisted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = pending;
+    }
+    /// Retries transient storage failures; false when the rotation is not stored.
+    async fn persist(&self, revision: i64, next: &OAuthCredentials) -> bool {
+        for attempt in 0..3u32 {
+            match self.store.compare_exchange(revision, next).await {
+                Ok(true) => return true,
+                Ok(false) => return false,
+                Err(_) if attempt < 2 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(200 << attempt)).await;
+                }
+                Err(_) => {}
+            }
+        }
+        false
+    }
+    /// Waiting for the gate stays cancellable. Once held, the work is detached so a
+    /// caller cancelled by its deadline cannot drop a rotation upstream has already
+    /// made, and at most one detached task runs per gate. Store calls are never
+    /// abandoned: a write that commits after being given up on would race the next
+    /// rotation, so a stalled store only makes callers time out while waiting.
     async fn access_inner(
         &self,
         rejected: Option<&str>,
     ) -> Result<OAuthCredentials, ProviderError> {
-        let _guard = self.refresh.lock.lock().await;
-        let (revision, current) = self.load().await?;
+        let guard = self.refresh.lock.clone().lock_owned().await;
+        let manager = self.clone();
+        let rejected = rejected.map(str::to_owned);
+        tokio::spawn(async move {
+            let _guard = guard;
+            manager.access_locked(rejected.as_deref()).await
+        })
+        .await
+        .unwrap_or(Err(ProviderError::Transport))
+    }
+    async fn access_locked(
+        &self,
+        rejected: Option<&str>,
+    ) -> Result<OAuthCredentials, ProviderError> {
+        let (mut revision, mut current) = self.load().await?;
+        // The token the store holds, which a later pending rotation must still match.
+        let mut stored = Zeroizing::new(current.refresh_token.clone());
+        if let Some(pending) = self.unpersisted() {
+            if pending.revision == revision && *pending.replaced == current.refresh_token {
+                if self.persist(revision, &pending.rotated).await {
+                    revision += 1;
+                    current = pending.rotated;
+                    stored = Zeroizing::new(current.refresh_token.clone());
+                    self.set_unpersisted(None);
+                } else {
+                    // False is either a source that never stores (env:) or a lost race.
+                    // Only an unchanged store still needs the pending copy.
+                    let (latest, credentials) = self.load().await?;
+                    if latest == revision && credentials.refresh_token == *stored {
+                        current = pending.rotated;
+                    } else {
+                        self.set_unpersisted(None);
+                        revision = latest;
+                        stored = Zeroizing::new(credentials.refresh_token.clone());
+                        current = credentials;
+                    }
+                }
+            } else {
+                self.set_unpersisted(None);
+            }
+        }
         if rejected.is_some_and(|token| token != current.access_token) {
             return Ok(current);
         }
@@ -141,14 +227,17 @@ impl CredentialManager {
         {
             match self.oauth.refresh(&current).await {
                 Ok(next) => {
-                    match self.store.compare_exchange(revision, &next).await {
-                        Ok(true) => {}
-                        Ok(false) => eprintln!(
-                            "SIWC credential rotation was not persisted: revision changed"
-                        ),
-                        Err(_) => {
-                            eprintln!("SIWC credential rotation was not persisted: storage failure")
-                        }
+                    // The old refresh token may already be dead upstream, so the rotation
+                    // is held in memory before persisting and retried later if not stored.
+                    self.set_unpersisted(Some(Unpersisted {
+                        revision,
+                        replaced: stored.clone(),
+                        rotated: next.clone(),
+                    }));
+                    if self.persist(revision, &next).await {
+                        self.set_unpersisted(None);
+                    } else {
+                        eprintln!("SIWC credential rotation not persisted; kept in memory");
                     }
                     return Ok(next);
                 }
@@ -173,10 +262,19 @@ impl CredentialManager {
 }
 /// Compatibility source, atomically replaced on the same filesystem. A sidecar
 /// lock serializes read/CAS/rename across CLI and server processes on this host.
+#[derive(Clone)]
 pub struct FileTokenStore {
     pub path: PathBuf,
 }
 impl FileTokenStore {
+    /// File locks and fsync block, so they run off the async workers.
+    async fn blocking<T: Send + 'static>(
+        op: impl FnOnce() -> Result<T, ProviderError> + Send + 'static,
+    ) -> Result<T, ProviderError> {
+        tokio::task::spawn_blocking(op)
+            .await
+            .unwrap_or(Err(ProviderError::Transport))
+    }
     fn read_result(
         result: Result<VersionedToken, ProviderError>,
     ) -> Result<TokenRead, ProviderError> {
@@ -276,17 +374,20 @@ pub struct FileDocument {
 #[async_trait]
 impl TokenStore for FileTokenStore {
     async fn load(&self) -> Result<TokenRead, ProviderError> {
-        Self::read_result(self.read())
+        let store = self.clone();
+        Self::read_result(Self::blocking(move || store.read()).await)
     }
     async fn compare_exchange(
         &self,
         expected: i64,
         next: &OAuthCredentials,
     ) -> Result<bool, ProviderError> {
-        self.update(expected, Some(next))
+        let (store, next) = (self.clone(), next.clone());
+        Self::blocking(move || store.update(expected, Some(&next))).await
     }
     async fn invalidate(&self, expected: i64) -> Result<bool, ProviderError> {
-        self.update(expected, None)
+        let store = self.clone();
+        Self::blocking(move || store.update(expected, None)).await
     }
 }
 

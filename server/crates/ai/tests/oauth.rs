@@ -331,3 +331,475 @@ async fn store_read_failure_during_construction_still_recovers() {
         "synthetic-access"
     );
 }
+
+fn jwt(claims: serde_json::Value) -> String {
+    format!(
+        "e30.{}.synthetic",
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+    )
+}
+async fn refreshed_with(id_token: impl Fn(&str) -> Option<String>, expires_in: i64) -> Arc<Tokens> {
+    let server = MockServer::start().await;
+    let id_token = id_token(&server.uri());
+    let mut body = json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":expires_in,"token_type":"Bearer"});
+    if let Some(id) = id_token {
+        body["id_token"] = json!(id);
+    }
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let manager =
+        CredentialManager::new(tokens.clone(), OAuthClient::at(&server.uri()).unwrap()).await;
+    let access = manager.access().await.unwrap();
+    assert_eq!(access.access_token, "synthetic-new-access");
+    tokens
+}
+#[tokio::test]
+async fn refresh_id_token_without_account_claim_keeps_account_and_rotation() {
+    let exp = chrono::Utc::now().timestamp() + 3600;
+    let cases: [fn(&str, i64) -> Option<String>; 4] = [
+        |_, _| None,
+        // Shape seen from the real issuer for dynamic agent clients: only per_user_salt.
+        |iss, exp| {
+            Some(jwt(
+                json!({"iss":iss,"aud":"oaiapp_fake","exp":exp,"sub":"synthetic-sub","https://api.openai.com/auth":{"per_user_salt":"synthetic"}}),
+            ))
+        },
+        |_, _| Some("not-a-jwt".to_owned()),
+        |iss, _| Some(jwt(json!({"iss":iss,"aud":"wrong","exp":1}))),
+    ];
+    for case in cases {
+        let tokens = refreshed_with(|iss| case(iss, exp), 3600).await;
+        let stored = tokens.snapshot().await;
+        assert!(stored.usable);
+        assert_eq!(stored.revision, 2);
+        assert_eq!(
+            stored.credentials.refresh_token,
+            "synthetic-rotated-refresh"
+        );
+        assert_eq!(stored.credentials.account_id, "synthetic-account");
+    }
+}
+#[tokio::test]
+async fn refresh_with_changed_account_claim_adopts_new_account() {
+    let server = MockServer::start().await;
+    let uri = server.uri();
+    let id = jwt(
+        json!({"iss":uri,"aud":"oaiapp_fake","exp":chrono::Utc::now().timestamp()+3600,"https://api.openai.com/auth":{"chatgpt_account_id":"synthetic-other"}}),
+    );
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","id_token":id,"expires_in":3600,"token_type":"Bearer"})))
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let manager = CredentialManager::new(tokens.clone(), OAuthClient::at(&uri).unwrap()).await;
+    manager.access().await.unwrap();
+    let stored = tokens.snapshot().await;
+    assert_eq!(stored.credentials.account_id, "synthetic-other");
+    assert_eq!(
+        stored.credentials.refresh_token,
+        "synthetic-rotated-refresh"
+    );
+}
+#[tokio::test]
+async fn refresh_with_unusable_lifetime_still_persists_rotation() {
+    let tokens = refreshed_with(|_| None, 0).await;
+    let stored = tokens.snapshot().await;
+    assert!(stored.usable);
+    assert_eq!(
+        stored.credentials.refresh_token,
+        "synthetic-rotated-refresh"
+    );
+}
+#[tokio::test]
+async fn login_without_account_claim_uses_subject_as_internal_key() {
+    let server = MockServer::start().await;
+    let oauth = OAuthClient::at(&server.uri()).unwrap();
+    let login = oauth.begin(uuid::Uuid::nil(), Some("oaiapp_fake")).unwrap();
+    let params: std::collections::BTreeMap<_, _> = login
+        .authorize_url
+        .query_pairs()
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    let id = jwt(
+        json!({"iss":server.uri(),"aud":"oaiapp_fake","exp":chrono::Utc::now().timestamp()+3600,"nonce":params["nonce"],"sub":"synthetic-sub","https://api.openai.com/auth":{"per_user_salt":"synthetic"}}),
+    );
+    Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-access","refresh_token":"synthetic-refresh","id_token":id,"expires_in":3600,"token_type":"Bearer","scope":SCOPES}))).mount(&server).await;
+    let creds = oauth
+        .complete(
+            login,
+            &format!("{REDIRECT}?code=synthetic&state={}", params["state"]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(creds.account_id, "sub:synthetic-sub");
+}
+#[tokio::test]
+async fn login_without_account_claim_or_subject_is_rejected() {
+    let server = MockServer::start().await;
+    let oauth = OAuthClient::at(&server.uri()).unwrap();
+    let login = oauth.begin(uuid::Uuid::nil(), Some("oaiapp_fake")).unwrap();
+    let params: std::collections::BTreeMap<_, _> = login
+        .authorize_url
+        .query_pairs()
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    let id = jwt(
+        json!({"iss":server.uri(),"aud":"oaiapp_fake","exp":chrono::Utc::now().timestamp()+3600,"nonce":params["nonce"]}),
+    );
+    Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-access","refresh_token":"synthetic-refresh","id_token":id,"expires_in":3600,"token_type":"Bearer","scope":SCOPES}))).mount(&server).await;
+    let result = oauth
+        .complete(
+            login,
+            &format!("{REDIRECT}?code=synthetic&state={}", params["state"]),
+        )
+        .await;
+    assert!(matches!(result, Err(ProviderError::Auth)));
+}
+
+struct FlakyWrite {
+    tokens: Arc<Tokens>,
+    failures: std::sync::atomic::AtomicU32,
+}
+#[async_trait::async_trait]
+impl TokenStore for FlakyWrite {
+    async fn load(&self) -> Result<jiabu_ai::credentials::TokenRead, ProviderError> {
+        self.tokens.load().await
+    }
+    async fn compare_exchange(
+        &self,
+        revision: i64,
+        next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        if self.failures.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            self.failures
+                .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            return Err(ProviderError::Transport);
+        }
+        self.tokens.compare_exchange(revision, next).await
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn transient_store_write_failure_is_retried_so_rotation_survives() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let store = Arc::new(FlakyWrite {
+        tokens: tokens.clone(),
+        failures: std::sync::atomic::AtomicU32::new(2),
+    });
+    let manager = CredentialManager::new(store, OAuthClient::at(&server.uri()).unwrap()).await;
+    manager.access().await.unwrap();
+    assert_eq!(
+        tokens.snapshot().await.credentials.refresh_token,
+        "synthetic-rotated-refresh"
+    );
+}
+
+struct RejectingWrite {
+    tokens: Arc<Tokens>,
+    error: bool,
+}
+#[async_trait::async_trait]
+impl TokenStore for RejectingWrite {
+    async fn load(&self) -> Result<jiabu_ai::credentials::TokenRead, ProviderError> {
+        self.tokens.load().await
+    }
+    async fn compare_exchange(
+        &self,
+        _revision: i64,
+        _next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        if self.error {
+            Err(ProviderError::Transport)
+        } else {
+            Ok(false)
+        }
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn unpersisted_rotation_is_reused_for_the_next_refresh() {
+    // Read-only sources (CAS always false) and lasting store outages must not make the
+    // next refresh replay the refresh token that upstream already rotated away.
+    for error in [false, true] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/oauth/token"))
+            .and(body_string_contains("refresh_token=synthetic-refresh&"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/oauth/token"))
+            .and(body_string_contains("refresh_token=synthetic-rotated-refresh"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-third-access","refresh_token":"synthetic-third-refresh","expires_in":3600,"token_type":"Bearer"})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+        let store = Arc::new(RejectingWrite {
+            tokens: tokens.clone(),
+            error,
+        });
+        let manager = CredentialManager::new(store, OAuthClient::at(&server.uri()).unwrap()).await;
+        assert_eq!(
+            manager.access().await.unwrap().access_token,
+            "synthetic-new-access"
+        );
+        assert_eq!(
+            manager.access().await.unwrap().access_token,
+            "synthetic-new-access"
+        );
+        let third = manager
+            .refresh_after_rejection("synthetic-new-access")
+            .await
+            .unwrap();
+        assert_eq!(third.refresh_token, "synthetic-third-refresh");
+        assert!(manager.available());
+    }
+}
+
+#[tokio::test]
+async fn unpersisted_rotation_survives_manager_rebuild_but_not_a_new_credential() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-refresh&"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-rotated-refresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-third-access","refresh_token":"synthetic-third-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+    let manager = |gate: Arc<jiabu_ai::credentials::RefreshGate>| {
+        let store = Arc::new(RejectingWrite {
+            tokens: tokens.clone(),
+            error: false,
+        });
+        let uri = server.uri();
+        async move { CredentialManager::with_gate(store, OAuthClient::at(&uri).unwrap(), gate).await }
+    };
+    manager(gate.clone()).await.access().await.unwrap();
+    // A configuration reload builds a new manager on the same gate.
+    let rebuilt = manager(gate.clone()).await;
+    assert_eq!(
+        rebuilt.access().await.unwrap().access_token,
+        "synthetic-new-access"
+    );
+    assert_eq!(
+        rebuilt
+            .refresh_after_rejection("synthetic-new-access")
+            .await
+            .unwrap()
+            .refresh_token,
+        "synthetic-third-refresh"
+    );
+    // An operator-supplied credential at the same revision replaces the pending copy.
+    {
+        let mut stored = tokens.0.lock().unwrap();
+        stored.credentials.access_token = "synthetic-login-access".into();
+        stored.credentials.refresh_token = "synthetic-login-refresh".into();
+        stored.credentials.expires_at = chrono::Utc::now().timestamp() + 3600;
+    }
+    assert_eq!(
+        manager(gate).await.access().await.unwrap().access_token,
+        "synthetic-login-access"
+    );
+}
+/// A slow store write that does not accept the rotation.
+struct HangingWrite {
+    tokens: Arc<Tokens>,
+}
+#[async_trait::async_trait]
+impl TokenStore for HangingWrite {
+    async fn load(&self) -> Result<jiabu_ai::credentials::TokenRead, ProviderError> {
+        self.tokens.load().await
+    }
+    async fn compare_exchange(
+        &self,
+        _revision: i64,
+        _next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        Ok(false)
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn rotation_survives_a_request_cancelled_while_persisting() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-refresh&"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+    let hanging = CredentialManager::with_gate(
+        Arc::new(HangingWrite {
+            tokens: tokens.clone(),
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+        gate.clone(),
+    )
+    .await;
+    // The request deadline fires while the store write is still pending.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), hanging.access())
+            .await
+            .is_err()
+    );
+    let rebuilt = CredentialManager::with_gate(
+        Arc::new(RejectingWrite {
+            tokens: tokens.clone(),
+            error: false,
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+        gate,
+    )
+    .await;
+    assert_eq!(
+        rebuilt.access().await.unwrap().access_token,
+        "synthetic-new-access"
+    );
+}
+/// Loses every compare-exchange to an operator re-login that bumps the revision.
+struct RacingLogin {
+    tokens: Arc<Tokens>,
+}
+#[async_trait::async_trait]
+impl TokenStore for RacingLogin {
+    async fn load(&self) -> Result<jiabu_ai::credentials::TokenRead, ProviderError> {
+        self.tokens.load().await
+    }
+    async fn compare_exchange(
+        &self,
+        _revision: i64,
+        _next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        let mut stored = self.tokens.0.lock().unwrap();
+        stored.revision = 2;
+        stored.credentials.access_token = "synthetic-login-access".into();
+        stored.credentials.refresh_token = "synthetic-login-refresh".into();
+        stored.credentials.expires_at = chrono::Utc::now().timestamp() + 3600;
+        Ok(false)
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn pending_rotation_yields_to_a_store_that_moved_during_persist() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-refresh&"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-rotated-refresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-third-access","refresh_token":"synthetic-third-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let gate = Arc::new(jiabu_ai::credentials::RefreshGate::default());
+    CredentialManager::with_gate(
+        Arc::new(RejectingWrite {
+            tokens: tokens.clone(),
+            error: false,
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+        gate.clone(),
+    )
+    .await
+    .access()
+    .await
+    .unwrap();
+    let racing = CredentialManager::with_gate(
+        Arc::new(RacingLogin {
+            tokens: tokens.clone(),
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+        gate,
+    )
+    .await;
+    // The pending copy is not refreshed or kept once the store holds a newer login.
+    assert_eq!(
+        racing
+            .refresh_after_rejection("synthetic-new-access")
+            .await
+            .unwrap()
+            .access_token,
+        "synthetic-login-access"
+    );
+    assert_eq!(
+        racing.access().await.unwrap().access_token,
+        "synthetic-login-access"
+    );
+}
+#[tokio::test]
+async fn rotation_survives_a_request_cancelled_while_refreshing() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=synthetic-refresh&"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(std::time::Duration::from_millis(300))
+                .set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let manager = CredentialManager::new(
+        Arc::new(RejectingWrite {
+            tokens: tokens.clone(),
+            error: false,
+        }),
+        OAuthClient::at(&server.uri()).unwrap(),
+    )
+    .await;
+    // The deadline fires after upstream received the refresh but before it answered.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), manager.access())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        manager.access().await.unwrap().access_token,
+        "synthetic-new-access"
+    );
+}
