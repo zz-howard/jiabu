@@ -12,6 +12,7 @@ class MainFrame extends StatelessWidget {
     required this.onSelect,
     required this.onSettings,
     required this.child,
+    this.onSpace,
     this.manual,
     this.status,
     super.key,
@@ -24,6 +25,7 @@ class MainFrame extends StatelessWidget {
   final ValueChanged<int> onSelect;
   final VoidCallback onSettings;
   final Widget child;
+  final VoidCallback? onSpace;
   final Widget? manual;
   final Widget? status;
   @override
@@ -49,7 +51,27 @@ class MainFrame extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                    child: SpaceHeading(name: spaceName, accent: accent),
+                    child: InkWell(
+                      onTap: onSpace,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: SpaceHeading(
+                                name: spaceName,
+                                accent: accent,
+                                style: onSpace == null
+                                    ? null
+                                    : context.jiabu.type.question,
+                              ),
+                            ),
+                            if (onSpace != null)
+                              const JiabuIcon(JiabuIcons.uiDown),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                   MeSealButton(label: settingsLabel, onPressed: onSettings),
                 ],

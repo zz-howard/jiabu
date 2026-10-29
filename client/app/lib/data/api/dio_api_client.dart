@@ -230,6 +230,25 @@ final class DioApiClient implements ApiClient, ChatApi {
   }
 
   @override
+  Future<Map<String, Object?>> accountRequest(
+    String path, {
+    String method = 'GET',
+    Map<String, Object?>? body,
+    String? operationId,
+    int? joinEpoch,
+  }) async => _json(
+    await _request<Object?>(
+      path,
+      method: method,
+      data: body,
+      headers: {
+        'Idempotency-Key': ?operationId,
+        'X-Jiabu-Join-Epoch': ?joinEpoch,
+      },
+    ),
+  );
+
+  @override
   Future<MetaDto> meta() async => MetaDto.fromJson(
     _json(await _request<Object?>('v1/meta', anonymous: true)),
   );

@@ -14,12 +14,15 @@ class PaperSheet extends StatelessWidget {
     required BuildContext context,
     required WidgetBuilder builder,
     WidgetBuilder? footerBuilder,
+    bool dismissible = true,
     Widget Function(BuildContext, Widget)? wrapperBuilder,
   }) {
     ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
     return showModalBottomSheet<T>(
       context: context,
       isScrollControlled: true,
+      isDismissible: dismissible,
+      enableDrag: dismissible,
       backgroundColor: context.jiabu.colors.paper,
       barrierColor: context.jiabu.colors.scrim,
       sheetAnimationStyle: AnimationStyle(

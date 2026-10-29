@@ -40,8 +40,9 @@ void main() {
 void _expectRegisteredFonts(WidgetTester tester, String state) {
   // Logical families loaded by flutter_test_config.dart. Reject Material
   // defaults (including Roboto) even if a test fixture also aliases them.
-  const registeredFamilies = {
+  final registeredFamilies = {
     JiabuType.systemSansFamily,
+    if (state.startsWith('c4_key')) 'monospace',
     JiabuType.handFamily,
     JiabuType.numeralsFamily,
     JiabuType.serifFamily,

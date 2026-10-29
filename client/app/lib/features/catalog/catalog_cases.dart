@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:jiabu/features/catalog/c3_cases.dart';
+import 'package:jiabu/features/catalog/c4_cases.dart';
 import 'package:jiabu/features/catalog/c5_cases.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
@@ -17,6 +18,15 @@ class CatalogCase {
 
 /// The dev catalog and all visual tests consume this same exhaustive registry.
 List<CatalogCase> catalogCases() => [
+  // This isolated component uses the identical seal already covered by the
+  // C4 unlock goldens; no second set of PNGs is requested.
+  CatalogCase(
+    'c4',
+    'jiabu_logo_seal_placeholder',
+    (_) => const JiabuLogoSealPlaceholder(),
+  ),
+  for (final state in c4States)
+    CatalogCase('c4', state, (_) => C4Preview(state: state)),
   for (final state in c5States)
     CatalogCase(
       'c5',

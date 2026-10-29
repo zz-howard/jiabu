@@ -5,10 +5,16 @@ import 'package:jiabu_design/src/theme_context.dart';
 enum StampState { recorded, revoked }
 
 class Stamp extends StatelessWidget {
-  const new({required this.label, required this.state, super.key});
+  const Stamp({
+    required this.label,
+    required this.state,
+    this.degrees,
+    super.key,
+  });
 
   final String label;
   final StampState state;
+  final double? degrees;
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +28,7 @@ class Stamp extends StatelessWidget {
       child: ExcludeSemantics(
         child: IgnorePointer(
           child: Tilt(
-            degrees: d.stampTilt,
+            degrees: degrees ?? d.stampTilt,
             child: Opacity(
               opacity: d.stampOpacity,
               child: Container(

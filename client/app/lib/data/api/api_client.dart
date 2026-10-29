@@ -9,6 +9,13 @@ import 'package:jiabu/data/api/dto/sync_dto.dart';
 /// Transport failures are normalized to ApiError at this boundary. Repositories
 /// return Result; the sync coordinator applies retry/auth policy centrally.
 abstract interface class ApiClient {
+  Future<Map<String, Object?>> accountRequest(
+    String path, {
+    String method = 'GET',
+    Map<String, Object?>? body,
+    String? operationId,
+    int? joinEpoch,
+  });
   Future<MetaDto> meta();
   Future<void> health();
   Future<LoginResponseDto> login(LoginRequestDto request);

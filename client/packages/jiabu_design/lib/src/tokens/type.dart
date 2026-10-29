@@ -129,6 +129,8 @@ class JiabuType extends ThemeExtension<JiabuType> {
     ),
   });
 
+  TextStyle get pinDigit => body.copyWith(fontSize: 24, height: 1);
+
   static const numeralsFamily = 'packages/jiabu_design/Caveat';
   static const handFamily = 'packages/jiabu_design/JiabuHand';
   static const serifFamily = 'packages/jiabu_design/NotoSerifSC';
