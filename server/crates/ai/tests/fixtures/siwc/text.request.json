@@ -1,0 +1,1 @@
+{"include":["reasoning.encrypted_content"],"input":[{"content":[{"text":"记账有什么好处？","type":"input_text"}],"role":"user"}],"instructions":"Answer in one short Chinese sentence.","model":"gpt-6.1-sol","prompt_cache_key":"capture-session","store":false,"stream":true,"tools":[]}

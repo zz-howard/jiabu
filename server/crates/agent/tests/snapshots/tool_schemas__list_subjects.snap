@@ -1,0 +1,64 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$defs": {
+    "Page": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 50,
+          "format": "uint32",
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "SubjectKind": {
+      "enum": [
+        "family_member",
+        "pet",
+        "property",
+        "vehicle",
+        "other"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "include_archived": {
+      "default": false,
+      "type": "boolean"
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SubjectKind"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "page": {
+      "$ref": "#/$defs/Page",
+      "default": {
+        "limit": 50,
+        "offset": 0
+      }
+    }
+  },
+  "title": "ListSubjects",
+  "type": "object"
+}

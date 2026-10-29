@@ -155,12 +155,19 @@ impl TurnState {
                             .map(str::to_owned)
                             .ok_or(ProviderError::InvalidOutput)
                     };
+                    // Upstream may qualify namespaced calls as `jiabu.<tool>`; the agent's
+                    // tool registry and allowlist use the bare name.
                     let name = get("name")?;
-                    let name = if name.starts_with("jiabu.") {
-                        name
-                    } else {
-                        format!("jiabu.{name}")
-                    };
+                    if item
+                        .get("namespace")
+                        .is_some_and(|n| n.as_str() != Some("jiabu"))
+                    {
+                        return Err(ProviderError::InvalidOutput);
+                    }
+                    let name = name.strip_prefix("jiabu.").unwrap_or(&name).to_owned();
+                    if name.is_empty() || name.contains('.') {
+                        return Err(ProviderError::InvalidOutput);
+                    }
                     sink.emit(TurnEvent::ToolCall {
                         call_id: get("call_id")?,
                         name,
@@ -228,6 +235,26 @@ pub fn error(event: &Value) -> ProviderError {
         | "model_access_denied" => ProviderError::Unsupported("permission denied"),
         "invalid_encrypted_content" | "encrypted_content_invalid" => ProviderError::BlobRejected,
         "rate_limit_exceeded" => ProviderError::RateLimited { retry_after: None },
+        _ if err["type"].as_str() == Some("invalid_request_error") => {
+            let identifier = |v: &Value, fallback: &str| -> String {
+                v.as_str()
+                    .unwrap_or(fallback)
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '[' | ']'))
+                    .take(64)
+                    .collect()
+            };
+            ProviderError::Rejected {
+                code: identifier(&err["code"], "invalid_request_error"),
+                param: identifier(&err["param"], ""),
+                message: err["message"]
+                    .as_str()
+                    .unwrap_or("")
+                    .chars()
+                    .take(300)
+                    .collect(),
+            }
+        }
         _ => ProviderError::InvalidOutput,
     }
 }

@@ -1,0 +1,144 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$defs": {
+    "Filters": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "from": {
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kinds": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RecordKind"
+          },
+          "type": "array"
+        },
+        "member_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "purpose_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecordStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tag_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "maxLength": 500,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "through": {
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Page": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 50,
+          "format": "uint32",
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "RecordKind": {
+      "enum": [
+        "expense",
+        "income",
+        "transfer",
+        "allocation",
+        "reallocation",
+        "refund"
+      ],
+      "type": "string"
+    },
+    "RecordStatus": {
+      "enum": [
+        "active",
+        "voided"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "filters": {
+      "$ref": "#/$defs/Filters",
+      "default": {
+        "account_id": null,
+        "from": null,
+        "kinds": [],
+        "member_id": null,
+        "purpose_id": null,
+        "status": null,
+        "tag_id": null,
+        "text": null,
+        "through": null
+      }
+    },
+    "page": {
+      "$ref": "#/$defs/Page",
+      "default": {
+        "limit": 50,
+        "offset": 0
+      }
+    }
+  },
+  "title": "SearchRecords",
+  "type": "object"
+}

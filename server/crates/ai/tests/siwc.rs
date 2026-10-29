@@ -175,7 +175,7 @@ async fn wire_replay_uses_session_header_and_done_items_without_duplicate_delta(
         })
         .collect();
     assert_eq!(text, "Recorded.");
-    assert!(sink.0.iter().any(|e|matches!(e,TurnEvent::ToolCall{call_id,name,args_raw} if call_id=="synthetic-call" && name=="jiabu.create_record" && args_raw=="{ \"amount\": 50 }")));
+    assert!(sink.0.iter().any(|e|matches!(e,TurnEvent::ToolCall{call_id,name,args_raw} if call_id=="synthetic-call" && name=="create_record" && args_raw=="{ \"amount\": 50 }")));
     assert!(
         matches!(sink.0.last(),Some(TurnEvent::Done{usage}) if usage.cached_input_tokens==60 && usage.cache_write_tokens==10)
     );
@@ -760,4 +760,252 @@ async fn concurrent_401_requests_refresh_once_and_both_retry_successfully() {
     b.unwrap();
     assert!(matches!(first.0.last(), Some(TurnEvent::Done { .. })));
     assert!(matches!(second.0.last(), Some(TurnEvent::Done { .. })));
+}
+
+// Live captures of 2026-10-29 (fixtures/siwc/README.md): request bodies as sent and
+// raw SSE bytes as received, sanitized.
+fn fixture(name: &str) -> String {
+    std::fs::read_to_string(format!(
+        "{}/tests/fixtures/siwc/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap()
+}
+/// Rebuilds the TurnRequest whose wire body was recorded, from that body.
+fn recorded_request(name: &str) -> (TurnRequest, serde_json::Value) {
+    let body: serde_json::Value = serde_json::from_str(&fixture(name)).unwrap();
+    let tools = body["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|ns| ns["tools"].as_array().unwrap().iter())
+        .map(|t| ToolDefinition {
+            name: t["name"].as_str().unwrap().into(),
+            description: t["description"].as_str().unwrap().into(),
+            parameters: t["parameters"].clone(),
+        })
+        .collect();
+    let items = body["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| match item["type"].as_str() {
+            Some("function_call") => RequestItem::ToolCall {
+                call_id: item["call_id"].as_str().unwrap().into(),
+                name: item["name"].as_str().unwrap().into(),
+                args_raw: item["arguments"].as_str().unwrap().into(),
+            },
+            Some("function_call_output") => RequestItem::ToolResult {
+                call_id: item["call_id"].as_str().unwrap().into(),
+                output: item["output"].as_str().unwrap().into(),
+            },
+            _ => RequestItem::Message {
+                role: item["role"].as_str().unwrap().into(),
+                text: item["content"][0]["text"].as_str().unwrap().into(),
+                images: vec![],
+            },
+        })
+        .collect();
+    let req = TurnRequest {
+        run_id: uuid::Uuid::nil(),
+        session_key: body["prompt_cache_key"].as_str().unwrap().into(),
+        snapshot: PromptSnapshot {
+            instructions: body["instructions"].as_str().unwrap().into(),
+            tools,
+            model: body["model"].as_str().unwrap().into(),
+            parameters: ModelParameters::default(),
+        },
+        items,
+    };
+    (req, body)
+}
+async fn replay(name: &str) -> (Result<(), ProviderError>, Sink) {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_bytes(fixture(name).into_bytes()),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut sink = Sink::default();
+    let result = provider(&server)
+        .await
+        .run_turn(&request(), &mut sink)
+        .await;
+    (result, sink)
+}
+fn text(sink: &Sink) -> String {
+    sink.0
+        .iter()
+        .filter_map(|e| match e {
+            TurnEvent::TextDelta(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+#[test]
+fn recorded_request_bodies_are_what_the_adapter_builds() {
+    for name in ["text", "tool_call", "follow_up"] {
+        let (req, recorded) = recorded_request(&format!("{name}.request.json"));
+        assert_eq!(
+            body(&req, "synthetic", "synthetic-account").unwrap(),
+            recorded,
+            "{name}"
+        );
+    }
+    // Upstream accepted the current shape: strict exactly where the schema allows it.
+    let (_, recorded) = recorded_request("tool_call.request.json");
+    let tools = recorded["tools"][0]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 28);
+    for tool in tools {
+        assert_eq!(
+            tool["strict"],
+            jiabu_ai::siwc::request::strict_compatible(&tool["parameters"]),
+            "{}",
+            tool["name"]
+        );
+    }
+    assert_eq!(tools.iter().filter(|t| t["strict"] == true).count(), 9);
+}
+#[test]
+fn recorded_rejected_request_had_a_non_strict_schema_marked_strict() {
+    let recorded: serde_json::Value =
+        serde_json::from_str(&fixture("rejection.request.json")).unwrap();
+    let tools = recorded["tools"][0]["tools"].as_array().unwrap();
+    let ask = tools.iter().find(|t| t["name"] == "ask_user").unwrap();
+    assert_eq!(ask["strict"], true);
+    assert!(!jiabu_ai::siwc::request::strict_compatible(
+        &ask["parameters"]
+    ));
+    // The same schema is now sent non-strict instead of being rejected upstream.
+    let (req, _) = recorded_request("rejection.request.json");
+    let rebuilt = body(&req, "synthetic", "synthetic-account").unwrap();
+    let ask = rebuilt["tools"][0]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "ask_user")
+        .unwrap()
+        .clone();
+    assert_eq!(ask["strict"], false);
+}
+#[tokio::test]
+async fn recorded_text_answer_replays_to_text_and_done() {
+    let (result, sink) = replay("text.response.sse").await;
+    result.unwrap();
+    assert!(!text(&sink).is_empty());
+    assert!(matches!(sink.0.last(), Some(TurnEvent::Done { usage }) if usage.output_tokens > 0));
+}
+#[tokio::test]
+async fn recorded_namespaced_tool_call_replays_with_the_bare_tool_name() {
+    let (result, sink) = replay("tool_call.response.sse").await;
+    result.unwrap();
+    let calls: Vec<_> = sink
+        .0
+        .iter()
+        .filter_map(|e| match e {
+            TurnEvent::ToolCall { name, args_raw, .. } => Some((name.clone(), args_raw.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "ask_user");
+    let args: serde_json::Value = serde_json::from_str(&calls[0].1).unwrap();
+    assert!(args["prompt"].is_string());
+}
+#[tokio::test]
+async fn recorded_follow_up_after_tool_result_replays_to_text() {
+    let (result, sink) = replay("follow_up.response.sse").await;
+    result.unwrap();
+    assert!(!text(&sink).is_empty());
+}
+#[tokio::test]
+async fn recorded_request_rejection_fails_fast_with_upstream_code() {
+    let server = MockServer::start().await;
+    let rejection: serde_json::Value =
+        serde_json::from_str(&fixture("rejection.event.json")).unwrap();
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse(&[rejection])),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut sink = Sink::default();
+    let error = provider(&server)
+        .await
+        .run_turn(&request(), &mut sink)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        ProviderError::Rejected {
+            code: "invalid_function_parameters".into(),
+            param: "tools".into(),
+            message: "Invalid schema for function 'ask_user': At schema path /, required must include declared property \"fields\"".into(),
+        }
+    );
+    assert!(sink.0.is_empty());
+}
+#[tokio::test]
+async fn namespaced_calls_reach_the_agent_with_bare_tool_names() {
+    // The live backend returns a bare name plus `namespace: "jiabu"` (tool_call fixture);
+    // a `jiabu.`-qualified name is accepted too, a foreign namespace is not.
+    for (item, expected) in [
+        (json!({"name":"jiabu.create_record"}), Some("create_record")),
+        (
+            json!({"name":"create_record","namespace":"jiabu"}),
+            Some("create_record"),
+        ),
+        (json!({"name":"create_record"}), Some("create_record")),
+        (json!({"name":"create_record","namespace":"other"}), None),
+        (json!({"name":"jiabu.nested.create_record"}), None),
+    ] {
+        let server = MockServer::start().await;
+        let mut call = json!({"type":"function_call","call_id":"synthetic-call","arguments":"{}"});
+        for (k, v) in item.as_object().unwrap() {
+            call[k] = v.clone();
+        }
+        let events = vec![
+            json!({"type":"response.output_item.done","output_index":0,"item":call}),
+            completed(),
+        ];
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse(&events)),
+            )
+            .mount(&server)
+            .await;
+        let mut sink = Sink::default();
+        let result = provider(&server)
+            .await
+            .run_turn(&request(), &mut sink)
+            .await;
+        match expected {
+            Some(name) => {
+                result.unwrap();
+                assert!(
+                    sink.0
+                        .iter()
+                        .any(|e| matches!(e, TurnEvent::ToolCall { name: n, .. } if n == name))
+                );
+            }
+            None => {
+                assert_eq!(result.unwrap_err(), ProviderError::InvalidOutput);
+                assert!(
+                    !sink
+                        .0
+                        .iter()
+                        .any(|e| matches!(e, TurnEvent::ToolCall { .. }))
+                );
+            }
+        }
+    }
 }

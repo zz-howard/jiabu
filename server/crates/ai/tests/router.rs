@@ -261,6 +261,39 @@ async fn failure_without_output_still_falls_back() {
     assert_eq!(primary.requests().len(), 1);
     assert_eq!(fallback.requests().len(), 1);
 }
+#[tokio::test]
+async fn rejected_request_neither_falls_back_nor_opens_the_breaker() {
+    let rejected = || ProviderError::Rejected {
+        code: "invalid_function_parameters".into(),
+        param: "tools".into(),
+        message: "synthetic".into(),
+    };
+    // More rejections than any breaker threshold.
+    let primary = Arc::new(MockProvider::scripted(
+        "fake-1",
+        capabilities(),
+        (0..10).map(|_| vec![MockStep::Fail(rejected())]).collect(),
+    ));
+    let fallback = Arc::new(MockProvider::scripted("fake-2", capabilities(), vec![]));
+    let mut cfg = config();
+    cfg.allow_paid_fallback = true;
+    let router = AiRouter::new(cfg, vec![primary.clone(), fallback.clone()]);
+    for _ in 0..10 {
+        let error = router
+            .run_turn(
+                TaskKind::Chat,
+                &request(),
+                &mut Sink::default(),
+                &Meter::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error, rejected());
+    }
+    assert_eq!(primary.requests().len(), 10);
+    assert!(fallback.requests().is_empty());
+    assert!(router.availability(TaskKind::Chat).available);
+}
 struct RejectNote;
 #[async_trait::async_trait]
 impl TurnSink for RejectNote {

@@ -1,0 +1,45 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "account_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "amount_minor": {
+      "format": "int64",
+      "maximum": 1000000000000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "day_of_month": {
+      "format": "int16",
+      "maximum": 31,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "expected_version": {
+      "format": "int32",
+      "minimum": 1,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "account_id",
+    "amount_minor",
+    "day_of_month",
+    "enabled"
+  ],
+  "title": "SetAllocationPlan",
+  "type": "object"
+}

@@ -1,0 +1,61 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$defs": {
+    "AccountKind": {
+      "enum": [
+        "real",
+        "purpose"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "is_reserve": {
+      "default": false,
+      "type": "boolean"
+    },
+    "kind": {
+      "$ref": "#/$defs/AccountKind"
+    },
+    "name": {
+      "maxLength": 30,
+      "minLength": 1,
+      "type": "string"
+    },
+    "opening_balance_minor": {
+      "default": 0,
+      "format": "int64",
+      "maximum": 1000000000000,
+      "minimum": -1000000000000,
+      "type": "integer"
+    },
+    "opening_on": {
+      "format": "date",
+      "type": "string"
+    },
+    "sort_key": {
+      "default": 0,
+      "format": "int32",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "kind",
+    "name",
+    "opening_on"
+  ],
+  "title": "CreateAccount",
+  "type": "object"
+}

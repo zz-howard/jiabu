@@ -1,0 +1,37 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "from": {
+      "format": "date",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "metric": {
+      "type": "string"
+    },
+    "subject_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "to": {
+      "format": "date",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "subject_id",
+    "metric"
+  ],
+  "title": "MetricSeries",
+  "type": "object"
+}

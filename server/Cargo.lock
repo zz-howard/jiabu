@@ -2199,6 +2199,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures-util",
+ "insta",
  "jiabu-ai",
  "jiabu-chat",
  "jiabu-db",
