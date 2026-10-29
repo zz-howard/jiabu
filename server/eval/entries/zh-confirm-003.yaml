@@ -1,0 +1,58 @@
+schema_version: 1
+id: "zh-confirm-003"
+locale: "zh-CN"
+category: "confirmation"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input:
+  text: "把10月18日虚构布屋100元那笔日期改成10月17日。金额均为人民币，涉及付款或收款时用虚构零钱、日常用途。"
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "虚构零钱"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "虚构银行"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "日常用途"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "储备用途"
+      opening_on: "2026-01-01"
+  records:
+    -
+      key: "old"
+      record:
+        operation: "create"
+        kind: "expense"
+        amount_minor: 10000
+        currency: "CNY"
+        occurred_on: "2026-10-18"
+        account: "cash"
+        purpose: "daily"
+        preset_key: "shopping"
+expect:
+  behavior: "confirm_then_write"
+  hard: true
+  records:
+    -
+      operation: "update"
+      target: "old"
+      kind: "expense"
+      amount_minor: 10000
+      currency: "CNY"
+      occurred_on: "2026-10-17"
+      preset_key: "shopping"
+      account: "cash"
+      purpose: "daily"
+      status: "active"

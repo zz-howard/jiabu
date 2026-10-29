@@ -70,6 +70,16 @@ impl ScopedRuns {
         p: &Principal,
         input: StartMessage,
     ) -> Result<StartResponse, OperationError> {
+        self.start_at(p, input, Utc::now()).await
+    }
+    /// Trusted non-HTTP entry point for reproducible evaluations. Only the frozen
+    /// submission timestamp changes; leases and interrupt expiry use wall time.
+    pub async fn start_at(
+        &self,
+        p: &Principal,
+        input: StartMessage,
+        submitted_at: DateTime<Utc>,
+    ) -> Result<StartResponse, OperationError> {
         let tx = self.begin(p).await?;
         if input.text.as_deref().unwrap_or_default().trim().is_empty() && input.images.is_empty() {
             return Err(OperationError::invalid());
@@ -113,7 +123,7 @@ impl ScopedRuns {
         let conversation = tx.conversation(self.space).await?;
         let run = Uuid::now_v7();
         let message = Uuid::now_v7();
-        let now = Utc::now().to_rfc3339();
+        let now = submitted_at.to_rfc3339();
         let text = input.text.clone().unwrap_or_default();
         let user = json!({"protocolVersion":"0.1","id":input.id,"conversationId":conversation,"role":"user","status":"complete","rev":1,"createdAt":now,"fallbackText":text,"blocks":[],"metadata":{"input":{"text":input.text,"images":input.images},"locale":p.user.locale}});
         tx.insert_message(self.space, conversation, None, None, user, 0)

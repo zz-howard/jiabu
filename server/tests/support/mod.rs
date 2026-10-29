@@ -24,6 +24,10 @@ impl TestDb {
     pub async fn new() -> Result<Self> {
         let root_url = std::env::var("DATABASE_URL")
             .context("DATABASE_URL must be a PostgreSQL 18 superuser URL")?;
+        Self::with_url(&root_url).await
+    }
+    pub async fn with_url(root_url: &str) -> Result<Self> {
+        let root_url = root_url.to_owned();
         let root = PgPool::connect(&root_url).await?;
         let disposable: bool = sqlx::query_scalar(DISPOSABLE_CLUSTER_SQL)
             .fetch_one(&root)

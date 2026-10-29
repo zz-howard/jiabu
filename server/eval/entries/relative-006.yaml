@@ -1,0 +1,45 @@
+schema_version: 1
+id: "relative-006"
+locale: "en-US"
+category: "relative_date"
+today: "2026-10-21"
+timezone: "Asia/Singapore"
+input:
+  text: "Dinner yesterday cost 24. All amounts are CNY; use Fable cash and Daily purpose for payments or receipts."
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "Fable cash"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "Fable bank"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "Daily purpose"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "Reserve purpose"
+      opening_on: "2026-01-01"
+  records: []
+expect:
+  behavior: "write"
+  hard: false
+  records:
+    -
+      operation: "create"
+      kind: "expense"
+      amount_minor: 2400
+      currency: "CNY"
+      occurred_on: "2026-10-20"
+      account: "cash"
+      purpose: "daily"
+      preset_key: "dining"

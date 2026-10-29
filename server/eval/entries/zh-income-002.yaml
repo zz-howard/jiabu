@@ -1,0 +1,43 @@
+schema_version: 1
+id: "zh-income-002"
+locale: "zh-CN"
+category: "income"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input:
+  text: "昨天虚构小禾还来兼职报酬240元。人民币收入，收款账户为虚构零钱；收入不分用途。"
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "虚构零钱"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "虚构银行"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "日常用途"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "储备用途"
+      opening_on: "2026-01-01"
+  records: []
+expect:
+  behavior: "write"
+  hard: false
+  records:
+    -
+      operation: "create"
+      kind: "income"
+      amount_minor: 24000
+      currency: "CNY"
+      occurred_on: "2026-10-20"
+      account: "cash"

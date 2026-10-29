@@ -1,0 +1,37 @@
+schema_version: 1
+id: "zh-ambiguous-009"
+locale: "zh-CN"
+category: "ambiguous_date"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input:
+  text: "出差跨时区那天的“昨天”打车35元，我没说当地日期和时区。金额均为人民币，涉及付款或收款时用虚构零钱、日常用途。"
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "虚构零钱"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "虚构银行"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "日常用途"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "储备用途"
+      opening_on: "2026-01-01"
+  records: []
+expect:
+  behavior: "ask_user"
+  hard: true
+  records: []
+ambiguity_reason: "昨天是旅行地口径还是空间时区口径未知，缺原始参照。"

@@ -1,0 +1,35 @@
+[package]
+name = "ai-eval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+live = ["dep:zeroize"]
+
+[dependencies]
+jiabu-agent.workspace = true
+jiabu-ai.workspace = true
+jiabu-chat.workspace = true
+jiabu-tools.workspace = true
+jiabu-db.workspace = true
+jiabu-db-admin.workspace = true
+jiabu-domain.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+chrono.workspace = true
+clap.workspace = true
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+zeroize = { workspace = true, optional = true }
+# MIT OR Apache-2.0, already locked transitively; no new parser version.
+yaml-rust2 = "=0.11.1"

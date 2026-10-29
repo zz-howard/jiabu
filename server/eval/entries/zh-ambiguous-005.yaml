@@ -1,0 +1,37 @@
+schema_version: 1
+id: "zh-ambiguous-005"
+locale: "zh-CN"
+category: "ambiguous_date"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input:
+  text: "5号晚饭25元，不记得是哪一月。金额均为人民币，涉及付款或收款时用虚构零钱、日常用途。"
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "虚构零钱"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "虚构银行"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "日常用途"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "储备用途"
+      opening_on: "2026-01-01"
+  records: []
+expect:
+  behavior: "ask_user"
+  hard: true
+  records: []
+ambiguity_reason: "缺月份，可能是本月5日或上月5日。"

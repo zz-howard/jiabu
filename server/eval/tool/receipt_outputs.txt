@@ -1,0 +1,3 @@
+receipt_clear.jpg
+receipt_tilted.jpg
+receipt_long.jpg

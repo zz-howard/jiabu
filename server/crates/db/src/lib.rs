@@ -36,3 +36,5 @@ pub mod template_snapshots;
 pub mod ai_config;
 pub mod ai_metering;
 pub mod chat_runtime;
+
+pub mod evaluation;
