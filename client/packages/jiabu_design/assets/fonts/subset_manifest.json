@@ -1,9 +1,9 @@
 {
   "fonts": {
     "jiabu_hand.ttf": {
-      "bytes": 221216,
-      "codepoint_count": 482,
-      "sha256": "c9fbcfb765de5c5f4ae61215d0ec01ca31cdc31241b2f56268742b6ec89a222f",
+      "bytes": 235668,
+      "codepoint_count": 517,
+      "sha256": "11430b802c71634bb06883f9d12909038024e02ebb3cb02306d09c687f65d65d",
       "source_sha256": "f4b8a34d1f838fe411540cb7c97b1c384ac9738a876c4104500bc42508b2312a",
       "source_url": "https://github.com/lxgw/LxgwWenKai/releases/download/v1.530/LXGWWenKai-Medium.ttf",
       "weight": 500

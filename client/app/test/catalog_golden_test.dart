@@ -12,6 +12,7 @@ void main() {
     (sample) =>
         sample.component != 'c3' &&
         sample.component != 'c4' &&
+        sample.component != 'c4b' &&
         sample.component != 'c5',
   )) {
     for (final width in [360.0, 430.0]) {

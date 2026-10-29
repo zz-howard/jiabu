@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:jiabu/features/auth/widgets/auth_progress.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
@@ -6,52 +7,87 @@ class AuthFrame extends StatelessWidget {
   const AuthFrame({
     required this.title,
     required this.children,
+    this.step,
+    this.subtitle,
+    this.footer,
+    this.card = true,
     this.errorCode,
     this.busy = false,
     super.key,
   });
   final String title;
   final List<Widget> children;
+  final int? step;
+  final Widget? subtitle;
+  final Widget? footer;
+  final bool card;
   final String? errorCode;
   final bool busy;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          child: Padding(
-            padding: EdgeInsets.all(context.jiabu.decor.cardInset),
-            child: Center(
+  Widget build(BuildContext context) {
+    final content = Column(
+      spacing: context.jiabu.decor.cardGap,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ...children,
+        if (errorCode != null)
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              authError(context, errorCode),
+              textWidthBasis: TextWidthBasis.parent,
+              style: context.jiabu.type.secondary.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ),
+      ],
+    );
+    return Scaffold(
+      body: PaperBackground(
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: PaperCard(
-                    child: Column(
-                      spacing: context.jiabu.decor.cardGap,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          style: Theme.of(context).textTheme.headlineSmall,
-                        ),
-                        if (busy) const LinearProgressIndicator(),
-                        ...children,
-                        if (errorCode != null)
-                          Semantics(
-                            liveRegion: true,
-                            child: Text(
-                              authError(context, errorCode),
-                              textWidthBasis: TextWidthBasis.parent,
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(
-                                    color: Theme.of(context).colorScheme.error,
-                                  ),
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Padding(
+                  padding: EdgeInsets.all(context.jiabu.decor.pageInset),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 520),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (step case final int value) ...[
+                              AuthProgress(step: value),
+                              const SizedBox(height: 18),
+                            ],
+                            Text(title, style: context.jiabu.type.pageTitle),
+                            const Align(
+                              alignment: Alignment.centerLeft,
+                              child: JiabuIcon(JiabuIcons.squig, size: 112),
                             ),
-                          ),
-                      ],
+                            if (subtitle != null) ...[
+                              const SizedBox(height: 4),
+                              subtitle!,
+                            ],
+                            if (busy) ...[
+                              const SizedBox(height: 12),
+                              const LinearProgressIndicator(),
+                            ],
+                            const SizedBox(height: 28),
+                            if (card) PaperCard(child: content) else content,
+                            if (footer != null) ...[
+                              const SizedBox(height: 24),
+                              footer!,
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -60,8 +96,8 @@ class AuthFrame extends StatelessWidget {
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 String authError(BuildContext context, String? code) {

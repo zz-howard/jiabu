@@ -86,13 +86,54 @@
   },
   "handE4Amount": "¥1,842.60",
   "handE4Negative": "−¥180.00",
-  "authServerTitle": "Server address",
+  "handAuthStep": "{current} / {total}",
+  "@handAuthStep": {
+    "placeholders": {
+      "current": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "handAuthWelcomeTagline": "My Home Diary",
+  "handAuthBrandEnglish": "My Home Diary",
+  "handAuthWelcomeGreeting": "Hello! Tell me what you spent, and I’ll write it down for you.",
+  "handAuthServerHint": "Usually, just tap “Continue”.",
+  "handAuthWelcomeHome": "Welcome home",
+  "handAuthWelcomeHomeEnglish": "Welcome home",
+  "authWelcomeStart": "Get started",
+  "authWelcomeExisting": "Already have an account?",
+  "authWelcomeDirectLogin": "Sign in",
+  "authServerTitle": "Connect to your family ledger",
   "authServerAddress": "Server address",
+  "authUseDefaultServer": "Use the default server",
+  "authDefaultServerDescription": "Jiabu’s built-in connection works for most families",
+  "authAdvancedSettings": "Advanced settings",
+  "authCustomServerTitle": "Server address",
+  "authCustomServerDescription": "Enter the address from your family administrator",
+  "authServerSelfHostedHint": "Only change this for a self-hosted server or a new address from your administrator.",
+  "authRestoreDefault": "Restore default",
+  "authHttpsHint": "Must start with https://",
+  "authServerLaterHint": "You can change it later from “Change” on the login screen",
   "authContinue": "Continue",
   "authLoginTitle": "Sign in to Jiabu",
   "authUsername": "Username",
   "authPassword": "Password",
   "authLogin": "Sign in",
+  "authShowPassword": "Show password",
+  "authHidePassword": "Hide password",
+  "authForgotPassword": "Forgot your password? Ask your family administrator to reset it.",
+  "authNoAccount": "No account yet",
+  "authJoinFamily": "Register / Join a family",
+  "authInviteHint": "Got an invitation code from family? Join here",
+  "authConnected": "✓ Connected",
+  "authConnectedDefaultServer": "Connected to the default server",
+  "authConnectedServer": "Connected to {address}",
+  "@authConnectedServer": {
+    "placeholders": {"address": {"type": "String"}}
+  },
+  "authChange": "Change",
+  "authInviteComingTitle": "Join with an invitation code",
+  "authInviteComingBody": "Joining with an invitation code is coming soon. For now, ask your family administrator to create an account for you.",
+  "authInviteClose": "Got it",
   "authChangeServer": "Switch server or account",
   "authChangePassword": "Change password",
   "authTemporaryPassword": "You are using a temporary password. Change it to continue. Going back signs you out.",
@@ -103,7 +144,7 @@
   "authLogout": "Sign out",
   "authBack": "Back",
   "authSignedIn": "Signed in",
-  "authInvalidAddress": "Enter a valid address starting with http:// or https://.",
+  "authInvalidAddress": "Enter a valid address starting with https://.",
   "authCredentialsRequired": "Enter your username and password.",
   "authInvalidCredentials": "The username or password is incorrect.",
   "authRateLimited": "Too many attempts. Try again later.",
@@ -723,6 +764,6 @@
       }
     }
   },
-  "c4Locked": "Jiabu is locked",
-  "c4KeysSubtitle": "Let your scripts and agents use Jiabu as you"
+  "handC4Locked": "Jiabu is locked",
+  "handC4KeysSubtitle": "Let your scripts and agents use Jiabu as you"
 }

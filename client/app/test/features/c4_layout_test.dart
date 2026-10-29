@@ -30,8 +30,7 @@ void main() {
                   final widget = element.widget as SpaceAccentPicker;
                   expect(widget.value, isNotEmpty);
                 }
-                for (final element
-                    in find.byType(JiabuLogoSealPlaceholder).evaluate()) {
+                for (final element in find.byType(JiabuLogo).evaluate()) {
                   final tilt = find.descendant(
                     of: find.byWidget(element.widget),
                     matching: find.byType(Tilt),

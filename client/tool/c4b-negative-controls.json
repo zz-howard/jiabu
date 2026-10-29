@@ -1,0 +1,60 @@
+{
+  "instructions": "Build host only; cwd client/app. Apply ONE control, require assertion failure (compiler failure is not success), restore before the next. Files are repository-relative. Require exactly one find/find_regex match. Never commit mutations.",
+  "controls": [
+    {
+      "id": "configured_server_shows_welcome",
+      "file": "client/app/lib/features/auth/view_model/auth_view_model.dart",
+      "find": "page: hasConfiguredServer ? AuthPage.login : AuthPage.welcome,",
+      "replace": "page: AuthPage.welcome,",
+      "expected_occurrences": 1,
+      "find_regex": "page:\\s*hasConfiguredServer\\s*\\?\\s*AuthPage\\.login\\s*:\\s*AuthPage\\.welcome,",
+      "test_file": "client/app/test/features/auth_view_model_test.dart",
+      "test_names": ["configured_server_without_session_shows_login"],
+      "command": "flutter test test/features/auth_view_model_test.dart --plain-name configured_server_without_session_shows_login"
+    },
+    {
+      "id": "insecure_server_accepted",
+      "file": "client/app/lib/features/auth/view/server_address_screen.dart",
+      "find": "!trimmed.toLowerCase().startsWith('https://') ||",
+      "replace": "false ||",
+      "expected_occurrences": 1,
+      "find_regex": "!trimmed\\.toLowerCase\\(\\)\\.startsWith\\('https://'\\)\\s*\\|\\|",
+      "test_file": "client/app/test/features/auth_screens_test.dart",
+      "test_names": ["insecure_server_is_rejected_before_callback"],
+      "command": "flutter test test/features/auth_screens_test.dart --plain-name insecure_server_is_rejected_before_callback"
+    },
+    {
+      "id": "connected_before_probe",
+      "file": "client/app/lib/features/auth/view/login_screen.dart",
+      "find": "if (widget.state.serverProbeSucceeded)",
+      "replace": "if (true)",
+      "expected_occurrences": 1,
+      "find_regex": "if\\s*\\(widget\\.state\\.serverProbeSucceeded\\)",
+      "test_file": "client/app/test/features/auth_screens_test.dart",
+      "test_names": ["connection_stamp_requires_successful_probe"],
+      "command": "flutter test test/features/auth_screens_test.dart --plain-name connection_stamp_requires_successful_probe"
+    },
+    {
+      "id": "invite_placeholder_calls_network",
+      "file": "client/app/lib/features/auth/view/login_screen.dart",
+      "find": "unawaited(showInviteSignupSheet(context));",
+      "replace": "widget.onLogin('', '');",
+      "expected_occurrences": 1,
+      "find_regex": "unawaited\\(showInviteSignupSheet\\(context\\)\\);",
+      "test_file": "client/app/test/features/auth_screens_test.dart",
+      "test_names": ["change_server_and_invite_placeholder_are_ui_only"],
+      "command": "flutter test test/features/auth_screens_test.dart --plain-name change_server_and_invite_placeholder_are_ui_only"
+    },
+    {
+      "id": "logo_without_tilt",
+      "file": "client/packages/jiabu_design/lib/src/components/jiabu_logo.dart",
+      "find": "degrees: degrees ?? context.jiabu.decor.logoTilt,",
+      "replace": "degrees: degrees ?? 0,",
+      "expected_occurrences": 1,
+      "find_regex": "degrees:\\s*degrees\\s*\\?\\?\\s*context\\.jiabu\\.decor\\.logoTilt,",
+      "test_file": "client/packages/jiabu_design/test/c4_components_test.dart",
+      "test_names": ["logo_has_size_tilt_semantics_and_dark_variant"],
+      "command": "cd ../packages/jiabu_design && flutter test test/c4_components_test.dart --plain-name logo_has_size_tilt_semantics_and_dark_variant"
+    }
+  ]
+}
