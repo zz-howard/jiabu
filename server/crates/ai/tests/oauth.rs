@@ -331,3 +331,186 @@ async fn store_read_failure_during_construction_still_recovers() {
         "synthetic-access"
     );
 }
+
+fn jwt(claims: serde_json::Value) -> String {
+    format!(
+        "e30.{}.synthetic",
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
+    )
+}
+async fn refreshed_with(id_token: impl Fn(&str) -> Option<String>, expires_in: i64) -> Arc<Tokens> {
+    let server = MockServer::start().await;
+    let id_token = id_token(&server.uri());
+    let mut body = json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":expires_in,"token_type":"Bearer"});
+    if let Some(id) = id_token {
+        body["id_token"] = json!(id);
+    }
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let manager =
+        CredentialManager::new(tokens.clone(), OAuthClient::at(&server.uri()).unwrap()).await;
+    let access = manager.access().await.unwrap();
+    assert_eq!(access.access_token, "synthetic-new-access");
+    tokens
+}
+#[tokio::test]
+async fn refresh_id_token_without_account_claim_keeps_account_and_rotation() {
+    let exp = chrono::Utc::now().timestamp() + 3600;
+    let cases: [fn(&str, i64) -> Option<String>; 4] = [
+        |_, _| None,
+        // Shape seen from the real issuer for dynamic agent clients: only per_user_salt.
+        |iss, exp| {
+            Some(jwt(
+                json!({"iss":iss,"aud":"oaiapp_fake","exp":exp,"sub":"synthetic-sub","https://api.openai.com/auth":{"per_user_salt":"synthetic"}}),
+            ))
+        },
+        |_, _| Some("not-a-jwt".to_owned()),
+        |iss, _| Some(jwt(json!({"iss":iss,"aud":"wrong","exp":1}))),
+    ];
+    for case in cases {
+        let tokens = refreshed_with(|iss| case(iss, exp), 3600).await;
+        let stored = tokens.snapshot().await;
+        assert!(stored.usable);
+        assert_eq!(stored.revision, 2);
+        assert_eq!(
+            stored.credentials.refresh_token,
+            "synthetic-rotated-refresh"
+        );
+        assert_eq!(stored.credentials.account_id, "synthetic-account");
+    }
+}
+#[tokio::test]
+async fn refresh_with_changed_account_claim_adopts_new_account() {
+    let server = MockServer::start().await;
+    let uri = server.uri();
+    let id = jwt(
+        json!({"iss":uri,"aud":"oaiapp_fake","exp":chrono::Utc::now().timestamp()+3600,"https://api.openai.com/auth":{"chatgpt_account_id":"synthetic-other"}}),
+    );
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","id_token":id,"expires_in":3600,"token_type":"Bearer"})))
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let manager = CredentialManager::new(tokens.clone(), OAuthClient::at(&uri).unwrap()).await;
+    manager.access().await.unwrap();
+    let stored = tokens.snapshot().await;
+    assert_eq!(stored.credentials.account_id, "synthetic-other");
+    assert_eq!(
+        stored.credentials.refresh_token,
+        "synthetic-rotated-refresh"
+    );
+}
+#[tokio::test]
+async fn refresh_with_unusable_lifetime_still_persists_rotation() {
+    let tokens = refreshed_with(|_| None, 0).await;
+    let stored = tokens.snapshot().await;
+    assert!(stored.usable);
+    assert_eq!(
+        stored.credentials.refresh_token,
+        "synthetic-rotated-refresh"
+    );
+}
+#[tokio::test]
+async fn login_without_account_claim_uses_subject_as_internal_key() {
+    let server = MockServer::start().await;
+    let oauth = OAuthClient::at(&server.uri()).unwrap();
+    let login = oauth.begin(uuid::Uuid::nil(), Some("oaiapp_fake")).unwrap();
+    let params: std::collections::BTreeMap<_, _> = login
+        .authorize_url
+        .query_pairs()
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    let id = jwt(
+        json!({"iss":server.uri(),"aud":"oaiapp_fake","exp":chrono::Utc::now().timestamp()+3600,"nonce":params["nonce"],"sub":"synthetic-sub","https://api.openai.com/auth":{"per_user_salt":"synthetic"}}),
+    );
+    Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-access","refresh_token":"synthetic-refresh","id_token":id,"expires_in":3600,"token_type":"Bearer","scope":SCOPES}))).mount(&server).await;
+    let creds = oauth
+        .complete(
+            login,
+            &format!("{REDIRECT}?code=synthetic&state={}", params["state"]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(creds.account_id, "sub:synthetic-sub");
+}
+#[tokio::test]
+async fn login_without_account_claim_or_subject_is_rejected() {
+    let server = MockServer::start().await;
+    let oauth = OAuthClient::at(&server.uri()).unwrap();
+    let login = oauth.begin(uuid::Uuid::nil(), Some("oaiapp_fake")).unwrap();
+    let params: std::collections::BTreeMap<_, _> = login
+        .authorize_url
+        .query_pairs()
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    let id = jwt(
+        json!({"iss":server.uri(),"aud":"oaiapp_fake","exp":chrono::Utc::now().timestamp()+3600,"nonce":params["nonce"]}),
+    );
+    Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-access","refresh_token":"synthetic-refresh","id_token":id,"expires_in":3600,"token_type":"Bearer","scope":SCOPES}))).mount(&server).await;
+    let result = oauth
+        .complete(
+            login,
+            &format!("{REDIRECT}?code=synthetic&state={}", params["state"]),
+        )
+        .await;
+    assert!(matches!(result, Err(ProviderError::Auth)));
+}
+
+struct FlakyWrite {
+    tokens: Arc<Tokens>,
+    failures: std::sync::atomic::AtomicU32,
+}
+#[async_trait::async_trait]
+impl TokenStore for FlakyWrite {
+    async fn load(&self) -> Result<jiabu_ai::credentials::TokenRead, ProviderError> {
+        self.tokens.load().await
+    }
+    async fn compare_exchange(
+        &self,
+        revision: i64,
+        next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        if self
+            .failures
+            .fetch_update(
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+                |n| n.checked_sub(1),
+            )
+            .is_ok()
+        {
+            return Err(ProviderError::Transport);
+        }
+        self.tokens.compare_exchange(revision, next).await
+    }
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+#[tokio::test]
+async fn transient_store_write_failure_is_retried_so_rotation_survives() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"access_token":"synthetic-new-access","refresh_token":"synthetic-rotated-refresh","expires_in":3600,"token_type":"Bearer"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let tokens = Tokens::new(chrono::Utc::now().timestamp() + 30);
+    let store = Arc::new(FlakyWrite {
+        tokens: tokens.clone(),
+        failures: std::sync::atomic::AtomicU32::new(2),
+    });
+    let manager = CredentialManager::new(store, OAuthClient::at(&server.uri()).unwrap()).await;
+    manager.access().await.unwrap();
+    assert_eq!(
+        tokens.snapshot().await.credentials.refresh_token,
+        "synthetic-rotated-refresh"
+    );
+}

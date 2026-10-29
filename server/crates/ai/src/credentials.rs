@@ -141,13 +141,26 @@ impl CredentialManager {
         {
             match self.oauth.refresh(&current).await {
                 Ok(next) => {
-                    match self.store.compare_exchange(revision, &next).await {
-                        Ok(true) => {}
-                        Ok(false) => eprintln!(
-                            "SIWC credential rotation was not persisted: revision changed"
-                        ),
-                        Err(_) => {
-                            eprintln!("SIWC credential rotation was not persisted: storage failure")
+                    // The old refresh token may already be dead upstream; retry transient
+                    // storage failures so the rotation survives a restart.
+                    for attempt in 0..3 {
+                        match self.store.compare_exchange(revision, &next).await {
+                            Ok(true) => break,
+                            Ok(false) => {
+                                eprintln!(
+                                    "SIWC credential rotation was not persisted: revision changed"
+                                );
+                                break;
+                            }
+                            Err(_) if attempt < 2 => {
+                                tokio::time::sleep(std::time::Duration::from_millis(
+                                    200 << attempt,
+                                ))
+                                .await;
+                            }
+                            Err(_) => eprintln!(
+                                "SIWC credential rotation was not persisted: storage failure"
+                            ),
                         }
                     }
                     return Ok(next);
