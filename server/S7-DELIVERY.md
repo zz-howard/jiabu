@@ -227,7 +227,7 @@
 ## PR ③：评测集、评测运行器与在线冒烟
 
 按 luna.coco 批准的计划实现；凭据刷新、真实 JPEG、原 Agent 测试不变三项修订均已纳入。
-本机没有编译、运行 Rust/PG 测试、执行在线请求、生成 JPEG 或生成评测 CSV。
+实现时本机未编译；随后在构建机上完成编译、门禁与 JPEG 生成（见“构建机验证”）。在线冒烟与真实全集尚未执行。
 
 ### 已编写
 
@@ -278,6 +278,16 @@
 4. 用现有 SIWC 登录/主密钥、独立可丢弃 PG18 集群跑三条在线冒烟，再跑真实全集；
    CSV 提交到 `server/eval/results/<日期>-<提供方>/`，逐条评审硬失败与软准确率。
    本次没有真实模型质量、缓存命中或性能结果。
+
+### 构建机验证（luna.coco）
+
+- 已运行收据脚本并提交三张 JPEG（清晰 / 倾斜 / 长小票）；Cargo.lock 已含 `ai-eval`。
+- 构建机修正：评测集 `locale` 由 `zh-CN` / `en-US` 改为 `zh-Hans` / `en`，与 `users.locale` 约束一致
+  （此前 Mock 全集与负对照 4 条因此失败）。
+- 完整门禁（PG18）：fmt、entities、openapi、`cargo check -p ai-eval --features live --all-targets`、
+  clippy `-D warnings`、nextest 341/341、cargo deny、cargo audit、`tool/check-*.sh` 全部通过。
+- 留给后续：三条在线冒烟与真实全集（第 4 条）；`DatabaseTokens` 目前与 `bins/server/src/ai_runtime.rs`
+  中的实现逐行相同，后续可移入共享库避免两份凭据读写代码漂移。
 
 ### 本机静态核对
 
