@@ -69,7 +69,7 @@ impl Scenario {
             let bytes=std::fs::read(root.join(file)).context("receipt missing; run gen_receipts.py")?;
             ensure!(image::guess_format(&bytes)?==image::ImageFormat::Jpeg,"invalid receipt");
             let decoded=image::load_from_memory_with_format(&bytes,image::ImageFormat::Jpeg)?;
-            let hash=format!("{:x}",Sha256::digest(&bytes));
+            let hash:String=Sha256::digest(&bytes).iter().map(|b|format!("{b:02x}")).collect();
             let tx=SpaceTx::begin(&f.db,f.p.user_id,&[(f.space,None)],Mode::Write).await?;
             let digest=Sha256::digest(&bytes);
             tx.save_blob(f.space,&digest[..],i64::try_from(bytes.len())?,(i32::try_from(decoded.width())?,i32::try_from(decoded.height())?),chrono::Utc::now()).await?;
