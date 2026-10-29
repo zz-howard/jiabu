@@ -59,7 +59,7 @@ pub trait TokenStore: Send + Sync {
 }
 /// Shared by provider/source across configuration generations.
 pub struct RefreshGate {
-    lock: Mutex<()>,
+    lock: Arc<Mutex<()>>,
     usable: AtomicBool,
     /// A rotation the store did not accept. Upstream may already have invalidated the
     /// stored refresh token, so this copy wins while the store still holds exactly the
@@ -78,12 +78,14 @@ struct Unpersisted {
 impl Default for RefreshGate {
     fn default() -> Self {
         Self {
-            lock: Mutex::new(()),
+            lock: Arc::new(Mutex::new(())),
             usable: AtomicBool::new(true),
             unpersisted: std::sync::Mutex::new(None),
         }
     }
 }
+/// Bounds each store call, since a detached refresh holds the gate meanwhile.
+const STORE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 #[derive(Clone)]
 pub struct CredentialManager {
     store: Arc<dyn TokenStore>,
@@ -125,7 +127,8 @@ impl CredentialManager {
         self.access_inner(Some(access_token)).await
     }
     async fn load(&self) -> Result<(i64, OAuthCredentials), ProviderError> {
-        match self.store.load().await {
+        let read = tokio::time::timeout(STORE_TIMEOUT, self.store.load()).await;
+        match read.unwrap_or(Ok(TokenRead::Unavailable)) {
             Ok(TokenRead::Present {
                 revision,
                 credentials,
@@ -155,11 +158,10 @@ impl CredentialManager {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = pending;
     }
     /// Retries transient storage failures; false when the rotation is not stored.
-    /// Each write is bounded, since the detached refresh holds the lock meanwhile.
     async fn persist(&self, revision: i64, next: &OAuthCredentials) -> bool {
         for attempt in 0..3u32 {
             let write = self.store.compare_exchange(revision, next);
-            match tokio::time::timeout(std::time::Duration::from_secs(10), write).await {
+            match tokio::time::timeout(STORE_TIMEOUT, write).await {
                 Ok(Ok(true)) => return true,
                 Ok(Ok(false)) => return false,
                 _ if attempt < 2 => {
@@ -170,23 +172,27 @@ impl CredentialManager {
         }
         false
     }
-    /// Detached so a caller cancelled by its deadline cannot drop a rotation upstream
-    /// has already made; the task still records it in the gate.
+    /// Waiting for the gate stays cancellable. Once held, the work is detached so a
+    /// caller cancelled by its deadline cannot drop a rotation upstream has already
+    /// made, and at most one detached task runs per gate.
     async fn access_inner(
         &self,
         rejected: Option<&str>,
     ) -> Result<OAuthCredentials, ProviderError> {
+        let guard = self.refresh.lock.clone().lock_owned().await;
         let manager = self.clone();
         let rejected = rejected.map(str::to_owned);
-        tokio::spawn(async move { manager.access_locked(rejected.as_deref()).await })
-            .await
-            .unwrap_or(Err(ProviderError::Transport))
+        tokio::spawn(async move {
+            let _guard = guard;
+            manager.access_locked(rejected.as_deref()).await
+        })
+        .await
+        .unwrap_or(Err(ProviderError::Transport))
     }
     async fn access_locked(
         &self,
         rejected: Option<&str>,
     ) -> Result<OAuthCredentials, ProviderError> {
-        let _guard = self.refresh.lock.lock().await;
         let (mut revision, mut current) = self.load().await?;
         // The token the store holds, which a later pending rotation must still match.
         let mut stored = Zeroizing::new(current.refresh_token.clone());
@@ -258,10 +264,20 @@ impl CredentialManager {
 }
 /// Compatibility source, atomically replaced on the same filesystem. A sidecar
 /// lock serializes read/CAS/rename across CLI and server processes on this host.
+#[derive(Clone)]
 pub struct FileTokenStore {
     pub path: PathBuf,
 }
 impl FileTokenStore {
+    /// File locks and fsync block, so they run off the async workers where the
+    /// manager's store timeout can still fire.
+    async fn blocking<T: Send + 'static>(
+        op: impl FnOnce() -> Result<T, ProviderError> + Send + 'static,
+    ) -> Result<T, ProviderError> {
+        tokio::task::spawn_blocking(op)
+            .await
+            .unwrap_or(Err(ProviderError::Transport))
+    }
     fn read_result(
         result: Result<VersionedToken, ProviderError>,
     ) -> Result<TokenRead, ProviderError> {
@@ -361,17 +377,20 @@ pub struct FileDocument {
 #[async_trait]
 impl TokenStore for FileTokenStore {
     async fn load(&self) -> Result<TokenRead, ProviderError> {
-        Self::read_result(self.read())
+        let store = self.clone();
+        Self::read_result(Self::blocking(move || store.read()).await)
     }
     async fn compare_exchange(
         &self,
         expected: i64,
         next: &OAuthCredentials,
     ) -> Result<bool, ProviderError> {
-        self.update(expected, Some(next))
+        let (store, next) = (self.clone(), next.clone());
+        Self::blocking(move || store.update(expected, Some(&next))).await
     }
     async fn invalidate(&self, expected: i64) -> Result<bool, ProviderError> {
-        self.update(expected, None)
+        let store = self.clone();
+        Self::blocking(move || store.update(expected, None)).await
     }
 }
 
