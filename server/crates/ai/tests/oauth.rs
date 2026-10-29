@@ -601,9 +601,7 @@ async fn unpersisted_rotation_survives_manager_rebuild_but_not_a_new_credential(
             error: false,
         });
         let uri = server.uri();
-        async move {
-            CredentialManager::with_gate(store, OAuthClient::at(&uri).unwrap(), gate).await
-        }
+        async move { CredentialManager::with_gate(store, OAuthClient::at(&uri).unwrap(), gate).await }
     };
     manager(gate.clone()).await.access().await.unwrap();
     // A configuration reload builds a new manager on the same gate.
