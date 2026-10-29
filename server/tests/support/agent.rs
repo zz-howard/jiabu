@@ -58,7 +58,11 @@ impl Fixture {
             .await?;
         Self::build(test, plan, scripts).await
     }
-    pub async fn build(test: support::TestDb, plan: jiabu_domain::space_init::SpaceInit, scripts: Vec<TurnScript>) -> Result<Self> {
+    pub async fn build(
+        test: support::TestDb,
+        plan: jiabu_domain::space_init::SpaceInit,
+        scripts: Vec<TurnScript>,
+    ) -> Result<Self> {
         let db = AppDb::connect(&test.app_url).await?;
         let owner = test.owner().await?;
         let p = Principal {

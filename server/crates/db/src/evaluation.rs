@@ -29,7 +29,10 @@ impl AppDb {
         let tx = SystemTx::begin(self).await?;
         let rows = tx.tx.query_all_raw(Statement::from_string(DbBackend::Postgres,
             "select (to_jsonb(p)-'id'-'created_at') || jsonb_build_object('input',p.input::text,'cached_input',p.cached_input::text,'output',p.output::text) data from ai_prices p order by effective_from,created_at,id".to_owned())).await?;
-        let values = rows.into_iter().map(|r|r.try_get("", "data")).collect::<Result<Vec<Value>, DbErr>>()?;
+        let values = rows
+            .into_iter()
+            .map(|r| r.try_get("", "data"))
+            .collect::<Result<Vec<Value>, DbErr>>()?;
         tx.commit().await?;
         Ok(values)
     }
