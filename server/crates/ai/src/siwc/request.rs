@@ -12,6 +12,9 @@ pub fn body(
             RequestItem::Message { role, text, images } => {
                 if !matches!(role.as_str(), "user" | "assistant" | "developer") { return Err(ProviderError::Unsupported("message role")); }
                 if role == "assistant" && !images.is_empty() { return Err(ProviderError::Unsupported("assistant images")); }
+                // Upstream rejects `input_text` parts in assistant history (invalid_value at
+                // input[n].content[0]); plain string content is valid for every role.
+                if role == "assistant" { input.push(json!({"role":role,"content":text})); continue; }
                 let mut content = vec![json!({"type":"input_text","text":text})];
                 for image in images {
                     if !image.starts_with("data:image/jpeg;base64,") { return Err(ProviderError::Unsupported("JPEG data URL required")); }

@@ -106,6 +106,7 @@ pub enum ProviderError {
 - function / custom 工具必须放进 **namespace**，或通过 `additional_tools` 输入项提供；不支持图片生成、file search、Code Interpreter、托管 MCP、`tool_search`。
 - `strict: true` 的函数要求每层对象 `additionalProperties: false` 且所有声明的属性都在 `required` 里，否则整个请求以 `invalid_function_parameters`（`invalid_request_error`）被拒（2026-10-29 实测，`ask_user` 的可选字段触发）。适配器逐个工具判断：满足才发 strict，否则发 `strict: false`，参数仍由 Agent 按 Schema 校验。不把可选字段改写成「必填 + 可空」，因为补丁类工具里 `null` 与「不改」含义不同。`crates/agent/tests/tool_schemas.rs` 离线断言每个工具要么 strict 兼容、要么在显式的非 strict 清单里，并对每个工具 Schema 做快照。
 - 模型返回的 namespace 工具调用是裸名加 `"namespace": "jiabu"`（2026-10-29 录制，`crates/ai/tests/fixtures/siwc/tool_call.response.sse`）；适配器把裸名交给 Agent（工具注册表用裸名），也接受 `jiabu.<工具>` 形式，拒绝其他 namespace。
+- 历史里的 assistant 消息用字符串 `content` 发送；带 `input_text` 内容块的 assistant 消息会以 `invalid_value`（`input[n].content[0]`）被拒（2026-10-29 实测，对话第二条消息起每次失败）。user / developer 消息仍用 `input_text` / `input_image` 内容块。
 - `invalid_request_error`（请求本身被拒）映射为 `ProviderError::Rejected { code, message }`：不重试、不进入「等待 AI」，运行直接失败，`last_error` 记 `request_rejected:<code>`，日志带上游 code 和 message。
 - 文本、图片、文件仅当所选模型接受时可用。
 - 额度错误 `subscription_sharing_usage_limit_exceeded` / `subscription_sharing_usage_unavailable` 可能在流开始后以 `response.failed` 到达，适配器要映射成 `ProviderError::QuotaExhausted`。
