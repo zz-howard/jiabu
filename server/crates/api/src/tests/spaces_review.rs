@@ -26,7 +26,8 @@ async fn accepted_retry_survives_inviter_leave_but_not_space_deletion() -> Resul
     let space = create(&app, &owner_token).await?;
     let inviter_invitation = invite(&app, &owner_token, space, "inviter", 1).await?;
     accept(&app, &inviter, inviter_invitation).await?;
-    let invitation = invite(&app, &inviter.token, space, "invitee", 1).await?;
+    // P71: only the owner invites; the other member's departure below must not affect the replay.
+    let invitation = invite(&app, &owner_token, space, "invitee", 1).await?;
     let path = format!("/v1/me/invitations/{invitation}/accept");
     let key = Uuid::now_v7().to_string();
     let first = app
@@ -44,7 +45,7 @@ async fn accepted_retry_survives_inviter_leave_but_not_space_deletion() -> Resul
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("missing member"))?,
     )?;
-    // The successful response was lost by the client. Its inviter then leaves.
+    // The successful response was lost by the client. Another member then leaves.
     assert_eq!(
         write(
             &app,

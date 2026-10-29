@@ -109,9 +109,11 @@ impl SpaceTx {
         if change.requires_owner() && !actor.is_owner() {
             return Err(Error::not_found());
         }
+        // P71: the current owner may withdraw any pending invitation; the inviter keeps
+        // withdrawal rights for invitations sent before a transfer.
         if let Change::Cancel { invitation } = change {
-            self.one("select id from space_invitations where space_id=$1 and id=$2 and invited_by_member_id=$3",
-                vec![space.0.into(), (*invitation).into(), actor.id().0.into()]).await?.ok_or_else(Error::not_found)?;
+            self.one("select id from space_invitations where space_id=$1 and id=$2 and (invited_by_member_id=$3 or $4)",
+                vec![space.0.into(), (*invitation).into(), actor.id().0.into(), actor.is_owner().into()]).await?.ok_or_else(Error::not_found)?;
         }
         Ok(())
     }
@@ -134,8 +136,8 @@ impl SpaceTx {
         self.execute("update space_members set status='left',left_at=now(),left_reason=$3,version=version+1,change_seq=$4 where space_id=$1 and id=$2 and status='active'",
             vec![space.0.into(), member.0.into(), reason.into(), seq.into()]).await?;
         self.cancel_runs(space, Some(member)).await?;
-        self.execute("update space_invitations set status='cancelled',decided_at=now() where space_id=$1 and invited_by_member_id=$2 and status='pending'",
-            vec![space.0.into(), member.0.into()]).await?;
+        // P71 supersedes P64③: invitations are sent on behalf of the space by its owner,
+        // so they stay pending when the sender later leaves; the current owner can withdraw them.
         Ok(())
     }
     fn version(&self, current: &Value, expected: i32) -> Result<(), Error> {
@@ -403,7 +405,7 @@ impl AppDb {
     pub async fn received_invitations(&self, user: UserId) -> Result<Value, Error> {
         // The explicit invitation grants access to these two labels only, not space content.
         let rows = self.connection.query_all_raw(Statement::from_sql_and_values(DbBackend::Postgres,
-            "select i.id,s.name space_name,m.display_name inviter_display_name from space_invitations i join spaces s on s.id=i.space_id join space_members m on m.id=i.invited_by_member_id and m.space_id=i.space_id where i.invitee_user_id=$1 and i.status='pending' and s.deleted_at is null and m.status='active' order by i.created_at,i.id", [user.0.into()])).await?;
+            "select i.id,s.name space_name,m.display_name inviter_display_name from space_invitations i join spaces s on s.id=i.space_id join space_members m on m.id=i.invited_by_member_id and m.space_id=i.space_id where i.invitee_user_id=$1 and i.status='pending' and s.deleted_at is null order by i.created_at,i.id", [user.0.into()])).await?;
         let mut invitations = Vec::new();
         for row in rows {
             invitations.push(json!({"id":row.try_get::<Uuid>("","id")?,"space_name":row.try_get::<String>("","space_name")?,"inviter_display_name":row.try_get::<String>("","inviter_display_name")?}));
@@ -430,13 +432,12 @@ impl AppDb {
             .ok_or_else(Error::not_found)?;
         let space = SpaceId(row.try_get("", "space_id")?);
         let tx = SpaceTx::bootstrap(self, space).await?;
-        let row = tx.one("select i.status,i.invited_by_member_id,s.deleted_at is not null deleted,m.status='active' inviter_active from space_invitations i join spaces s on s.id=i.space_id join space_members m on m.id=i.invited_by_member_id and m.space_id=i.space_id where i.space_id=$1 and i.id=$2 and i.invitee_user_id=$3", vec![space.0.into(), invitation.into(), user.0.into()]).await?.ok_or_else(Error::not_found)?;
+        let row = tx.one("select i.status,i.invited_by_member_id,s.deleted_at is not null deleted from space_invitations i join spaces s on s.id=i.space_id where i.space_id=$1 and i.id=$2 and i.invitee_user_id=$3", vec![space.0.into(), invitation.into(), user.0.into()]).await?.ok_or_else(Error::not_found)?;
         let current: String = row.try_get("", "status")?;
-        // The inviter authorizes a pending join, not retries of a completed join.
         // Space deletion always invalidates access, including accepted replays.
+        // P71: a pending invitation stays valid after its sender leaves.
         let space_deleted = row.try_get::<bool>("", "deleted")?;
-        let inviter_left = current == "pending" && !row.try_get::<bool>("", "inviter_active")?;
-        if space_deleted || inviter_left {
+        if space_deleted {
             tx.execute("update space_invitations set status='cancelled',decided_at=now() where space_id=$1 and id=$2 and status='pending'", vec![space.0.into(), invitation.into()]).await?;
             tx.commit().await?; // Preserve invalidation even though the HTTP response is an error.
             return Err(Error::not_found());
@@ -527,9 +528,11 @@ impl AppDb {
 }
 impl SpaceTx {
     pub async fn invitations(&self, space: SpaceId) -> Result<Value, Error> {
-        self.member(space);
+        // P71: the owner sees every invitation; anyone else only those it sent itself
+        // (a former owner's invitations from before a transfer).
+        let actor = self.member(space);
         let rows = self.tx.query_all_raw(Statement::from_sql_and_values(DbBackend::Postgres,
-            "select jsonb_build_object('id',i.id,'status',i.status,'invitee_username',u.username,'invited_by_member_id',i.invited_by_member_id,'created_at',i.created_at,'decided_at',i.decided_at) value from space_invitations i join users u on u.id=i.invitee_user_id where i.space_id=$1 order by i.created_at,i.id", [space.0.into()])).await?;
+            "select jsonb_build_object('id',i.id,'status',i.status,'invitee_username',u.username,'invited_by_member_id',i.invited_by_member_id,'created_at',i.created_at,'decided_at',i.decided_at) value from space_invitations i join users u on u.id=i.invitee_user_id where i.space_id=$1 and ($2 or i.invited_by_member_id=$3) order by i.created_at,i.id", [space.0.into(), actor.is_owner().into(), actor.id().0.into()])).await?;
         let mut invitations = Vec::new();
         for row in rows {
             invitations.push(normalize_fields(
