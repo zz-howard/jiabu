@@ -228,6 +228,8 @@ final class DioApiClient implements ApiClient, ChatApi {
       bytes: body == null ? const Stream<List<int>>.empty() : body.stream,
     );
   }
+
+  @override
   Future<Map<String, Object?>> accountRequest(
     String path, {
     String method = 'GET',

@@ -84,7 +84,7 @@ void main() {
     expect(spaces.actions, isEmpty);
   });
   testWidgets(
-    'member_can_invite_but_has_no_owner_actions_and_personal_has_no_leave_or_invite',
+    'member_invites_without_owner_actions_personal_hides_all',
     (tester) async {
       await pumpC4Widget(
         tester,
