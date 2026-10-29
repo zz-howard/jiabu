@@ -543,7 +543,15 @@ pub(crate) async fn close_run(
         .await
         .map_err(|error| protocol_error_at("close_run: collect terminal batch", error))?;
     if reason == "stopped" {
-        let unfinished = calls.iter().filter(|c| c.status != "succeeded").count();
+        // Calls whose arguments were rejected never ran; they are not unfinished work.
+        let unfinished = calls
+            .iter()
+            .filter(|c| {
+                c.status != "succeeded"
+                    && c.guard.as_ref().and_then(|g| g.get("invalid_arguments"))
+                        != Some(&serde_json::Value::Bool(true))
+            })
+            .count();
         batch=jiabu_chat::terminal_summary(&initial,batch,&format!("已停止；已保存 {count} 项，未完成 {unfinished} 项 / Stopped; {count} operations saved, {unfinished} unfinished.")).map_err(|error| protocol_error_at("close_run: fold terminal summary", error))?;
     }
     tx.record_interrupt_close(space, run, status).await?;

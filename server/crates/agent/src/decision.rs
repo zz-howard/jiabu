@@ -55,6 +55,37 @@ pub fn next_action(items: &[JournalItem], calls: &[ToolCallRow]) -> NextAction {
     }
     interrupt.map_or(NextAction::Model, NextAction::Interrupt)
 }
+/// The first tool whose failed results exceed the first attempt plus
+/// `MAX_TOOL_CORRECTIONS`. The model stops getting another try once this is `Some`.
+pub fn corrections_exhausted<'a>(
+    items: &[JournalItem],
+    calls: &'a [ToolCallRow],
+) -> Option<&'a str> {
+    // A user retry copies the earlier run's results and then freezes a new prompt;
+    // only results after the latest freeze belong to this run's budget.
+    let start = items
+        .iter()
+        .rposition(|i| i.kind == "note" && i.payload.get("frozen_prompt").is_some())
+        .map_or(0, |p| p + 1);
+    let mut counts = std::collections::BTreeMap::<&str, usize>::new();
+    for item in items[start..].iter().filter(|i| i.kind == "tool_result") {
+        if !crate::counts_as_failure(&item.payload["output"]) {
+            continue;
+        }
+        let Some(call) = calls
+            .iter()
+            .find(|c| item.call_id.as_deref() == Some(c.call_id.as_str()))
+        else {
+            continue;
+        };
+        let n = counts.entry(call.tool.as_str()).or_default();
+        *n += 1;
+        if *n > crate::MAX_TOOL_CORRECTIONS {
+            return Some(call.tool.as_str());
+        }
+    }
+    None
+}
 #[cfg(test)]
 mod tests {
     use super::*;

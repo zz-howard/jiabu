@@ -234,7 +234,14 @@ impl AiRouter {
                         });
                         continue;
                     }
-                    if result == Err(ProviderError::InvalidOutput) && !retried_format {
+                    // Stream corruption and unmapped upstream failures get one retry per route.
+                    if matches!(
+                        result,
+                        Err(ProviderError::InvalidOutput
+                            | ProviderError::Incomplete { .. }
+                            | ProviderError::UpstreamFailed { .. })
+                    ) && !retried_format
+                    {
                         retried_format = true;
                         continue;
                     }

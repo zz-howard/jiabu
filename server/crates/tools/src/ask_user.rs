@@ -33,28 +33,39 @@ pub struct AskArgs {
 }
 impl AskArgs {
     pub fn check(&self) -> Result<(), ToolError> {
-        self.validate().map_err(|_| ToolError::invalid())?;
-        if (!self.options.is_empty() && !self.fields.is_empty())
-            || self.options.len() > 10
-            || self.options.len() == 1
-            || self.fields.len() > 12
-        {
-            return Err(ToolError::invalid());
+        let invalid = |pointer: &str, rule: &str| Err(ToolError::invalid_at(pointer, rule));
+        let length = self.prompt.chars().count();
+        if !(1..=2000).contains(&length) {
+            return invalid("/prompt", "length_1_2000");
+        }
+        if !self.options.is_empty() && !self.fields.is_empty() {
+            return invalid("/fields", "exclusive_with_options");
+        }
+        if self.options.len() > 10 || self.options.len() == 1 {
+            return invalid("/options", "count_0_or_2_10");
+        }
+        if self.fields.len() > 12 {
+            return invalid("/fields", "max_items_12");
         }
         let mut keys = std::collections::BTreeSet::new();
-        for o in &self.options {
-            if o.id.is_empty() || o.label.is_empty() || !keys.insert(o.id.as_str()) {
-                return Err(ToolError::invalid());
+        for (i, o) in self.options.iter().enumerate() {
+            if o.id.is_empty() || o.label.is_empty() {
+                return invalid(&format!("/options/{i}"), "non_empty_id_and_label");
+            }
+            if !keys.insert(o.id.as_str()) {
+                return invalid(&format!("/options/{i}/id"), "unique");
             }
         }
         keys.clear();
-        for f in &self.fields {
-            if f.key.is_empty()
-                || f.label.is_empty()
-                || !matches!(f.kind.as_str(), "text" | "number" | "date" | "boolean")
-                || !keys.insert(f.key.as_str())
-            {
-                return Err(ToolError::invalid());
+        for (i, f) in self.fields.iter().enumerate() {
+            if f.key.is_empty() || f.label.is_empty() {
+                return invalid(&format!("/fields/{i}"), "non_empty_key_and_label");
+            }
+            if !matches!(f.kind.as_str(), "text" | "number" | "date" | "boolean") {
+                return invalid(&format!("/fields/{i}/type"), "text_number_date_boolean");
+            }
+            if !keys.insert(f.key.as_str()) {
+                return invalid(&format!("/fields/{i}/key"), "unique");
             }
         }
         Ok(())

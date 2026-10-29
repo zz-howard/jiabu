@@ -108,6 +108,8 @@ pub enum ProviderError {
 - 模型返回的 namespace 工具调用是裸名加 `"namespace": "jiabu"`（2026-10-29 录制，`crates/ai/tests/fixtures/siwc/tool_call.response.sse`）；适配器把裸名交给 Agent（工具注册表用裸名），也接受 `jiabu.<工具>` 形式，拒绝其他 namespace。
 - 历史里的 assistant 消息用字符串 `content` 发送；带 `input_text` 内容块的 assistant 消息会以 `invalid_value`（`input[n].content[0]`）被拒（2026-10-29 实测，对话第二条消息起每次失败）。user / developer 消息仍用 `input_text` / `input_image` 内容块。
 - `invalid_request_error`（请求本身被拒）映射为 `ProviderError::Rejected { code, message }`：不重试、不进入「等待 AI」，运行直接失败，`last_error` 记 `request_rejected:<code>`，日志带上游 code 和 message。
+- 本轮模型输出按原顺序回放：每条输出消息在流结束时以完整文本和 `phase`（`commentary` / `final_answer`，其他值丢弃）进 journal，下一次请求在它原来的位置以字符串 `content` 加 `phase` 发回，与工具调用、推理块的相对顺序不变（上游要求无状态客户端保留 assistant 消息的 `phase`）。不按消息分界的提供方（如 mock）仍把整段文字放在本轮最前面；旧 journal 里没有分界的轮次也照旧回放。
+- 三类错误分开处理，都带上游标识：① 请求被拒（`Rejected`）见上，不重试；② 模型给的工具参数不合格，见第 5 节，回填给模型改正；③ 流损坏：解析失败、事件不一致（`InvalidOutput`）或 `response.incomplete`（`Incomplete { reason }`，reason 为上游 `incomplete_details.reason`），每条路由重试一次，仍失败就让运行失败（`last_error` 为 `invalid_output` 或 `incomplete:<reason>`），不进入「等待 AI」，避免同一请求反复重发。已经有文字显示给用户时不重试（不能悄悄重发已显示的内容）：运行 `interrupted`，`last_error` 为 `partial_output`，截断的流则为 `incomplete:<reason>`。`response.failed` 里没有专门映射的 code（如 `server_error`）记为 `UpstreamFailed { code }`，按暂时性故障处理：重试一次、降级、全部失败再「等待 AI」。日志只记 code / reason 这类标识，不记上游返回的自由文本。
 - 文本、图片、文件仅当所选模型接受时可用。
 - 额度错误 `subscription_sharing_usage_limit_exceeded` / `subscription_sharing_usage_unavailable` 可能在流开始后以 `response.failed` 到达，适配器要映射成 `ProviderError::QuotaExhausted`。
 
@@ -142,7 +144,12 @@ SIWC 只有浏览器 + 本机回环回调，没有设备码流程。**v1 用下�
 
 - **结构化输出 = 工具调用的参数**：每个工具的参数类型用 `schemars` 1.2 生成 JSON Schema，随工具清单进提示词快照（SIWC 下工具放进 namespace，4.2）。记账是 `create_record`、信息不全是 `ask_user`、问数是 `query_stats`……没有单独的“记账解析”调用（A16，技术方案 7.3）。
 - **统一校验**：`ToolRegistry::invoke()` 里 serde 反序列化 → `jsonschema` 0.60 校验 → `validator` → 业务规则（金额 > 0、账户 / 标签存在且属于运行所在空间、日期不在未来过远）。
-- 校验失败：作为工具错误（`validation_failed` + 出错的字段）回填给模型，由模型改正或说明；不计入提供方降级。
+- 校验失败：作为工具错误回填给模型，由模型改正或说明；不计入提供方降级。
+  - 参数解析或 Schema / `validator` 校验不过：这次调用记为 `rejected`（不执行），结果是 `{"error":"invalid_arguments","errors":[{"pointer":"/amount_minor","rule":"type"}],"note":…}`，与这一轮模型输出在同一事务里写入；调用不存在或不可用的工具得到 `unknown_tool` 加可用工具名。
+  - 执行时的业务校验失败（如支出缺用途账户）：`validation_failed`，`errors` 同样指出字段和规则（如 `/purpose_id`、`required_for_kind`），找不到的账户 / 标签也标出是哪个字段。
+  - 只报字段路径和规则名，不回显参数值（可能含用户原话）；路径里不是短标识符或下标的一段（例如模型编出来的属性名、映射的键）记为 `*`。
+  - 用户点「重试」开的新运行有自己的改正次数：只算这次运行冻结提示词之后的结果。
+  - **次数有上限**：同一工具在一次运行里失败的调用（不论错误码；只有重试迁移产生的 `tool_schema_changed` 不算）最多再改正 `MAX_TOOL_CORRECTIONS = 2` 次（首次 + 两次改正）；第三次仍失败就不再调用模型，运行失败，`last_error = tool_arguments_rejected`。重复的 call id 属于流损坏，不回填。
 - 图片在服务端先压缩到 ≤ 1600px JPEG 再发给模型；原图另行留存。
 
 ## 6. 运行与中断
@@ -230,10 +237,11 @@ as_of = "<核对日期>"
 
 | 错误 | 处理 |
 |---|---|
-| `Timeout` / `Transport` / `RateLimited` / 5xx / `InvalidOutput`（流格式错误，重试一次后） | 链上下一个 |
+| `Timeout` / `Transport` / `RateLimited` / 5xx / `UpstreamFailed` / `InvalidOutput` / `Incomplete`（流损坏与未映射的上游失败各重试一次后） | 链上下一个 |
 | `Auth` / `QuotaExhausted` | 链上下一个，并告警 |
 | `Unsupported`（如无视觉能力） | 路由前就过滤掉 |
-| 链全部失败 | 任务置 `waiting_ai`，稍后重试 |
+| 链全部失败 | 任务置 `waiting_ai`，稍后重试；最后一个错误是流损坏（`InvalidOutput` / `Incomplete`）时运行直接失败（4.2） |
+| `Rejected`（请求被拒） | 不降级、不重试，运行失败（4.2） |
 
 - 每个提供方一个熔断器（连续失败 N 次冷却 M 分钟）。
 - **降级永远不越过 `billing` 策略**：订阅 / 本地失败后，只有 `allow_paid_fallback = true` 才会尝试付费提供方。

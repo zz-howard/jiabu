@@ -16,6 +16,12 @@ pub enum ProviderError {
     Unsupported(&'static str),
     #[error("invalid upstream output")]
     InvalidOutput,
+    /// The stream ended as `response.incomplete`; `reason` is a sanitized identifier.
+    #[error("incomplete upstream output: {reason}")]
+    Incomplete { reason: String },
+    /// Upstream reported a failure code that has no specific mapping (e.g. `server_error`).
+    #[error("upstream failure: {code}")]
+    UpstreamFailed { code: String },
     /// Upstream refused the request itself (e.g. a tool schema); resending cannot help.
     /// `code` and `param` are sanitized identifiers. `message` is truncated upstream text
     /// that may echo request values, so only schema (`param == "tools"`) messages are logged.
@@ -45,6 +51,8 @@ impl ProviderError {
             Self::Auth => "auth",
             Self::Unsupported(_) => "unsupported",
             Self::InvalidOutput => "invalid_output",
+            Self::Incomplete { .. } => "incomplete",
+            Self::UpstreamFailed { .. } => "upstream_failed",
             Self::Rejected { .. } => "request_rejected",
             Self::BlobRejected => "blob_rejected",
             Self::Timeout => "timeout",

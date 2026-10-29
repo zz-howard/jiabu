@@ -216,10 +216,7 @@ impl<T: TypedTool> AgentTool for TypedAdapter<T> {
     fn validate(&self, raw: Value) -> Result<Box<dyn ValidatedCall>, ToolError> {
         if !self.validator.is_valid(&raw) {
             let mut error = ToolError::invalid();
-            error.errors = Some(vec![jiabu_db::ValidationIssue {
-                pointer: "/".into(),
-                rule: "schema".into(),
-            }]);
+            error.errors = Some(schema_issues(&self.validator, &raw));
             return Err(error);
         }
         let args: T::Args = serde_json::from_value(raw).map_err(|_| ToolError::invalid())?;
@@ -243,5 +240,74 @@ impl<T: TypedTool> AgentTool for TypedAdapter<T> {
             tool: self.tool.clone(),
             args,
         }))
+    }
+}
+/// Field-level schema violations: JSON pointer plus the failing keyword. Only
+/// schema-shaped names are reported: any pointer segment that is not a short
+/// identifier or index (a map key or unexpected property the model made up, which may
+/// carry user text) becomes `*`. Instance values never appear.
+fn schema_issues(validator: &jsonschema::Validator, raw: &Value) -> Vec<jiabu_db::ValidationIssue> {
+    use jsonschema::error::ValidationErrorKind;
+    const LIMIT: usize = 16;
+    let mut issues = Vec::new();
+    let mut push = |pointer: String, rule: &str| {
+        let issue = jiabu_db::ValidationIssue {
+            pointer: safe_pointer(&pointer),
+            rule: rule.into(),
+        };
+        if !issues
+            .iter()
+            .any(|i: &jiabu_db::ValidationIssue| i.pointer == issue.pointer && i.rule == issue.rule)
+        {
+            issues.push(issue);
+        }
+    };
+    for error in validator.iter_errors(raw).take(LIMIT) {
+        let path = error.instance_path().to_string();
+        match error.kind() {
+            ValidationErrorKind::Required { property } => {
+                push(
+                    format!("{path}/{}", property.as_str().unwrap_or("")),
+                    "required",
+                );
+            }
+            ValidationErrorKind::AdditionalProperties { unexpected } => {
+                for name in unexpected {
+                    push(format!("{path}/{name}"), "unknown_property");
+                }
+            }
+            kind => push(path, kind.keyword()),
+        }
+    }
+    if issues.is_empty() {
+        issues.push(jiabu_db::ValidationIssue {
+            pointer: "/".into(),
+            rule: "schema".into(),
+        });
+    }
+    issues.truncate(LIMIT);
+    issues
+}
+/// `/a/0/b` stays; segments outside `[A-Za-z0-9_]{1,40}` become `*`; empty is `/`.
+pub(crate) fn safe_pointer(pointer: &str) -> String {
+    let segments: Vec<&str> = pointer
+        .split('/')
+        .skip(1)
+        .map(|segment| {
+            if (1..=40).contains(&segment.len())
+                && segment
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                segment
+            } else {
+                "*"
+            }
+        })
+        .collect();
+    if segments.is_empty() {
+        "/".into()
+    } else {
+        format!("/{}", segments.join("/"))
     }
 }

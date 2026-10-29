@@ -23,6 +23,15 @@ pub fn body(
                 json!({"role":role,"content":content})
             },
             RequestItem::ToolCall { call_id,name,args_raw } => json!({"type":"function_call","call_id":call_id,"namespace":"jiabu","name":name.strip_prefix("jiabu.").unwrap_or(name),"arguments":args_raw}),
+            // Model output replays in its output position as an easy input message with
+            // string content (as for history) plus its `phase`, which upstream asks
+            // stateless clients to preserve on assistant messages.
+            RequestItem::AssistantMessage { text, phase } => {
+                if text.is_empty() { continue; }
+                let mut message = json!({"role":"assistant","content":text});
+                if let Some(phase) = phase { message["phase"] = json!(phase); }
+                message
+            },
             RequestItem::ToolResult { call_id,output } => json!({"type":"function_call_output","call_id":call_id,"output":output}),
             RequestItem::ProviderBlob(blob) => {
                 if blob.provider_id != provider_id

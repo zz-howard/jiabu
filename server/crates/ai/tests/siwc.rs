@@ -1042,3 +1042,96 @@ fn assistant_history_is_string_content_and_user_turns_keep_input_parts() {
         ])
     );
 }
+#[tokio::test]
+async fn recorded_message_reports_its_full_text_and_phase_once() {
+    let (result, sink) = replay("text.response.sse").await;
+    result.unwrap();
+    let done: Vec<_> = sink
+        .0
+        .iter()
+        .filter_map(|e| match e {
+            TurnEvent::MessageDone { text, phase } => Some((text.clone(), phase.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(done, vec![(text(&sink), Some("final_answer".into()))]);
+}
+#[test]
+fn model_output_replays_in_order_with_phase_as_string_content() {
+    let mut req = request();
+    req.items = vec![
+        RequestItem::AssistantMessage {
+            text: "checking".into(),
+            phase: Some("commentary".into()),
+        },
+        RequestItem::ToolCall {
+            call_id: "synthetic-call".into(),
+            name: "list_accounts".into(),
+            args_raw: "{}".into(),
+        },
+        RequestItem::ToolResult {
+            call_id: "synthetic-call".into(),
+            output: "{}".into(),
+        },
+        RequestItem::AssistantMessage {
+            text: String::new(),
+            phase: None,
+        },
+        RequestItem::AssistantMessage {
+            text: "done".into(),
+            phase: None,
+        },
+    ];
+    let input = body(&req, "synthetic", "synthetic-account").unwrap()["input"].clone();
+    assert_eq!(
+        input,
+        json!([
+            {"role":"assistant","content":"checking","phase":"commentary"},
+            {"type":"function_call","call_id":"synthetic-call","namespace":"jiabu","name":"list_accounts","arguments":"{}"},
+            {"type":"function_call_output","call_id":"synthetic-call","output":"{}"},
+            {"role":"assistant","content":"done"}
+        ])
+    );
+}
+#[tokio::test]
+async fn incomplete_and_unmapped_failures_keep_their_upstream_identifiers() {
+    for (event, expected) in [
+        (
+            json!({"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}),
+            ProviderError::Incomplete {
+                reason: "max_output_tokens".into(),
+            },
+        ),
+        (
+            json!({"type":"response.incomplete","response":{}}),
+            ProviderError::Incomplete {
+                reason: "unknown".into(),
+            },
+        ),
+        (
+            json!({"type":"response.failed","response":{"error":{"code":"server_error","message":"echoed user text"}}}),
+            ProviderError::UpstreamFailed {
+                code: "server_error".into(),
+            },
+        ),
+        // Negative control: no code at all is still plain corrupt output.
+        (
+            json!({"type":"response.failed","response":{"error":{}}}),
+            ProviderError::InvalidOutput,
+        ),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(sse(&[event])))
+            .mount(&server)
+            .await;
+        let mut sink = Sink::default();
+        let error = provider(&server)
+            .await
+            .run_turn(&request(), &mut sink)
+            .await
+            .unwrap_err();
+        assert_eq!(error, expected);
+        assert!(!error.to_string().contains("echoed"));
+    }
+}

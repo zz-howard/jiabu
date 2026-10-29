@@ -124,7 +124,14 @@ impl TurnState {
                 self.completed = true;
             }
             "response.failed" | "error" => return Err(error(&event)),
-            "response.incomplete" => return Err(ProviderError::InvalidOutput),
+            "response.incomplete" => {
+                return Err(ProviderError::Incomplete {
+                    reason: identifier(
+                        &event["response"]["incomplete_details"]["reason"],
+                        "unknown",
+                    ),
+                });
+            }
             _ => {} // reasoning summaries and partial function arguments are discarded.
         }
         Ok(())
@@ -208,6 +215,14 @@ impl TurnState {
                     if !suffix.is_empty() {
                         sink.emit(TurnEvent::TextDelta(suffix.into())).await?;
                     }
+                    // Replay needs each message's own position and phase. Only the
+                    // documented phases are kept; any other value is dropped, not resent.
+                    let phase = item["phase"]
+                        .as_str()
+                        .filter(|p| matches!(*p, "commentary" | "final_answer"))
+                        .map(str::to_owned);
+                    sink.emit(TurnEvent::MessageDone { text: full, phase })
+                        .await?;
                 }
                 _ => return Err(ProviderError::InvalidOutput),
             }
@@ -235,26 +250,30 @@ pub fn error(event: &Value) -> ProviderError {
         | "model_access_denied" => ProviderError::Unsupported("permission denied"),
         "invalid_encrypted_content" | "encrypted_content_invalid" => ProviderError::BlobRejected,
         "rate_limit_exceeded" => ProviderError::RateLimited { retry_after: None },
-        _ if err["type"].as_str() == Some("invalid_request_error") => {
-            let identifier = |v: &Value, fallback: &str| -> String {
-                v.as_str()
-                    .unwrap_or(fallback)
-                    .chars()
-                    .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '[' | ']'))
-                    .take(64)
-                    .collect()
-            };
-            ProviderError::Rejected {
-                code: identifier(&err["code"], "invalid_request_error"),
-                param: identifier(&err["param"], ""),
-                message: err["message"]
-                    .as_str()
-                    .unwrap_or("")
-                    .chars()
-                    .take(300)
-                    .collect(),
-            }
-        }
-        _ => ProviderError::InvalidOutput,
+        _ if err["type"].as_str() == Some("invalid_request_error") => ProviderError::Rejected {
+            code: identifier(&err["code"], "invalid_request_error"),
+            param: identifier(&err["param"], ""),
+            message: err["message"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(300)
+                .collect(),
+        },
+        "" => ProviderError::InvalidOutput,
+        _ => ProviderError::UpstreamFailed {
+            code: identifier(&err["code"], "unknown"),
+        },
     }
+}
+/// Upstream identifiers only; free text may echo request values and is never kept.
+fn identifier(v: &Value, fallback: &str) -> String {
+    let s: String = v
+        .as_str()
+        .unwrap_or(fallback)
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '[' | ']'))
+        .take(64)
+        .collect();
+    if s.is_empty() { fallback.into() } else { s }
 }

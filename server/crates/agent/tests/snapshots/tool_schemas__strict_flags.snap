@@ -1,0 +1,34 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: flags
+---
+{
+  "archive_account": true,
+  "archive_subject": true,
+  "ask_user": false,
+  "create_account": false,
+  "create_document": false,
+  "create_record": false,
+  "create_subject": false,
+  "create_tag": false,
+  "document_metric_series": false,
+  "get_document": true,
+  "get_record": true,
+  "list_accounts": false,
+  "list_subjects": false,
+  "list_tags": false,
+  "query_balance": false,
+  "query_stats": false,
+  "rename_tag": true,
+  "restore_document": true,
+  "restore_record": true,
+  "search_documents": false,
+  "search_records": false,
+  "set_allocation_plan": false,
+  "update_account": false,
+  "update_document": false,
+  "update_record": false,
+  "update_subject": false,
+  "void_document": true,
+  "void_record": true
+}

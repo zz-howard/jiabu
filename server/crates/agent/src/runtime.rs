@@ -359,6 +359,22 @@ impl Runtime {
                     .map_err(protocol_error)?;
                 return Ok(());
             }
+            if action == NextAction::Model
+                && let Some(tool) = corrections_exhausted(&journal, &calls)
+            {
+                tracing::warn!(
+                    error_kind = "tool_corrections_exhausted",
+                    tool = %tool,
+                    "Model kept sending arguments the tool rejects"
+                );
+                let batch =
+                    close_run(&tx, space, &current, "failed", "tool_arguments_rejected").await?;
+                tx.commit().await?;
+                jiabu_chat::publish(&self.hub, batch)
+                    .await
+                    .map_err(protocol_error)?;
+                return Ok(());
+            }
             tx.commit().await?;
             match action {
                 NextAction::Complete => {
@@ -479,6 +495,8 @@ impl Runtime {
                         text: String::new(),
                         items: Vec::new(),
                         calls: Vec::new(),
+                        rejected: Vec::new(),
+                        messages_delimited: false,
                         block: None,
                         done: false,
                         allowed: &prompt.snapshot.tools,
@@ -569,11 +587,46 @@ impl Runtime {
                         } else if matches!(error, ProviderError::PartialOutput { .. })
                             || !sink.text.is_empty()
                         {
-                            self.end_owned(p, run, lease, "interrupted", "partial_output")
+                            // Visible output is kept and never resent silently; a truncated
+                            // stream still says why it ended.
+                            let reason = match &error {
+                                ProviderError::PartialOutput { source } => match source.as_ref() {
+                                    ProviderError::Incomplete { reason } => {
+                                        format!("incomplete:{reason}")
+                                    }
+                                    _ => "partial_output".into(),
+                                },
+                                _ => "partial_output".into(),
+                            };
+                            self.end_owned(p, run, lease, "interrupted", &reason)
                                 .await?;
                         } else if matches!(error, ProviderError::Sink | ProviderError::Meter) {
                             return Err(OperationError::internal());
+                        } else if let ProviderError::InvalidOutput
+                        | ProviderError::Incomplete { .. } = &error
+                        {
+                            // Corrupt or truncated output was already retried once per route
+                            // by the router; waiting for AI would only repeat it.
+                            let reason = match &error {
+                                ProviderError::Incomplete { reason } => {
+                                    format!("incomplete:{reason}")
+                                }
+                                _ => "invalid_output".into(),
+                            };
+                            tracing::warn!(
+                                error_kind = "stream_corrupt",
+                                reason = %reason,
+                                "AI output was unusable after a retry"
+                            );
+                            self.end_owned(p, run, lease, "failed", &reason).await?;
                         } else {
+                            if let ProviderError::UpstreamFailed { code } = &error {
+                                tracing::warn!(
+                                    error_kind = "upstream_failed",
+                                    upstream_code = %code,
+                                    "AI provider reported a failure; waiting for AI"
+                                );
+                            }
                             let tx = self.begin(p, run, lease).await?;
                             tx.wait_for_ai(space, lease).await?;
                             tx.commit().await?;
@@ -590,6 +643,16 @@ impl Runtime {
                     }
                     let tx = self.begin(p, run, lease).await?;
                     validate_environment(tx.member(space), &journal)?;
+                    // Providers that do not delimit messages replay their text first, as before.
+                    if !sink.messages_delimited && !sink.text.is_empty() {
+                        sink.items.insert(
+                            0,
+                            RequestItem::AssistantMessage {
+                                text: sink.text.clone(),
+                                phase: None,
+                            },
+                        );
+                    }
                     let mut encrypted = Vec::new();
                     let mut items = Vec::new();
                     for item in &sink.items {
@@ -619,6 +682,24 @@ impl Runtime {
                             lease,
                             call,
                             Sha256::digest(bytes(&call.args).map_err(protocol_error)?).to_vec(),
+                        )
+                        .await?;
+                    }
+                    // Rejected calls get their result in the same commit, so the next
+                    // step is another model turn that sees what to correct.
+                    for (call_id, output) in &sink.rejected {
+                        tracing::info!(
+                            error_kind = "tool_arguments_rejected",
+                            error_code = %output["error"].as_str().unwrap_or(""),
+                            "Tool call arguments returned to the model"
+                        );
+                        tx.append_journal(
+                            space,
+                            lease,
+                            "tool_result",
+                            Some(call_id),
+                            json!({"output":output}),
+                            None,
                         )
                         .await?;
                     }
@@ -909,6 +990,10 @@ struct Collector<'a> {
     text: String,
     items: Vec<RequestItem>,
     calls: Vec<ToolCallRow>,
+    /// Calls whose arguments were rejected, with the tool result the model will see.
+    rejected: Vec<(String, Value)>,
+    /// Whether the provider delimited its messages; otherwise text replays first.
+    messages_delimited: bool,
     block: Option<BlockHandle>,
     done: bool,
     allowed: &'a [ToolDefinition],
@@ -953,52 +1038,51 @@ impl TurnSink for Collector<'_> {
                 name,
                 args_raw,
             } => {
-                if !self.allowed.iter().any(|t| t.name == name)
-                    || self.calls.iter().any(|c| c.call_id == call_id)
-                {
+                // A repeated call id is a corrupt stream, not a correctable argument.
+                if self.calls.iter().any(|c| c.call_id == call_id) {
                     return Err(ProviderError::InvalidOutput);
                 }
-                let args: Value =
-                    serde_json::from_str(&args_raw).map_err(|_| ProviderError::InvalidOutput)?;
-                let tool = self
-                    .runtime
-                    .tools
-                    .get(&name)
-                    .map_err(|_| ProviderError::InvalidOutput)?;
-                if tool.exposure() == jiabu_tools::Exposure::ApiOnly {
-                    return Err(ProviderError::InvalidOutput);
-                }
-                let validated = tool
-                    .validate(args.clone())
-                    .map_err(|_| ProviderError::InvalidOutput)?;
-                if name == "ask_user" {
-                    serde_json::from_value::<jiabu_tools::AskArgs>(args.clone())
-                        .map_err(|_| ProviderError::InvalidOutput)?
-                        .check()
-                        .map_err(|_| ProviderError::InvalidOutput)?;
-                }
-                self.calls.push(ToolCallRow {
-                    call_id: call_id.clone(),
-                    tool: name.clone(),
-                    tool_schema_version: tool.schema_version() as i32,
-                    args,
-                    effect: if tool.effect() == jiabu_tools::Effect::Read {
-                        "read"
-                    } else {
-                        "local_write"
+                match check_call(self.runtime, self.allowed, &name, &args_raw) {
+                    Ok((tool, args, confirmation)) => self.calls.push(ToolCallRow {
+                        call_id: call_id.clone(),
+                        tool: name.clone(),
+                        tool_schema_version: tool.schema_version() as i32,
+                        args,
+                        effect: if tool.effect() == jiabu_tools::Effect::Read {
+                            "read"
+                        } else {
+                            "local_write"
+                        }
+                        .into(),
+                        status: "proposed".into(),
+                        idempotency_key: tool_idempotency_key(self.run.id, &call_id),
+                        guard: Some(json!({"confirmation":confirmation})),
+                    }),
+                    // Fed back to the model as this call's result (ai-layer 5); nothing runs.
+                    Err((version, args, output)) => {
+                        self.calls.push(ToolCallRow {
+                            call_id: call_id.clone(),
+                            tool: name.clone(),
+                            tool_schema_version: version,
+                            args,
+                            effect: "read".into(),
+                            status: "rejected".into(),
+                            idempotency_key: tool_idempotency_key(self.run.id, &call_id),
+                            guard: Some(json!({"invalid_arguments":true})),
+                        });
+                        self.rejected.push((call_id.clone(), output));
                     }
-                    .into(),
-                    status: "proposed".into(),
-                    idempotency_key: tool_idempotency_key(self.run.id, &call_id),
-                    guard: Some(
-                        json!({"confirmation":tool.requires_confirmation(validated.as_ref())}),
-                    ),
-                });
+                }
                 self.items.push(RequestItem::ToolCall {
                     call_id,
                     name,
                     args_raw,
                 });
+            }
+            TurnEvent::MessageDone { text, phase } => {
+                self.messages_delimited = true;
+                self.items
+                    .push(RequestItem::AssistantMessage { text, phase });
             }
             TurnEvent::ProviderBlob(blob) => self.items.push(RequestItem::ProviderBlob(blob)),
             TurnEvent::Note(text) => {
@@ -1025,4 +1109,64 @@ impl TurnSink for Collector<'_> {
         }
         Ok(())
     }
+}
+type CheckedCall<'a> = (&'a dyn jiabu_tools::AgentTool, Value, bool);
+/// Accept a proposed call, or return `(schema_version, stored_args, tool_result)`
+/// describing what the model must correct. Only schema-side names are reported.
+fn check_call<'a>(
+    runtime: &'a Runtime,
+    allowed: &[ToolDefinition],
+    name: &str,
+    args_raw: &str,
+) -> Result<CheckedCall<'a>, (i32, Value, Value)> {
+    let stored = |args: Option<&Value>| {
+        args.cloned().unwrap_or_else(|| {
+            // Unparseable arguments are kept for audit, bounded like other run data.
+            Value::String(args_raw.chars().take(4096).collect())
+        })
+    };
+    let tool = match runtime.tools.get(name) {
+        Ok(tool)
+            if allowed.iter().any(|t| t.name == name)
+                && tool.exposure() != jiabu_tools::Exposure::ApiOnly =>
+        {
+            tool
+        }
+        _ => {
+            let available: Vec<_> = allowed.iter().map(|t| t.name.as_str()).collect();
+            return Err((
+                0,
+                stored(None),
+                json!({"error":"unknown_tool","available":available,"note":"Call one of the available tools."}),
+            ));
+        }
+    };
+    let version = tool.schema_version() as i32;
+    let args: Value = match serde_json::from_str(args_raw) {
+        Ok(args) => args,
+        Err(_) => {
+            let mut error = OperationError::new(422, "invalid_arguments");
+            error.errors = Some(vec![jiabu_db::ValidationIssue {
+                pointer: "/".into(),
+                rule: "json_object".into(),
+            }]);
+            return Err((version, stored(None), tool_error_output(&error)));
+        }
+    };
+    let rejected = |error: OperationError| {
+        let mut error = error;
+        if error.code == "validation_failed" {
+            error.code = "invalid_arguments";
+        }
+        (version, args.clone(), tool_error_output(&error))
+    };
+    let validated = tool.validate(args.clone()).map_err(rejected)?;
+    if name == "ask_user" {
+        serde_json::from_value::<jiabu_tools::AskArgs>(args.clone())
+            .map_err(|_| rejected(OperationError::invalid_at("/", "schema")))?
+            .check()
+            .map_err(rejected)?;
+    }
+    let confirmation = tool.requires_confirmation(validated.as_ref());
+    Ok((tool, args, confirmation))
 }
