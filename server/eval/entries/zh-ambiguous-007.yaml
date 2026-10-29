@@ -1,0 +1,37 @@
+schema_version: 1
+id: "zh-ambiguous-007"
+locale: "zh-Hans"
+category: "ambiguous_date"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input:
+  text: "去年或前年3月2日买书40元，年份记不清。金额均为人民币，涉及付款或收款时用虚构零钱、日常用途。"
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "虚构零钱"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "虚构银行"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "日常用途"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "储备用途"
+      opening_on: "2026-01-01"
+  records: []
+expect:
+  behavior: "ask_user"
+  hard: true
+  records: []
+ambiguity_reason: "年份有两个明确候选，不得替用户选择。"

@@ -1,0 +1,54 @@
+schema_version: 1
+id: "zh-multi-003"
+locale: "zh-Hans"
+category: "multi_record"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input:
+  text: "昨天电影28，给虚构小禾送礼88。金额均为人民币，涉及付款或收款时用虚构零钱、日常用途。"
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "虚构零钱"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "虚构银行"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "日常用途"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "储备用途"
+      opening_on: "2026-01-01"
+  records: []
+expect:
+  behavior: "write"
+  hard: false
+  records:
+    -
+      operation: "create"
+      kind: "expense"
+      amount_minor: 2800
+      currency: "CNY"
+      occurred_on: "2026-10-20"
+      account: "cash"
+      purpose: "daily"
+      preset_key: "entertainment"
+    -
+      operation: "create"
+      kind: "expense"
+      amount_minor: 8800
+      currency: "CNY"
+      occurred_on: "2026-10-20"
+      account: "cash"
+      purpose: "daily"
+      preset_key: "social"

@@ -1,0 +1,56 @@
+schema_version: 1
+id: "zh-refund-002"
+locale: "zh-Hans"
+category: "refund"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input:
+  text: "昨天虚构布屋把10月18日买鞋那笔100元退回35元，退回原账户和用途。金额均为人民币，涉及付款或收款时用虚构零钱、日常用途。"
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "虚构零钱"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "虚构银行"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "日常用途"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "储备用途"
+      opening_on: "2026-01-01"
+  records:
+    -
+      key: "old"
+      record:
+        operation: "create"
+        kind: "expense"
+        amount_minor: 10000
+        currency: "CNY"
+        occurred_on: "2026-10-18"
+        account: "cash"
+        purpose: "daily"
+        preset_key: "shopping"
+expect:
+  behavior: "write"
+  hard: false
+  records:
+    -
+      operation: "create"
+      kind: "refund"
+      amount_minor: 3500
+      currency: "CNY"
+      occurred_on: "2026-10-20"
+      account: "cash"
+      purpose: "daily"
+      refund_of: "old"

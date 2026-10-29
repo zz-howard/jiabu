@@ -222,3 +222,169 @@
 | 动作去掉工具模块授权 | 测试仍通过：权限变化先被冻结环境校验以 404 拒绝（同样在查回执之前），模块授权是第二道 |
 | 恢复 SQL 去掉 paused / interrupt ID 条件 | 测试仍通过：服务层在行锁内已检查同样条件，SQL 条件是第二道 |
 | RunEmitter::commit 改为先广播后提交 | **未被抓到**：`sse_commit_before_broadcast_survives_crash` 只验证“已提交未广播可重放”，没走 `commit()`；确定性地让提交在广播后失败需要故障注入，未做。顺序由 `commit()` 三行代码保证 |
+
+
+## PR ③：评测集、评测运行器与在线冒烟
+
+按 luna.coco 批准的计划实现；凭据刷新、真实 JPEG、原 Agent 测试不变三项修订均已纳入。
+实现时本机未编译；随后在构建机上完成编译、门禁与 JPEG 生成（见“构建机验证”）。在线冒烟与真实全集尚未执行。
+
+### 已编写
+
+- `ai-eval` 包和二进制（workspace `crates/*` 自动纳入），64 条虚构 YAML；中英文含糊日期各 10 条，
+  含糊日期/信息不足/确认修改是硬标准。严格 YAML 及真实预置分类、别名、字段/金额/记录形状校验。
+- 确定性 Pillow 收据脚本与固定输出清单：清晰、7° 倾斜、16 商品行长小票。图片留给 luna.coco
+  在构建机生成提交；测试要求三张 JPEG 存在且能解码，不用占位图。
+- 每条临时数据库，复用现有 TestDb + 完整 RunService/worker 夹具；setup 经工具注册表。
+  收据走现有 SpaceTx blob 写入/引用与 ImageLoader；账本/审计/计量观测均通过 SpaceTx。
+- Mock 按 expect 生成真实工具调用；live 从源库读取配置、路由、解密凭据、价格，走 AiRouter/SIWC。
+  复用 CredentialManager 的 refresh + revision CAS 路径，源库仅允许原凭据轮换/失效写入；
+  账本、journal、检查点和计量仅入临时库；不调用 ai_runtime::start()，不新造登录。
+- 评分从持久中断、终态、实体事件和最终账本读取事实；写后撤销仍算写入。
+  确认必须对应目标和操作、确认前无写入，自动确认一次后检查最终目标。
+  多笔采用确定性 Hungarian 一对一匹配，缺失/额外/重复写入计错；金额/日期/分类与结构单独计分。
+- 包装提供方的 sink 仅保留全部工具调用的合法/总数，覆盖 journal 提交前即被拒绝的非法参数；
+  委托原 run_turn_observed 保持 SIWC 认证重试的逐次计量，原运行时/提示词/工具行为未改。
+- results.csv / summary.csv，自写 RFC 4180 编码；缓存读取/写入/未缓存输入和成本按次保留。
+  未知成本/零分母留空，硬失败 stderr 列 ID、退出 1；配置/数据/基础设施错误退出 2。
+  660 秒外层截止到达后停止持久运行并作为评分失败，不能被当作正确追问。
+- 离线测试：数据覆盖/JPEG、PG18 Mock 全集+CSV/清理、真实 CLI、脚本坏模型负对照、直接目标修改、
+  追问混淆矩阵、多笔乱序/缺失/重复/额外、退款/调拨身份、CSV 转义、未知成本、工具调用计数。
+- 三条 `live + ignore` 冒烟：文字、收据、追问后动作回答再写入；仅打印白名单缓存计量与调用种类。
+  live 特性下另有合成凭据只读观察、CAS 单胜者、临时库独立计量测试，不访问模型/OAuth 网络。
+- CI 增加 live 全 target 编译和离线合成凭据测试；默认 workspace nextest 自动发现数据/Mock/评分测试。
+
+### 最小访问点与复用
+
+- `ScopedRuns::start_at`：仅供可信的非 HTTP 入口固定冻结时间；原 start 仍使用 Utc::now，
+  确认到期、租约和 worker 墙钟时间不变。
+- `SpaceTx::evaluation_state/evaluation_calls`：按空间/当前成员/run 读取账本/审计、白名单计量。
+- `AppDb::evaluation_prices`：只读价格快照，十进制价格以字符串传入临时库，继续使用现有 numeric 计费。
+- `TestDb::with_url` 避免修改进程环境；原 new 行为不变。
+- 原 runtime 测试夹具抽到 `tests/support/agent.rs`，新增 build 入口供指定 setup 的评测复用。
+  已静态比较：原 runtime.rs 从第一条 `#[tokio::test]` 起的完整正文逐字节未变，测试名/脚本/断言不变。
+
+### 构建机待执行与尚待编译核对
+
+1. 先运行 `python3 server/eval/tool/gen_receipts.py`，提交三张 JPEG，然后更新 Cargo.lock；不手写 checksum。
+   新增 Rust 依赖仅 `yaml-rust2 = "=0.11.1"`（MIT OR Apache-2.0，锁中已有版本）；
+   Python 生成依赖 Pillow 11.3.0（HPND）。
+2. `cargo fmt --all`，`cargo check -p ai-eval --features live --all-targets`，
+   `cargo test -p ai-eval`，`cargo test -p ai-eval --features live --lib`，随后完整 AGENTS 门禁。
+3. 已按源码核对 RunService/worker、ToolCtx、工具参数、SpaceTx blob、CredentialManager、SiwcProvider、
+   ai_write/价格/凭据 API；当前没有已知缺失的现有接口。尚不能由本机确认的是 yaml-rust2 0.11.1
+   的低层 EventReceiver/Event/Parser 组合（本机无该版本源码/编译环境）、新增 trait 包装器与共享源码
+   在所有 target 的类型/生命周期检查，以及全部 clippy 警告。编译错误请贴回继续修正；不把静态核对当编译通过。
+4. 用现有 SIWC 登录/主密钥、独立可丢弃 PG18 集群跑三条在线冒烟，再跑真实全集；
+   CSV 提交到 `server/eval/results/<日期>-<提供方>/`，逐条评审硬失败与软准确率。
+   本次没有真实模型质量、缓存命中或性能结果。
+
+### 构建机验证（luna.coco）
+
+- 已运行收据脚本并提交三张 JPEG（清晰 / 倾斜 / 长小票）；Cargo.lock 已含 `ai-eval`。
+- 构建机修正：评测集 `locale` 由 `zh-CN` / `en-US` 改为 `zh-Hans` / `en`，与 `users.locale` 约束一致
+  （此前 Mock 全集与负对照 4 条因此失败）。
+- 完整门禁（PG18）：fmt、entities、openapi、`cargo check -p ai-eval --features live --all-targets`、
+  clippy `-D warnings`、nextest 341/341、cargo deny、cargo audit、`tool/check-*.sh` 全部通过。
+- 留给后续：三条在线冒烟与真实全集（第 4 条）；`DatabaseTokens` 目前与 `bins/server/src/ai_runtime.rs`
+  中的实现逐行相同，后续可移入共享库避免两份凭据读写代码漂移。
+
+### 本机静态核对
+
+仅执行了 Python AST 语法解析、Cargo.toml 的 tomllib 解析、文件清点、旧测试正文比较和
+`git diff --check`；未运行测试或构建。收据脚本未运行，fixtures 由 luna.coco 补齐。
+
+### ③ 改动文件清单
+
+```text
+.github/workflows/server-ci.yml
+server/S7-DELIVERY.md
+server/crates/agent/src/service.rs
+server/crates/agent/tests/runtime.rs
+server/crates/db/src/evaluation.rs
+server/crates/db/src/lib.rs
+server/crates/eval/Cargo.toml
+server/crates/eval/src/audit.rs
+server/crates/eval/src/dataset.rs
+server/crates/eval/src/fixture.rs
+server/crates/eval/src/lib.rs
+server/crates/eval/src/live.rs
+server/crates/eval/src/main.rs
+server/crates/eval/src/mock.rs
+server/crates/eval/src/report.rs
+server/crates/eval/src/scoring.rs
+server/crates/eval/tests/dataset.rs
+server/crates/eval/tests/live_smoke.rs
+server/crates/eval/tests/mock_suite.rs
+server/crates/eval/tests/negative_controls.rs
+server/eval/README.md
+server/eval/entries/chat-001.yaml
+server/eval/entries/chat-002.yaml
+server/eval/entries/chat-003.yaml
+server/eval/entries/en-ambiguous-001.yaml
+server/eval/entries/en-ambiguous-002.yaml
+server/eval/entries/en-ambiguous-003.yaml
+server/eval/entries/en-ambiguous-004.yaml
+server/eval/entries/en-ambiguous-005.yaml
+server/eval/entries/en-ambiguous-006.yaml
+server/eval/entries/en-ambiguous-007.yaml
+server/eval/entries/en-ambiguous-008.yaml
+server/eval/entries/en-ambiguous-009.yaml
+server/eval/entries/en-ambiguous-010.yaml
+server/eval/entries/en-entry-001.yaml
+server/eval/entries/en-entry-002.yaml
+server/eval/entries/en-entry-003.yaml
+server/eval/entries/en-entry-004.yaml
+server/eval/entries/insufficient-001.yaml
+server/eval/entries/insufficient-002.yaml
+server/eval/entries/insufficient-003.yaml
+server/eval/entries/insufficient-004.yaml
+server/eval/entries/relative-001.yaml
+server/eval/entries/relative-002.yaml
+server/eval/entries/relative-003.yaml
+server/eval/entries/relative-004.yaml
+server/eval/entries/relative-005.yaml
+server/eval/entries/relative-006.yaml
+server/eval/entries/zh-ambiguous-001.yaml
+server/eval/entries/zh-ambiguous-002.yaml
+server/eval/entries/zh-ambiguous-003.yaml
+server/eval/entries/zh-ambiguous-004.yaml
+server/eval/entries/zh-ambiguous-005.yaml
+server/eval/entries/zh-ambiguous-006.yaml
+server/eval/entries/zh-ambiguous-007.yaml
+server/eval/entries/zh-ambiguous-008.yaml
+server/eval/entries/zh-ambiguous-009.yaml
+server/eval/entries/zh-ambiguous-010.yaml
+server/eval/entries/zh-confirm-001.yaml
+server/eval/entries/zh-confirm-002.yaml
+server/eval/entries/zh-confirm-003.yaml
+server/eval/entries/zh-income-001.yaml
+server/eval/entries/zh-income-002.yaml
+server/eval/entries/zh-income-003.yaml
+server/eval/entries/zh-multi-001.yaml
+server/eval/entries/zh-multi-002.yaml
+server/eval/entries/zh-multi-003.yaml
+server/eval/entries/zh-multi-004.yaml
+server/eval/entries/zh-reallocation-001.yaml
+server/eval/entries/zh-reallocation-002.yaml
+server/eval/entries/zh-receipt-001.yaml
+server/eval/entries/zh-receipt-002.yaml
+server/eval/entries/zh-receipt-003.yaml
+server/eval/entries/zh-refund-001.yaml
+server/eval/entries/zh-refund-002.yaml
+server/eval/entries/zh-refund-003.yaml
+server/eval/entries/zh-single-001.yaml
+server/eval/entries/zh-single-002.yaml
+server/eval/entries/zh-single-003.yaml
+server/eval/entries/zh-single-004.yaml
+server/eval/entries/zh-single-005.yaml
+server/eval/entries/zh-single-006.yaml
+server/eval/entries/zh-transfer-001.yaml
+server/eval/entries/zh-transfer-002.yaml
+server/eval/entries/zh-transfer-003.yaml
+server/eval/results/.gitkeep
+server/eval/tool/gen_receipts.py
+server/eval/tool/receipt_outputs.txt
+server/tests/support/agent.rs
+server/tests/support/mod.rs
+```

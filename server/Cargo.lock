@@ -43,6 +43,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai-eval"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "image",
+ "jiabu-agent",
+ "jiabu-ai",
+ "jiabu-chat",
+ "jiabu-db",
+ "jiabu-db-admin",
+ "jiabu-domain",
+ "jiabu-tools",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "tokio",
+ "uuid",
+ "yaml-rust2",
+ "zeroize",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"

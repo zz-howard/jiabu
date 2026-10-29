@@ -1,0 +1,36 @@
+schema_version: 1
+id: "insufficient-003"
+locale: "zh-Hans"
+category: "insufficient"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input:
+  text: "昨天收入120元，先问我收到了哪个账户"
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "虚构零钱"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "虚构银行"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "日常用途"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "储备用途"
+      opening_on: "2026-01-01"
+  records: []
+expect:
+  behavior: "ask_user"
+  hard: true
+  records: []

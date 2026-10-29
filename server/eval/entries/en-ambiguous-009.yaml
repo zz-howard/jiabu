@@ -1,0 +1,37 @@
+schema_version: 1
+id: "en-ambiguous-009"
+locale: "en"
+category: "ambiguous_date"
+today: "2026-10-21"
+timezone: "Asia/Singapore"
+input:
+  text: "Taxi 35 yesterday while crossing time zones; local date and zone unknown. All amounts are CNY; use Fable cash and Daily purpose for payments or receipts."
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "Fable cash"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "Fable bank"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "Daily purpose"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "Reserve purpose"
+      opening_on: "2026-01-01"
+  records: []
+expect:
+  behavior: "ask_user"
+  hard: true
+  records: []
+ambiguity_reason: "The original local reference date is missing; space time zone cannot resolve it."

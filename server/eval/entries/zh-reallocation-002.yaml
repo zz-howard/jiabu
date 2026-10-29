@@ -1,0 +1,44 @@
+schema_version: 1
+id: "zh-reallocation-002"
+locale: "zh-Hans"
+category: "reallocation"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input:
+  text: "昨天从日常用途调拨125元到储备用途，不移动实际资金。金额均为人民币。"
+setup:
+  currency: "CNY"
+  accounts:
+    -
+      key: "cash"
+      kind: "real"
+      name: "虚构零钱"
+      opening_on: "2026-01-01"
+    -
+      key: "bank"
+      kind: "real"
+      name: "虚构银行"
+      opening_on: "2026-01-01"
+    -
+      key: "daily"
+      kind: "purpose"
+      name: "日常用途"
+      opening_on: "2026-01-01"
+    -
+      key: "saving"
+      kind: "purpose"
+      name: "储备用途"
+      opening_on: "2026-01-01"
+  records: []
+expect:
+  behavior: "write"
+  hard: false
+  records:
+    -
+      operation: "create"
+      kind: "reallocation"
+      amount_minor: 12500
+      currency: "CNY"
+      occurred_on: "2026-10-20"
+      purpose: "daily"
+      to_purpose: "saving"
