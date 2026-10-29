@@ -298,11 +298,13 @@ impl SpaceTx {
         value["created_at"] = json!(audit.now);
         value["updated_at"] = json!(audit.now);
         if value["kind"] == "refund" {
-            let parent_id = identifier(&value, "refund_of_id").map_err(|_| Error::invalid())?;
+            let parent_id = identifier(&value, "refund_of_id")
+                .map_err(|_| Error::invalid_at("/refund_of_id", "required_for_kind"))?;
             let parent = self
                 .ledger_snapshot(space, Entity::Record, parent_id)
-                .await?;
-            check_parent(&parent)?;
+                .await
+                .map_err(|error| at_field(error, "refund_of_id"))?;
+            check_parent(&parent).map_err(|error| at_field(error, "refund_of_id"))?;
             for field in ["account_id", "purpose_id"] {
                 if value[field].is_null() {
                     let original = self
@@ -647,7 +649,7 @@ fn value_with_seq(mut value: Value) -> Value {
 }
 fn check_parent(parent: &Value) -> Result<(), Error> {
     if parent["kind"] != "expense" {
-        return Err(Error::invalid());
+        return Err(Error::invalid_at("/refund_of_id", "expense_required"));
     }
     if parent["status"] != "active" {
         return Err(Error::new(422, "parent_voided"));

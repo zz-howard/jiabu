@@ -55,7 +55,7 @@ pub fn next_action(items: &[JournalItem], calls: &[ToolCallRow]) -> NextAction {
     }
     interrupt.map_or(NextAction::Model, NextAction::Interrupt)
 }
-/// The first tool whose correctable failures exceed the first attempt plus
+/// The first tool whose failed results exceed the first attempt plus
 /// `MAX_TOOL_CORRECTIONS`. The model stops getting another try once this is `Some`.
 pub fn corrections_exhausted<'a>(
     items: &[JournalItem],
@@ -69,7 +69,7 @@ pub fn corrections_exhausted<'a>(
         .map_or(0, |p| p + 1);
     let mut counts = std::collections::BTreeMap::<&str, usize>::new();
     for item in items[start..].iter().filter(|i| i.kind == "tool_result") {
-        if !crate::correctable(&item.payload["output"]) {
+        if !crate::counts_as_failure(&item.payload["output"]) {
             continue;
         }
         let Some(call) = calls

@@ -32,21 +32,27 @@ pub struct Lease {
     pub owner: Uuid,
     pub epoch: i64,
 }
-/// Rejected arguments or failed validation, per tool, that the model may correct
-/// before the run fails: the first attempt plus this many corrections.
+/// Failed calls per tool that the model may follow with another try before the run
+/// fails: the first attempt plus this many corrections.
 pub const MAX_TOOL_CORRECTIONS: usize = 2;
 /// Tool-result error codes that ask the model to change its arguments.
 pub const CORRECTABLE_ERRORS: [&str; 3] =
     ["invalid_arguments", "unknown_tool", "validation_failed"];
-/// A failed tool result the model is expected to fix: one of the codes above, or any
-/// error that names an argument field (e.g. `not_found` at `/account_id`).
-pub fn correctable(output: &serde_json::Value) -> bool {
+/// A failed tool result counts toward the correction bound whatever its code: the
+/// model chose the arguments, and any repeated failure on the same tool should stop.
+/// Only the retry migration's `tool_schema_changed` (not the model's doing) is exempt.
+pub fn counts_as_failure(output: &serde_json::Value) -> bool {
+    output["error"]
+        .as_str()
+        .is_some_and(|c| c != "tool_schema_changed")
+}
+/// Failures that name what to fix get a correction hint in their tool result.
+fn correctable(output: &serde_json::Value) -> bool {
     output["error"]
         .as_str()
         .is_some_and(|c| CORRECTABLE_ERRORS.contains(&c))
         || output["errors"].as_array().is_some_and(|e| !e.is_empty())
 }
-
 /// What the model sees for a failed call: the code plus field-level issues when known.
 pub fn tool_error_output(error: &OperationError) -> serde_json::Value {
     let mut output = serde_json::json!({"error": error.code});

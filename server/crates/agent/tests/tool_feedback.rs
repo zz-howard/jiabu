@@ -479,3 +479,32 @@ async fn unknown_account_ids_count_toward_the_correction_bound() -> Result<()> {
     );
     Ok(())
 }
+#[tokio::test]
+async fn any_repeated_tool_failure_counts_toward_the_bound() -> Result<()> {
+    // A refund of a record that does not exist fails with `not_found`; whatever the
+    // code, three failures of one tool stop the run before a fourth model call.
+    let mut f = Fixture::new(vec![]).await?;
+    let mut refund = expense(&f).await?;
+    refund["kind"] = json!("refund");
+    refund["refund_of_id"] = json!(Uuid::now_v7());
+    script(
+        &mut f,
+        vec![
+            vec![call("r1", "create_record", refund.clone()), done()],
+            vec![call("r2", "create_record", refund.clone()), done()],
+            vec![call("r3", "create_record", refund), done()],
+            vec![text("不应调用 / Unused"), done()],
+        ],
+    );
+    let r = f.start().await?;
+    f.work().await?;
+    let run = f.run(r.message_id).await?;
+    assert_eq!(run.last_error.as_deref(), Some("tool_arguments_rejected"));
+    let requests = f.mock.requests();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(
+        tool_output(&requests[1], "r1")?["errors"],
+        json!([{"pointer":"/refund_of_id","rule":"not_found"}])
+    );
+    Ok(())
+}
