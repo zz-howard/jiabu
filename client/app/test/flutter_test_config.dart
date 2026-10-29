@@ -13,10 +13,21 @@ class JiabuTestBinding extends AutomatedTestWidgetsFlutterBinding {
 
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   JiabuTestBinding();
-  const defaultFont =
-      '/opt/jiabu/dev-tools/test-fonts/NotoSansCJKsc-Regular.otf';
-  final systemPath = Platform.environment['JIABU_TEST_FONT'] ?? defaultFont;
-  final systemBytes = await File(systemPath).readAsBytes();
+  final toolsDirectory =
+      Platform.environment['JIABU_TOOLS_DIR'] ??
+      '${Platform.environment['HOME'] ?? '/opt/jiabu'}/dev-tools';
+  final systemPath =
+      Platform.environment['JIABU_TEST_FONT'] ??
+      '$toolsDirectory/test-fonts/NotoSansCJKsc-Regular.otf';
+  final systemFont = File(systemPath);
+  if (!systemFont.existsSync()) {
+    throw FileSystemException(
+      'Missing pinned test font. Source jiabu-client-env.sh or set '
+      'JIABU_TEST_FONT to the pinned NotoSansCJKsc-Regular.otf.',
+      systemPath,
+    );
+  }
+  final systemBytes = systemFont.readAsBytesSync();
   // Goldens depend on this exact stand-in font (client/tool/build-host/setup.sh
   // pins the same file). A different file silently changes every golden.
   const pinnedSha256 =
@@ -38,9 +49,8 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
     JiabuType.serifFamily: 'jiabu_serif.otf',
   };
   for (final entry in fonts.entries) {
-    final bytes = await File(
-      '../packages/jiabu_design/assets/fonts/${entry.value}',
-    ).readAsBytes();
+    final bytes = File('../packages/jiabu_design/assets/fonts/${entry.value}')
+        .readAsBytesSync();
     final loader = FontLoader(entry.key)
       ..addFont(Future.value(ByteData.sublistView(bytes)));
     await loader.load();

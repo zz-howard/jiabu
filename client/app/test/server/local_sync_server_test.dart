@@ -6,16 +6,19 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:jiabu/data/api/api_error.dart';
 import 'package:jiabu/data/api/dio_api_client.dart';
 import 'package:jiabu/data/api/dto/auth_dto.dart';
 import 'package:jiabu/data/api/dto/meta_dto.dart';
 import 'package:jiabu/data/api/dto/spaces_dto.dart';
 import 'package:jiabu/data/api/dto/sync_dto.dart';
 import 'package:jiabu/data/db/database_manager.dart';
+import 'package:jiabu/data/repositories/api_keys_repository.dart';
 import 'package:jiabu/data/repositories/auth_repository.dart';
 import 'package:jiabu/data/repositories/ledger_repository.dart';
 import 'package:jiabu/data/repositories/local_mutations_repository.dart';
 import 'package:jiabu/data/repositories/records_repository.dart';
+import 'package:jiabu/data/repositories/spaces_repository.dart';
 import 'package:jiabu/data/services/app_settings_service.dart';
 import 'package:jiabu/data/services/blob_cache_service.dart';
 import 'package:jiabu/data/services/media_service.dart';
@@ -28,6 +31,7 @@ import 'package:jiabu/data/sync/sync_engine.dart';
 import 'package:jiabu/domain/ledger_balance.dart';
 import 'package:jiabu/domain/required_value.dart';
 import 'package:jiabu/domain/result.dart';
+import 'package:jiabu/domain/spaces.dart';
 import 'package:uuid/uuid.dart';
 
 import '../fixtures/jpeg_fixture.dart';
@@ -357,6 +361,143 @@ void main() {
       );
     }
   }
+
+  test(
+    'c4_server_create_invite_accept_transfer_leave_purges_local_space',
+    () async {
+      final id = uuid();
+      final local = await SyncHarness.create(
+        api: RecordedRealApi(f.a),
+        newId: uuid,
+      );
+      addTearDown(local.close);
+      final repository = LocalSpacesRepository(
+        api: f.a,
+        store: local.store,
+        online: () => true,
+        valid: () => true,
+        selectSpace: (_) async {},
+        refresh: () async {
+          await local.memberships.reconcile(await f.a.spaces());
+        },
+      );
+      expect(
+        await repository.create({
+          'id': id,
+          'name': '用户A和用户B的测试空间',
+          'accent_color': 'pine',
+          'currency': 'CNY',
+          'timezone': 'Asia/Shanghai',
+        }, uuid()),
+        isA<Ok<void>>(),
+      );
+      SpaceInfo fromDirectory(SpacesDto directory) => SpaceInfo.fromJson(
+        directory.spaces.singleWhere((space) => space.id == id).toJson(),
+      );
+      var a = fromDirectory(await f.a.spaces());
+      expect(
+        await repository.change(
+          a,
+          'invite',
+          uuid(),
+          body: {'username': env('JIABU_IT_USER_B')},
+        ),
+        isA<Ok<void>>(),
+      );
+      final received = await f.b.accountRequest('v1/me/invitations');
+      final invitation = requireValue<List<Object?>>(received['invitations'])
+          .cast<Map<String, Object?>>()
+          .singleWhere((row) => row['space_name'] == '用户A和用户B的测试空间');
+      await f.b.accountRequest(
+        'v1/me/invitations/${invitation['id']}/accept',
+        method: 'POST',
+        operationId: uuid(),
+      );
+      a = fromDirectory(await f.a.spaces());
+      final b = fromDirectory(await f.b.spaces());
+      expect(
+        a.activeMembers.map((member) => member.id).toSet(),
+        b.activeMembers.map((member) => member.id).toSet(),
+      );
+      expect(a.activeMembers, hasLength(2));
+      expect(
+        await repository.change(
+          a,
+          'transfer',
+          uuid(),
+          body: {'member_id': b.memberId},
+        ),
+        isA<Ok<void>>(),
+      );
+      a = fromDirectory(await f.a.spaces());
+      expect(a.owner, isFalse);
+      expect(fromDirectory(await f.b.spaces()).owner, isTrue);
+      final queued = uuid();
+      await local.records.create(id, {
+        'id': queued,
+        'kind': 'expense',
+        'amount_minor': 100,
+        'occurred_on': '2026-10-29',
+        'account_id': uuid(),
+        'purpose_id': uuid(),
+      });
+      await local.store.setCursor(id, 17);
+      expect(await repository.pendingCount(id), 1);
+      expect(await repository.change(a, 'leave', uuid()), isA<Ok<void>>());
+      expect(await local.store.entity(id, 'space', id), isNull);
+      expect(await local.store.entity(id, 'record', queued), isNull);
+      expect(await local.store.outbox(id), isEmpty);
+      expect(await local.store.blobs(id), isEmpty);
+      expect(await local.store.cursor(id), 0);
+      expect(await local.store.spaceIds(), isNot(contains(id)));
+      expect(
+        (await f.b.spaces()).spaces.any((space) => space.id == id),
+        isTrue,
+      );
+    },
+  );
+
+  test('c4_server_api_key_read_tool_then_revoke_is_rejected', () async {
+    final repository = OnlineApiKeysRepository(f.a, online: () => true);
+    final operationId = uuid();
+    final result = await repository.create({
+      'name': '用户A的只读测试',
+      'scope': 'read',
+    }, operationId);
+    expect(result, isA<Ok<Map<String, Object?>>>());
+    final created = (result as Ok<Map<String, Object?>>).value;
+    final token = requireValue<String>(created['key']);
+    final keyClient = f.client(env('JIABU_IT_URL'), token);
+    final balance = await keyClient.accountRequest(
+      'v1/spaces/${f.space}/tools/query_balance',
+      method: 'POST',
+      body: {},
+      operationId: uuid(),
+    );
+    expect(balance['currency'], 'CNY');
+    final replay = await repository.create({
+      'name': '用户A的只读测试',
+      'scope': 'read',
+    }, operationId);
+    expect(
+      (replay as Ok<Map<String, Object?>>).value['plaintext_available'],
+      false,
+    );
+    expect(replay.value.containsKey('key'), isFalse);
+    expect(
+      await repository.change(requireValue<String>(created['id']), uuid()),
+      isA<Ok<void>>(),
+    );
+    await expectLater(
+      keyClient.accountRequest(
+        'v1/spaces/${f.space}/tools/query_balance',
+        method: 'POST',
+        body: {},
+        operationId: uuid(),
+      ),
+      throwsA(isA<ApiError>().having((error) => error.status, 'status', 401)),
+    );
+  });
 
   test('c3_server_shared_fixture_matches_client_balances', () async {
     final ids = await writeSharedFixture();

@@ -9,7 +9,10 @@ import 'support/catalog_harness.dart';
 void main() {
   // C3 uses its explicitly budgeted matrix in c3_golden_test.dart.
   for (final sample in catalogCases().where(
-    (sample) => sample.component != 'c3' && sample.component != 'c5',
+    (sample) =>
+        sample.component != 'c3' &&
+        sample.component != 'c4' &&
+        sample.component != 'c5',
   )) {
     for (final width in [360.0, 430.0]) {
       for (final scale in [1.0, 2.0]) {

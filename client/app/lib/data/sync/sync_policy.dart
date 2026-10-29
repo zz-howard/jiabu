@@ -1,5 +1,10 @@
 /// Technical clocks only. UI durations continue to come from JiabuMotion.
 abstract final class SyncPolicy {
+  static Duration lockTimeout(int minutes) => Duration(minutes: minutes);
+  static Duration lockBackoff(int failures) => Duration(
+    seconds: (30 * (1 << ((failures ~/ 5) - 1).clamp(0, 4))).clamp(30, 300),
+  );
+  static const clipboardFeedback = Duration(seconds: 2);
   static const debounce = Duration(seconds: 1);
   static const databasePoll = Duration(seconds: 1);
   static const metaTtl = Duration(hours: 1);

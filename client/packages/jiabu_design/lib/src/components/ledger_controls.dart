@@ -61,9 +61,15 @@ class ManualEntryButton extends StatelessWidget {
 }
 
 class SpaceHeading extends StatelessWidget {
-  const SpaceHeading({required this.name, required this.accent, super.key});
+  const SpaceHeading({
+    required this.name,
+    required this.accent,
+    this.style,
+    super.key,
+  });
   final String name;
   final Color accent;
+  final TextStyle? style;
   @override
   Widget build(BuildContext context) => Row(
     children: [
@@ -84,7 +90,9 @@ class SpaceHeading extends StatelessWidget {
           name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: context.jiabu.type.listTitle.copyWith(color: accent),
+          style: (style ?? context.jiabu.type.listTitle).copyWith(
+            color: accent,
+          ),
         ),
       ),
     ],

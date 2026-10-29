@@ -60,7 +60,7 @@ final ledgerPresentationSessionProvider =
       return (
         partition:
             '${session.partition.prefix}:${session.generation}'
-            ':${runtime.revision}',
+            ':${runtime.revision}:${runtime.spaceRevision}',
         spaceId: runtime.currentSpace,
       );
     });

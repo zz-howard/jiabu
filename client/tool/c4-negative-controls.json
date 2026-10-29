@@ -1,0 +1,109 @@
+{
+  "instructions": "Build host only; cwd client/app. Apply ONE control, require assertion failure (compiler failure is not success), restore before the next. Files are repository-relative. Require exactly one find/find_regex match. Use regex substitution with a lambda to preserve replacement literals. Never commit mutations.",
+  "controls": [
+    {
+      "id": "leave_pending_warning",
+      "file": "client/app/lib/features/spaces/view/space_action_form.dart",
+      "find": "if (pending > 0) Text(l.c4PendingWarning(pending)),",
+      "replace": "if (pending < 0) Text(l.c4PendingWarning(pending)),",
+      "expected_occurrences": 1,
+      "find_regex": "if\\s*\\(pending\\s*>\\s*0\\)\\s*Text\\(l\\.c4PendingWarning\\(pending\\)\\),",
+      "test_file": "client/app/test/features/c4_interaction_test.dart",
+      "test_names": [
+        "leave_shows_pending_count_before_sending_request"
+      ],
+      "command": "flutter test test/features/c4_interaction_test.dart --plain-name \"leave_shows_pending_count_before_sending_request\""
+    },
+    {
+      "id": "offline_member_actions",
+      "file": "client/app/lib/features/spaces/view/spaces_screen.dart",
+      "find": "onPressed: runtime.managementOnline\n                              ? () => openSpaceAction(\n                                  context,\n                                  space,\n                                  'remove',",
+      "replace": "onPressed: true\n                              ? () => openSpaceAction(\n                                  context,\n                                  space,\n                                  'remove',",
+      "expected_occurrences": 1,
+      "find_regex": "onPressed:\\s*runtime\\.managementOnline\\s*\\?\\s*\\(\\s*\\)\\s*=>\\s*openSpaceAction\\(\\s*context,\\s*space,\\s*'remove',",
+      "test_file": "client/app/test/features/c4_interaction_test.dart",
+      "test_names": [
+        "offline_member_management_buttons_are_disabled"
+      ],
+      "command": "flutter test test/features/c4_interaction_test.dart --plain-name \"offline_member_management_buttons_are_disabled\""
+    },
+    {
+      "id": "sensitive_clipboard",
+      "file": "client/app/lib/data/services/secure_clipboard_service.dart",
+      "find": "'sensitive': true",
+      "replace": "'sensitive': false",
+      "expected_occurrences": 1,
+      "find_regex": "'sensitive':\\s*true",
+      "test_file": "client/app/test/data/c4_privacy_test.dart",
+      "test_names": [
+        "api_key_copy_always_marks_clipboard_sensitive"
+      ],
+      "command": "flutter test test/data/c4_privacy_test.dart --plain-name \"api_key_copy_always_marks_clipboard_sensitive\""
+    },
+    {
+      "id": "lock_timeout_boundary",
+      "file": "client/app/lib/data/services/app_lock_service.dart",
+      "find": "elapsed >= SyncPolicy.lockTimeout(configuration.timeoutMinutes)",
+      "replace": "elapsed > SyncPolicy.lockTimeout(configuration.timeoutMinutes)",
+      "expected_occurrences": 1,
+      "find_regex": "elapsed\\s*>=\\s*SyncPolicy\\.lockTimeout\\(configuration\\.timeoutMinutes\\)",
+      "test_file": "client/app/test/data/c4_app_lock_test.dart",
+      "test_names": [
+        "resume_at_exact_timeout_requires_authentication"
+      ],
+      "command": "flutter test test/data/c4_app_lock_test.dart --plain-name \"resume_at_exact_timeout_requires_authentication\""
+    },
+    {
+      "id": "space_switch_scope",
+      "file": "client/app/lib/app/runtime.dart",
+      "find": "    currentSpace = id;\n    spaceRevision++;",
+      "replace": "    currentSpace = currentSpace;\n    spaceRevision++;",
+      "expected_occurrences": 1,
+      "find_regex": "currentSpace\\s*=\\s*id;\\s*spaceRevision\\+\\+;",
+      "test_file": "client/app/test/features/c4_space_switch_test.dart",
+      "test_names": [
+        "switch_overview_contains_only_new_space_and_closes_old_subscription"
+      ],
+      "command": "flutter test test/features/c4_space_switch_test.dart --plain-name \"switch_overview_contains_only_new_space_and_closes_old_subscription\""
+    },
+    {
+      "id": "plaintext_disposal",
+      "file": "client/app/lib/shared/c4/c4_view_model.dart",
+      "find": "Future<void> forgetKey() async {\n    _secret = null;",
+      "replace": "Future<void> forgetKey() async {",
+      "expected_occurrences": 1,
+      "find_regex": "Future<void>\\s*forgetKey\\(\\)\\s*async\\s*\\{\\s*_secret\\s*=\\s*null;",
+      "test_file": "client/app/test/features/c4_interaction_test.dart",
+      "test_names": [
+        "key_secret_is_cleared_and_cannot_reappear"
+      ],
+      "command": "flutter test test/features/c4_interaction_test.dart --plain-name \"key_secret_is_cleared_and_cannot_reappear\""
+    },
+    {
+      "id": "privacy_reason_merge",
+      "file": "client/app/lib/data/services/window_privacy_service.dart",
+      "find": "      _reasons.remove(reason);",
+      "replace": "      _reasons.clear();",
+      "expected_occurrences": 1,
+      "find_regex": "_reasons\\.remove\\(reason\\);",
+      "test_file": "client/app/test/data/c4_privacy_test.dart",
+      "test_names": [
+        "closing_key_keeps_secure_window_while_app_lock_enabled"
+      ],
+      "command": "flutter test test/data/c4_privacy_test.dart --plain-name \"closing_key_keeps_secure_window_while_app_lock_enabled\""
+    },
+    {
+      "id": "notification_redaction",
+      "file": "client/app/lib/domain/notification_privacy.dart",
+      "find": "appLockEnabled ? genericMessage : content",
+      "replace": "appLockEnabled ? content : content",
+      "expected_occurrences": 1,
+      "find_regex": "appLockEnabled\\s*\\?\\s*genericMessage\\s*:\\s*content",
+      "test_file": "client/app/test/data/c4_privacy_test.dart",
+      "test_names": [
+        "locked_notifications_contain_only_localized_generic_message"
+      ],
+      "command": "flutter test test/data/c4_privacy_test.dart --plain-name \"locked_notifications_contain_only_localized_generic_message\""
+    }
+  ]
+}

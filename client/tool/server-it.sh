@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Build-host only. No flutter/pub/code generation is run by this script.
+# Build-host only. No pub/code generation is run by this script.
+# C2/C3/C4 share bootstrap sessions. C4 covers space invitation/transfer/leave
+# and real personal-key tool access/revocation; no additional server process.
 set -euo pipefail
 
 : "${JIABU_IT_PG_PORT:?set an unused PostgreSQL port}"
@@ -51,7 +53,7 @@ cleanup() {
   if [[ $result -ne 0 ]]; then
     # Server traces can contain test data. Keep them only on the build host;
     # never print them automatically or attach them as CI artefacts.
-    printf 'C2 integration tests failed; private temporary output: %s\n' "$RUN_DIR" >&2
+    printf 'Client C2/C3/C4 integration tests failed; private temporary output: %s\n' "$RUN_DIR" >&2
   else
     rm -rf -- "$RUN_DIR"
   fi

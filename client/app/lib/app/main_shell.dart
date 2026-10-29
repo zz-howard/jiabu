@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:jiabu/app/ledger_providers.dart';
 import 'package:jiabu/app/providers.dart';
 import 'package:jiabu/domain/sync_state.dart';
+import 'package:jiabu/features/spaces/view/spaces_screen.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/ledger/ledger_forms.dart';
 import 'package:jiabu/shared/ledger/ledger_view_model.dart';
@@ -25,7 +26,11 @@ class MainShell extends ConsumerWidget {
         ? null
         : ref.watch(ledgerViewModelProvider(spaceId)).snapshot;
     final runtime = ref.watch(appRuntimeProvider);
-    final selected = path.startsWith('/settings')
+    final settingsRoute =
+        path.startsWith('/settings') ||
+        path.startsWith('/spaces') ||
+        path == '/invitations';
+    final selected = settingsRoute
         ? ref.watch(mainNavigationProvider)
         : path.startsWith('/overview')
         ? 1
@@ -40,6 +45,7 @@ class MainShell extends ConsumerWidget {
           context.jiabu.colors.spaceAccents[data?.space.text('accent_color')] ??
           context.jiabu.colors.primaryText,
       settingsLabel: l.ledgerMySettings,
+      onSpace: () => openSpaceSwitcher(context),
       labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory],
       selected: selected,
       onSelect: (index) {
@@ -77,7 +83,16 @@ class MainShell extends ConsumerWidget {
                   : null,
             )
           : null,
-      child: child,
+      child: TweenAnimationBuilder<double>(
+        key: ValueKey('${runtime.currentSpace}:${runtime.spaceRevision}'),
+        tween: Tween(begin: 0, end: 1),
+        duration: context.jiabu.motion.space,
+        builder: (context, opacity, child) =>
+            Opacity(opacity: opacity, child: child),
+        child: runtime.currentSpace == spaceId
+            ? child
+            : const SizedBox.shrink(),
+      ),
     );
   }
 }

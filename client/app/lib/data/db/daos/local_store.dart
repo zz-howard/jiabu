@@ -542,6 +542,14 @@ final class LocalStore {
     [spaceId],
   )).map(OutboxOperation.fromRow).toList();
 
+  Stream<void> watchSpaceDirectory() => db
+      .customSelect(
+        'SELECT change_revision FROM sync_runtime WHERE id = 1',
+        readsFrom: {..._tables('spaces'), ..._tables('sync_runtime')},
+      )
+      .watch()
+      .map((_) {});
+
   Stream<int> watchOutboxCount(String spaceId) => db
       .customSelect(
         'SELECT COUNT(*) AS n FROM outbox WHERE space_id = ?',

@@ -61,6 +61,32 @@ Map<String, Object?> sampleRecord(
 };
 
 class FakeApi implements ApiClient {
+  Future<Map<String, Object?>> Function(
+    String,
+    String,
+    Map<String, Object?>?,
+    String?,
+    int?,
+  )?
+  onAccountRequest;
+
+  @override
+  Future<Map<String, Object?>> accountRequest(
+    String path, {
+    String method = 'GET',
+    Map<String, Object?>? body,
+    String? operationId,
+    int? joinEpoch,
+  }) async =>
+      await onAccountRequest?.call(
+        path,
+        method,
+        body,
+        operationId,
+        joinEpoch,
+      ) ??
+      <String, Object?>{};
+
   SpacesDto spaceResponse = SpacesDto(spaces: [sampleSpace()]);
   MetaDto metaResponse = const MetaDto(
     serverVersion: '0.1.0',

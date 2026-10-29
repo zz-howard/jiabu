@@ -46,6 +46,7 @@ packages:
       image_picker: 1.2.4
       flutter_image_compress: 2.5.1
       uuid: ^4.6.0
+      local_auth: ^3.0.2 # TODO(luna): verify 3.x API after pub get.
       crypto: ^3.0.8
       logging: ^1.3.0
       package_info_plus: ^10.2.2

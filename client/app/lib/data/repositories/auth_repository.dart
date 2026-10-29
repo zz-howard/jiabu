@@ -338,6 +338,45 @@ final class LocalAuthRepository implements AuthRepository {
     return opened == null ? 0 : await databases.pendingCount(opened);
   }
 
+  Future<Result<void>> setLocale(String locale) async {
+    final session = current;
+    final opened = handle;
+    if (session == null || opened == null) {
+      return const Failure('unauthenticated');
+    }
+    try {
+      final body = await apiFactory(
+        session.partition.server,
+        session.partition,
+      ).accountRequest('v1/me', method: 'PATCH', body: {'locale': locale});
+      final user = UserDto.fromJson(body);
+      await opened.store.transaction(() async {
+        await opened.store.lockRuntime();
+        if (!identical(current, session) ||
+            (await opened.store.runtime())['generation'] !=
+                session.generation) {
+          throw const ApiError('stale_response');
+        }
+        await opened.store.saveIdentity(user.toJson(), 'full');
+      });
+      if (!identical(current, session)) {
+        return const Failure('stale_response');
+      }
+      current = AuthSession(
+        user: user,
+        partition: session.partition,
+        passwordChangeRequired: session.passwordChangeRequired,
+        generation: session.generation,
+        adminResetAt: session.adminResetAt,
+      );
+      return const Ok(null);
+    } on ApiError catch (error) {
+      return Failure(error.code);
+    } on Object {
+      return const Failure('invalid_response');
+    }
+  }
+
   Future<void> invalidate(
     Partition partition, {
     int? expectedGeneration,
