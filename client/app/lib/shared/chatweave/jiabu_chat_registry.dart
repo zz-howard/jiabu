@@ -13,14 +13,14 @@ BlockRegistry jiabuChatRegistry({
   // stream. MarkdownBlockView defaults to complete: true, which parses the
   // whole text on every update (stable paragraphs are still sealed). Our
   // replies are short, so use that for every block, pending or not.
-  final registry =
-      BlockRegistry.withDefaults(onBlockRenderError: onError)..override(
-        'markdown',
-        BlockRegistration(
-          build: (context, block) =>
-              MarkdownBlockView(text: block.data['text']! as String),
-        ),
-      );
+  final registry = BlockRegistry.withDefaults(onBlockRenderError: onError)
+    ..override(
+      'markdown',
+      BlockRegistration(
+        build: (context, block) =>
+            MarkdownBlockView(text: block.data['text']! as String),
+      ),
+    );
   for (final type in [
     'metric',
     'metric_group',
