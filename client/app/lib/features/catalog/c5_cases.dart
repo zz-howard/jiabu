@@ -515,6 +515,13 @@ class _C5PreviewState extends State<C5Preview> {
                 onSend: (_) async => true,
                 onPhoto: () {},
                 onGallery: () {},
+                stopActive: const {
+                  'streaming',
+                  'paused',
+                  'stopping',
+                }.contains(state),
+                stopRequested: state == 'stopping',
+                onStop: () {},
               ),
             ],
           ),

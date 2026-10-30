@@ -61,6 +61,16 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
     }
     session.revealInterrupt = (message, block) =>
         unawaited(_revealer.reveal(message, block));
+    // The reply being processed (streaming or waiting for an answer): the
+    // composer's round button becomes its stop button.
+    final activeId = session.blocks.snapshot.messages.values
+        .where(
+          (m) =>
+              m['role'] != 'user' &&
+              const {'streaming', 'paused'}.contains(m.status),
+        )
+        .lastOrNull
+        ?.id;
     Future<void> manual(String id) async {
       final initial = await vm.takeOver(id);
       if (context.mounted && initial != null) {
@@ -156,9 +166,7 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
                           stopRequested:
                               session.stopRequested.contains(message.id) ||
                               state.stopping.contains(message.id),
-                          onStop: () => unawaited(vm.stop(message.id)),
                         ),
-                        stopEnabled: session.online,
                         onRetry:
                             message.status == 'error' ||
                                 (message.status == 'interrupted' &&
@@ -196,6 +204,14 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
             onGallery: () => unawaited(vm.photos(camera: false)),
             busy: state.busy,
             photoCount: state.images.length,
+            stopActive: activeId != null && session.online,
+            stopRequested:
+                activeId != null &&
+                (session.stopRequested.contains(activeId) ||
+                    state.stopping.contains(activeId)),
+            onStop: activeId == null
+                ? null
+                : () => unawaited(vm.stop(activeId)),
           ),
         ],
       ),
