@@ -1,5 +1,6 @@
 import 'package:chatweave_flutter/chatweave_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:jiabu/shared/chatweave/cjk_emphasis.dart';
 import 'package:jiabu/shared/chatweave/jiabu_structured_blocks.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
@@ -13,12 +14,13 @@ BlockRegistry jiabuChatRegistry({
   // stream. MarkdownBlockView defaults to complete: true, which parses the
   // whole text on every update (stable paragraphs are still sealed). Our
   // replies are short, so use that for every block, pending or not.
+  // cjkEmphasis keeps **bold** next to Chinese punctuation from showing raw.
   final registry = BlockRegistry.withDefaults(onBlockRenderError: onError)
     ..override(
       'markdown',
       BlockRegistration(
         build: (context, block) =>
-            MarkdownBlockView(text: block.data['text']! as String),
+            MarkdownBlockView(text: cjkEmphasis(block.data['text']! as String)),
       ),
     );
   for (final type in [

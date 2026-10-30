@@ -50,6 +50,19 @@ class JiabuStructuredBlock extends StatelessWidget {
         readOnly: scope?.readOnly ?? false,
       ),
     };
+    if (block.type == 'choice') {
+      // The follow-up question is written straight on the page like the
+      // reply text, not on a card (original 「用哪个账户付的？」 + pills).
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: JiabuChatMetrics.width),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            vertical: JiabuChatMetrics.rowGap,
+          ),
+          child: child,
+        ),
+      );
+    }
     final asOf = data['asOf'] as String?;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: JiabuChatMetrics.width),
@@ -371,8 +384,10 @@ class _JiabuChoiceBlockState extends State<JiabuChoiceBlock> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            HandUnderline(
-              child: Text(
+            // Serif 16 bold with the lower-half highlighter (4.10).
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: HighlightedText(
                 '${block.data['prompt'] ?? ''}',
                 style: context.jiabu.type.question,
               ),
@@ -394,60 +409,64 @@ class _JiabuChoiceBlockState extends State<JiabuChoiceBlock> {
                 ),
                 style: context.jiabu.type.caption,
               ),
-            Wrap(
-              spacing: JiabuChatMetrics.gap,
-              children: [
-                for (final option in objects(block.data['options']))
-                  TextButton(
-                    onPressed: !enabled
-                        ? null
-                        : () {
-                            final id = option['id']! as String;
-                            if (multiple) {
-                              setState(() {
-                                if (!_draft.add(id)) _draft.remove(id);
-                              });
-                            } else {
-                              unawaited(submit([id]));
-                            }
-                          },
-                    style: TextButton.styleFrom(
-                      backgroundColor: !open && selected.contains(option['id'])
-                          ? context.jiabu.colors.primarySoft
-                          : context.jiabu.colors.paper,
+            // Pill capsules (4.10): ✓ and primary-soft only once the
+            // server has confirmed the answer (or on a multi-select draft);
+            // the other options then fade. 「输入其他内容」 is the last pill.
+            Padding(
+              padding: const EdgeInsets.only(top: JiabuSpacing.md),
+              child: Wrap(
+                key: const Key('chat-choice-options'),
+                spacing: JiabuSpacing.sm,
+                runSpacing: JiabuSpacing.sm,
+                children: [
+                  for (final (index, option) in objects(
+                    block.data['options'],
+                  ).indexed)
+                    ChatOptionPill(
+                      key: ValueKey('chat-option-${option['id']}'),
+                      index: index,
+                      label: '${option['label']}',
+                      selected: open
+                          ? multiple && _draft.contains(option['id'])
+                          : selected.contains(option['id']),
+                      dimmed: !open && !selected.contains(option['id']),
+                      onPressed: !enabled
+                          ? null
+                          : () {
+                              final id = option['id']! as String;
+                              if (multiple) {
+                                setState(() {
+                                  if (!_draft.add(id)) _draft.remove(id);
+                                });
+                              } else {
+                                unawaited(submit([id]));
+                              }
+                            },
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (!open && selected.contains(option['id']))
-                          const JiabuIcon(
-                            JiabuIcons.uiCheck,
-                            size: JiabuChatMetrics.icon,
-                          ),
-                        Flexible(
-                          child: Text(
-                            '${option['label']}',
-                            style: context.jiabu.type.body,
-                          ),
-                        ),
-                      ],
+                  if (open &&
+                      scope?.composer != null &&
+                      scope?.composer?.state.message?.id == scope?.messageId)
+                    ChatOptionPill(
+                      key: const ValueKey('chat-option-other'),
+                      index: objects(block.data['options']).length,
+                      other: true,
+                      label: label('输入其他内容'),
+                      onPressed: enabled
+                          ? scope?.composer?.beginOtherInput
+                          : null,
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
             if (multiple && open)
-              TextButton(
-                onPressed: enabled && _draft.isNotEmpty
-                    ? () => submit(_draft.toList())
-                    : null,
-                child: Text(label('提交')),
-              ),
-            if (open &&
-                scope?.composer != null &&
-                scope?.composer?.state.message?.id == scope?.messageId)
-              TextButton(
-                onPressed: enabled ? scope?.composer?.beginOtherInput : null,
-                child: Text(label('输入其他内容')),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton(
+                  onPressed: enabled && _draft.isNotEmpty
+                      ? () => submit(_draft.toList())
+                      : null,
+                  child: Text(label('提交')),
+                ),
               ),
             if (local.phase == InteractionPhase.retryable)
               TextButton(

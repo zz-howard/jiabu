@@ -11,6 +11,7 @@ import 'package:jiabu/features/chat/widgets/chat_composer.dart';
 import 'package:jiabu/features/chat/widgets/user_message_note.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/chatweave/chat_block_revealer.dart';
+import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chatweave_theme.dart';
 import 'package:jiabu/shared/chatweave/jiabu_message_view.dart';
 import 'package:jiabu/shared/ledger/ledger_forms.dart';
@@ -37,7 +38,16 @@ class _ChatPage extends ConsumerStatefulWidget {
 
 class _ChatPageState extends ConsumerState<_ChatPage> {
   final _revealer = ChatBlockRevealer();
+  ChatDayBreaks? _days;
   String get spaceId => widget.spaceId;
+  ChatDayBreaks _dayBreaks(String conversationId) {
+    final current = _days;
+    if (current != null && current.conversationId == conversationId) {
+      return current;
+    }
+    return _days = ChatDayBreaks(conversationId);
+  }
+
   @override
   void dispose() {
     _revealer.dispose();
@@ -71,6 +81,37 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
         )
         .lastOrNull
         ?.id;
+    // The assistant's reply in Jiabu's message view; my own notes pass
+    // through. Every message that opens a new day gets the date tape.
+    Widget frame(BuildContext context, Message message, Widget child) {
+      if (message['role'] == 'user' || child is! MessageView) return child;
+      _revealer.register(context, child);
+      return JiabuMessageView(
+        source: MessageView(
+          message: child.message,
+          registry: child.registry,
+          processState: child.processState,
+          interactions: child.interactions,
+          composer: child.composer,
+          blockKeys: child.blockKeys,
+          activity: child.activity,
+          onProcessResize: child.onProcessResize,
+          onManualProcessResize: child.onManualProcessResize,
+          stopRequested:
+              session.stopRequested.contains(message.id) ||
+              state.stopping.contains(message.id),
+        ),
+        onRetry:
+            message.status == 'error' ||
+                (message.status == 'interrupted' &&
+                    !session.stopRequested.contains(message.id))
+            ? () => unawaited(vm.command(() => session.retry(message.id)))
+            : null,
+      );
+    }
+
+    final days = _dayBreaks(session.conversationId);
+    final now = ref.watch(ledgerClockProvider)();
     Future<void> manual(String id) async {
       final initial = await vm.takeOver(id);
       if (context.mounted && initial != null) {
@@ -147,36 +188,15 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
                           ? () => unawaited(manual(message.id))
                           : null,
                     ),
-                    messageFrameBuilder: (context, message, child) {
-                      if (message['role'] == 'user' || child is! MessageView) {
-                        return child;
-                      }
-                      _revealer.register(context, child);
-                      return JiabuMessageView(
-                        source: MessageView(
-                          message: child.message,
-                          registry: child.registry,
-                          processState: child.processState,
-                          interactions: child.interactions,
-                          composer: child.composer,
-                          blockKeys: child.blockKeys,
-                          activity: child.activity,
-                          onProcessResize: child.onProcessResize,
-                          onManualProcessResize: child.onManualProcessResize,
-                          stopRequested:
-                              session.stopRequested.contains(message.id) ||
-                              state.stopping.contains(message.id),
+                    messageFrameBuilder: (context, message, child) =>
+                        ChatDayFrame(
+                          day: days.dayStartedBy(
+                            session.blocks.snapshot.messages,
+                            message.id,
+                          ),
+                          now: now,
+                          child: frame(context, message, child),
                         ),
-                        onRetry:
-                            message.status == 'error' ||
-                                (message.status == 'interrupted' &&
-                                    !session.stopRequested.contains(message.id))
-                            ? () => unawaited(
-                                vm.command(() => session.retry(message.id)),
-                              )
-                            : null,
-                      );
-                    },
                   ),
           ),
           if (state.images.isNotEmpty)

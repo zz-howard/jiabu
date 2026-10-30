@@ -38,11 +38,6 @@ class JiabuChatComposer extends StatefulWidget {
   State<JiabuChatComposer> createState() => _JiabuChatComposerState();
 }
 
-const _target = BoxConstraints.tightFor(
-  width: JiabuChatMetrics.action,
-  height: JiabuChatMetrics.action,
-);
-
 class _JiabuChatComposerState extends State<JiabuChatComposer> {
   late final TextEditingController _text;
   final _focus = FocusNode();
@@ -81,15 +76,20 @@ class _JiabuChatComposerState extends State<JiabuChatComposer> {
       final answering = state.mode == ComposerMode.answering;
       final question =
           state.block?.data['prompt'] ?? state.block?.data['title'] ?? '';
+      // Design-spec 4.17b (V5): no full-width bar. A round paper camera
+      // button, the field as a small floating paper card (pencil inside,
+      // gallery at its end) and the round send / stop button float on the
+      // page's paper.
       return DecoratedBox(
-        decoration: BoxDecoration(
-          color: context.jiabu.colors.paper,
-          border: Border(
-            top: BorderSide(color: context.jiabu.colors.lineStrong),
-          ),
-        ),
+        key: const Key('chat-composer'),
+        decoration: const BoxDecoration(),
         child: Padding(
-          padding: const EdgeInsets.all(JiabuChatMetrics.gap),
+          padding: const EdgeInsets.fromLTRB(
+            JiabuSpacing.md,
+            JiabuChatMetrics.gap,
+            JiabuSpacing.md,
+            JiabuSpacing.md,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -141,46 +141,59 @@ class _JiabuChatComposerState extends State<JiabuChatComposer> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  IconButton(
-                    tooltip: l.chatPhoto,
-                    constraints: _target,
-                    onPressed: !locked && !answering && !widget.busy
-                        ? widget.onPhoto
-                        : null,
-                    icon: const JiabuIcon(JiabuIcons.uiCamera),
-                  ),
-                  IconButton(
-                    tooltip: l.chatGallery,
-                    constraints: _target,
-                    onPressed: !locked && !answering && !widget.busy
-                        ? widget.onGallery
-                        : null,
-                    icon: const JiabuIcon(JiabuIcons.uiImage),
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      bottom: JiabuChatMetrics.roundLift,
+                    ),
+                    child: PaperRoundButton(
+                      key: const ValueKey('chat-camera'),
+                      icon: JiabuIcons.uiCamera,
+                      label: l.chatPhoto,
+                      onPressed: !locked && !answering && !widget.busy
+                          ? widget.onPhoto
+                          : null,
+                    ),
                   ),
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: JiabuChatMetrics.rowGap,
+                        horizontal: JiabuSpacing.sm,
                       ),
-                      child: TextField(
-                        key: const ValueKey('chat-input'),
-                        controller: _text,
-                        focusNode: _focus,
-                        onChanged: widget.onDraft,
-                        enabled: !locked && !widget.busy,
-                        minLines: 1,
-                        maxLines: 4,
-                        style: context.jiabu.type.body,
-                        decoration: InputDecoration(
-                          hintText: locked ? l.chatLocked : l.chatInput,
-                          filled: true,
-                          fillColor: locked
-                              ? context.jiabu.colors.surface2
-                              : context.jiabu.colors.paper,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              JiabuChatMetrics.fieldRadius,
+                      child: PaperComposerField(
+                        locked: locked,
+                        trailing: IconButton(
+                          key: const ValueKey('chat-gallery'),
+                          tooltip: l.chatGallery,
+                          constraints: const BoxConstraints.tightFor(
+                            width: JiabuChatMetrics.fieldButton,
+                            height: JiabuChatMetrics.fieldButton,
+                          ),
+                          padding: EdgeInsets.zero,
+                          onPressed: !locked && !answering && !widget.busy
+                              ? widget.onGallery
+                              : null,
+                          icon: const JiabuIcon(JiabuIcons.uiImage),
+                        ),
+                        child: TextField(
+                          key: const ValueKey('chat-input'),
+                          controller: _text,
+                          focusNode: _focus,
+                          onChanged: widget.onDraft,
+                          enabled: !locked && !widget.busy,
+                          minLines: 1,
+                          maxLines: 4,
+                          style: context.jiabu.type.body,
+                          decoration: InputDecoration(
+                            hintText: locked ? l.chatLocked : l.chatInput,
+                            hintStyle: context.jiabu.type.body.copyWith(
+                              color: context.jiabu.colors.ink3,
                             ),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                            isDense: true,
                           ),
                         ),
                       ),
@@ -200,43 +213,62 @@ class _JiabuChatComposerState extends State<JiabuChatComposer> {
                           ? !widget.stopRequested
                           : hasInput && !locked && !widget.busy;
                       final colors = context.jiabu.colors;
-                      return Semantics(
-                        button: true,
-                        enabled: enabled,
-                        label: stop
-                            ? (widget.stopRequested
-                                  ? l.chatStopping
-                                  : l.chatStop)
-                            : l.chatSend,
-                        excludeSemantics: true,
-                        child: GestureDetector(
-                          key: ValueKey(stop ? 'chat-stop' : 'chat-send'),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: enabled
-                              ? (stop
-                                    ? widget.onStop
-                                    : () => unawaited(_send(answering)))
-                              : null,
-                          child: SizedBox.square(
-                            dimension: JiabuChatMetrics.action,
-                            child: Center(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: enabled
-                                      ? colors.primary
-                                      : colors.surface3,
-                                ),
-                                child: SizedBox.square(
-                                  dimension: JiabuChatMetrics.sendDisc,
-                                  child: Center(
-                                    child: JiabuIcon(
-                                      stop
-                                          ? JiabuIcons.uiStop
-                                          : JiabuIcons.uiSend,
+                      return Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: JiabuChatMetrics.roundLift,
+                        ),
+                        child: Semantics(
+                          button: true,
+                          enabled: enabled,
+                          label: stop
+                              ? (widget.stopRequested
+                                    ? l.chatStopping
+                                    : l.chatStop)
+                              : l.chatSend,
+                          excludeSemantics: true,
+                          child: GestureDetector(
+                            key: ValueKey(stop ? 'chat-stop' : 'chat-send'),
+                            behavior: HitTestBehavior.opaque,
+                            onTap: enabled
+                                ? (stop
+                                      ? widget.onStop
+                                      : () => unawaited(_send(answering)))
+                                : null,
+                            child: SizedBox.square(
+                              dimension: JiabuChatMetrics.action,
+                              child: Center(
+                                child: Tilt(
+                                  // Turns −8° once there is something to send
+                                  // (original `.has-text .cmp-send`).
+                                  degrees: enabled && !stop
+                                      ? JiabuChatMetrics.sendTilt
+                                      : 0,
+                                  child: DecoratedBox(
+                                    key: const ValueKey('chat-send-disc'),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
                                       color: enabled
-                                          ? colors.onPrimary
-                                          : colors.ink3,
+                                          ? colors.primary
+                                          : colors.surface3,
+                                      border: Border.all(
+                                        color: colors.white,
+                                        width: JiabuChatMetrics.roundRing,
+                                      ),
+                                      boxShadow:
+                                          context.jiabu.decor.stickerShadow,
+                                    ),
+                                    child: SizedBox.square(
+                                      dimension: JiabuChatMetrics.sendDisc,
+                                      child: Center(
+                                        child: JiabuIcon(
+                                          stop
+                                              ? JiabuIcons.uiStop
+                                              : JiabuIcons.uiSend,
+                                          color: enabled
+                                              ? colors.onPrimary
+                                              : colors.ink3,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),

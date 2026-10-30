@@ -6,6 +6,7 @@ import 'package:jiabu/domain/chat.dart';
 import 'package:jiabu/features/catalog/c3_cases.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/chatweave/chat_composer.dart';
+import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chat_registry.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chatweave_theme.dart';
 import 'package:jiabu/shared/chatweave/jiabu_message_view.dart';
@@ -56,7 +57,24 @@ const c5States = [
   'process_paused',
   'process_stopped',
   'process_collapsed',
+  'conversation',
 ];
+
+/// The catalog's fixed "now" for date tapes: 2026-10-29 (the fixtures' day).
+final c5Now = DateTime(2026, 10, 29, 12, 30);
+
+const _conversationStates = {
+  'streaming',
+  'thinking',
+  'thinking_tools',
+  'streaming_text',
+  'paused',
+  'interrupted_retry',
+  'stopping',
+  'recovering',
+  'ai_unavailable',
+  'conversation',
+};
 
 /// Fictional protocol content. UI labels themselves always come from ARB.
 Json c5Block(String type, {String id = 'card'}) => {
@@ -157,6 +175,7 @@ Json c5Block(String type, {String id = 'card'}) => {
 };
 
 Message c5Message(String state) {
+  if (state == 'conversation') return _conversationReply();
   final paused =
       state == 'paused' ||
       state.contains('locked') ||
@@ -285,6 +304,85 @@ Message c5Message(String state) {
   });
 }
 
+/// V5: a whole exchange as in the original chat page: the reply's opening
+/// line, the follow-up question with its answered pills, and a closing line
+/// whose bold touches Chinese punctuation (the audit's raw `**记`).
+Message _conversationReply() {
+  final choice = object(c5Block('choice')['data']);
+  return Message.fromJson({
+    'protocolVersion': '0.1',
+    'id': 'reply',
+    'conversationId': 'conversation',
+    'role': 'assistant',
+    'status': 'complete',
+    'rev': 1,
+    'createdAt': '2026-10-29T12:00:00Z',
+    'fallbackText': '午饭已记下',
+    'blocks': [
+      {
+        ...c5Block('markdown', id: 'intro'),
+        'data': {'text': '收到，午饭 68 元。'},
+      },
+      {
+        ...c5Block('choice'),
+        'data': {
+          ...choice,
+          'options': [
+            {'id': 'credit', 'label': '信用卡'},
+            {'id': 'cash', 'label': '现金'},
+            {'id': 'salary', 'label': '工资卡'},
+            {'id': 'change', 'label': '零钱'},
+          ],
+          'state': {
+            'status': 'resolved',
+            'selected': ['credit'],
+            'resolvedAt': '2026-10-29T12:00:30Z',
+            'resolvedBy': '用户A',
+          },
+        },
+      },
+      {
+        ...c5Block('markdown', id: 'done'),
+        'data': {'text': '**已记好：**午饭记到信用卡，可以在**「历史」**里修改。'},
+      },
+    ],
+  });
+}
+
+/// Yesterday's short exchange, so the conversation shows two date tapes.
+List<Message> _yesterday() => [
+  Message.fromJson({
+    'id': 'yesterday-input',
+    'role': 'user',
+    'status': 'complete',
+    'rev': 1,
+    'conversationId': 'conversation',
+    'protocolVersion': '0.1',
+    'createdAt': '2026-10-28T19:20:00Z',
+    'fallbackText': '晚饭 32，零钱',
+    'blocks': <Object?>[],
+    'metadata': {
+      'input': {'text': '晚饭 32，零钱', 'images': <String>[]},
+    },
+  }),
+  Message.fromJson({
+    'protocolVersion': '0.1',
+    'id': 'yesterday-reply',
+    'conversationId': 'conversation',
+    'role': 'assistant',
+    'status': 'complete',
+    'rev': 1,
+    'createdAt': '2026-10-28T19:20:05Z',
+    'fallbackText': '晚饭已记下',
+    'blocks': [
+      {
+        ...c5Block('markdown', id: 'yesterday'),
+        'data': {'text': '晚饭 32 元记好了。'},
+      },
+    ],
+  }),
+];
+
 class CatalogChatStore implements ChatWeaveStore {
   final messages = <String, Message>{};
   final clients = <String, ClientState>{};
@@ -327,6 +425,9 @@ class CatalogQueuedAction implements ActionTransport {
       const ActionSubmission.queued();
 }
 
+String _inputText(String state) =>
+    state == 'conversation' ? '午饭 68' : '午饭 68，信用卡，日常餐饮';
+
 class C5Preview extends StatefulWidget {
   const C5Preview({required this.state, this.accent = 'pine', super.key});
   final String state;
@@ -339,23 +440,19 @@ class _C5PreviewState extends State<C5Preview> {
   final _store = BlockStore();
   final _persistence = CatalogChatStore();
   final _process = ProcessState();
+  final _days = ChatDayBreaks('conversation');
   late InteractionController _actions;
   late InterruptComposerController _composer;
   @override
   void initState() {
     super.initState();
     _store.apply(SyncMessage(c5Message(widget.state)));
-    if (const {
-      'streaming',
-      'thinking',
-      'thinking_tools',
-      'streaming_text',
-      'paused',
-      'interrupted_retry',
-      'stopping',
-      'recovering',
-      'ai_unavailable',
-    }.contains(widget.state)) {
+    if (widget.state == 'conversation') {
+      for (final message in _yesterday()) {
+        _store.apply(SyncMessage(message));
+      }
+    }
+    if (_conversationStates.contains(widget.state)) {
       _store.apply(
         SyncMessage(
           Message.fromJson({
@@ -366,10 +463,10 @@ class _C5PreviewState extends State<C5Preview> {
             'conversationId': 'conversation',
             'protocolVersion': '0.1',
             'createdAt': '2026-10-29T11:59:59Z',
-            'fallbackText': '午饭 68，信用卡，日常餐饮',
+            'fallbackText': _inputText(widget.state),
             'blocks': <Object?>[],
             'metadata': {
-              'input': {'text': '午饭 68，信用卡，日常餐饮', 'images': <String>[]},
+              'input': {'text': _inputText(widget.state), 'images': <String>[]},
             },
           }),
         ),
@@ -483,19 +580,9 @@ class _C5PreviewState extends State<C5Preview> {
         onRetry: () {},
       );
     }
-    if (const {
-      'empty',
-      'setup_entry',
-      'streaming',
-      'thinking',
-      'thinking_tools',
-      'streaming_text',
-      'paused',
-      'interrupted_retry',
-      'stopping',
-      'recovering',
-      'ai_unavailable',
-    }.contains(state)) {
+    if (state == 'empty' ||
+        state == 'setup_entry' ||
+        _conversationStates.contains(state)) {
       final empty = state == 'empty' || state == 'setup_entry';
       return JiabuChatWeaveTheme(
         child: MainFrame(
@@ -532,12 +619,24 @@ class _C5PreviewState extends State<C5Preview> {
                         onStop: (_) {},
                         userMessageBuilder: (_, message) => UserMessageNote(
                           message: message,
-                          delivery: ChatDelivery.waitingAi,
+                          delivery: state == 'conversation'
+                              ? ChatDelivery.complete
+                              : ChatDelivery.waitingAi,
                         ),
-                        messageFrameBuilder: (_, _, child) =>
-                            child is MessageView
-                            ? JiabuMessageView(source: child, onRetry: () {})
-                            : child,
+                        messageFrameBuilder: (_, message, child) =>
+                            ChatDayFrame(
+                              day: _days.dayStartedBy(
+                                _store.snapshot.messages,
+                                message.id,
+                              ),
+                              now: c5Now,
+                              child: child is MessageView
+                                  ? JiabuMessageView(
+                                      source: child,
+                                      onRetry: () {},
+                                    )
+                                  : child,
+                            ),
                       ),
               ),
               JiabuChatComposer(

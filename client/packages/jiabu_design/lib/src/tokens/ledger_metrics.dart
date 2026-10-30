@@ -7,6 +7,10 @@ abstract final class JiabuLedgerMetrics {
   static const double noteClipTilt = -12;
   static const double narrowWidth = 380;
   static const double navigationHeight = 78;
+
+  /// Width of one half-circle of the bottom bar's torn edge; the scallops
+  /// rise half of it above the bar (design-spec 4.7).
+  static const double navigationScallop = 14;
   static const double manualHeight = 52;
   static const double manualInset = 16;
   static const double manualBorder = 2;

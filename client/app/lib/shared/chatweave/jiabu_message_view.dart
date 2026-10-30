@@ -29,8 +29,8 @@ class JiabuMessageView extends StatelessWidget {
     final l = AppLocalizations.of(context);
     final active = const {'streaming', 'paused'}.contains(message.status);
     final thinking = jiabuShowsThinking(message) && !source.stopRequested;
-    final caption = context.jiabu.type.caption.copyWith(
-      color: context.jiabu.colors.ink3,
+    final name = context.jiabu.type.badge.copyWith(
+      color: context.jiabu.colors.ink2,
     );
     return Align(
       alignment: Alignment.topLeft,
@@ -40,7 +40,18 @@ class JiabuMessageView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(l.chatAssistant, style: caption),
+            // Round seal + name (design-spec 4.9), 8 above the reply.
+            Padding(
+              padding: const EdgeInsets.only(bottom: JiabuSpacing.sm),
+              child: Row(
+                key: const Key('chat-assistant-name'),
+                children: [
+                  const ChatAvatarSeal(),
+                  const SizedBox(width: JiabuSpacing.sm),
+                  Flexible(child: Text(l.chatAssistant, style: name)),
+                ],
+              ),
+            ),
             MessageAnnouncements(message: message),
             if (message.steps.isNotEmpty)
               JiabuProcessStrip(

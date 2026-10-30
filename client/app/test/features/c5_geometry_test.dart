@@ -214,7 +214,8 @@ void main() {
       'metric_group',
       'dataset',
       'time_series',
-      'choice_open',
+      // choice: the question and its pills sit on the page, not on a card
+      // (V5, see v5_chat_restore_test).
       'confirmation',
       'form_intent',
     ]) {

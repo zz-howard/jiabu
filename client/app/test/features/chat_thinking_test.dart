@@ -5,6 +5,7 @@ import 'package:jiabu/shared/chatweave/jiabu_chat_registry.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chatweave_theme.dart';
 import 'package:jiabu/shared/chatweave/jiabu_message_view.dart';
 import 'package:jiabu/shared/chatweave/jiabu_thinking_indicator.dart';
+import 'package:jiabu_design/jiabu_design.dart';
 
 import '../support/c3_harness.dart';
 
@@ -85,7 +86,12 @@ void main() {
       expect(label.top, greaterThanOrEqualTo(body.bottom));
       expect(dots.top, greaterThanOrEqualTo(body.bottom));
       expect(label.left, greaterThan(dots.right));
-      expect(dots.left, greaterThan(name.left));
+      // Indented 12 from the message's left edge, where the seal sits.
+      expect(
+        dots.left,
+        greaterThan(tester.getRect(find.byType(ChatAvatarSeal)).left),
+      );
+      expect(dots.left, lessThan(name.left));
       final caption = tester.widget<Text>(find.text('思考中')).style!;
       expect(caption.fontSize, lessThan(14));
     });
