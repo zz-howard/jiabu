@@ -72,9 +72,7 @@ class JiabuPageHeader extends StatelessWidget {
                                     alignment: Alignment.topCenter,
                                     child: JiabuIcon(
                                       JiabuIcons.uiRight,
-                                      key: const Key(
-                                        'jiabu-page-back-icon',
-                                      ),
+                                      key: const Key('jiabu-page-back-icon'),
                                       size: backIconSize,
                                       fitGlyph: true,
                                       flipX: true,
