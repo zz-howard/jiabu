@@ -11,14 +11,18 @@ const _minimumStackPairs = <String, int>{
   // The chat placeholder is one top-level component; chat is outside UI2.
   'shell_chat': 0,
   'settings': 1,
-  'shell_overview': 4,
+  'shell_overview': 9,
   'shell_history': 2,
-  'overview_empty': 4,
-  'overview_accounts': 4,
-  'overview_negative': 4,
-  'overview_pending': 4,
-  'overview_failure': 4,
-  'overview_conflict': 4,
+  // No accounts and no records: title, empty state, pending section + body.
+  // The summary, account groups and recent changes are intentionally absent.
+  'overview_empty': 3,
+  'overview_accounts': 9,
+  // One extra stack item for the negative-balance note.
+  'overview_negative': 10,
+  'overview_pending': 9,
+  'overview_failure': 9,
+  'overview_conflict': 9,
+  'overview_busy': 9,
   'history_empty': 2,
   'history_grouped': 2,
   'history_24': 2,

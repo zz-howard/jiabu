@@ -1,0 +1,65 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion or rules command to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly.",
+  "controls": [
+    {
+      "id": "total_adds_purpose_accounts",
+      "file": "client/app/lib/domain/ledger_balance.dart",
+      "find": "account.text('kind') == 'real') {\n      total +=",
+      "replace": "account.text('kind') != 'real') {\n      total +=",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/domain/ledger_balance_test.dart",
+      "test_names": [
+        "real_total_sums_real_accounts_only_and_keeps_archived_money"
+      ],
+      "command": "flutter test test/domain/ledger_balance_test.dart"
+    },
+    {
+      "id": "month_expense_ignores_the_month",
+      "file": "client/app/lib/domain/ledger_balance.dart",
+      "find": "r.text('occurred_on').startsWith('$month-'),",
+      "replace": "r.text('occurred_on').startsWith('20'),",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/domain/ledger_balance_test.dart",
+      "test_names": [
+        "month_expense_counts_expense_minus_refund_in_the_month_only"
+      ],
+      "command": "flutter test test/domain/ledger_balance_test.dart"
+    },
+    {
+      "id": "summary_uses_wrong_month",
+      "file": "client/app/lib/shared/ledger/ledger_pages.dart",
+      "find": "monthExpense(snapshot, month)",
+      "replace": "monthExpense(snapshot, '2000-01')",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/overview_summary_test.dart",
+      "test_names": [
+        "summary_shows_real_total_and_this_month_expense_first"
+      ],
+      "command": "flutter test test/features/overview_summary_test.dart"
+    },
+    {
+      "id": "summary_shown_without_accounts",
+      "file": "client/app/lib/shared/ledger/ledger_pages.dart",
+      "find": "if (total != null && snapshot.accounts.isNotEmpty)",
+      "replace": "if (total != null)",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/overview_summary_test.dart",
+      "test_names": [
+        "no_accounts_shows_only_the_empty_state_and_no_totals"
+      ],
+      "command": "flutter test test/features/overview_summary_test.dart"
+    },
+    {
+      "id": "recent_list_not_limited",
+      "file": "client/app/lib/shared/ledger/ledger_pages.dart",
+      "find": ".take(5);",
+      "replace": ".take(50);",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/overview_summary_test.dart",
+      "test_names": [
+        "recent_changes_are_compact_rows_with_amount_on_the_right"
+      ],
+      "command": "flutter test test/features/overview_summary_test.dart"
+    }
+  ]
+}

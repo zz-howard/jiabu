@@ -196,6 +196,8 @@
   "ledgerPurpose": "用途账户",
   "ledgerRecent": "近期变化",
   "ledgerPending": "待处理",
+  "ledgerTotalBalance": "总余额",
+  "ledgerMonthSpent": "本月支出",
   "ledgerNoAccounts": "还没有账户，先去设置里新建",
   "ledgerNoPending": "没有待处理条目",
   "ledgerExpense": "支出",

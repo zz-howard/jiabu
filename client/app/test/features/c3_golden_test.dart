@@ -115,6 +115,22 @@ const c3Goldens =
         path: '../goldens/c3/overview_accounts_zh_pine_w430_text200.png',
       ),
       (
+        state: 'overview_busy',
+        locale: 'zh',
+        accent: 'pine',
+        width: 360,
+        scale: 100,
+        path: '../goldens/c3/overview_busy_zh_pine_w360_text100.png',
+      ),
+      (
+        state: 'overview_busy',
+        locale: 'zh',
+        accent: 'pine',
+        width: 430,
+        scale: 200,
+        path: '../goldens/c3/overview_busy_zh_pine_w430_text200.png',
+      ),
+      (
         state: 'overview_negative',
         locale: 'zh',
         accent: 'pine',

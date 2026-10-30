@@ -80,3 +80,28 @@ int dailyExpense(Iterable<LedgerRow> records) => records
             _ => 0,
           },
     );
+
+/// Sum of every real (money) account balance in the space, archived accounts
+/// included because their remaining balance is still money the space holds.
+/// Purpose accounts split the same money, so they are never added in.
+/// Returns null when the sum leaves the safe integer range.
+int? realAccountsTotal(LedgerSnapshot snapshot, Map<String, int> balances) {
+  var total = BigInt.zero;
+  for (final account in snapshot.accounts) {
+    if (account.text('space_id') == snapshot.spaceId &&
+        account.text('kind') == 'real') {
+      total += BigInt.from(balances[account.id] ?? 0);
+    }
+  }
+  return total.abs() > BigInt.from(9007199254740991) ? null : total.toInt();
+}
+
+/// Consumption on days of `month` ("yyyy-MM", in the space calendar) using the
+/// same expense-minus-refund rule as the daily history totals.
+int monthExpense(LedgerSnapshot snapshot, String month) => dailyExpense(
+  snapshot.records.where(
+    (r) =>
+        r.text('space_id') == snapshot.spaceId &&
+        r.text('occurred_on').startsWith('$month-'),
+  ),
+);

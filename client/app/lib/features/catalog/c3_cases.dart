@@ -28,6 +28,7 @@ const c3States = <String>[
   'overview_pending',
   'overview_failure',
   'overview_conflict',
+  'overview_busy',
   'history_empty',
   'history_grouped',
   'history_24',
@@ -89,7 +90,7 @@ const c3EnglishRepresentatives = <String>[
 LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
   const s = 'fictional-c3';
   final empty = state.endsWith('_empty');
-  final accountFixtures = state == 'accounts_long_6'
+  final accountFixtures = state == 'accounts_long_6' || state == 'overview_busy'
       ? const [
           ('real-a', 'real', '招商银行信用卡（虚构家庭日常共同支出账户）'),
           ('real-b', 'real', '中国银行长期储蓄账户（虚构）'),
@@ -162,6 +163,27 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
     accounts: empty ? [] : accounts,
     records: empty
         ? []
+        : state == 'overview_busy'
+        ? [
+            for (final item in const [
+              ('lunch', 'expense', '虚构午餐', 1200, '2026-10-28'),
+              ('salary', 'income', '虚构工资（十月，含补贴与奖金，名称较长）', 1280000, '2026-10-26'),
+              ('market', 'expense', '虚构买菜', 8650, '2026-10-24'),
+              ('move', 'transfer', '', 50000, '2026-10-22'),
+              ('refund', 'refund', '虚构退款', 2000, '2026-10-21'),
+              ('old', 'expense', '虚构九月房租', 450000, '2026-09-30'),
+            ])
+              LedgerRow({
+                ...row.data,
+                'id': 'record-${item.$1}',
+                'kind': item.$2,
+                'note': item.$3,
+                'amount_minor': item.$4,
+                'occurred_on': item.$5,
+                if (item.$2 == 'transfer') 'to_account_id': 'real-b',
+                if (item.$2 == 'refund') 'refund_of_id': 'record-lunch',
+              }),
+          ]
         : state == 'history_24'
         ? [
             for (var index = 0; index < 24; index++)
