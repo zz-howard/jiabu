@@ -92,7 +92,9 @@ void main() {
 
   testWidgets('manual account label captions its chip group', (tester) async {
     await pumpC3(tester, state: 'manual_expense');
-    final label = find.byKey(const ValueKey('account-choices-label-account_id'));
+    final label = find.byKey(
+      const ValueKey('account-choices-label-account_id'),
+    );
     final chips = find.byKey(const ValueKey('account-choices-account_id'));
     expect(
       tester.getRect(chips).top - tester.getRect(label).bottom,
