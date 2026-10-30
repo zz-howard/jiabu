@@ -7,7 +7,7 @@ BlockRegistry jiabuChatRegistry({
   required BlockWidgetBuilder recordBuilder,
   BlockRenderError? onError,
 }) {
-  // ChatWeave (f11bd4f) re-parses a growing markdown tail only after it has
+  // ChatWeave (ab5cabb) re-parses a growing markdown tail only after it has
   // grown by max(256 chars, its parsed length) and shows the characters in
   // between as literal text, so lists and bold appeared as raw "- **" mid
   // stream. MarkdownBlockView defaults to complete: true, which parses the

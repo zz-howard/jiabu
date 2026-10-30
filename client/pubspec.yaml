@@ -15,5 +15,5 @@ dependency_overrides:
   chatweave_core:
     git:
       url: https://github.com/zz-howard/chatweave
-      ref: f11bd4f66479d8a06160b6af5f9c8d0f980577ef
+      ref: ab5cabb1b67338a52078e8da875804b9a1543a75
       path: dart/packages/chatweave_core

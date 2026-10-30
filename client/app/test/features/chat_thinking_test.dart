@@ -184,5 +184,16 @@ void main() {
       expect(find.textContaining('**', findRichText: true), findsNothing);
       expect(find.textContaining('- ', findRichText: true), findsNothing);
     });
+
+    testWidgets('quote_line_renders_as_a_blockquote_not_literal_marker', (
+      tester,
+    ) async {
+      await pumpC3(
+        tester,
+        child: frame('前一段。\n\n> 引用的一句话\n\n后一段。', status: 'complete'),
+      );
+      expect(find.textContaining('引用的一句话', findRichText: true), findsOneWidget);
+      expect(find.textContaining('>', findRichText: true), findsNothing);
+    });
   });
 }
