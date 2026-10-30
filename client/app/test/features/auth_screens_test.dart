@@ -518,6 +518,10 @@ void main() {
         testWidgets('auth_layout_${width}_${scale}_$locale', (tester) async {
           final semantics = tester.ensureSemantics();
           for (final sample in allAuthTestCases) {
+            // Start each state from a fresh tree: a sheet opened by the
+            // previous state would otherwise stay on the Navigator and hide
+            // this screen from semantics.
+            await tester.pumpWidget(const SizedBox());
             await pumpAuth(
               tester,
               sample.builder(),
@@ -527,13 +531,12 @@ void main() {
             );
             // Modal routes exclude their background fields from semantics.
             // Check the source screen before opening invite_placeholder.
-            for (final field in find.byType(TextField).evaluate().toList()) {
-              final editable = find.descendant(
-                of: find.byWidget(field.widget),
-                matching: find.byType(EditableText),
-              );
+            final fieldCount = find.byType(EditableText).evaluate().length;
+            for (var index = 0; index < fieldCount; index++) {
               // Fields scrolled out of the viewport drop out of the
-              // semantics tree, so bring each one into view first.
+              // semantics tree, so bring each one into view first. Find by
+              // index: scrolling rebuilds the widgets.
+              final editable = find.byType(EditableText).at(index);
               await tester.ensureVisible(editable);
               await tester.pump();
               expect(
