@@ -225,14 +225,93 @@ String operationTitle(LedgerSnapshot data, LedgerRow op, AppLocalizations l) {
   return labels.isEmpty ? l.ledgerPending : labels.join(' · ');
 }
 
-String recordStickerCategory(LedgerRow row) => switch (row.text('kind')) {
-  'reallocation' => 'move',
-  'transfer' => 'transfer',
-  'income' => 'income',
-  'allocation' => 'alloc',
-  'refund' => 'income',
-  _ => 'food',
+/// The round sticker of a record. Expenses take the sticker of their first
+/// preset tag when the [snapshot] is known (dining → food, transport →
+/// travel, …); everything else keeps the kind's sticker.
+String recordStickerCategory(LedgerRow row, {LedgerSnapshot? snapshot}) {
+  final kind = row.text('kind');
+  if (kind == 'expense' && snapshot != null) {
+    for (final id in row.strings('tag_ids')) {
+      final preset = snapshot.find(snapshot.tags, id)?.text('preset_key');
+      final category = _tagStickers[preset];
+      if (category != null) {
+        return category;
+      }
+    }
+  }
+  return switch (kind) {
+    'reallocation' => 'move',
+    'transfer' => 'transfer',
+    'income' => 'income',
+    'allocation' => 'alloc',
+    'refund' => 'income',
+    _ => 'food',
+  };
+}
+
+const _tagStickers = <String, String>{
+  'dining': 'food',
+  'groceries': 'food',
+  'transport': 'travel',
+  'housing': 'home',
+  'daily': 'home',
+  'medical': 'health',
+  'education': 'edu',
+  'entertainment': 'hobby',
 };
+
+/// The history row's second line, the original 「招行卡 · 日常餐饮」: the
+/// real account and the purpose account (or, without a purpose, the first
+/// tag). Transfers and reallocations already name both ends in their title,
+/// so they show their kind.
+String recordAccountLine(
+  LedgerSnapshot snapshot,
+  LedgerRow row,
+  AppLocalizations l,
+) {
+  final kind = row.text('kind');
+  final labels = ledgerLabels(l);
+  if (kind == 'transfer' || kind == 'reallocation') {
+    return labels[kind] ?? '';
+  }
+  String name(String field) =>
+      snapshot.find(snapshot.accounts, row.text(field))?.text('name') ?? '';
+  final account = name('account_id');
+  var category = name('purpose_id');
+  if (category.isEmpty) {
+    category = name('to_purpose_id');
+  }
+  if (category.isEmpty) {
+    final tags = row.strings('tag_ids');
+    category = tags.isEmpty
+        ? ''
+        : tagName(snapshot.find(snapshot.tags, tags.first), labels);
+  }
+  final parts = [account, category].where((part) => part.isNotEmpty);
+  return parts.isEmpty ? labels[kind] ?? '' : parts.join(' · ');
+}
+
+/// The small time under a history row's amount: when the record was written
+/// down (`created_at`, local 24-hour clock). Records carry only a day for
+/// when the money moved, so this is the entry time, never a guessed one; a
+/// record without `created_at` shows no time.
+String recordEntryTime(LedgerRow row, AppLocalizations l) {
+  final at = DateTime.tryParse(row.text('created_at'))?.toLocal();
+  return at == null ? '' : DateFormat.Hm(l.localeName).format(at);
+}
+
+/// The history day tape, the original 「10月25日 周日」 (`Oct 25 Sun`); a
+/// day from another year than [now] keeps its year.
+String ledgerDayLabel(String value, DateTime now, AppLocalizations l) {
+  final date = DateTime.tryParse(value);
+  if (date == null) {
+    return value;
+  }
+  final format = date.year == now.year
+      ? DateFormat.MMMd(l.localeName)
+      : DateFormat.yMMMd(l.localeName);
+  return format.add_E().format(date);
+}
 
 String formatCompactMinor(int amount, String currency, String locale) {
   final formatted = formatMinor(amount, currency, locale);

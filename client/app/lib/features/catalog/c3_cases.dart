@@ -36,6 +36,7 @@ const c3States = <String>[
   'history_24',
   'history_search',
   'history_filters',
+  'history_diary',
   'card_denied',
   'card_loading',
   'card_recorded',
@@ -92,6 +93,7 @@ const c3EnglishRepresentatives = <String>[
 LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
   const s = 'fictional-c3';
   final empty = state.endsWith('_empty');
+  final diary = state == 'history_diary' || state == 'shell_history';
   final accountFixtures = state == 'accounts_long_6'
       ? const [
           ('real-a', 'real', '招商银行信用卡（虚构家庭日常共同支出账户）'),
@@ -151,6 +153,7 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
       'note': '虚构午餐',
       'occurred_on': '2026-10-28',
       'created_by_member_id': 'member-a',
+      'created_at': '2026-10-28T04:12:00Z',
     },
     syncState: conflict
         ? 'conflict'
@@ -201,6 +204,68 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
                 if (item.$2 == 'refund') 'refund_of_id': 'record-lunch',
               }),
           ]
+        : diary
+        // The original history screenshot: two days, food and taxi stickers
+        // on the timeline, money in, a transfer and a refund.
+        ? [
+            for (final item in const [
+              (
+                'lunch',
+                'expense',
+                '虚构午饭',
+                6800,
+                '2026-10-28',
+                'tag-a',
+                'purpose-a',
+                '15:14',
+              ),
+              (
+                'taxi',
+                'expense',
+                '虚构打车',
+                3000,
+                '2026-10-28',
+                'tag-b',
+                'purpose-b',
+                '14:46',
+              ),
+              (
+                'salary',
+                'income',
+                '虚构工资',
+                1280000,
+                '2026-10-28',
+                '',
+                'purpose-a',
+                '09:30',
+              ),
+              ('move', 'transfer', '', 50000, '2026-10-27', '', '', '20:05'),
+              ('refund', 'refund', '虚构退款', 2000, '2026-10-27', '', '', '18:40'),
+              (
+                'snack',
+                'expense',
+                '虚构零食（周末给孩子买的，名称比较长）',
+                1250,
+                '2026-10-27',
+                'tag-a',
+                '',
+                '02:57',
+              ),
+            ])
+              LedgerRow({
+                ...row.data,
+                'id': 'record-${item.$1}',
+                'kind': item.$2,
+                'note': item.$3,
+                'amount_minor': item.$4,
+                'occurred_on': item.$5,
+                'tag_ids': [if (item.$6.isNotEmpty) item.$6],
+                'purpose_id': item.$7.isEmpty ? null : item.$7,
+                'created_at': '${item.$5}T${item.$8}:00Z',
+                if (item.$2 == 'transfer') 'to_account_id': 'real-b',
+                if (item.$2 == 'refund') 'refund_of_id': 'record-lunch',
+              }),
+          ]
         : state == 'history_24'
         ? [
             for (var index = 0; index < 24; index++)
@@ -229,6 +294,13 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
         'preset_key': 'dining',
         'name': null,
       }),
+      if (diary)
+        LedgerRow({
+          'id': 'tag-b',
+          'space_id': s,
+          'preset_key': 'transport',
+          'name': null,
+        }),
     ],
     pending: state == 'card_failed' || state == 'overview_failure' || pending
         ? [

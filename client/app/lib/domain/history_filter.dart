@@ -93,7 +93,12 @@ List<LedgerRow> filterHistory(LedgerSnapshot snapshot, HistoryFilter filter) {
         );
       }).toList()..sort((a, b) {
         final date = b.text('occurred_on').compareTo(a.text('occurred_on'));
-        return date == 0 ? b.id.compareTo(a.id) : date;
+        if (date != 0) {
+          return date;
+        }
+        // Within a day, the latest entry first: rows show their entry time.
+        final entered = b.text('created_at').compareTo(a.text('created_at'));
+        return entered == 0 ? b.id.compareTo(a.id) : entered;
       });
   return result;
 }

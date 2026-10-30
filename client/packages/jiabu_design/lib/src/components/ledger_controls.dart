@@ -197,6 +197,10 @@ class PaperBottomNavigation extends StatelessWidget {
   );
 }
 
+/// A history filter chip (design-spec 4.12, original `.fchip`): 44 high,
+/// radius 8, a small dropdown arrow after the label. Unselected chips have a
+/// dashed line-strong outline on translucent paper; a selected chip is a solid
+/// primary-soft chip with a ✓, a white ring and a sticker shadow.
 class PaperFilterChip extends StatelessWidget {
   const PaperFilterChip({
     required this.label,
@@ -208,46 +212,84 @@ class PaperFilterChip extends StatelessWidget {
   final bool selected;
   final VoidCallback onPressed;
   @override
-  Widget build(BuildContext context) => FilterChip(
-    label: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (selected) ...[
-          ExcludeSemantics(
-            child: JiabuIcon(
-              JiabuIcons.uiCheck,
-              size: JiabuLedgerMetrics.meIcon,
-              color: context.jiabu.colors.onPrimarySoft,
+  Widget build(BuildContext context) {
+    final c = context.jiabu.colors;
+    final d = context.jiabu.decor;
+    final radius = BorderRadius.circular(d.chipRadius);
+    final ink = selected ? c.onPrimarySoft : c.ink;
+    final body = Container(
+      key: const Key('paper-filter-chip-body'),
+      constraints: const BoxConstraints(
+        minHeight: JiabuLedgerMetrics.chipHeight,
+      ),
+      padding: const EdgeInsetsDirectional.only(
+        start: JiabuSpacing.gap14,
+        end: JiabuSpacing.md,
+      ),
+      decoration: selected
+          ? BoxDecoration(
+              color: c.primarySoft,
+              borderRadius: radius,
+              border: Border.all(
+                color: c.white,
+                width: JiabuLedgerMetrics.manualBorder,
+              ),
+              boxShadow: d.stickerShadow,
+            )
+          : ShapeDecoration(
+              color: c.paper.withValues(alpha: .8),
+              shape: PaperDashedBorder(
+                radius: d.chipRadius,
+                side: BorderSide(color: c.lineStrong, width: 1.5),
+              ),
             ),
-          ),
-          const SizedBox(width: JiabuSpacing.xs),
-        ],
-        Text(label),
-      ],
-    ),
-    selected: selected,
-    onSelected: (_) => onPressed(),
-    selectedColor: context.jiabu.colors.primarySoft,
-    side: BorderSide(
-      color: selected
-          ? context.jiabu.colors.white
-          : context.jiabu.colors.lineStrong,
-      width: selected ? JiabuLedgerMetrics.manualBorder : 1,
-    ),
-    showCheckmark: false,
-    shape: selected
-        ? RoundedRectangleBorder(
-            side: BorderSide(
-              color: context.jiabu.colors.white,
-              width: JiabuLedgerMetrics.manualBorder,
+      child: Align(
+        widthFactor: 1,
+        heightFactor: 1,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected) ...[
+              ExcludeSemantics(
+                child: JiabuIcon(
+                  JiabuIcons.uiCheck,
+                  key: const Key('paper-filter-chip-check'),
+                  size: JiabuLedgerMetrics.chipArrow,
+                  color: ink,
+                ),
+              ),
+              const SizedBox(width: JiabuSpacing.xs),
+            ],
+            Text(
+              label,
+              maxLines: 1,
+              style: context.jiabu.type.body.copyWith(
+                color: ink,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            borderRadius: BorderRadius.circular(context.jiabu.decor.chipRadius),
-          )
-        : PaperDashedBorder(
-            radius: context.jiabu.decor.chipRadius,
-            side: BorderSide(color: context.jiabu.colors.lineStrong),
-          ),
-  );
+            const SizedBox(width: JiabuSpacing.xs),
+            ExcludeSemantics(
+              child: JiabuIcon(
+                JiabuIcons.uiDown,
+                key: const Key('paper-filter-chip-arrow'),
+                size: JiabuLedgerMetrics.chipArrow,
+                color: selected ? ink : c.ink2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(borderRadius: radius, onTap: onPressed, child: body),
+      ),
+    );
+  }
 }
 
 class NegativeBalanceNote extends StatelessWidget {

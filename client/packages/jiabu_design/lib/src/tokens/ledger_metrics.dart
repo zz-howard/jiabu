@@ -35,4 +35,20 @@ abstract final class JiabuLedgerMetrics {
   /// Purpose-account tiles go two per row only while each tile is at least
   /// this wide times the text scale; otherwise one per row.
   static const double purposeTileMinWidth = 150;
+
+  /// History page (design-spec 4.12, V4): the rounded search card is 52 high
+  /// with a 20 magnifier; filter chips are 44 high with a 16 dropdown arrow.
+  static const double searchHeight = 52;
+  static const double searchIcon = 20;
+  static const double chipHeight = 44;
+  static const double chipArrow = 16;
+
+  /// The chip row's edge fades (only shown while more chips are hidden on
+  /// that side).
+  static const double chipFade = 24;
+
+  /// Timeline rows: the sticker sits this far in from the card's left edge,
+  /// and the red timeline runs through the sticker centres.
+  static const double timelineStart = 12;
+  static const double timelineStroke = 1.5;
 }

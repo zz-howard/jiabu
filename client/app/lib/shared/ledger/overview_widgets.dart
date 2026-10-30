@@ -322,7 +322,10 @@ class OverviewRecentRow extends StatelessWidget {
         : null;
     return JiabuListRow(
       key: Key('overview-recent-${row.id}'),
-      leading: Sticker(category: recordStickerCategory(row), compact: true),
+      leading: Sticker(
+        category: recordStickerCategory(row, snapshot: snapshot),
+        compact: true,
+      ),
       title: recordTitle(snapshot, row, l),
       subtitle:
           '${memberLabel(snapshot, row, l)} · '
