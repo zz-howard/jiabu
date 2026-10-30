@@ -498,7 +498,7 @@ bool _c4PreviewUsesFullPage(String state) =>
     );
   }
   if (state.startsWith('switcher')) {
-    return ('switcher', SpacesScreen(page: 'switcher', onSettings: () {}));
+    return ('switcher', const SpacesScreen(page: 'switcher'));
   }
   if (state == 'space_new' || state == 'space_validation') {
     return ('space-form:new', const SpaceForm());

@@ -507,7 +507,7 @@ class _C5PreviewState extends State<C5Preview> {
           accent:
               context.jiabu.colors.spaceAccents[widget.accent] ??
               context.jiabu.colors.primaryText,
-          labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory],
+          labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory, l.ledgerMe],
           selected: 0,
           onSelect: (_) {},
           child: Column(

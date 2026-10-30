@@ -33,7 +33,11 @@ class MainShell extends ConsumerWidget {
         path.startsWith('/settings') ||
         path.startsWith('/spaces') ||
         path == '/invitations';
-    final selected = settingsRoute
+    // 我的 (index 3) is the settings tab; space and invitation pages keep the
+    // tab they were opened from.
+    final selected = path.startsWith('/settings')
+        ? 3
+        : settingsRoute
         ? ref.watch(mainNavigationProvider)
         : path.startsWith('/overview')
         ? 1
@@ -46,13 +50,9 @@ class MainShell extends ConsumerWidget {
         (ref.watch(spacesDirectoryProvider).asData?.value ??
                 const <SpaceInfo>[])
             .any((space) => space.id == spaceId && space.isDefault);
-    // Second-level routes (settings, spaces, invitations) bring their own page
-    // header; only the three main tabs get the shared title block here.
+    // Settings (the 我的 tab), spaces and invitations bring their own page
+    // header; only chat, overview and history get the shared title block here.
     final tab = settingsRoute ? null : selected;
-    void openSettings() {
-      ref.read(mainNavigationProvider.notifier).selectedIndex = selected;
-      unawaited(context.push<void>('/settings'));
-    }
 
     return MainFrame(
       title: switch (tab) {
@@ -79,12 +79,12 @@ class MainShell extends ConsumerWidget {
       accent:
           context.jiabu.colors.spaceAccents[data?.space.text('accent_color')] ??
           context.jiabu.colors.primaryText,
-      onSpace: () => openSpaceSwitcher(context, onSettings: openSettings),
-      labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory],
+      onSpace: () => openSpaceSwitcher(context),
+      labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory, l.ledgerMe],
       selected: selected,
       onSelect: (index) {
         ref.read(mainNavigationProvider.notifier).selectedIndex = index;
-        context.go(['/chat', '/overview', '/history'][index]);
+        context.go(['/chat', '/overview', '/history', '/settings'][index]);
       },
       status: Column(
         mainAxisSize: MainAxisSize.min,

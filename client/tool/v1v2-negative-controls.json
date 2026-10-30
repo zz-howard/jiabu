@@ -86,14 +86,14 @@
       "command": "flutter test test/features/v1v2_restore_test.dart"
     },
     {
-      "id": "settings_entry_missing_from_space_sheet",
-      "file": "client/app/lib/features/spaces/view/spaces_screen.dart",
-      "find": "label: Text(l.ledgerMySettings),",
-      "replace": "label: const SizedBox.shrink(),",
+      "id": "me_tab_missing_from_bottom_navigation",
+      "file": "client/packages/jiabu_design/lib/src/components/ledger_controls.dart",
+      "find": "    JiabuIcons.uiHistory,\n    JiabuIcons.uiUser,\n  ];",
+      "replace": "    JiabuIcons.uiHistory,\n  ];",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/v1v2_restore_test.dart",
       "test_names": [
-        "space_sheet_offers_my_settings"
+        "bottom_navigation_has_four_tabs_ending_with_me"
       ],
       "command": "flutter test test/features/v1v2_restore_test.dart"
     },

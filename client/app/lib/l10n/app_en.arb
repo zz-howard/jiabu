@@ -195,7 +195,7 @@
   "ledgerOverview": "Overview",
   "ledgerHistory": "History",
   "ledgerSettings": "Settings",
-  "ledgerMySettings": "My settings",
+  "ledgerMe": "Me",
   "ledgerChatPlaceholder": "Chat will be available in a later version",
   "ledgerManual": "Add entry",
   "ledgerManualSemantics": "Add an entry manually",

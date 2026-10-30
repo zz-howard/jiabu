@@ -13,6 +13,8 @@ const _minimumStackPairs = <String, int>{
   'settings': 1,
   'shell_overview': 8,
   'shell_history': 1,
+  // The 我的 tab: the settings section + group inside the page scaffold.
+  'shell_me': 1,
   // No accounts and no records: empty state, pending section + body (the
   // page title now lives in the shared MainFrame header).
   // The summary, account groups and recent changes are intentionally absent.
@@ -237,7 +239,7 @@ void main() {
                 );
                 if (state.startsWith('shell_')) {
                   expect(find.byType(PaperBottomNavigation), findsOneWidget);
-                  if (state != 'shell_chat') {
+                  if (state != 'shell_chat' && state != 'shell_me') {
                     final nav = tester.getRect(
                       find.byType(PaperBottomNavigation),
                     );

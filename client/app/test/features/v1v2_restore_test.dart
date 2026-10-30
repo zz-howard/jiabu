@@ -99,12 +99,38 @@ void main() {
     expect(find.byType(SpaceBadge), findsNothing);
   });
 
-  // The round "me" button made way for the space badge; the profile / settings
-  // entry now lives at the top of the badge's space sheet.
-  testWidgets('space_sheet_offers_my_settings', (tester) async {
+  // The round "me" button made way for the space badge; settings is now the
+  // fourth bottom-navigation tab 我的, not an item of the space sheet.
+  testWidgets('space_sheet_has_no_settings_entry', (tester) async {
     await pumpC4Preview(tester, state: 'switcher');
-    expect(find.text('我的设置'), findsOneWidget);
     expect(find.text('我的空间'), findsOneWidget);
+    expect(find.text('我的设置'), findsNothing);
+    expect(find.text('我的'), findsNothing);
+  });
+  testWidgets('bottom_navigation_has_four_tabs_ending_with_me', (tester) async {
+    await pumpC3(tester, state: 'shell_chat');
+    final nav = find.byType(PaperBottomNavigation);
+    for (final label in ['聊天', '总览', '历史', '我的']) {
+      expect(
+        find.descendant(of: nav, matching: find.text(label)),
+        findsOneWidget,
+      );
+    }
+    expect(tester.widget<PaperBottomNavigation>(nav).selected, 0);
+  });
+  testWidgets('me_tab_shows_settings_without_back_or_badge', (tester) async {
+    await pumpC3(tester, state: 'shell_me');
+    expect(
+      tester
+          .widget<PaperBottomNavigation>(find.byType(PaperBottomNavigation))
+          .selected,
+      3,
+    );
+    expect(find.byType(JiabuPageTitleBlock), findsOneWidget);
+    expect(find.textContaining('账号、空间与安全'), findsOneWidget);
+    expect(find.byKey(const Key('jiabu-page-back')), findsNothing);
+    expect(find.byKey(const Key('main-frame-header')), findsNothing);
+    expect(find.byType(SpaceBadge), findsNothing);
   });
 
   // V1: amounts.

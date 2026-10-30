@@ -22,6 +22,7 @@ const c3States = <String>[
   'shell_chat',
   'shell_overview',
   'shell_history',
+  'shell_me',
   'settings',
   'overview_empty',
   'overview_accounts',
@@ -450,9 +451,50 @@ class C3Preview extends StatelessWidget {
   }
 
   static const snapshotId = 'fictional-c3';
+  Widget _settingsBody(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(context.jiabu.spacing.page),
+      child: JiabuStack(
+        children: [
+          JiabuStackItem.section(
+            child: JiabuSectionHeader(title: l.ledgerSettings),
+          ),
+          JiabuStackItem.content(
+            child: JiabuSettingsGroup(
+              children: [
+                JiabuListRow(title: l.ledgerAccounts, showChevron: true),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _body(BuildContext context, LedgerSnapshot data) {
     final l = AppLocalizations.of(context);
     final s = data.spaceId;
+    if (state == 'shell_me') {
+      // The 我的 tab: the settings page inside the main frame, which brings
+      // its own page header (no title block, no space badge).
+      return MainFrame(
+        spaceName: data.space.text('name'),
+        accent:
+            context.jiabu.colors.spaceAccents[accent] ??
+            context.jiabu.colors.primaryText,
+        labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory, l.ledgerMe],
+        selected: 3,
+        onSelect: (_) {},
+        child: JiabuPageScaffold(
+          title: l.ledgerSettings,
+          handEnglish: l.handSettingsEnglish,
+          subtitle: l.handSettingsSubtitle,
+          showBack: false,
+          body: _settingsBody(context),
+        ),
+      );
+    }
     if (state.startsWith('shell_')) {
       final tab = switch (state) {
         'shell_chat' => 0,
@@ -476,7 +518,7 @@ class C3Preview extends StatelessWidget {
         accent:
             context.jiabu.colors.spaceAccents[accent] ??
             context.jiabu.colors.primaryText,
-        labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory],
+        labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory, l.ledgerMe],
         selected: state == 'shell_chat'
             ? 0
             : state == 'shell_overview'
@@ -600,25 +642,7 @@ class C3Preview extends StatelessWidget {
         child: AllocationPlanForm(spaceId: s, accountId: 'purpose-a'),
       );
     }
-    if (state == 'settings') {
-      return SingleChildScrollView(
-        padding: EdgeInsets.all(context.jiabu.spacing.page),
-        child: JiabuStack(
-          children: [
-            JiabuStackItem.section(
-              child: JiabuSectionHeader(title: l.ledgerSettings),
-            ),
-            JiabuStackItem.content(
-              child: JiabuSettingsGroup(
-                children: [
-                  JiabuListRow(title: l.ledgerAccounts, showChevron: true),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+    if (state == 'settings') return _settingsBody(context);
     return SingleChildScrollView(
       child: PaperCard(
         child: Column(

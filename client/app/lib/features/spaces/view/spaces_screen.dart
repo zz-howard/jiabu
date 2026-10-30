@@ -20,27 +20,15 @@ export 'package:jiabu/features/spaces/view/invitations_body.dart';
 export 'package:jiabu/features/spaces/view/space_action_form.dart';
 export 'package:jiabu/features/spaces/view/space_form.dart';
 
-Future<void> openSpaceSwitcher(
-  BuildContext context, {
-  VoidCallback? onSettings,
-}) => JiabuSheet.show<void>(
+Future<void> openSpaceSwitcher(BuildContext context) => JiabuSheet.show<void>(
   context: context,
-  builder: (_) => SpacesScreen(page: 'switcher', onSettings: onSettings),
+  builder: (_) => const SpacesScreen(page: 'switcher'),
 );
 
 class SpacesScreen extends ConsumerWidget {
-  const SpacesScreen({
-    required this.page,
-    this.spaceId,
-    this.onSettings,
-    super.key,
-  });
+  const SpacesScreen({required this.page, this.spaceId, super.key});
   final String page;
   final String? spaceId;
-
-  /// "My settings" row of the switcher sheet (the badge replaced the old
-  /// round profile button in the page header).
-  final VoidCallback? onSettings;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
@@ -98,17 +86,6 @@ class SpacesScreen extends ConsumerWidget {
               },
             ),
           ),
-          if (onSettings case final openSettings?)
-            JiabuStackItem.action(
-              child: TextButton.icon(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  openSettings();
-                },
-                icon: const JiabuIcon(JiabuIcons.uiUser, size: 20),
-                label: Text(l.ledgerMySettings),
-              ),
-            ),
           JiabuStackItem.action(
             child: TextButton(
               onPressed: runtime.managementOnline

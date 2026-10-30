@@ -68,6 +68,22 @@ const c3Goldens =
         path: '../goldens/c3/shell_history_zh_pine_w430_text200.png',
       ),
       (
+        state: 'shell_me',
+        locale: 'zh',
+        accent: 'pine',
+        width: 360,
+        scale: 100,
+        path: '../goldens/c3/shell_me_zh_pine_w360_text100.png',
+      ),
+      (
+        state: 'shell_me',
+        locale: 'en',
+        accent: 'pine',
+        width: 360,
+        scale: 200,
+        path: '../goldens/c3/shell_me_en_pine_w360_text200.png',
+      ),
+      (
         state: 'settings',
         locale: 'zh',
         accent: 'pine',
