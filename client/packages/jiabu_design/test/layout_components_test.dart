@@ -222,9 +222,7 @@ void main() {
     await pumpLayout(
       tester,
       const JiabuStack(
-        children: [
-          JiabuStackItem.content(child: JiabuStack(children: [])),
-        ],
+        children: [JiabuStackItem.content(child: JiabuStack(children: []))],
       ),
     );
     expect(tester.takeException(), isAssertionError);

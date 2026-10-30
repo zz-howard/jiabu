@@ -135,10 +135,7 @@ Element? _nearestChipGroup(Element element) {
   return result;
 }
 
-double _expectedGap(
-  JiabuStackMarker previous,
-  JiabuStackMarker current,
-) {
+double _expectedGap(JiabuStackMarker previous, JiabuStackMarker current) {
   if (current.kind == JiabuStackItemKind.caption &&
       current.captionTarget == JiabuCaptionTarget.previous) {
     return JiabuSpacing.captionGap;
