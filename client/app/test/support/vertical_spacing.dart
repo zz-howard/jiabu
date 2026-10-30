@@ -2,7 +2,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
-const _geometryTolerance = 1e-6;
+/// Layout positions accumulate float error; gap checks allow this much.
+const geometryTolerance = 1e-6;
 
 void _expectMinimumGap(
   double actual,
@@ -10,7 +11,7 @@ void _expectMinimumGap(
   required String reason,
 }) {
   expect(
-    actual + _geometryTolerance,
+    actual + geometryTolerance,
     greaterThanOrEqualTo(expected),
     reason: reason,
   );

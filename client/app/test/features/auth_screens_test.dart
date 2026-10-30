@@ -119,11 +119,17 @@ void main() {
       final action = tester.getRect(
         find.byKey(const Key('welcome-primary-action')),
       );
-      expect(logo.top - stack.top, greaterThanOrEqualTo(JiabuSpacing.xl));
-      expect(tagline.top - logo.bottom, greaterThanOrEqualTo(JiabuSpacing.sm));
+      expect(
+        logo.top - stack.top,
+        greaterThanOrEqualTo(JiabuSpacing.xl - geometryTolerance),
+      );
+      expect(
+        tagline.top - logo.bottom,
+        greaterThanOrEqualTo(JiabuSpacing.sm - geometryTolerance),
+      );
       expect(
         action.top - mascot.bottom,
-        greaterThanOrEqualTo(JiabuSpacing.xxl),
+        greaterThanOrEqualTo(JiabuSpacing.xxl - geometryTolerance),
       );
     }
   });
@@ -179,17 +185,17 @@ void main() {
         final footer = tester.getRect(find.byKey(const Key('auth-footer')));
         expect(
           title.top - progress.bottom,
-          greaterThanOrEqualTo(JiabuSpacing.sectionTop),
+          greaterThanOrEqualTo(JiabuSpacing.sectionTop - geometryTolerance),
           reason: '${sample.name} title ${config.$1}/${config.$2}',
         );
         expect(
           card.top - subtitle.bottom,
-          greaterThanOrEqualTo(JiabuSpacing.sectionTop),
+          greaterThanOrEqualTo(JiabuSpacing.sectionTop - geometryTolerance),
           reason: '${sample.name} body ${config.$1}/${config.$2}',
         );
         expect(
           footer.top - body.bottom,
-          greaterThanOrEqualTo(JiabuSpacing.actionGap),
+          greaterThanOrEqualTo(JiabuSpacing.actionGap - geometryTolerance),
           reason: '${sample.name} footer ${config.$1}/${config.$2}',
         );
         if (sample.name == 'login') {
@@ -198,7 +204,7 @@ void main() {
           );
           expect(
             accountSection.top - card.bottom,
-            greaterThanOrEqualTo(JiabuSpacing.sectionTop),
+            greaterThanOrEqualTo(JiabuSpacing.sectionTop - geometryTolerance),
             reason: 'login account section ${config.$1}/${config.$2}',
           );
         }
