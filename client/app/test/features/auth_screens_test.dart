@@ -86,6 +86,10 @@ void main() {
             tester,
             reason: 'auth login $locale $width $scale',
           );
+          expectJiabuChipSpacing(
+            tester,
+            reason: 'auth login $locale $width $scale',
+          );
           final pageInset = width <= 380 ? 14.0 : 18.0;
           expect(
             tester.getRect(find.byType(PaperCard).first).left,

@@ -24,22 +24,27 @@ class JiabuIcon extends StatelessWidget {
   final bool flipY;
 
   @override
-  Widget build(BuildContext context) => ExcludeSemantics(
-    child: SizedBox(
-      width: size,
-      height: size * icon.height / icon.width,
-      child: CustomPaint(
-        painter: _IconPainter(
-          icon,
-          color ?? context.jiabu.colors.ink,
-          strokeWidth,
-          fitGlyph: fitGlyph,
-          flipX: flipX,
-          flipY: flipY,
+  Widget build(BuildContext context) {
+    final glyphBounds = fitGlyph ? _glyphPaintBounds(icon, strokeWidth) : null;
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: glyphBounds == null
+            ? size
+            : size * glyphBounds.width / glyphBounds.height,
+        height: glyphBounds == null ? size * icon.height / icon.width : size,
+        child: CustomPaint(
+          painter: _IconPainter(
+            icon,
+            color ?? context.jiabu.colors.ink,
+            strokeWidth,
+            fitGlyph: fitGlyph,
+            flipX: flipX,
+            flipY: flipY,
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _IconPainter extends CustomPainter {
@@ -63,7 +68,7 @@ class _IconPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     canvas.save();
     if (fitGlyph) {
-      final bounds = _glyphBounds(icon);
+      final bounds = _glyphPaintBounds(icon, strokeWidth);
       final scale = (size.width / bounds.width)
           .clamp(0, size.height / bounds.height)
           .toDouble();
@@ -114,3 +119,6 @@ Rect _glyphBounds(JiabuIconData icon) {
   }
   return bounds;
 }
+
+Rect _glyphPaintBounds(JiabuIconData icon, double? strokeWidth) =>
+    _glyphBounds(icon).inflate((strokeWidth ?? icon.strokeWidth) / 2);

@@ -26,6 +26,36 @@ Future<void> pumpLayout(
   );
 }
 
+Rect visibleGlyphRect(WidgetTester tester, Finder finder) {
+  final widget = tester.widget<JiabuIcon>(finder);
+  final box = tester.getRect(finder);
+  var bounds = widget.icon.shapes.first.path().getBounds();
+  for (final shape in widget.icon.shapes.skip(1)) {
+    bounds = bounds.expandToInclude(shape.path().getBounds());
+  }
+  if (widget.fitGlyph) {
+    return box;
+  }
+  bounds = bounds.inflate(
+    (widget.strokeWidth ?? widget.icon.strokeWidth) / 2,
+  );
+  final scaleX = box.width / widget.icon.width;
+  final scaleY = box.height / widget.icon.height;
+  final left = widget.flipX
+      ? box.right - bounds.right * scaleX
+      : box.left + bounds.left * scaleX;
+  final right = widget.flipX
+      ? box.right - bounds.left * scaleX
+      : box.left + bounds.right * scaleX;
+  final top = widget.flipY
+      ? box.bottom - bounds.bottom * scaleY
+      : box.top + bounds.top * scaleY;
+  final bottom = widget.flipY
+      ? box.bottom - bounds.top * scaleY
+      : box.top + bounds.bottom * scaleY;
+  return Rect.fromLTRB(left, top, right, bottom);
+}
+
 void main() {
   testWidgets('spacing resolves compact and regular page insets', (
     tester,
@@ -86,11 +116,7 @@ void main() {
     final firstLineHeight =
         MediaQuery.textScalerOf(context).scale(style.fontSize!) * style.height!;
     final iconWidget = tester.widget<JiabuIcon>(icon);
-    final bounds = JiabuIcons.uiRight.shapes.first.path().getBounds();
-    final glyphScale = (iconSize.width / bounds.width)
-        .clamp(0, iconSize.height / bounds.height)
-        .toDouble();
-    final visibleGlyphHeight = bounds.height * glyphScale;
+    final visibleGlyphHeight = visibleGlyphRect(tester, icon).height;
     expect(iconWidget.fitGlyph, isTrue);
     expect(
       visibleGlyphHeight,
@@ -106,6 +132,46 @@ void main() {
       tester.getSize(find.byKey(const Key('jiabu-page-back'))).height,
       greaterThanOrEqualTo(48),
     );
+  });
+
+  testWidgets('page back glyph keeps token gap before title', (tester) async {
+    const titleText = '个人 API key';
+    for (final width in [360.0, 430.0]) {
+      for (final scale in [1.0, 2.0]) {
+        await pumpLayout(
+          tester,
+          const JiabuPageHeader(title: titleText),
+          width: width,
+          scale: scale,
+        );
+        final icon = find.byKey(const Key('jiabu-page-back-icon'));
+        final title = find.text(titleText);
+        final gap = tester.getRect(title).left -
+            visibleGlyphRect(tester, icon).right;
+        expect(
+          gap,
+          greaterThanOrEqualTo(JiabuSpacing.sm),
+          reason: '$width at ${scale}x',
+        );
+        if (scale == 1) {
+          final iconWidget = tester.widget<JiabuIcon>(icon);
+          final iconBox = tester.getRect(icon);
+          final sourceBounds = iconWidget.icon.shapes.first
+              .path()
+              .getBounds()
+              .inflate(
+                (iconWidget.strokeWidth ?? iconWidget.icon.strokeWidth) / 2,
+              );
+          final sourceScale = iconBox.width / iconWidget.icon.width;
+          final ui1GlyphRight =
+              (JiabuSpacing.minTapTarget - iconBox.width) / 2 +
+              iconBox.width -
+              sourceBounds.left * sourceScale;
+          final ui1Gap = JiabuSpacing.minTapTarget - ui1GlyphRight;
+          expect(gap, closeTo(ui1Gap, .1), reason: '$width at ${scale}x');
+        }
+      }
+    }
   });
 
   testWidgets('stack applies token gaps and grows at 200 percent', (
@@ -170,6 +236,66 @@ void main() {
     await pumpLayout(tester, row, scale: 2);
     expect(tester.takeException(), isNull);
     expect(tester.getSize(find.byType(JiabuListRow)).height, greaterThan(66));
+  });
+
+  testWidgets('chip group applies token gaps and selected theme', (
+    tester,
+  ) async {
+    await pumpLayout(
+      tester,
+      const SizedBox(
+        width: 130,
+        child: JiabuChipGroup(
+          children: [
+            SizedBox(width: 60, height: 20),
+            SizedBox(width: 60, height: 20),
+            SizedBox(width: 60, height: 20),
+          ],
+        ),
+      ),
+    );
+    final markers = find.byType(JiabuChipGroupMarker);
+    expect(
+      tester.getRect(markers.at(1)).left -
+          tester.getRect(markers.at(0)).right,
+      JiabuSpacing.sm,
+    );
+    expect(
+      tester.getRect(markers.at(2)).top -
+          tester.getRect(markers.at(0)).bottom,
+      JiabuSpacing.sm,
+    );
+
+    await pumpLayout(
+      tester,
+      JiabuChipGroup(
+        children: [
+          ChoiceChip(
+            label: const Text('selected'),
+            selected: true,
+            onSelected: (_) {},
+          ),
+        ],
+      ),
+    );
+    final chip = find.byType(ChoiceChip);
+    final context = tester.element(chip);
+    final theme = ChipTheme.of(context);
+    expect(theme.selectedColor, context.jiabu.colors.primarySoft);
+    expect(theme.checkmarkColor, context.jiabu.colors.onPrimarySoft);
+    expect(
+      theme.secondaryLabelStyle?.color,
+      context.jiabu.colors.onPrimarySoft,
+    );
+    expect(theme.showCheckmark, isTrue);
+    final selectedLabel = (theme.labelStyle! as WidgetStateTextStyle).resolve({
+      WidgetState.selected,
+    });
+    expect(selectedLabel.color, context.jiabu.colors.onPrimarySoft);
+    final selectedSide = (theme.side! as WidgetStateBorderSide).resolve({
+      WidgetState.selected,
+    });
+    expect(selectedSide?.color, context.jiabu.colors.white);
   });
 
   testWidgets('layout components stay at zero rotation', (tester) async {

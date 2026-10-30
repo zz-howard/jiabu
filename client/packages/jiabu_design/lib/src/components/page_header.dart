@@ -69,7 +69,7 @@ class JiabuPageHeader extends StatelessWidget {
                                 child: Padding(
                                   padding: EdgeInsets.only(top: backIconTop),
                                   child: Align(
-                                    alignment: Alignment.topCenter,
+                                    alignment: Alignment.topRight,
                                     child: JiabuIcon(
                                       JiabuIcons.uiRight,
                                       key: const Key('jiabu-page-back-icon'),
@@ -94,6 +94,11 @@ class JiabuPageHeader extends StatelessWidget {
                               ),
                       ),
                     ),
+                  ),
+                if (largeTitle && showBack)
+                  const SizedBox(
+                    key: Key('jiabu-page-back-gap'),
+                    width: JiabuSpacing.sm,
                   ),
                 Expanded(
                   child: Text(

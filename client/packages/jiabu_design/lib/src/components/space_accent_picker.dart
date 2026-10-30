@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:jiabu_design/src/components/chip_group.dart';
 import 'package:jiabu_design/src/theme_context.dart';
 
 class SpaceAccentPicker extends StatelessWidget {
@@ -14,8 +15,7 @@ class SpaceAccentPicker extends StatelessWidget {
   final String label;
   final Map<String, String> names;
   @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 4,
+  Widget build(BuildContext context) => JiabuChipGroup(
     children: [
       for (final entry in context.jiabu.colors.spaceAccents.entries)
         Semantics(

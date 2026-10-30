@@ -36,6 +36,10 @@ void main() {
                       state.startsWith('history_') ||
                       state.startsWith('accounts'),
                 );
+                expectJiabuChipSpacing(
+                  tester,
+                  reason: '$state $locale $accent $width $scale',
+                );
                 for (final card in find.byType(LedgerRecordCard).evaluate()) {
                   expect(
                     tester.getSize(find.byWidget(card.widget)).width,

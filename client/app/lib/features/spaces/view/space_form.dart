@@ -107,7 +107,7 @@ class SpaceForm extends ConsumerWidget {
         if (space == null) ...[
           JiabuStackItem.content(child: Text(l.c4Currency)),
           JiabuStackItem.content(
-            child: Wrap(
+            child: JiabuChipGroup(
               children: [
                 for (final currency in const [
                   'CNY',

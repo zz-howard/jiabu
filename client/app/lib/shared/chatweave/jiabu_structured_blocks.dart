@@ -394,11 +394,11 @@ class _JiabuChoiceBlockState extends State<JiabuChoiceBlock> {
                 ),
                 style: context.jiabu.type.caption,
               ),
-            Wrap(
-              spacing: JiabuChatMetrics.gap,
+            JiabuChipGroup(
               children: [
                 for (final option in objects(block.data['options']))
-                  TextButton(
+                  JiabuOptionChip(
+                    selected: !open && selected.contains(option['id']),
                     onPressed: !enabled
                         ? null
                         : () {
@@ -411,26 +411,9 @@ class _JiabuChoiceBlockState extends State<JiabuChoiceBlock> {
                               unawaited(submit([id]));
                             }
                           },
-                    style: TextButton.styleFrom(
-                      backgroundColor: !open && selected.contains(option['id'])
-                          ? context.jiabu.colors.primarySoft
-                          : context.jiabu.colors.paper,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (!open && selected.contains(option['id']))
-                          const JiabuIcon(
-                            JiabuIcons.uiCheck,
-                            size: JiabuChatMetrics.icon,
-                          ),
-                        Flexible(
-                          child: Text(
-                            '${option['label']}',
-                            style: context.jiabu.type.body,
-                          ),
-                        ),
-                      ],
+                    label: Text(
+                      '${option['label']}',
+                      style: context.jiabu.type.body,
                     ),
                   ),
               ],

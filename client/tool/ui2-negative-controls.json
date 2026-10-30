@@ -12,6 +12,16 @@
       "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {
+      "id": "chip_group_omits_horizontal_gap",
+      "file": "client/packages/jiabu_design/lib/src/components/chip_group.dart",
+      "find": "spacing: JiabuSpacing.sm,\n        runSpacing: JiabuSpacing.sm,",
+      "replace": "spacing: 0,\n        runSpacing: JiabuSpacing.sm,",
+      "expected_occurrences": 1,
+      "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
+      "test_names": ["chip group applies token gaps and selected theme"],
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
+    },
+    {
       "id": "account_logout_returns_to_zero_gap",
       "file": "client/packages/jiabu_design/lib/src/components/stack.dart",
       "find": "return JiabuSpacing.actionGap;",
@@ -39,6 +49,16 @@
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
       "test_names": ["page back glyph scales and aligns with title first line"],
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
+    },
+    {
+      "id": "page_back_title_gap_returns_to_zero",
+      "file": "client/packages/jiabu_design/lib/src/components/page_header.dart",
+      "find": "key: Key('jiabu-page-back-gap'),\n                    width: JiabuSpacing.sm,",
+      "replace": "key: Key('jiabu-page-back-gap'),\n                    width: 0,",
+      "expected_occurrences": 1,
+      "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
+      "test_names": ["page back glyph keeps token gap before title"],
       "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {

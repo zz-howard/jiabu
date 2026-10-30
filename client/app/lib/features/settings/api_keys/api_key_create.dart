@@ -61,8 +61,7 @@ class ApiKeyCreate extends ConsumerWidget {
                 ),
                 JiabuStackItem.content(child: Text(l.c4Expiry)),
                 JiabuStackItem.content(
-                  child: Wrap(
-                    spacing: JiabuSpacing.cardGap,
+                  child: JiabuChipGroup(
                     children: [
                       for (final entry in {
                         7: l.c4Days7,

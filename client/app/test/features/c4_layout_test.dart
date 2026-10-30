@@ -31,6 +31,10 @@ void main() {
                   tester,
                   reason: '$state $locale $accent $width $scale',
                 );
+                expectJiabuChipSpacing(
+                  tester,
+                  reason: '$state $locale $accent $width $scale',
+                );
                 for (final element
                     in find.byType(SpaceAccentPicker).evaluate()) {
                   final widget = element.widget as SpaceAccentPicker;

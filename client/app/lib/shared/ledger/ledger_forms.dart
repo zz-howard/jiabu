@@ -213,8 +213,7 @@ Widget accountChoices(
     children: [
       Text(label, style: context.jiabu.type.listTitle),
       if (rows.isEmpty) Text(l.ledgerSelectAccount),
-      Wrap(
-        spacing: JiabuSpacing.cardGap,
+      JiabuChipGroup(
         children: [
           for (final a in rows)
             ChoiceChip(
@@ -297,8 +296,7 @@ class RecordForm extends ConsumerWidget {
               style: context.jiabu.type.cardTitle,
             ),
             if (original == null && !isRefund)
-              Wrap(
-                spacing: JiabuSpacing.cardGap,
+              JiabuChipGroup(
                 children: [
                   for (final type in [
                     'expense',
@@ -396,8 +394,7 @@ class RecordForm extends ConsumerWidget {
               ),
             if (hasTags) ...[
               Text(l.ledgerTags, style: context.jiabu.type.listTitle),
-              Wrap(
-                spacing: JiabuSpacing.cardGap,
+              JiabuChipGroup(
                 children: [
                   for (final tag in snapshot.tags.where(
                     (tag) =>
@@ -589,8 +586,7 @@ class AccountForm extends ConsumerWidget {
             style: context.jiabu.type.cardTitle,
           ),
           if (account == null)
-            Wrap(
-              spacing: JiabuSpacing.cardGap,
+            JiabuChipGroup(
               children: [
                 for (final kind in ['real', 'purpose'])
                   ChoiceChip(

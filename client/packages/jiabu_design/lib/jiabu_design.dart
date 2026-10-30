@@ -2,6 +2,7 @@ export 'src/components/amount_text.dart';
 export 'src/components/api_key_card.dart';
 export 'src/components/api_key_sticker.dart';
 export 'src/components/chat_rail.dart';
+export 'src/components/chip_group.dart';
 export 'src/components/empty_state.dart';
 export 'src/components/hand_circle.dart';
 export 'src/components/hand_text.dart';

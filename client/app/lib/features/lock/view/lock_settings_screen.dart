@@ -79,7 +79,7 @@ class LockSettingsScreen extends ConsumerWidget {
               )
             else ...[
               JiabuStackItem.content(
-                child: Wrap(
+                child: JiabuChipGroup(
                   children: [
                     for (final entry in {
                       'biometric': l.c4Biometric,
@@ -148,7 +148,7 @@ class LockSettingsScreen extends ConsumerWidget {
               ],
               JiabuStackItem.content(child: Text(l.c4Timeout)),
               JiabuStackItem.content(
-                child: Wrap(
+                child: JiabuChipGroup(
                   children: [
                     for (final entry in {
                       0: l.c4Immediately,

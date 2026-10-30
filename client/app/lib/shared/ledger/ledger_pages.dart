@@ -515,7 +515,7 @@ class HistoryPage extends ConsumerWidget {
                   children: [
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
-                      child: Row(
+                      child: JiabuChipGroup(
                         children: [
                           PaperFilterChip(
                             label: l.ledgerMembers,
