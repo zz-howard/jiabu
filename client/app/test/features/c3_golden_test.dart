@@ -990,4 +990,16 @@ void main() {
       await expectLater(find.byKey(c3Boundary), matchesGoldenFile(sample.path));
     });
   }
+  testWidgets('overview_busy scrolled to the recent changes', (tester) async {
+    await pumpC3(tester, state: 'overview_busy');
+    await tester.drag(find.byType(ListView).first, const Offset(0, -700));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await expectLater(
+      find.byKey(c3Boundary),
+      matchesGoldenFile(
+        '../goldens/c3/overview_busy_scrolled_zh_pine_w360_text100.png',
+      ),
+    );
+  });
 }
