@@ -295,9 +295,7 @@ class AccountBalanceNote extends StatelessWidget {
         )
         .firstOrNull;
     if (account.archived && balance != 0) {
-      return Text(
-        '${account.text('name')} · ${l.ledgerArchiveUnavailable}',
-      );
+      return Text('${account.text('name')} · ${l.ledgerArchiveUnavailable}');
     }
     if (balance >= 0) {
       return const SizedBox.shrink();

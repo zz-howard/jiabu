@@ -167,7 +167,13 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
         ? [
             for (final item in const [
               ('lunch', 'expense', '虚构午餐', 1200, '2026-10-28'),
-              ('salary', 'income', '虚构工资（十月，含补贴与奖金，名称较长）', 1280000, '2026-10-26'),
+              (
+                'salary',
+                'income',
+                '虚构工资（十月，含补贴与奖金，名称较长）',
+                1280000,
+                '2026-10-26',
+              ),
               ('market', 'expense', '虚构买菜', 8650, '2026-10-24'),
               ('move', 'transfer', '', 50000, '2026-10-22'),
               ('refund', 'refund', '虚构退款', 2000, '2026-10-21'),

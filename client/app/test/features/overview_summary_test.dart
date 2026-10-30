@@ -49,7 +49,10 @@ void main() {
     tester,
   ) async {
     final base = c3Snapshot('overview_accounts');
-    final old = LedgerRow({...base.records.first.data, 'occurred_on': '2026-09-30'});
+    final old = LedgerRow({
+      ...base.records.first.data,
+      'occurred_on': '2026-09-30',
+    });
     await pumpC3(
       tester,
       child: OverviewPage(snapshot: _withRecords(base, [old])),

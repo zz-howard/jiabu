@@ -129,14 +129,18 @@ void main() {
 }
 
 void overviewTotalsTests() {
-  LedgerRow account(String id, String kind, int opening, {bool archived = false}) =>
-      LedgerRow({
-        'id': id,
-        'space_id': 's',
-        'kind': kind,
-        'opening_balance_minor': opening,
-        if (archived) 'archived_at': '2026-10-01',
-      });
+  LedgerRow account(
+    String id,
+    String kind,
+    int opening, {
+    bool archived = false,
+  }) => LedgerRow({
+    'id': id,
+    'space_id': 's',
+    'kind': kind,
+    'opening_balance_minor': opening,
+    if (archived) 'archived_at': '2026-10-01',
+  });
   LedgerRow record(
     String id,
     String kind,
@@ -175,13 +179,10 @@ void overviewTotalsTests() {
     expect(realAccountsTotal(snapshot, balances), 13800);
   });
   test('real_total_is_null_outside_the_safe_integer_range', () {
-    final snapshot = data(
-      [
-        account('a', 'real', 9007199254740991),
-        account('b', 'real', 9007199254740991),
-      ],
-      const [],
-    );
+    final snapshot = data([
+      account('a', 'real', 9007199254740991),
+      account('b', 'real', 9007199254740991),
+    ], const []);
     final balances = (ledgerBalances(snapshot) as Ok<Map<String, int>>).value;
     expect(realAccountsTotal(snapshot, balances), isNull);
   });

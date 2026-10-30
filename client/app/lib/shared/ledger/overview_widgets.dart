@@ -86,11 +86,7 @@ class OverviewAccountRow extends StatelessWidget {
       title:
           '${account.text('name')}'
           '${account.archived ? ' · ${l.ledgerArchived}' : ''}',
-      valueWidget: ledgerAmount(
-        context,
-        balance,
-        snapshot.currency,
-      ),
+      valueWidget: ledgerAmount(context, balance, snapshot.currency),
     );
   }
 }
