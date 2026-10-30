@@ -97,17 +97,11 @@ void main() {
         reason: '${config.$1} at ${config.$2}x',
       );
       expect(
-        tester
-            .getRect(find.byKey(const Key('welcome-tagline')))
-            .center
-            .dx,
+        tester.getRect(find.byKey(const Key('welcome-tagline'))).center.dx,
         closeTo(config.$1 / 2, 1),
       );
       expect(
-        tester
-            .getRect(find.byKey(const Key('welcome-mascot-note')))
-            .center
-            .dx,
+        tester.getRect(find.byKey(const Key('welcome-mascot-note'))).center.dx,
         closeTo(config.$1 / 2, 1),
       );
       final logoTape = find.descendant(
@@ -117,26 +111,16 @@ void main() {
       expect(tester.getRect(logoTape).left, greaterThanOrEqualTo(0));
       expect(tester.getRect(logoTape).right, lessThanOrEqualTo(config.$1));
       final stack = tester.getRect(find.byType(JiabuStack).first);
-      final logo = tester.getRect(
-        find.byKey(const Key('welcome-logo-group')),
-      );
-      final tagline = tester.getRect(
-        find.byKey(const Key('welcome-tagline')),
-      );
+      final logo = tester.getRect(find.byKey(const Key('welcome-logo-group')));
+      final tagline = tester.getRect(find.byKey(const Key('welcome-tagline')));
       final mascot = tester.getRect(
         find.byKey(const Key('welcome-mascot-note')),
       );
       final action = tester.getRect(
         find.byKey(const Key('welcome-primary-action')),
       );
-      expect(
-        logo.top - stack.top,
-        greaterThanOrEqualTo(JiabuSpacing.xl),
-      );
-      expect(
-        tagline.top - logo.bottom,
-        greaterThanOrEqualTo(JiabuSpacing.sm),
-      );
+      expect(logo.top - stack.top, greaterThanOrEqualTo(JiabuSpacing.xl));
+      expect(tagline.top - logo.bottom, greaterThanOrEqualTo(JiabuSpacing.sm));
       expect(
         action.top - mascot.bottom,
         greaterThanOrEqualTo(JiabuSpacing.xxl),
@@ -187,15 +171,9 @@ void main() {
           width: config.$1,
           scale: config.$2,
         );
-        final progress = tester.getRect(
-          find.byKey(const Key('auth-progress')),
-        );
-        final title = tester.getRect(
-          find.byKey(const Key('auth-title-block')),
-        );
-        final subtitle = tester.getRect(
-          find.byKey(const Key('auth-subtitle')),
-        );
+        final progress = tester.getRect(find.byKey(const Key('auth-progress')));
+        final title = tester.getRect(find.byKey(const Key('auth-title-block')));
+        final subtitle = tester.getRect(find.byKey(const Key('auth-subtitle')));
         final card = tester.getRect(find.byType(PaperCard).first);
         final body = tester.getRect(find.byKey(const Key('auth-body')));
         final footer = tester.getRect(find.byKey(const Key('auth-footer')));
