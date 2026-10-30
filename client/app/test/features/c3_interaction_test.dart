@@ -150,7 +150,7 @@ void main() {
     });
     await pumpC3(
       tester,
-      child: AccountBalanceTile(snapshot: base, account: account, balance: 100),
+      child: AccountBalanceNote(snapshot: base, account: account, balance: 100),
     );
     expect(find.textContaining('当前服务端暂不支持从归档账户转走余额'), findsOneWidget);
     expect(find.byType(TextButton), findsNothing);
@@ -232,7 +232,7 @@ void main() {
       await pumpC3(
         tester,
         repository: repo,
-        child: AccountBalanceTile(
+        child: AccountBalanceNote(
           snapshot: data,
           account: data.accounts.singleWhere((a) => a.id == 'purpose-a'),
           balance: -1200,

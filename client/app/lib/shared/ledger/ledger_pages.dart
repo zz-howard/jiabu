@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:jiabu/app/ledger_providers.dart';
 import 'package:jiabu/domain/history_filter.dart';
 import 'package:jiabu/domain/ledger.dart';
@@ -16,6 +17,7 @@ import 'package:jiabu/shared/ledger/ledger_forms.dart';
 import 'package:jiabu/shared/ledger/ledger_labels.dart';
 import 'package:jiabu/shared/ledger/ledger_sheet.dart';
 import 'package:jiabu/shared/ledger/ledger_view_model.dart';
+import 'package:jiabu/shared/ledger/overview_widgets.dart';
 import 'package:jiabu/shared/ledger/record_card.dart';
 import 'package:jiabu/shared/ledger/record_details.dart';
 import 'package:jiabu/shared/navigation.dart';
@@ -107,7 +109,18 @@ class OverviewPage extends ConsumerWidget {
     final balances = result is Ok<Map<String, int>>
         ? result.value
         : <String, int>{};
+    final total = result is Ok<Map<String, int>>
+        ? realAccountsTotal(snapshot, balances)
+        : null;
+    final today = ref.watch(ledgerClockProvider)();
+    final month = DateFormat('yyyy-MM').format(today);
     final recent = filterHistory(snapshot, const HistoryFilter()).take(5);
+    List<LedgerRow> visible(String kind) => [
+      for (final a in snapshot.accounts)
+        if (a.text('kind') == kind &&
+            (!a.archived || (balances[a.id] ?? 0) != 0))
+          a,
+    ];
     return ListView(
       padding: EdgeInsets.fromLTRB(
         context.jiabu.spacing.page,
@@ -128,6 +141,14 @@ class OverviewPage extends ConsumerWidget {
               JiabuStackItem.captionAfter(
                 child: Text(ledgerError(l, result.code)),
               ),
+            if (total != null && snapshot.accounts.isNotEmpty)
+              JiabuStackItem.content(
+                child: OverviewSummary(
+                  currency: snapshot.currency,
+                  total: total,
+                  monthSpent: monthExpense(snapshot, month),
+                ),
+              ),
             if (snapshot.accounts.isEmpty)
               JiabuStackItem.content(
                 child: JiabuEmptyState(
@@ -140,39 +161,52 @@ class OverviewPage extends ConsumerWidget {
                 ),
               ),
             if (result is Ok<Map<String, int>>)
-              for (final kind in ['real', 'purpose']) ...[
-                JiabuStackItem.section(
-                  child: JiabuSectionHeader(
-                    title: kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
-                  ),
-                ),
-                for (final account in snapshot.accounts.where(
-                  (a) =>
-                      a.text('kind') == kind &&
-                      (!a.archived || (balances[a.id] ?? 0) != 0),
-                ))
-                  JiabuStackItem.content(
-                    child: AccountBalanceTile(
-                      snapshot: snapshot,
-                      account: account,
-                      balance: balances[account.id] ?? 0,
+              for (final kind in ['real', 'purpose'])
+                if (visible(kind).isNotEmpty) ...[
+                  JiabuStackItem.section(
+                    child: JiabuSectionHeader(
+                      title: kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
                     ),
                   ),
-              ],
+                  JiabuStackItem.content(
+                    child: JiabuSettingsGroup(
+                      children: [
+                        for (final account in visible(kind))
+                          OverviewAccountRow(
+                            snapshot: snapshot,
+                            account: account,
+                            balance: balances[account.id] ?? 0,
+                          ),
+                      ],
+                    ),
+                  ),
+                  for (final account in visible(kind))
+                    if (account.archived || (balances[account.id] ?? 0) < 0)
+                      JiabuStackItem.content(
+                        child: AccountBalanceNote(
+                          snapshot: snapshot,
+                          account: account,
+                          balance: balances[account.id] ?? 0,
+                        ),
+                      ),
+                ],
             JiabuStackItem.section(
               child: JiabuSectionHeader(title: l.ledgerPending),
             ),
             JiabuStackItem.content(child: PendingItems(snapshot: snapshot)),
-            JiabuStackItem.section(
-              child: JiabuSectionHeader(title: l.ledgerRecent),
-            ),
-            for (final row in recent)
+            if (recent.isNotEmpty) ...[
+              JiabuStackItem.section(
+                child: JiabuSectionHeader(title: l.ledgerRecent),
+              ),
               JiabuStackItem.content(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: liveRecordCard(context, ref, snapshot, row),
+                child: JiabuSettingsGroup(
+                  children: [
+                    for (final row in recent)
+                      OverviewRecentRow(snapshot: snapshot, row: row),
+                  ],
                 ),
               ),
+            ],
             // C6 extension point: family summary. No card in this slice.
           ],
         ),
@@ -235,8 +269,10 @@ Widget liveRecordCard(
   },
 );
 
-class AccountBalanceTile extends StatelessWidget {
-  const AccountBalanceTile({
+/// What sits under an account balance row: the archived-account notice or the
+/// negative-balance reminder with its fix-it action. Empty for healthy rows.
+class AccountBalanceNote extends StatelessWidget {
+  const AccountBalanceNote({
     required this.snapshot,
     required this.account,
     required this.balance,
@@ -258,87 +294,47 @@ class AccountBalanceTile extends StatelessWidget {
               a.id != account.id,
         )
         .firstOrNull;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: JiabuSpacing.cardGap),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          PaperCard(
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${account.text('name')}'
-                    '${account.archived ? ' · ${l.ledgerArchived}' : ''}',
-                    style: context.jiabu.type.listTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: JiabuSpacing.cardGap),
-                Expanded(
-                  child: ledgerAmount(
+    if (account.archived && balance != 0) {
+      return Text('${account.text('name')} · ${l.ledgerArchiveUnavailable}');
+    }
+    if (balance >= 0) {
+      return const SizedBox.shrink();
+    }
+    return NegativeBalanceNote(
+      title: l.ledgerNegativeTitle(
+        account.text('name'),
+        formatMinor(balance, snapshot.currency, l.localeName),
+      ),
+      body: purpose ? l.ledgerNegativeBody : l.ledgerNegativeTransferBody,
+      action: BalanceNoteButton(
+        label: purpose && reserve != null
+            ? l.ledgerReserveCover(
+                formatCompactMinor(-balance, snapshot.currency, l.localeName),
+              )
+            : purpose
+            ? l.ledgerGoReallocate
+            : l.ledgerTransfer,
+        onPressed: !snapshot.writable
+            ? null
+            : () {
+                unawaited(
+                  openManualEntry(
                     context,
-                    balance,
-                    snapshot.currency,
-                    role: AmountRole.balance,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (account.archived && balance != 0)
-            Text(l.ledgerArchiveUnavailable)
-          else if (balance < 0) ...[
-            const SizedBox(height: JiabuSpacing.cardGap),
-            NegativeBalanceNote(
-              title: l.ledgerNegativeTitle(
-                account.text('name'),
-                formatMinor(balance, snapshot.currency, l.localeName),
-              ),
-              body: purpose
-                  ? l.ledgerNegativeBody
-                  : l.ledgerNegativeTransferBody,
-              action: BalanceNoteButton(
-                label: purpose && reserve != null
-                    ? l.ledgerReserveCover(
-                        formatCompactMinor(
-                          -balance,
-                          snapshot.currency,
-                          l.localeName,
-                        ),
-                      )
-                    : purpose
-                    ? l.ledgerGoReallocate
-                    : l.ledgerTransfer,
-                onPressed: !snapshot.writable
-                    ? null
-                    : () {
-                        unawaited(
-                          openManualEntry(
-                            context,
-                            snapshot.spaceId,
-                            initial: {
-                              'kind': purpose ? 'reallocation' : 'transfer',
-                              if (purpose)
-                                'to_purpose_id': account.id
-                              else
-                                'to_account_id': account.id,
-                              if (purpose && reserve != null) ...{
-                                'purpose_id': reserve.id,
-                                'amount_text': minorInput(
-                                  -balance,
-                                  snapshot.currency,
-                                ),
-                              },
-                            },
-                          ),
-                        );
+                    snapshot.spaceId,
+                    initial: {
+                      'kind': purpose ? 'reallocation' : 'transfer',
+                      if (purpose)
+                        'to_purpose_id': account.id
+                      else
+                        'to_account_id': account.id,
+                      if (purpose && reserve != null) ...{
+                        'purpose_id': reserve.id,
+                        'amount_text': minorInput(-balance, snapshot.currency),
                       },
-              ),
-            ),
-          ],
-        ],
+                    },
+                  ),
+                );
+              },
       ),
     );
   }

@@ -196,6 +196,8 @@
   "ledgerPurpose": "Purpose accounts",
   "ledgerRecent": "Recent changes",
   "ledgerPending": "Pending items",
+  "ledgerTotalBalance": "Total balance",
+  "ledgerMonthSpent": "Spent this month",
   "ledgerNoAccounts": "No accounts yet. Create one in settings.",
   "ledgerNoPending": "No pending items",
   "ledgerExpense": "Expense",
