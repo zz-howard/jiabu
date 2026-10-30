@@ -224,13 +224,13 @@ List<JiabuStackItem> accountChoiceItems(
     JiabuStackItem.captionBefore(
       child: Text(
         label,
-        key: ValueKey('account-choices-$field'),
+        key: ValueKey('account-choices-label-$field'),
         style: context.jiabu.type.listTitle,
       ),
     ),
     JiabuStackItem.content(
       child: JiabuChipGroup(
-        key: ValueKey('account-chip-group-$field'),
+        key: ValueKey('account-choices-$field'),
         children: [
           for (final a in rows)
             ChoiceChip(
