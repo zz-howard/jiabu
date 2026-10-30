@@ -10,6 +10,7 @@ class PaperCard extends StatelessWidget {
     this.padding,
     this.revoked = false,
     this.pattern = PaperPattern.dots,
+    this.elevation = PaperElevation.card,
     super.key,
   });
 
@@ -17,6 +18,10 @@ class PaperCard extends StatelessWidget {
   final bool revoked;
   final EdgeInsetsGeometry? padding;
   final PaperPattern pattern;
+
+  /// Shadow level (design-spec 3.3): `card` by default, `hero` for the one
+  /// overview hero card, `tile` for the lighter purpose-account tiles.
+  final PaperElevation elevation;
 
   @override
   Widget build(BuildContext context) => Opacity(
@@ -28,7 +33,7 @@ class PaperCard extends StatelessWidget {
             ? Border.all(color: context.jiabu.colors.lineStrong)
             : null,
         borderRadius: BorderRadius.circular(context.jiabu.decor.cardRadius),
-        boxShadow: paperShadows(context.jiabu.decor, PaperElevation.card),
+        boxShadow: paperShadows(context.jiabu.decor, elevation),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(context.jiabu.decor.cardRadius),

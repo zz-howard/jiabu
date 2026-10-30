@@ -1,0 +1,65 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly. Commands run from client/app.",
+  "controls": [
+    {
+      "id": "hero_not_tilted",
+      "file": "client/app/lib/shared/ledger/overview_widgets.dart",
+      "find": "degrees: decor.heroTilt,",
+      "replace": "degrees: 0,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/overview_summary_test.dart",
+      "test_names": ["hero_is_tilted_with_two_tapes_and_the_only_heavy_shadow"],
+      "command": "flutter test test/features/overview_summary_test.dart"
+    },
+    {
+      "id": "hero_shows_real_total_instead_of_purpose_total",
+      "file": "client/app/lib/shared/ledger/overview_widgets.dart",
+      "find": "final big = purposeTotal ?? realTotal ?? 0;",
+      "replace": "final big = realTotal ?? purposeTotal ?? 0;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/overview_summary_test.dart",
+      "test_names": ["hero_shows_purpose_total_then_real_money_and_month_spending"],
+      "command": "flutter test test/features/overview_summary_test.dart"
+    },
+    {
+      "id": "purpose_grid_never_single_column",
+      "file": "client/app/lib/shared/ledger/overview_widgets.dart",
+      "find": "final columns = twoUp ? 2 : 1;",
+      "replace": "final columns = 2;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/overview_summary_test.dart",
+      "test_names": ["purpose_grid_360.0_2.0 has 1 column(s)"],
+      "command": "flutter test test/features/overview_summary_test.dart"
+    },
+    {
+      "id": "tiles_get_card_shadow",
+      "file": "client/app/lib/shared/ledger/overview_widgets.dart",
+      "find": "elevation: PaperElevation.tile,",
+      "replace": "elevation: PaperElevation.card,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/overview_summary_test.dart",
+      "test_names": ["purpose_accounts_are_a_two_column_tile_grid"],
+      "command": "flutter test test/features/overview_summary_test.dart"
+    },
+    {
+      "id": "monthly_allocation_ignores_disabled_plan",
+      "file": "client/app/lib/domain/ledger_balance.dart",
+      "find": "if (plan == null || !plan.flag('enabled')) {",
+      "replace": "if (plan == null) {",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/overview_summary_test.dart",
+      "test_names": ["purpose_accounts_are_a_two_column_tile_grid"],
+      "command": "flutter test test/features/overview_summary_test.dart"
+    },
+    {
+      "id": "section_title_loses_highlighter",
+      "file": "client/packages/jiabu_design/lib/src/components/section_header.dart",
+      "find": "child: highlighted\n              ? CustomPaint(",
+      "replace": "child: highlighted && false\n              ? CustomPaint(",
+      "expected_occurrences": 1,
+      "test_file": "client/packages/jiabu_design/test/section_header_test.dart",
+      "test_names": ["highlighted section header paints behind its title only"],
+      "command": "cd ../packages/jiabu_design && flutter test test/section_header_test.dart"
+    }
+  ]
+}

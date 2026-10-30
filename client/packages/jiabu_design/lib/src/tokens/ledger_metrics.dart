@@ -1,4 +1,4 @@
-/// C3 geometry from design-spec 4.1, 4.7, 4.19 and 4.21.
+/// C3 geometry from design-spec 4.1, 4.7, 4.12a, 4.19 and 4.21.
 abstract final class JiabuLedgerMetrics {
   static const double actionExtent = 48;
   static const double recordActionHeight = 44;
@@ -20,4 +20,15 @@ abstract final class JiabuLedgerMetrics {
   static const double navigationIcon = 22;
   static const double footerClearance = 88;
   static const double minimumFieldWidth = 240;
+
+  /// Overview hero (design-spec 4.12a): tapes overlap the top edge by 10,
+  /// sit 14 in from each side; the start tape uses the decor tape tilt, the
+  /// end (dotted) tape leans the other way.
+  static const double heroTapeTop = -10;
+  static const double heroTapeInset = 14;
+  static const double heroTapeEndTilt = 4;
+
+  /// Purpose-account tiles go two per row only while each tile is at least
+  /// this wide times the text scale; otherwise one per row.
+  static const double purposeTileMinWidth = 150;
 }

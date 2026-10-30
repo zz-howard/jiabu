@@ -97,6 +97,7 @@ class JiabuColors extends ThemeExtension<JiabuColors> {
   static const stickerShadowFar = Color.fromRGBO(60, 40, 20, .35);
   static const cardShadowNear = Color.fromRGBO(60, 40, 20, .08);
   static const cardShadowFar = Color.fromRGBO(60, 40, 20, .42);
+  static const tileShadowFar = Color.fromRGBO(60, 40, 20, .45);
   static const heroShadowFar = Color.fromRGBO(60, 40, 20, .5);
   static const sheetShadowColor = Color.fromRGBO(0, 0, 0, .12);
 
