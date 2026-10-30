@@ -292,6 +292,7 @@ final chatRegistry = BlockRegistry.withDefaults()
 - 用户消息不用 ChatWeave 的默认样式：通过 `userMessageBuilder` 画成家簿的便利贴，并显示离线状态（待上传 / 待 AI 处理，见设计规范 4.11）。
 - 主题：`JiabuChatWeaveTheme`（`app/lib/shared/chatweave/`），见设计规范 7.8。
 - **过程条**（AI 正在做什么，见设计规范 4.17）：能力声明里带 `stream.steps`，服务端据此在同一条流里发步骤事件；步骤由 ChatWeave 折叠进消息的 `steps`（与块分开，随 `message_json` 一起存在 `chat_entries`，不新增列），不进 `fallback_text`。外观用 `processStripBuilder` 换成 `JiabuProcessStrip`（`app/lib/shared/chatweave/`）；展开 / 收起是 ChatWeave 管理的本地显示状态，回答写完时自动收起一次，用户手动操作过就不再自动切换。“等你确认”一行点按后滚动到对应的确认卡 / 选项块。不在任何地方显示工具名、参数或原始数据（协议里本来就没有）。
+- **思考中与 Markdown 流式**：`JiabuMessageView` 在署名行显示“思考中”（规则 `jiabuShowsThinking`，设计规范 4.17a）。注册表覆盖内置 `markdown`：固定 `complete: true`，让 ChatWeave 每次更新都完整解析（它默认对增长的尾部按几何阈值批处理，间隔内的新字按原样显示，流式中会露出 `**`、`- `）；已稳定的段落仍会封存。ChatWeave 当前把所有 `>` 转义，引用块无法出现（库里的 `safeMarkdown`，需在库里修，见 `client/CHAT3-DELIVERY.md`）。
 
 **测试**：适配器的仓库测试（真 drift 内存库：临时状态 / 同步版本对账、空间过滤、退出清除、带 `steps` 的消息往返无损）；用 ChatWeave 的一致性夹具驱动聊天页的组件测试（含步骤夹具：并行、某步失败、生成中停止、步骤中途断线续传；中断夹具：暂停、回答后同一条回复继续、暂停很久后在另一台手机回答、暂停中停止、过期；输入栏的 `locked` / `answering` / ✕ 返回 / 被另一台设备关闭四种状态，以及草稿保留）；过程条的 golden 与几何断言（设计规范 4.17 / 7.8）；4.16 各组件的 golden（两种空间强调色 × 两种宽度 × 两档字号）与几何断言（宽 332、0°）。
 
