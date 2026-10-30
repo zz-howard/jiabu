@@ -31,6 +31,7 @@
 - `JiabuStack` caption 明确区分描述前一块/后一块；同层直接嵌套 Stack 在 debug 下断言失败。几何矩阵校验 marker 完整数及各状态最低检查对数。
 - 规则 12 禁止把 `JiabuStack` / `JiabuChipGroup` 直接放进 `ListView.builder`、`SliverList` 等惰性 delegate，避免未构建项绕过 marker 完整性检查。
 - C4b golden 与几何检查共享同一份 14 状态表；几何侧对每个状态执行 zh/en × 360/430 × 100%/200% 完整矩阵。
+- C4b 输入框在打开 modal 前逐项验证 EditableText 读屏标签；modal 背景会按 Flutter 路由语义规则被排除。
 - 本批不实现 RTL：客户端当前仅支持中文和英文，均使用 LTR 布局。
 
 ## Golden 清单

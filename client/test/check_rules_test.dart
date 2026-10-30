@@ -295,8 +295,9 @@ final good = JiabuStackItem.section(
     const path = 'app/lib/features/home/home_screen.dart';
     for (final source in [
       'ListView.builder(itemBuilder: (_, i) => JiabuStack(children: []));',
-      'SliverList(delegate: SliverChildBuilderDelegate((_, i) => '
-          'JiabuChipGroup(children: [])));',
+      '''SliverList(delegate: SliverChildBuilderDelegate(
+        (_, i) => JiabuChipGroup(children: []),
+      ));''',
     ]) {
       write(path, '$source\n');
       expect(violationsFor(12), hasLength(1));

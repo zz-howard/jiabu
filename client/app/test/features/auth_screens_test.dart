@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu/domain/sync_state.dart';
 import 'package:jiabu/features/auth/view/change_password_screen.dart';
@@ -526,11 +525,37 @@ void main() {
               scale: scale,
               locale: locale,
             );
+            // Modal routes exclude their background fields from semantics.
+            // Check the source screen before opening invite_placeholder.
+            for (final field in find.byType(TextField).evaluate()) {
+              final editable = find.descendant(
+                of: find.byWidget(field.widget),
+                matching: find.byType(EditableText),
+              );
+              expect(
+                tester.getSemantics(editable).getSemanticsData().label,
+                isNotEmpty,
+                reason: '${sample.state} TextField semantics label',
+              );
+            }
             if (sample.tapKey case final String key) {
               final target = find.byKey(Key(key));
               await tester.ensureVisible(target);
               await tester.tap(target);
               await tester.pumpAndSettle();
+              if (sample.state != 'invite_placeholder') {
+                for (final field in find.byType(TextField).evaluate()) {
+                  final editable = find.descendant(
+                    of: find.byWidget(field.widget),
+                    matching: find.byType(EditableText),
+                  );
+                  expect(
+                    tester.getSemantics(editable).getSemanticsData().label,
+                    isNotEmpty,
+                    reason: '${sample.state} expanded TextField label',
+                  );
+                }
+              }
             }
             expect(tester.takeException(), isNull);
             expect(
@@ -559,19 +584,6 @@ void main() {
               expect(
                 box.size.height,
                 greaterThanOrEqualTo(JiabuSpacing.minTapTarget),
-              );
-            }
-            // The label lives on the EditableText node that screen readers
-            // focus; the TextField's own render object may resolve to an
-            // ancestor scroll node.
-            for (final field in find.byType(TextField).evaluate()) {
-              final editable = find.descendant(
-                of: find.byWidget(field.widget),
-                matching: find.byType(EditableText),
-              );
-              expect(
-                tester.getSemantics(editable).getSemanticsData().label,
-                isNotEmpty,
               );
             }
             final scroll = find.byType(SingleChildScrollView).first;

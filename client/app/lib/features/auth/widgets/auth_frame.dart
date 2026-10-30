@@ -95,7 +95,7 @@ class AuthFrame extends StatelessWidget {
                               JiabuStackItem.content(
                                 child: SizedBox(
                                   width: double.infinity,
-                                  child: footer!,
+                                  child: footer,
                                 ),
                               ),
                           ],
