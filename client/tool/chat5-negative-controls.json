@@ -1,0 +1,95 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly. Commands run from client/app.",
+  "controls": [
+    {
+      "id": "waiting_ai_shows_status_again",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "      _ => null,\n    };",
+      "replace": "      ChatDelivery.waitingAi => l.chatWaitingAi,\n      _ => null,\n    };",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat5_quiet_status_test.dart",
+      "test_names": ["quiet status normal_waitingAi_renders_no_status_text"],
+      "command": "flutter test test/features/chat5_quiet_status_test.dart"
+    },
+    {
+      "id": "online_queue_says_wait_for_network",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "ChatDelivery.pending when !online => l.chatWaitOnline,",
+      "replace": "ChatDelivery.pending => l.chatWaitOnline,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat5_quiet_status_test.dart",
+      "test_names": ["quiet status normal_pending_renders_no_status_text"],
+      "command": "flutter test test/features/chat5_quiet_status_test.dart"
+    },
+    {
+      "id": "offline_queue_is_silent",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "ChatDelivery.pending when !online => l.chatWaitOnline,",
+      "replace": "ChatDelivery.pending when !online => null,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat5_quiet_status_test.dart",
+      "test_names": ["quiet status pending_while_offline_says_wait_for_network"],
+      "command": "flutter test test/features/chat5_quiet_status_test.dart"
+    },
+    {
+      "id": "retry_link_tap_area_shrinks",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "minHeight: JiabuLedgerMetrics.recordActionHeight,",
+      "replace": "minHeight: 0,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat5_quiet_status_test.dart",
+      "test_names": ["quiet status failed_says_not_sent_with_a_44_retry_link"],
+      "command": "flutter test test/features/chat5_quiet_status_test.dart"
+    },
+    {
+      "id": "menu_loses_manual_fill",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "      if (manual) NoteMenuAction.manual,",
+      "replace": "      if (manual && retryable) NoteMenuAction.manual,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat5_quiet_status_test.dart",
+      "test_names": ["long-press menu pending_ai_menu_offers_copy_and_manual_fill"],
+      "command": "flutter test test/features/chat5_quiet_status_test.dart"
+    },
+    {
+      "id": "menu_offers_retry_when_not_failed",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "final retryable = delivery == ChatDelivery.failed && onRetry != null;",
+      "replace": "final retryable = onRetry != null;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat5_quiet_status_test.dart",
+      "test_names": ["long-press menu pending_ai_menu_offers_copy_and_manual_fill"],
+      "command": "flutter test test/features/chat5_quiet_status_test.dart"
+    },
+    {
+      "id": "manual_link_back_under_the_note",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "                      _NoteLink(label: l.chatRetry, onPressed: onRetry),\n                    ],",
+      "replace": "                      _NoteLink(label: l.chatRetry, onPressed: onRetry),\n                    ],\n                    if (manual) _NoteLink(label: l.chatManual, onPressed: onManual),",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_interaction_test.dart",
+      "test_names": ["user_failed_keeps_original_and_manual_entry"],
+      "command": "flutter test test/features/chat_interaction_test.dart"
+    },
+    {
+      "id": "no_screen_reader_actions",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "                customSemanticsActions: {",
+      "replace": "                customSemanticsActions: const {} ?? {",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat5_quiet_status_test.dart",
+      "test_names": ["long-press menu screen_readers_get_the_menu_as_custom_actions"],
+      "command": "flutter test test/features/chat5_quiet_status_test.dart"
+    },
+    {
+      "id": "long_press_does_nothing",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "onLongPress: () => unawaited(menu()),",
+      "replace": "onLongPress: () {},",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat5_quiet_status_test.dart",
+      "test_names": ["long-press menu failed_menu_offers_retry"],
+      "command": "flutter test test/features/chat5_quiet_status_test.dart"
+    }
+  ]
+}

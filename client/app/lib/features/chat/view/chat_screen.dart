@@ -193,6 +193,7 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
                       delivery:
                           session.delivery[message.id] ??
                           ChatDelivery.waitingAi,
+                      online: session.online,
                       image: session.image,
                       onRetry: () => unawaited(
                         vm.command(() => session.retryUpload(message.id)),
