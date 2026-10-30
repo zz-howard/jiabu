@@ -24,4 +24,4 @@
 
 ## Golden
 
-见 PR 描述（visual-change）。
+重录 17 张（总览相关：shell_overview、overview_* 各状态），新增 3 张（overview_busy 360/100%、430/200%，overview_busy_scrolled 360/100% 滚到近期变化），删除 0。在 CI 镜像内于构建机录制。
