@@ -419,6 +419,91 @@ void main() {
     );
   });
 
+  testWidgets('C4Form keeps offline submit note inside the action group', (
+    tester,
+  ) async {
+    await pumpC4Preview(tester, state: 'password_offline');
+    final offline = find.text('需要联网才能管理');
+    final button = find.widgetWithText(FilledButton, '保存');
+    final actionMarker = find.ancestor(
+      of: button,
+      matching: find.byType(JiabuStackMarker),
+    );
+    final markers = find.byType(JiabuStackMarker);
+    final actionIndex = tester
+        .widget<JiabuStackMarker>(actionMarker)
+        .index;
+    expect(
+      tester.widget<JiabuStackMarker>(actionMarker).kind,
+      JiabuStackItemKind.action,
+    );
+    expect(
+      find.descendant(of: actionMarker, matching: offline),
+      findsOneWidget,
+    );
+    expect(
+      tester.getRect(actionMarker).top -
+          tester.getRect(markers.at(actionIndex - 1)).bottom,
+      moreOrLessEquals(
+        JiabuSpacing.actionGap,
+        epsilon: geometryTolerance,
+      ),
+    );
+    expect(
+      tester.getRect(button).top - tester.getRect(offline).bottom,
+      moreOrLessEquals(
+        JiabuSpacing.captionGap,
+        epsilon: geometryTolerance,
+      ),
+    );
+  });
+
+  testWidgets('C4Form keeps list offline note after its content', (
+    tester,
+  ) async {
+    await pumpC4Preview(tester, state: 'keys_offline');
+    final offline = find.text('需要联网才能管理');
+    final captionMarker = find.ancestor(
+      of: offline,
+      matching: find.byType(JiabuStackMarker),
+    );
+    final caption = tester.widget<JiabuStackMarker>(captionMarker);
+    final markers = find.byType(JiabuStackMarker);
+    expect(caption.kind, JiabuStackItemKind.caption);
+    expect(caption.captionTarget, JiabuCaptionTarget.previous);
+    expect(
+      tester.getRect(captionMarker).top -
+          tester.getRect(markers.at(caption.index - 1)).bottom,
+      moreOrLessEquals(
+        JiabuSpacing.captionGap,
+        epsilon: geometryTolerance,
+      ),
+    );
+  });
+
+  testWidgets('unlock logo and title stay centered', (tester) async {
+    for (final width in [360.0, 430.0]) {
+      for (final scale in [1.0, 2.0]) {
+        await pumpC4Preview(
+          tester,
+          state: 'unlock_pin',
+          width: width,
+          scale: scale,
+        );
+        for (final finder in [
+          find.byType(JiabuLogo),
+          find.text('家簿已上锁'),
+        ]) {
+          expect(
+            tester.getRect(finder).center.dx,
+            closeTo(width / 2, 1),
+            reason: '$finder at $width and ${scale}x',
+          );
+        }
+      }
+    }
+  });
+
   testWidgets('account logout is separated as an action block', (tester) async {
     await pumpC4Preview(tester, state: 'account');
     final group = tester.getRect(find.byType(JiabuSettingsGroup));

@@ -531,6 +531,7 @@ class C3Preview extends StatelessWidget {
     if (state.startsWith('archive_')) {
       return JiabuSheet(
         child: JiabuStack(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             JiabuStackItem.content(child: Text(l.ledgerArchiveGuide)),
             JiabuStackItem.content(

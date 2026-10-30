@@ -228,6 +228,24 @@ void main() {
     expect(tester.takeException(), isAssertionError);
   });
 
+  testWidgets('stack gives a first section the section top token', (
+    tester,
+  ) async {
+    await pumpLayout(
+      tester,
+      const JiabuStack(
+        children: [
+          JiabuStackItem.section(
+            child: JiabuSectionHeader(title: 'first section'),
+          ),
+        ],
+      ),
+    );
+    final stack = tester.getRect(find.byType(JiabuStack));
+    final marker = tester.getRect(find.byType(JiabuStackMarker));
+    expect(marker.top - stack.top, JiabuSpacing.sectionTop);
+  });
+
   testWidgets('stack defaults to stretch and supports centered children', (
     tester,
   ) async {

@@ -74,6 +74,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
         child: SingleChildScrollView(
           padding: EdgeInsets.all(context.jiabu.spacing.page),
           child: JiabuStack(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const JiabuStackItem.content(child: JiabuLogo()),
               JiabuStackItem.content(child: HandText(l.handC4Locked)),

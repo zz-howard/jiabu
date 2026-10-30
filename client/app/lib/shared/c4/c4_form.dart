@@ -40,16 +40,19 @@ class C4Form extends ConsumerWidget {
             ),
           ),
         ...children,
-        // The error explains the fields above it; the offline note explains
-        // why the submit button below it is disabled.
+        // The error explains the fields above it. When there is a submit
+        // action, its offline note belongs inside that action group.
         if (state.error case final String code)
           JiabuStackItem.captionAfter(
             child: Semantics(liveRegion: true, child: Text(c4Error(l, code))),
           ),
-        if (requiresOnline && !state.online)
-          JiabuStackItem.captionBefore(child: Text(l.c4Offline)),
+        if (onSubmit == null && requiresOnline && !state.online)
+          JiabuStackItem.captionAfter(child: Text(l.c4Offline)),
         if (onSubmit != null)
           JiabuStackItem.action(
+            actionCaption: requiresOnline && !state.online
+                ? Text(l.c4Offline)
+                : null,
             child: FilledButton(
               onPressed:
                   enabled && !state.busy && (!requiresOnline || state.online)

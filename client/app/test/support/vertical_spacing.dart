@@ -52,6 +52,26 @@ int expectJiabuVerticalRhythm(
           '$reason built ${markers.length}/${stackWidget.children.length} '
           'stack items; scroll the test or replace lazy page-level content',
     );
+    if (markers.isNotEmpty &&
+        (markers.first.widget as JiabuStackMarker).kind ==
+            JiabuStackItemKind.section) {
+      final stackRect = tester.getRect(
+        find.byElementPredicate((element) => identical(element, stack)),
+      );
+      final firstRect = tester.getRect(
+        find.byElementPredicate(
+          (element) => identical(element, markers.first),
+        ),
+      );
+      expect(
+        firstRect.top - stackRect.top,
+        moreOrLessEquals(
+          JiabuSpacing.sectionTop,
+          epsilon: geometryTolerance,
+        ),
+        reason: '$reason first section top gap',
+      );
+    }
     for (var index = 1; index < markers.length; index++) {
       final previous = markers[index - 1].widget as JiabuStackMarker;
       final current = markers[index].widget as JiabuStackMarker;

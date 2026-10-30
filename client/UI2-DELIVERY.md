@@ -35,6 +35,8 @@
 - 本批不实现 RTL：客户端当前仅支持中文和英文，均使用 LTR 布局。
 - C3 记一笔、编辑、退款、账户、计划、日期筛选、详情与冲突弹层统一使用 `JiabuStack`：字段组 12，小标题到 chip 8，字数与错误说明 8，提交操作 24。卡片和列表项内部的局部 Column 保持组件内布局。
 - C3 几何状态表覆盖全部 51 个状态；所有多块页面/弹层使用非零最低 pair，仅聊天占位、单张记录卡、单条说明等单组件状态为 0。
+- `C4Form` 有提交按钮时把离线说明并入 action（外部 24、内部 8）；列表型无提交表单则把离线说明作为描述上方内容的 `captionAfter`。
+- 居中迁移自查覆盖欢迎页、解锁页、C3 历史选项/日期筛选弹层和归档预览；这些原本均为默认居中的 `Column`，现显式使用 `CrossAxisAlignment.center`。AuthFrame、邀请/切换确认、C4 表单及其余 C3 表单迁移前均已显式 stretch，迁移后保持不变。
 
 ### C4b 首启三屏复核
 
@@ -44,9 +46,7 @@
 
 ## Golden 清单
 
-- 新增预计 2 张：`ui2_stack_vertical_rhythm` 的 360/100% 与 430/200%。
-- 受影响既有 golden 由构建机根据像素差异重录，预计约 258 张，保守上限 282 张。
-- 删除 0 张；本机未生成或修改 PNG。
+- 修改 239 张，新增 2 张：`ui2_stack_vertical_rhythm` 的 360/100% 与 430/200%，删除 0 张。
 
 ## 构建机生成与验证
 
@@ -54,10 +54,3 @@
 2. 运行 dart format、flutter analyze 与 `dart run tool/check_rules.dart`。
 3. 分别运行 workspace、app、jiabu_design 测试；UI1 和 UI2 负对照逐条确认。
 4. 重录并人工检查受影响 golden，PR 标记 `visual-change`。
-
-## 尚待构建机确认
-
-- 锁定 Flutter 版本的 TextScaler API 与 marker Finder 行为。
-- 760 高 C4 固定预览在新增 actionGap 后是否需要滚动定位调整。
-- 360/200% 下邀请 Wrap、API key 行和两行页头的实际像素表现。
-- 实际 golden 重录集合以构建机差异报告为准。

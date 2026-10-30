@@ -464,6 +464,7 @@ class HistoryPage extends ConsumerWidget {
         context: context,
         spaceId: snapshot.spaceId,
         builder: (sheetContext) => JiabuStack(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             JiabuStackItem.content(
               child: Text(label, style: context.jiabu.type.cardTitle),
@@ -768,6 +769,7 @@ class DateFilterForm extends ConsumerWidget {
       formId: 'date-filter',
       initial: {'from': filter.from ?? '', 'through': filter.through ?? ''},
       builder: (context, ref, state, model) => JiabuStack(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           ...formFieldItems(context, state, model, 'from', l.ledgerFromDate),
           ...formFieldItems(
