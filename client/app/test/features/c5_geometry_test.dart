@@ -199,7 +199,7 @@ void main() {
     }
     expect(completed, true);
     await flight;
-    // The reveal jumps the scroll position; the list lays out on the next frame.
+    // The reveal jumps the scroll; the list lays out on the next frame.
     await tester.pump();
     expect(find.text('用哪张卡付的？'), findsOneWidget);
     expect(tester.getRect(find.text('用哪张卡付的？')).top, greaterThanOrEqualTo(0));
