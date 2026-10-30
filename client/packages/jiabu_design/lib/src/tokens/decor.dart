@@ -70,6 +70,7 @@ class JiabuDecor extends ThemeExtension<JiabuDecor> {
     this.tape3 = JiabuColors.defaultTape3,
     this.stickerShadow = _stickerShadow,
     this.cardShadow = _cardShadow,
+    this.tileShadow = _tileShadow,
     this.heroShadow = _heroShadow,
     this.sheetShadow = _sheetShadow,
   });
@@ -103,6 +104,19 @@ class JiabuDecor extends ThemeExtension<JiabuDecor> {
         offset: const Offset(0, 12),
         blurRadius: 20,
         spreadRadius: -12,
+      ),
+    ],
+    tileShadow: [
+      BoxShadow(
+        color: colors.shadowInk.withValues(alpha: .08),
+        offset: const Offset(0, 1),
+        blurRadius: 1,
+      ),
+      BoxShadow(
+        color: colors.shadowInk.withValues(alpha: .45),
+        offset: const Offset(0, 8),
+        blurRadius: 14,
+        spreadRadius: -10,
       ),
     ],
     heroShadow: [
@@ -190,6 +204,10 @@ class JiabuDecor extends ThemeExtension<JiabuDecor> {
   final Color tape3;
   final List<BoxShadow> stickerShadow;
   final List<BoxShadow> cardShadow;
+
+  /// Lighter than [cardShadow]: the purpose-account tiles on the overview,
+  /// so the hero card stays the only heavy shadow on the page.
+  final List<BoxShadow> tileShadow;
   final List<BoxShadow> heroShadow;
   final List<BoxShadow> sheetShadow;
 
@@ -258,6 +276,7 @@ class JiabuDecor extends ThemeExtension<JiabuDecor> {
     Color? tape3,
     List<BoxShadow>? stickerShadow,
     List<BoxShadow>? cardShadow,
+    List<BoxShadow>? tileShadow,
     List<BoxShadow>? heroShadow,
     List<BoxShadow>? sheetShadow,
   }) => JiabuDecor(
@@ -324,6 +343,7 @@ class JiabuDecor extends ThemeExtension<JiabuDecor> {
     tape3: tape3 ?? this.tape3,
     stickerShadow: stickerShadow ?? this.stickerShadow,
     cardShadow: cardShadow ?? this.cardShadow,
+    tileShadow: tileShadow ?? this.tileShadow,
     heroShadow: heroShadow ?? this.heroShadow,
     sheetShadow: sheetShadow ?? this.sheetShadow,
   );
@@ -436,6 +456,8 @@ class JiabuDecor extends ThemeExtension<JiabuDecor> {
           stickerShadow,
       cardShadow:
           BoxShadow.lerpList(cardShadow, other.cardShadow, t) ?? cardShadow,
+      tileShadow:
+          BoxShadow.lerpList(tileShadow, other.tileShadow, t) ?? tileShadow,
       heroShadow:
           BoxShadow.lerpList(heroShadow, other.heroShadow, t) ?? heroShadow,
       sheetShadow:
@@ -468,6 +490,19 @@ const _cardShadow = [
     offset: Offset(0, 12),
     blurRadius: 20,
     spreadRadius: -12,
+  ),
+];
+const _tileShadow = [
+  BoxShadow(
+    color: JiabuColors.cardShadowNear,
+    offset: Offset(0, 1),
+    blurRadius: 1,
+  ),
+  BoxShadow(
+    color: JiabuColors.tileShadowFar,
+    offset: Offset(0, 8),
+    blurRadius: 14,
+    spreadRadius: -10,
   ),
 ];
 const _heroShadow = [

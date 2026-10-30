@@ -147,6 +147,23 @@ const c3Goldens =
         scale: 200,
         path: '../goldens/c3/overview_busy_zh_pine_w430_text200.png',
       ),
+      // V3: narrow width at 200% puts the purpose tiles one per row.
+      (
+        state: 'overview_busy',
+        locale: 'zh',
+        accent: 'pine',
+        width: 360,
+        scale: 200,
+        path: '../goldens/c3/overview_busy_zh_pine_w360_text200.png',
+      ),
+      (
+        state: 'shell_overview',
+        locale: 'en',
+        accent: 'indigo',
+        width: 430,
+        scale: 200,
+        path: '../goldens/c3/shell_overview_en_indigo_w430_text200.png',
+      ),
       (
         state: 'overview_negative',
         locale: 'zh',

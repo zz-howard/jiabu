@@ -832,6 +832,18 @@ void main() {
     expect(d.stickerShadow.last.spreadRadius, -4);
     expect(d.cardShadow.last.offset, const Offset(0, 12));
     expect(d.heroShadow.last.blurRadius, 26);
+    // V3 overview tiles: lighter than a card, the hero stays the heaviest.
+    expect(d.tileShadow, hasLength(2));
+    expect(d.tileShadow.last.offset, const Offset(0, 8));
+    expect(d.tileShadow.last.blurRadius, 14);
+    expect(d.tileShadow.last.spreadRadius, -10);
+    expect(
+      d.tileShadow.last.blurRadius,
+      lessThan(d.cardShadow.last.blurRadius),
+    );
+    const defaults = JiabuDecor();
+    expect(defaults.tileShadow.last.offset, const Offset(0, 8));
+    expect(paperShadows(d, PaperElevation.tile), same(d.tileShadow));
     expect(d.sheetShadow.single.offset, const Offset(0, -8));
   });
 

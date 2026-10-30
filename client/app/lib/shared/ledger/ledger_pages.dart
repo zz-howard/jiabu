@@ -109,9 +109,17 @@ class OverviewPage extends ConsumerWidget {
     final balances = result is Ok<Map<String, int>>
         ? result.value
         : <String, int>{};
-    final total = result is Ok<Map<String, int>>
-        ? realAccountsTotal(snapshot, balances)
-        : null;
+    final ok = result is Ok<Map<String, int>>;
+    bool has(String kind) =>
+        snapshot.accounts.any((a) => a.text('kind') == kind);
+    final realTotal = ok ? realAccountsTotal(snapshot, balances) : null;
+    final purposeTotal = ok ? purposeAccountsTotal(snapshot, balances) : null;
+    // The hero needs its big number: the purpose total when the space has
+    // purpose accounts, otherwise the real-money total.
+    final heroReady =
+        ok &&
+        snapshot.accounts.isNotEmpty &&
+        (has('purpose') ? purposeTotal != null : realTotal != null);
     final today = ref.watch(ledgerClockProvider)();
     final month = DateFormat('yyyy-MM').format(today);
     final recent = filterHistory(snapshot, const HistoryFilter()).take(5);
@@ -135,11 +143,12 @@ class OverviewPage extends ConsumerWidget {
               JiabuStackItem.captionAfter(
                 child: Text(ledgerError(l, result.code)),
               ),
-            if (total != null && snapshot.accounts.isNotEmpty)
+            if (heroReady)
               JiabuStackItem.content(
                 child: OverviewSummary(
                   currency: snapshot.currency,
-                  total: total,
+                  purposeTotal: has('purpose') ? purposeTotal : null,
+                  realTotal: has('real') ? realTotal : null,
                   monthSpent: monthExpense(snapshot, month),
                 ),
               ),
@@ -154,26 +163,45 @@ class OverviewPage extends ConsumerWidget {
                   onAction: () => context.push<void>('/settings/accounts'),
                 ),
               ),
-            if (result is Ok<Map<String, int>>)
-              for (final kind in ['real', 'purpose'])
+            if (ok)
+              for (final kind in ['purpose', 'real'])
                 if (visible(kind).isNotEmpty) ...[
                   JiabuStackItem.section(
                     child: JiabuSectionHeader(
                       title: kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
+                      highlighted: true,
                     ),
                   ),
-                  JiabuStackItem.content(
-                    child: JiabuSettingsGroup(
-                      children: [
-                        for (final account in visible(kind))
-                          OverviewAccountRow(
-                            snapshot: snapshot,
-                            account: account,
-                            balance: balances[account.id] ?? 0,
-                          ),
-                      ],
+                  if (kind == 'purpose') ...[
+                    JiabuStackItem.captionBefore(
+                      child: Text(
+                        l.ledgerPurposeHint,
+                        key: const Key('overview-purpose-hint'),
+                        style: context.jiabu.type.secondary.copyWith(
+                          color: context.jiabu.colors.ink2,
+                        ),
+                      ),
                     ),
-                  ),
+                    JiabuStackItem.content(
+                      child: OverviewPurposeGrid(
+                        snapshot: snapshot,
+                        accounts: visible(kind),
+                        balances: balances,
+                      ),
+                    ),
+                  ] else
+                    JiabuStackItem.content(
+                      child: JiabuSettingsGroup(
+                        children: [
+                          for (final account in visible(kind))
+                            OverviewAccountRow(
+                              snapshot: snapshot,
+                              account: account,
+                              balance: balances[account.id] ?? 0,
+                            ),
+                        ],
+                      ),
+                    ),
                   for (final account in visible(kind))
                     if (account.archived || (balances[account.id] ?? 0) < 0)
                       JiabuStackItem.content(
@@ -185,12 +213,18 @@ class OverviewPage extends ConsumerWidget {
                       ),
                 ],
             JiabuStackItem.section(
-              child: JiabuSectionHeader(title: l.ledgerPending),
+              child: JiabuSectionHeader(
+                title: l.ledgerPending,
+                highlighted: true,
+              ),
             ),
             JiabuStackItem.content(child: PendingItems(snapshot: snapshot)),
             if (recent.isNotEmpty) ...[
               JiabuStackItem.section(
-                child: JiabuSectionHeader(title: l.ledgerRecent),
+                child: JiabuSectionHeader(
+                  title: l.ledgerRecent,
+                  highlighted: true,
+                ),
               ),
               JiabuStackItem.content(
                 child: JiabuSettingsGroup(

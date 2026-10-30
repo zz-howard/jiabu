@@ -119,6 +119,11 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
             ? 0
             : state == 'overview_busy'
             ? 2000000
+            // Overview: more real money than is split into purposes, so the
+            // two hero totals differ (purpose 188.00, real 5,088.00).
+            : (state.startsWith('overview_') || state == 'shell_overview') &&
+                  item.$1 == 'real-b'
+            ? 500000
             : 10000,
         'opening_on': '2026-10-01',
         'is_reserve': item.$1 == 'purpose-b',
@@ -287,6 +292,29 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
               'next_run_on': '2026-10-31',
               'version': 1,
             }, syncState: state == 'plan_pending' ? 'pending' : 'synced'),
+          ]
+        : state.startsWith('overview_') || state == 'shell_overview'
+        ? [
+            // Overview tiles: one enabled monthly allocation, one switched
+            // off (that tile shows no 每月拨入 line).
+            LedgerRow({
+              'account_id': 'purpose-a',
+              'space_id': s,
+              'amount_minor': 300000,
+              'day_of_month': 1,
+              'enabled': true,
+              'next_run_on': '2026-11-01',
+              'version': 1,
+            }),
+            LedgerRow({
+              'account_id': 'purpose-b',
+              'space_id': s,
+              'amount_minor': 50000,
+              'day_of_month': 1,
+              'enabled': false,
+              'next_run_on': '2026-11-01',
+              'version': 1,
+            }),
           ]
         : [],
   );

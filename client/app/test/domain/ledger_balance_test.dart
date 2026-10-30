@@ -186,6 +186,54 @@ void overviewTotalsTests() {
     final balances = (ledgerBalances(snapshot) as Ok<Map<String, int>>).value;
     expect(realAccountsTotal(snapshot, balances), isNull);
   });
+  test('purpose_total_sums_purpose_accounts_only_negatives_included', () {
+    final snapshot = data(
+      [
+        account('a', 'real', 10000),
+        account('p', 'purpose', 16000),
+        account('q', 'purpose', -2000),
+        account('z', 'purpose', 3000, archived: true),
+      ],
+      [record('r1', 'expense', 1200, '2026-10-28')],
+    );
+    final balances = (ledgerBalances(snapshot) as Ok<Map<String, int>>).value;
+    // 16000 - 1200 (the expense is charged to purpose p) - 2000 + 3000.
+    expect(purposeAccountsTotal(snapshot, balances), 15800);
+    expect(realAccountsTotal(snapshot, balances), 8800);
+  });
+  test('purpose_total_is_null_outside_the_safe_integer_range', () {
+    final snapshot = data([
+      account('p', 'purpose', 9007199254740991),
+      account('q', 'purpose', 9007199254740991),
+    ], const []);
+    final balances = (ledgerBalances(snapshot) as Ok<Map<String, int>>).value;
+    expect(purposeAccountsTotal(snapshot, balances), isNull);
+  });
+  test('monthly_allocation_only_for_enabled_positive_plans', () {
+    LedgerRow plan(String id, int amount, {Object enabled = true}) =>
+        LedgerRow({
+          'account_id': id,
+          'space_id': 's',
+          'amount_minor': amount,
+          'day_of_month': 1,
+          'enabled': enabled,
+        });
+    final snapshot = LedgerSnapshot(
+      spaceId: 's',
+      space: LedgerRow({}),
+      plans: [
+        plan('p', 300000),
+        plan('q', 50000, enabled: false),
+        plan('r', 0),
+        plan('t', 20000, enabled: 1),
+      ],
+    );
+    expect(monthlyAllocation(snapshot, 'p'), 300000);
+    expect(monthlyAllocation(snapshot, 'q'), isNull);
+    expect(monthlyAllocation(snapshot, 'r'), isNull);
+    expect(monthlyAllocation(snapshot, 't'), 20000);
+    expect(monthlyAllocation(snapshot, 'none'), isNull);
+  });
   test('month_expense_counts_expense_minus_refund_in_the_month_only', () {
     final snapshot = data(
       [account('a', 'real', 0)],
