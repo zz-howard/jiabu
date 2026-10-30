@@ -288,6 +288,7 @@ void main() {
       WidgetState.selected,
     });
     expect(selectedLabel.color, context.jiabu.colors.onPrimarySoft);
+    expect(selectedLabel.fontFamily, context.jiabu.type.body.fontFamily);
     final selectedSide = (theme.side! as WidgetStateBorderSide).resolve({
       WidgetState.selected,
     });

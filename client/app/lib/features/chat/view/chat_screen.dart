@@ -174,19 +174,17 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
           if (state.images.isNotEmpty)
             SizedBox(
               height: JiabuChatMetrics.action,
-              child: SingleChildScrollView(
+              child: ListView(
                 scrollDirection: Axis.horizontal,
-                child: JiabuChipGroup(
-                  children: [
-                    for (final hash in state.images)
-                      InputChip(
-                        label: const JiabuIcon(JiabuIcons.uiImage),
-                        deleteIcon: const JiabuIcon(JiabuIcons.uiClose),
-                        deleteButtonTooltipMessage: l.chatRemovePhoto,
-                        onDeleted: () => vm.removePhoto(hash),
-                      ),
-                  ],
-                ),
+                children: [
+                  for (final hash in state.images)
+                    InputChip(
+                      label: const JiabuIcon(JiabuIcons.uiImage),
+                      deleteIcon: const JiabuIcon(JiabuIcons.uiClose),
+                      deleteButtonTooltipMessage: l.chatRemovePhoto,
+                      onDeleted: () => vm.removePhoto(hash),
+                    ),
+                ],
               ),
             ),
           JiabuChatComposer(

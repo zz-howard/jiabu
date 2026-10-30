@@ -2,6 +2,20 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
+const _geometryTolerance = 1e-6;
+
+void _expectMinimumGap(
+  double actual,
+  double expected, {
+  required String reason,
+}) {
+  expect(
+    actual + _geometryTolerance,
+    greaterThanOrEqualTo(expected),
+    reason: reason,
+  );
+}
+
 int expectJiabuVerticalRhythm(
   WidgetTester tester, {
   required String reason,
@@ -35,9 +49,9 @@ int expectJiabuVerticalRhythm(
       final previousRect = tester.getRect(find.byWidget(previous));
       final currentRect = tester.getRect(find.byWidget(current));
       final expected = _expectedGap(previous.kind, current.kind);
-      expect(
+      _expectMinimumGap(
         currentRect.top - previousRect.bottom,
-        greaterThanOrEqualTo(expected),
+        expected,
         reason:
             '$reason stack pair ${previous.index}->${current.index} '
             '${previous.kind.name}->${current.kind.name}',
@@ -78,9 +92,9 @@ int expectJiabuChipSpacing(WidgetTester tester, {required String reason}) {
       final gap = overlap
           ? currentRect.left - previousRect.right
           : currentRect.top - previousRect.bottom;
-      expect(
+      _expectMinimumGap(
         gap,
-        greaterThanOrEqualTo(JiabuSpacing.sm),
+        JiabuSpacing.sm,
         reason: '$reason chip pair ${previous.index}->${current.index}',
       );
       checkedPairs++;

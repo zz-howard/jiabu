@@ -27,7 +27,7 @@
 - 邀请操作位于说明下方的 Wrap，水平和换行间距均为 8。
 - API key 权限允许完整换行，覆盖英文 360 宽 200% 字号。
 - 历史筛选渐隐由透明 bg 过渡到 bg，避免透明黑插值发灰。
-- chip 与选项胶囊统一由 `JiabuChipGroup` 提供 8/8 间距；选中态统一为 primary-soft、on-primary-soft、✓ 和白圈。
+- 非聊天的 chip 组选用 `JiabuChipGroup` 提供 8/8 间距；选中态统一为 primary-soft、on-primary-soft、✓ 和白圈。聊天追问胶囊保持 4.10 的独立视觉与实现。
 
 ## Golden 清单
 
