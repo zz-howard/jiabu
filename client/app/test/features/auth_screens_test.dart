@@ -527,11 +527,15 @@ void main() {
             );
             // Modal routes exclude their background fields from semantics.
             // Check the source screen before opening invite_placeholder.
-            for (final field in find.byType(TextField).evaluate()) {
+            for (final field in find.byType(TextField).evaluate().toList()) {
               final editable = find.descendant(
                 of: find.byWidget(field.widget),
                 matching: find.byType(EditableText),
               );
+              // Fields scrolled out of the viewport drop out of the
+              // semantics tree, so bring each one into view first.
+              await tester.ensureVisible(editable);
+              await tester.pump();
               expect(
                 tester.getSemantics(editable).getSemanticsData().label,
                 isNotEmpty,
