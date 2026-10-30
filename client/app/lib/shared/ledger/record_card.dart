@@ -176,7 +176,12 @@ class LedgerRecordCard extends StatelessWidget {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Sticker(category: recordStickerCategory(value)),
+                      Sticker(
+                        category: recordStickerCategory(
+                          value,
+                          snapshot: snapshot,
+                        ),
+                      ),
                       const SizedBox(width: JiabuSpacing.cardGap),
                       Expanded(
                         child: Wrap(

@@ -448,6 +448,8 @@ class HistoryPage extends ConsumerWidget {
     final state = ref.watch(ledgerViewModelProvider(snapshot.spaceId));
     final filter = state.filter;
     final rows = filterHistory(snapshot, filter);
+    final gutter = context.jiabu.spacing.page;
+    final now = ref.watch(ledgerClockProvider)();
     final groups = <String, List<LedgerRow>>{};
     for (final row in rows) {
       groups.putIfAbsent(row.text('occurred_on'), () => []).add(row);
@@ -530,145 +532,130 @@ class HistoryPage extends ConsumerWidget {
     return Column(
       children: [
         Padding(
-          padding: EdgeInsets.all(context.jiabu.spacing.page),
+          padding: EdgeInsets.symmetric(vertical: gutter),
           child: JiabuStack(
             children: [
               JiabuStackItem.content(
-                child: HistorySearchField(
-                  key: ValueKey(snapshot.spaceId),
-                  value: filter.text,
-                  label: l.ledgerSearch,
-                  onChanged: (text) => update(text: text),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: gutter),
+                  child: HistorySearchField(
+                    key: ValueKey(snapshot.spaceId),
+                    value: filter.text,
+                    label: l.ledgerSearch,
+                    onChanged: (text) => update(text: text),
+                  ),
                 ),
               ),
+              // The chip row runs edge to edge: the gutter is its leading and
+              // trailing padding, so the last chip ends one gutter before the
+              // screen edge and is fully visible once scrolled to the end.
               JiabuStackItem.content(
-                child: Stack(
-                  children: [
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: JiabuChipGroup(
-                        children: [
-                          PaperFilterChip(
-                            label: l.ledgerMembers,
-                            selected: filter.member != null,
-                            onPressed: () => select(
-                              l.ledgerMembers,
-                              [
-                                for (final member in snapshot.members)
-                                  (member.id, memberName(member, l)),
-                              ],
-                              filter.member,
-                              (id) => update(
-                                member: id,
-                                clear: id == null ? 'member' : null,
-                              ),
-                            ),
-                          ),
-                          PaperFilterChip(
-                            label: l.ledgerAccounts,
-                            selected: filter.account != null,
-                            onPressed: () => select(
-                              l.ledgerAccounts,
-                              [
-                                for (final a in snapshot.accounts)
-                                  (a.id, a.text('name')),
-                              ],
-                              filter.account,
-                              (id) => update(
-                                account: id,
-                                clear: id == null ? 'account' : null,
-                              ),
-                            ),
-                          ),
-                          PaperFilterChip(
-                            label: l.ledgerTags,
-                            selected: filter.tag != null,
-                            onPressed: () => select(
-                              l.ledgerTags,
-                              [
-                                for (final tag in snapshot.tags)
-                                  (tag.id, tagName(tag, ledgerLabels(l))),
-                              ],
-                              filter.tag,
-                              (id) => update(
-                                tag: id,
-                                clear: id == null ? 'tag' : null,
-                              ),
-                            ),
-                          ),
-                          PaperFilterChip(
-                            label: l.ledgerTypes,
-                            selected: filter.kind != null,
-                            onPressed: () => select(
-                              l.ledgerTypes,
-                              [
-                                for (final kind in [
-                                  'expense',
-                                  'income',
-                                  'transfer',
-                                  'reallocation',
-                                  'refund',
-                                  'allocation',
-                                ])
-                                  (kind, ledgerLabels(l)[kind] ?? ''),
-                              ],
-                              filter.kind,
-                              (id) => update(
-                                kind: id,
-                                clear: id == null ? 'kind' : null,
-                              ),
-                            ),
-                          ),
-                          PaperFilterChip(
-                            label: l.ledgerPeriod,
-                            selected:
-                                filter.from != null || filter.through != null,
-                            onPressed: () => LedgerSheet.show<void>(
-                              context: context,
-                              spaceId: snapshot.spaceId,
-                              builder: (sheetContext) =>
-                                  DateFilterForm(spaceId: snapshot.spaceId),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    PositionedDirectional(
-                      end: 0,
-                      top: 0,
-                      bottom: 0,
-                      child: IgnorePointer(
-                        child: Container(
-                          width: JiabuSpacing.xxl,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                context.jiabu.colors.bg.withValues(alpha: 0),
-                                context.jiabu.colors.bg,
-                              ],
-                            ),
+                child: PaperChipScroller(
+                  key: const Key('history-chip-row'),
+                  gutter: gutter,
+                  child: JiabuChipGroup(
+                    children: [
+                      PaperFilterChip(
+                        label: l.ledgerMembers,
+                        selected: filter.member != null,
+                        onPressed: () => select(
+                          l.ledgerMembers,
+                          [
+                            for (final member in snapshot.members)
+                              (member.id, memberName(member, l)),
+                          ],
+                          filter.member,
+                          (id) => update(
+                            member: id,
+                            clear: id == null ? 'member' : null,
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                      PaperFilterChip(
+                        label: l.ledgerAccounts,
+                        selected: filter.account != null,
+                        onPressed: () => select(
+                          l.ledgerAccounts,
+                          [
+                            for (final a in snapshot.accounts)
+                              (a.id, a.text('name')),
+                          ],
+                          filter.account,
+                          (id) => update(
+                            account: id,
+                            clear: id == null ? 'account' : null,
+                          ),
+                        ),
+                      ),
+                      PaperFilterChip(
+                        label: l.ledgerTags,
+                        selected: filter.tag != null,
+                        onPressed: () => select(
+                          l.ledgerTags,
+                          [
+                            for (final tag in snapshot.tags)
+                              (tag.id, tagName(tag, ledgerLabels(l))),
+                          ],
+                          filter.tag,
+                          (id) =>
+                              update(tag: id, clear: id == null ? 'tag' : null),
+                        ),
+                      ),
+                      PaperFilterChip(
+                        label: l.ledgerTypes,
+                        selected: filter.kind != null,
+                        onPressed: () => select(
+                          l.ledgerTypes,
+                          [
+                            for (final kind in [
+                              'expense',
+                              'income',
+                              'transfer',
+                              'reallocation',
+                              'refund',
+                              'allocation',
+                            ])
+                              (kind, ledgerLabels(l)[kind] ?? ''),
+                          ],
+                          filter.kind,
+                          (id) => update(
+                            kind: id,
+                            clear: id == null ? 'kind' : null,
+                          ),
+                        ),
+                      ),
+                      PaperFilterChip(
+                        label: l.ledgerPeriod,
+                        selected: filter.from != null || filter.through != null,
+                        onPressed: () => LedgerSheet.show<void>(
+                          context: context,
+                          spaceId: snapshot.spaceId,
+                          builder: (sheetContext) =>
+                              DateFilterForm(spaceId: snapshot.spaceId),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               if (filter.isFiltered)
                 JiabuStackItem.content(
-                  child: Wrap(
-                    children: [
-                      Text(l.ledgerResultCount(rows.length)),
-                      TextButton(
-                        onPressed: () => ref
-                            .read(
-                              ledgerViewModelProvider(snapshot.spaceId)
-                                  .notifier,
-                            )
-                            .filter(const HistoryFilter()),
-                        child: Text(l.ledgerClear),
-                      ),
-                    ],
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: gutter),
+                    child: Wrap(
+                      children: [
+                        Text(l.ledgerResultCount(rows.length)),
+                        TextButton(
+                          onPressed: () => ref
+                              .read(
+                                ledgerViewModelProvider(snapshot.spaceId)
+                                    .notifier,
+                              )
+                              .filter(const HistoryFilter()),
+                          child: Text(l.ledgerClear),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
             ],
@@ -680,87 +667,86 @@ class HistoryPage extends ConsumerWidget {
               if (rows.isEmpty)
                 SliverToBoxAdapter(
                   child: JiabuEmptyState(
+                    illustration: ExcludeSemantics(
+                      child: JiabuIcon(
+                        JiabuIcons.uiSearch,
+                        size: JiabuSpacing.xxl,
+                        color: context.jiabu.colors.ink3,
+                      ),
+                    ),
                     message: HandText(
                       l.handLedgerEmpty,
                       textAlign: TextAlign.center,
                     ),
                   ),
                 ),
-              for (final group in groups.entries)
+              for (final (index, group) in groups.entries.indexed)
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: context.jiabu.spacing.page,
-                      vertical: JiabuSpacing.cardGap,
+                    padding: EdgeInsets.fromLTRB(
+                      gutter,
+                      index == 0 ? JiabuSpacing.xs : JiabuSpacing.xl,
+                      gutter,
+                      0,
                     ),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: context.jiabu.colors.paper,
-                        border: Border.all(color: context.jiabu.colors.line),
-                      ),
-                      child: Stack(
-                        children: [
-                          Positioned(
-                            key: const Key('history-margin-line'),
-                            left: JiabuSpacing.md,
-                            top: 0,
-                            bottom: 0,
-                            child: ColoredBox(
-                              color: context.jiabu.colors.margin,
-                              child: const SizedBox(
-                                width:
-                                    1, // rules:allow-literal rule stroke width
-                              ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // The day: a date tape and, on the right, what the
+                        // day spent (original `.hs-day h3`).
+                        Wrap(
+                          key: const Key('history-day-header'),
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          runSpacing: JiabuSpacing.sm,
+                          children: [
+                            DateTapeLabel(
+                              text: ledgerDayLabel(group.key, now, l),
+                              pattern:
+                                  TapePattern.values[(DateTime.tryParse(
+                                            group.key,
+                                          )?.day ??
+                                          0) %
+                                      TapePattern.values.length],
                             ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.only(
-                              left: JiabuSpacing.xxl,
-                              top: JiabuSpacing.md,
-                            ),
-                            child: Column(
-                              key: const Key('history-row-content'),
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Wrap(
-                                  spacing: JiabuSpacing.cardGap,
-                                  children: [
-                                    DateTapeLabel(
-                                      text: ledgerDate(group.key, l),
-                                      pattern:
-                                          TapePattern.values[(DateTime.tryParse(
-                                                    group.key,
-                                                  )?.day ??
-                                                  0) %
-                                              TapePattern.values.length],
-                                    ),
-                                    ledgerAmount(
-                                      context,
-                                      dailyExpense(group.value),
-                                      snapshot.currency,
-                                      kind: l.ledgerExpense,
-                                    ),
-                                  ],
-                                ),
-                                for (final row in group.value)
-                                  DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      border: Border(
-                                        bottom: BorderSide(
-                                          color: context.jiabu.colors.rule,
-                                        ),
-                                      ),
-                                    ),
-                                    child: LedgerHistoryRow(
-                                      snapshot: snapshot,
-                                      row: row,
+                            // A day refunded more than it spent: no total.
+                            if (dailyExpense(group.value) > 0)
+                              Row(
+                                key: const Key('history-day-total'),
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  ExcludeSemantics(
+                                    child: Text(
+                                      l.ledgerExpense,
+                                      style: context.jiabu.type.secondary
+                                          .copyWith(
+                                            color: context.jiabu.colors.ink3,
+                                          ),
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                                  const SizedBox(width: JiabuSpacing.xs),
+                                  ledgerAmount(
+                                    context,
+                                    dailyExpense(group.value),
+                                    snapshot.currency,
+                                    role: AmountRole.inline,
+                                    kind: l.ledgerExpense,
+                                    tone: AmountTone.plain,
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: JiabuSpacing.md),
+                        PaperTimelineCard(
+                          key: const Key('history-day-card'),
+                          lineKey: const Key('history-margin-line'),
+                          children: [
+                            for (final row in group.value)
+                              LedgerHistoryRow(snapshot: snapshot, row: row),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -1135,14 +1121,28 @@ class _HistorySearchFieldState extends State<HistorySearchField> {
     super.dispose();
   }
 
+  /// The rounded search card with a magnifier (design-spec 4.12); the field
+  /// itself is borderless and shows the label as its placeholder.
   @override
-  Widget build(BuildContext context) => TextField(
-    controller: controller,
-    decoration: InputDecoration(labelText: widget.label),
-    onChanged: widget.onChanged,
+  Widget build(BuildContext context) => PaperSearchCard(
+    child: TextField(
+      controller: controller,
+      decoration: InputDecoration.collapsed(
+        hintText: widget.label,
+        hintStyle: context.jiabu.type.body.copyWith(
+          color: context.jiabu.colors.ink3,
+        ),
+      ),
+      style: context.jiabu.type.body,
+      onChanged: widget.onChanged,
+    ),
   );
 }
 
+/// One history row on the day's timeline card (design-spec 4.12, original
+/// `.li`): a round sticker sitting on the red timeline, the title over
+/// 「账户 · 类别」, and on the right the signed Caveat amount over the small
+/// entry time.
 class LedgerHistoryRow extends StatelessWidget {
   const LedgerHistoryRow({
     required this.snapshot,
@@ -1152,17 +1152,21 @@ class LedgerHistoryRow extends StatelessWidget {
   final LedgerSnapshot snapshot;
   final LedgerRow row;
 
-  /// The widest share of the row the amount may take.
+  /// The widest share of the row (right of the sticker) the amount may take.
   static const double amountShare = .7;
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    final c = context.jiabu.colors;
+    final type = context.jiabu.type;
     final failed = snapshot
         .operations('record', row.id)
         .any((op) => op.text('state') == 'failed');
     final display = recordDisplay(allowed: true, row: row, failed: failed);
     final keyName =
         creationEvent(snapshot, row.id)?.text('via_api_key_name') ?? '';
+    final accountLine = recordAccountLine(snapshot, row, l);
+    final time = recordEntryTime(row, l);
     return PaperRow(
       child: InkWell(
         onTap: () => row.syncState == 'conflict'
@@ -1173,61 +1177,88 @@ class LedgerHistoryRow extends StatelessWidget {
             minHeight: JiabuSpacing.listRowMinHeight,
           ),
           child: Padding(
-            padding: const EdgeInsets.all(JiabuSpacing.listRowInset),
+            padding: const EdgeInsetsDirectional.fromSTEB(
+              JiabuLedgerMetrics.timelineStart,
+              JiabuSpacing.md,
+              JiabuSpacing.listRowInset,
+              JiabuSpacing.md,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Sticker(category: recordStickerCategory(row), compact: true),
-                const SizedBox(width: JiabuSpacing.cardGap),
+                Sticker(
+                  key: const Key('history-row-sticker'),
+                  category: recordStickerCategory(row, snapshot: snapshot),
+                ),
+                const SizedBox(width: JiabuSpacing.md),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      LayoutBuilder(
-                        // The amount keeps its own width (a signed amount must
-                        // not wrap), capped so the title always keeps a share.
-                        builder: (context, box) => Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
+                  child: LayoutBuilder(
+                    // The amount keeps its own width (a signed amount must
+                    // not wrap), capped so the title always keeps a share.
+                    builder: (context, box) => Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            key: const Key('history-row-content'),
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
                                 recordTitle(snapshot, row, l),
-                                style: context.jiabu.type.listTitle,
+                                style: type.listTitle,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            const SizedBox(width: JiabuSpacing.messageGap),
-                            ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: box.maxWidth * amountShare,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  recordAmount(context, row, snapshot.currency),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Text(memberLabel(snapshot, row, l)),
-                      if (display != RecordDisplay.recorded)
-                        Text(displayLabel(l, display)),
-                      if (failed && display != RecordDisplay.failed)
-                        Text(l.ledgerFailed),
-                      if (keyName.isNotEmpty)
-                        Semantics(
-                          label: l.ledgerApiKey(keyName),
-                          child: const ExcludeSemantics(
-                            child: JiabuIcon(
-                              JiabuIcons.uiKey,
-                              size: JiabuLedgerMetrics.keyIcon,
-                            ),
+                              if (accountLine.isNotEmpty)
+                                Text(
+                                  accountLine,
+                                  key: const Key('history-row-account'),
+                                  style: type.caption.copyWith(color: c.ink2),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              if (display != RecordDisplay.recorded)
+                                Text(
+                                  displayLabel(l, display),
+                                  style: type.caption,
+                                ),
+                              if (failed && display != RecordDisplay.failed)
+                                Text(l.ledgerFailed, style: type.caption),
+                              if (keyName.isNotEmpty)
+                                Semantics(
+                                  label: l.ledgerApiKey(keyName),
+                                  child: const ExcludeSemantics(
+                                    child: JiabuIcon(
+                                      JiabuIcons.uiKey,
+                                      size: JiabuLedgerMetrics.keyIcon,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                    ],
+                        const SizedBox(width: JiabuSpacing.sm),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: box.maxWidth * amountShare,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              recordAmount(context, row, snapshot.currency),
+                              if (time.isNotEmpty) ...[
+                                const SizedBox(height: JiabuSpacing.xs),
+                                Text(
+                                  time,
+                                  key: const Key('history-row-time'),
+                                  style: type.date.copyWith(color: c.ink3),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],

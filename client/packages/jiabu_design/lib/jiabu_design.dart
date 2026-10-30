@@ -8,6 +8,7 @@ export 'src/components/empty_state.dart';
 export 'src/components/hand_circle.dart';
 export 'src/components/hand_text.dart';
 export 'src/components/hand_underline.dart';
+export 'src/components/history_decor.dart';
 export 'src/components/jiabu_icon.dart';
 export 'src/components/jiabu_logo.dart';
 export 'src/components/jiabu_mascot.dart';

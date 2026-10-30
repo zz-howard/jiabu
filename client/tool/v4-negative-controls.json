@@ -1,0 +1,149 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly. Commands run from client/app.",
+  "controls": [
+    {
+      "id": "chip_row_no_trailing_padding",
+      "file": "client/packages/jiabu_design/lib/src/components/history_decor.dart",
+      "find": "end: widget.gutter,",
+      "replace": "end: 0,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "chip row last_chip_fully_visible_at_scroll_end zh 360.0 1.0"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "chip_end_fade_always_on",
+      "file": "client/packages/jiabu_design/lib/src/components/history_decor.dart",
+      "find": "final after = metrics.extentAfter > .5;",
+      "replace": "const after = true;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "chip row last_chip_fully_visible_at_scroll_end en 430.0 2.0"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "selected_chip_dashed_again",
+      "file": "client/packages/jiabu_design/lib/src/components/ledger_controls.dart",
+      "find": "decoration: selected",
+      "replace": "decoration: false",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "chip row chips_have_dropdown_arrows_selected_is_solid"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "chip_loses_dropdown_arrow",
+      "file": "client/packages/jiabu_design/lib/src/components/ledger_controls.dart",
+      "find": "key: const Key('paper-filter-chip-arrow'),",
+      "replace": "key: const Key('paper-filter-chip-no-arrow'),",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "chip row chips_have_dropdown_arrows_selected_is_solid"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "search_square_again",
+      "file": "client/packages/jiabu_design/lib/src/components/history_decor.dart",
+      "find": "borderRadius: BorderRadius.circular(d.searchRadius),",
+      "replace": "borderRadius: BorderRadius.zero,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "search_is_a_rounded_card_with_a_magnifier"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "timeline_back_in_narrow_gutter",
+      "file": "client/packages/jiabu_design/lib/src/components/history_decor.dart",
+      "find": "JiabuLedgerMetrics.timelineStart + context.jiabu.decor.stickerSize / 2;",
+      "replace": "JiabuLedgerMetrics.timelineStart / 2;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "timeline stickers_sit_on_the_red_line_inside_a_paper_card"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "day_card_without_paper_shadow",
+      "file": "client/packages/jiabu_design/lib/src/components/history_decor.dart",
+      "find": "boxShadow: d.cardShadow,",
+      "replace": "",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "timeline stickers_sit_on_the_red_line_inside_a_paper_card"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "row_shows_member_again",
+      "file": "client/app/lib/shared/ledger/ledger_pages.dart",
+      "find": "final accountLine = recordAccountLine(snapshot, row, l);",
+      "replace": "final accountLine = memberLabel(snapshot, row, l);",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "timeline rows_show_account_category_time_and_signed_amount"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "row_loses_entry_time",
+      "file": "client/app/lib/shared/ledger/ledger_pages.dart",
+      "find": "final time = recordEntryTime(row, l);",
+      "replace": "const time = '';",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "timeline rows_show_account_category_time_and_signed_amount"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "expense_loses_minus",
+      "file": "client/app/lib/shared/ledger/ledger_labels.dart",
+      "find": "out ? -minor : minor,",
+      "replace": "minor,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "timeline rows_show_account_category_time_and_signed_amount"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "sticker_ignores_tag",
+      "file": "client/app/lib/shared/ledger/ledger_labels.dart",
+      "find": "if (kind == 'expense' && snapshot != null) {",
+      "replace": "if (kind == 'income' && snapshot != null) {",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "timeline expense_sticker_follows_its_tag"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    },
+    {
+      "id": "day_sorted_by_id_only",
+      "file": "client/app/lib/domain/history_filter.dart",
+      "find": "final entered = b.text('created_at').compareTo(a.text('created_at'));",
+      "replace": "const entered = 0;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v4_history_restore_test.dart",
+      "test_names": [
+        "timeline a_day_lists_its_latest_entry_first"
+      ],
+      "command": "flutter test test/features/v4_history_restore_test.dart"
+    }
+  ]
+}

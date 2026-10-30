@@ -31,6 +31,7 @@ const _minimumStackPairs = <String, int>{
   'history_24': 1,
   'history_search': 1,
   'history_filters': 2,
+  'history_diary': 1,
   // The empty account page contains one section marker and no block pair.
   'accounts_empty': 0,
   'accounts': 4,
@@ -80,6 +81,7 @@ const _minimumChipPairs = <String, int>{
   'history_24': 4,
   'history_search': 4,
   'history_filters': 4,
+  'history_diary': 4,
   'edit': 1,
   'manual_expense': 3,
   'manual_income': 3,
@@ -301,18 +303,21 @@ void main() {
     }
   }
 
-  testWidgets('history margin line stays four pixels left of all row content', (
+  testWidgets('history timeline runs through the stickers, left of the text', (
     tester,
   ) async {
     await pumpC3(tester, state: 'history_grouped');
     final lines = find.byKey(const Key('history-margin-line'));
     final contents = find.byKey(const Key('history-row-content'));
+    final stickers = find.byKey(const Key('history-row-sticker'));
     expect(lines, findsWidgets);
-    expect(contents, findsNWidgets(lines.evaluate().length));
-    for (var index = 0; index < lines.evaluate().length; index++) {
-      final line = tester.getRect(lines.at(index));
+    expect(contents, findsWidgets);
+    final line = tester.getRect(lines.first);
+    for (var index = 0; index < contents.evaluate().length; index++) {
       final content = tester.getRect(contents.at(index));
+      final sticker = tester.getRect(stickers.at(index));
       expect(line.center.dx, lessThan(content.left - 4));
+      expect(line.center.dx, closeTo(sticker.center.dx, 1));
     }
   });
 
