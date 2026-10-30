@@ -545,6 +545,25 @@ class C3Preview extends StatelessWidget {
         child: AllocationPlanForm(spaceId: s, accountId: 'purpose-a'),
       );
     }
+    if (state == 'settings') {
+      return SingleChildScrollView(
+        padding: EdgeInsets.all(context.jiabu.spacing.page),
+        child: JiabuStack(
+          children: [
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(title: l.ledgerSettings),
+            ),
+            JiabuStackItem.content(
+              child: JiabuSettingsGroup(
+                children: [
+                  JiabuListRow(title: l.ledgerAccounts, showChevron: true),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return SingleChildScrollView(
       child: PaperCard(
         child: Column(

@@ -32,7 +32,7 @@ class ApiKeyRow extends ConsumerWidget {
         leading: const ApiKeySticker(),
         title: row['name'] as String? ?? '',
         subtitle: scopeLabel,
-        subtitleMaxLines: 2,
+        subtitleMaxLines: null,
         status: prefix.isEmpty ? null : prefix,
         valueWidget: Column(
           mainAxisSize: MainAxisSize.min,

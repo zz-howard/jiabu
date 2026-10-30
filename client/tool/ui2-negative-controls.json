@@ -9,7 +9,7 @@
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
       "test_names": ["stack applies token gaps and grows at 200 percent"],
-      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"stack applies token gaps and grows at 200 percent\""
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {
       "id": "account_logout_returns_to_zero_gap",
@@ -19,7 +19,7 @@
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
       "test_names": ["account logout is separated as an action block"],
-      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"account logout is separated as an action block\""
+      "command": "flutter test test/features/c4_layout_test.dart"
     },
     {
       "id": "lock_disable_uses_status_label",
@@ -29,7 +29,7 @@
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
       "test_names": ["app lock status and action labels are distinct"],
-      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"app lock status and action labels are distinct\""
+      "command": "flutter test test/features/c4_layout_test.dart"
     },
     {
       "id": "page_back_icon_stays_fixed",
@@ -39,17 +39,17 @@
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
       "test_names": ["page back icon scales to 32 and aligns with title first line"],
-      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"page back icon scales to 32 and aligns with title first line\""
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {
       "id": "api_key_permission_truncates",
       "file": "client/app/lib/features/settings/api_keys/api_key_row.dart",
-      "find": "subtitleMaxLines: 2,",
+      "find": "subtitleMaxLines: null,",
       "replace": "subtitleMaxLines: 1,",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
       "test_names": ["api key permissions remain visible beside long prefixes"],
-      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"api key permissions remain visible beside long prefixes\""
+      "command": "flutter test test/features/c4_layout_test.dart"
     },
     {
       "id": "history_fade_uses_transparent_black",
@@ -59,7 +59,7 @@
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c3_layout_test.dart",
       "test_names": ["history filter fade keeps the paper color channels"],
-      "command": "flutter test test/features/c3_layout_test.dart --plain-name \"history filter fade keeps the paper color channels\""
+      "command": "flutter test test/features/c3_layout_test.dart"
     },
     {
       "id": "c4_form_submit_is_not_action",
@@ -69,7 +69,7 @@
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
       "test_names": ["C4Form submit is an action block with action gap"],
-      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"C4Form submit is an action block with action gap\""
+      "command": "flutter test test/features/c4_layout_test.dart"
     }
   ]
 }

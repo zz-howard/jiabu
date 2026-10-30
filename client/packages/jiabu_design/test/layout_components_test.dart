@@ -80,6 +80,7 @@ void main() {
     Widget sample() => JiabuStack(
       children: [
         const JiabuStackItem.content(child: Text('content')),
+        const JiabuStackItem.content(child: Text('second content')),
         const JiabuStackItem.caption(child: Text('caption')),
         const JiabuStackItem.section(
           child: JiabuSectionHeader(title: 'section'),
@@ -96,10 +97,11 @@ void main() {
     double gap(int before, int after) =>
         tester.getRect(markers.at(after)).top -
         tester.getRect(markers.at(before)).bottom;
-    expect(gap(0, 1), JiabuSpacing.captionGap);
-    expect(gap(1, 2), JiabuSpacing.sectionTop);
-    expect(gap(2, 3), JiabuSpacing.sectionBottom);
-    expect(gap(3, 4), JiabuSpacing.actionGap);
+    expect(gap(0, 1), JiabuSpacing.cardGap);
+    expect(gap(1, 2), JiabuSpacing.captionGap);
+    expect(gap(2, 3), JiabuSpacing.sectionTop);
+    expect(gap(3, 4), JiabuSpacing.sectionBottom);
+    expect(gap(4, 5), JiabuSpacing.actionGap);
     final caption = tester.getRect(find.text('action caption'));
     final button = tester.getRect(find.widgetWithText(FilledButton, 'action'));
     expect(button.top - caption.bottom, JiabuSpacing.captionGap);
