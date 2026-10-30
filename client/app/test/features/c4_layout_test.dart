@@ -138,9 +138,17 @@ void main() {
                 }
                 for (final element
                     in find.bySubtype<ButtonStyleButton>().evaluate()) {
-                  final size = tester.getSize(find.byWidget(element.widget));
-                  expect(size.height, greaterThanOrEqualTo(44));
-                  expect(size.width, greaterThanOrEqualTo(44));
+                  final box = tester.renderObject<RenderBox>(
+                    find.byWidget(element.widget),
+                  );
+                  expect(
+                    box.size.height,
+                    greaterThanOrEqualTo(JiabuSpacing.minTapTarget),
+                  );
+                  expect(
+                    box.size.width,
+                    greaterThanOrEqualTo(JiabuSpacing.minTapTarget),
+                  );
                 }
                 for (final element in find.byType(Tilt).evaluate()) {
                   expect([

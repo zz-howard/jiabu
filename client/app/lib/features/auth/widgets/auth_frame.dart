@@ -58,32 +58,49 @@ class AuthFrame extends StatelessWidget {
                       constraints: const BoxConstraints(maxWidth: 520),
                       child: SizedBox(
                         width: double.infinity,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                        child: JiabuStack(
                           children: [
-                            if (step case final int value) ...[
-                              AuthProgress(step: value),
-                              const SizedBox(height: JiabuSpacing.lg),
-                            ],
-                            Text(title, style: context.jiabu.type.pageTitle),
-                            const Align(
-                              alignment: Alignment.centerLeft,
-                              child: JiabuIcon(JiabuIcons.squig, size: 112),
+                            if (step case final int value)
+                              JiabuStackItem.content(
+                                child: AuthProgress(step: value),
+                              ),
+                            JiabuStackItem.content(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    title,
+                                    style: context.jiabu.type.pageTitle,
+                                  ),
+                                  const JiabuIcon(
+                                    JiabuIcons.squig,
+                                    size: 112,
+                                  ),
+                                ],
+                              ),
                             ),
-                            if (subtitle != null) ...[
-                              const SizedBox(height: JiabuSpacing.xs),
-                              subtitle!,
-                            ],
-                            if (busy) ...[
-                              const SizedBox(height: JiabuSpacing.md),
-                              const LinearProgressIndicator(),
-                            ],
-                            const SizedBox(height: JiabuSpacing.xl),
-                            if (card) PaperCard(child: content) else content,
-                            if (footer != null) ...[
-                              const SizedBox(height: JiabuSpacing.xl),
-                              footer!,
-                            ],
+                            if (subtitle != null)
+                              JiabuStackItem.captionAfter(child: subtitle!),
+                            if (busy)
+                              const JiabuStackItem.content(
+                                child: LinearProgressIndicator(),
+                              ),
+                            JiabuStackItem.content(
+                              child: card
+                                  ? PaperCard(child: content)
+                                  : SizedBox(
+                                      width: double.infinity,
+                                      child: content,
+                                    ),
+                            ),
+                            if (footer != null)
+                              JiabuStackItem.content(
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: footer!,
+                                ),
+                              ),
                           ],
                         ),
                       ),

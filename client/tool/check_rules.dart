@@ -276,6 +276,7 @@ void _checkSource(
   if (isUi) {
     _checkSpacingLiterals(source, original, report);
     _checkSectionHeaders(source, report);
+    _checkLazyLayoutComponents(source, report);
     for (final match in RegExp(
       r'\bPaperSheet(?:\s*\.\s*show)?\b',
     ).allMatches(source)) {
@@ -349,6 +350,37 @@ void _checkSource(
       if (isView && RegExp('(?:^|/)lib/data/').hasMatch(target)) {
         report(6, offset, 'Views cannot import the data layer.');
       }
+    }
+  }
+}
+
+void _checkLazyLayoutComponents(
+  String source,
+  void Function(int rule, int offset, String message) report,
+) {
+  final reportedComponents = <int>{};
+  final lazyConstructors = RegExp(
+    r'\b(?:ListView\s*\.\s*builder|SliverList|SliverChildBuilderDelegate)\s*\(',
+  );
+  for (final lazy in lazyConstructors.allMatches(source)) {
+    final close = _matchingParen(source, lazy.end - 1);
+    if (close == null) {
+      continue;
+    }
+    final body = source.substring(lazy.end, close);
+    final component = RegExp(
+      r'\bJiabu(?:Stack|ChipGroup)\s*\(',
+    ).firstMatch(body);
+    final componentOffset = component == null
+        ? null
+        : lazy.end + component.start;
+    if (componentOffset != null && reportedComponents.add(componentOffset)) {
+      report(
+        12,
+        componentOffset,
+        'JiabuStack and JiabuChipGroup cannot be lazy delegate items; '
+        'use non-lazy content or test every scrolled segment.',
+      );
     }
   }
 }

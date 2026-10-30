@@ -291,6 +291,23 @@ final good = JiabuStackItem.section(
     expect(violationsFor(11), isEmpty);
   });
 
+  test('lazy delegates cannot directly build marked layout components', () {
+    const path = 'app/lib/features/home/home_screen.dart';
+    for (final source in [
+      'ListView.builder(itemBuilder: (_, i) => JiabuStack(children: []));',
+      'SliverList(delegate: SliverChildBuilderDelegate((_, i) => '
+          'JiabuChipGroup(children: [])));',
+    ]) {
+      write(path, '$source\n');
+      expect(violationsFor(12), hasLength(1));
+    }
+    write(
+      path,
+      'ListView.builder(itemBuilder: (_, i) => const Text("safe"));\n',
+    );
+    expect(violationsFor(12), isEmpty);
+  });
+
   group('design package color literals outside tokens/colors.dart', () {
     const path = 'packages/jiabu_design/lib/src/components/example.dart';
     for (final source in [

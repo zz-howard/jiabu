@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu/domain/sync_state.dart';
 import 'package:jiabu/features/auth/view/change_password_screen.dart';
@@ -13,6 +14,7 @@ import 'package:jiabu/features/auth/widgets/switch_partition_prompt.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
+import '../support/auth_test_cases.dart';
 import '../support/image_harness.dart';
 import '../support/vertical_spacing.dart';
 
@@ -50,6 +52,28 @@ Future<void> pumpAuth(
 }
 
 void main() {
+  test('auth geometry table covers every C4b golden state', () {
+    expect(
+      allAuthTestCases.map((sample) => sample.state).toSet(),
+      {
+        'welcome',
+        'server_collapsed',
+        'server_expanded',
+        'server_unreachable',
+        'login_connected',
+        'login_invalid',
+        'login_busy',
+        'invite_placeholder',
+        'password_forced',
+        'password_invalid',
+        'session_idle',
+        'session_admin_reset',
+        'session_space_cleared',
+        'switch_pending',
+      },
+    );
+  });
+
   testWidgets('space accent never changes the auth primary color', (
     tester,
   ) async {
@@ -497,86 +521,48 @@ void main() {
       for (final locale in ['zh', 'en']) {
         testWidgets('auth_layout_${width}_${scale}_$locale', (tester) async {
           final semantics = tester.ensureSemantics();
-          final cases = <({String name, Widget widget, int minimumPairs})>[
-            (
-              name: 'welcome',
-              widget: WelcomeScreen(
-                busy: false,
-                onStart: () {},
-                onLogin: () {},
-              ),
-              minimumPairs: 4,
-            ),
-            (
-              name: 'server-collapsed',
-              widget: ServerAddressScreen(
-                state: const AuthUiState(
-                  errorCode: 'invalid_server_address',
-                  defaultServer: 'https://example.invalid/',
-                ),
-                onSelect: (_) {},
-              ),
-              minimumPairs: 2,
-            ),
-            (
-              name: 'server-expanded',
-              widget: ServerAddressScreen(
-                state: const AuthUiState(),
-                onSelect: (_) {},
-              ),
-              minimumPairs: 1,
-            ),
-            (
-              name: 'change-password',
-              widget: ChangePasswordScreen(
-                state: const AuthUiState(
-                  forcedPassword: true,
-                  errorCode: 'invalid_new_password',
-                ),
-                onSave: (a, b, c) {},
-                onBack: () {},
-              ),
-              minimumPairs: 6,
-            ),
-            (
-              name: 'session-status',
-              widget: SessionStatusScreen(
-                state: const AuthUiState(),
-                onPassword: () {},
-                onSwitch: () {},
-                onLogout: () {},
-              ),
-              minimumPairs: 2,
-            ),
-          ];
-          for (final sample in cases) {
+          for (final sample in allAuthTestCases) {
             await pumpAuth(
               tester,
-              sample.widget,
+              sample.builder(),
               width: width,
               scale: scale,
               locale: locale,
             );
+            if (sample.tapKey case final String key) {
+              final target = find.byKey(Key(key));
+              await tester.ensureVisible(target);
+              await tester.tap(target);
+              await tester.pumpAndSettle();
+            }
             expect(tester.takeException(), isNull);
             expect(
               expectJiabuVerticalRhythm(
                 tester,
-                reason: '${sample.name} $locale $width $scale',
+                reason: '${sample.state} $locale $width $scale',
               ),
               greaterThanOrEqualTo(sample.minimumPairs),
             );
             expect(
               expectJiabuChipSpacing(
                 tester,
-                reason: '${sample.name} $locale $width $scale',
+                reason: '${sample.state} $locale $width $scale',
               ),
               0,
             );
             for (final element
                 in find.bySubtype<ButtonStyleButton>().evaluate()) {
-              final size = tester.getSize(find.byWidget(element.widget));
-              expect(size.width, greaterThanOrEqualTo(44));
-              expect(size.height, greaterThanOrEqualTo(44));
+              final box = tester.renderObject<RenderBox>(
+                find.byWidget(element.widget),
+              );
+              expect(
+                box.size.width,
+                greaterThanOrEqualTo(JiabuSpacing.minTapTarget),
+              );
+              expect(
+                box.size.height,
+                greaterThanOrEqualTo(JiabuSpacing.minTapTarget),
+              );
             }
             // The label lives on the EditableText node that screen readers
             // focus; the TextField's own render object may resolve to an
@@ -596,67 +582,6 @@ void main() {
             await tester.pump();
             expect(tester.takeException(), isNull);
           }
-          await pumpAuth(
-            tester,
-            Scaffold(
-              body: SwitchPartitionPrompt(
-                count: 3,
-                onContinue: () {},
-                onCancel: () {},
-              ),
-            ),
-            width: width,
-            scale: scale,
-            locale: locale,
-          );
-          expect(
-            expectJiabuVerticalRhythm(
-              tester,
-              reason: 'switch-confirm $locale $width $scale',
-            ),
-            greaterThanOrEqualTo(2),
-          );
-          expect(
-            expectJiabuChipSpacing(
-              tester,
-              reason: 'switch-confirm $locale $width $scale',
-            ),
-            0,
-          );
-          await pumpAuth(
-            tester,
-            LoginScreen(
-              state: const AuthUiState(server: 'https://example.invalid/'),
-              onLogin: (_, _) {},
-              onServer: () {},
-            ),
-            width: width,
-            scale: scale,
-            locale: locale,
-          );
-          final invite = find.byKey(const Key('invite-signup'));
-          await tester.ensureVisible(invite);
-          await tester.tap(invite);
-          await tester.pumpAndSettle();
-          expect(
-            find.byKey(const Key('invite-signup-placeholder')),
-            findsOneWidget,
-          );
-          expect(
-            expectJiabuVerticalRhythm(
-              tester,
-              reason: 'invite-placeholder $locale $width $scale',
-            ),
-            greaterThanOrEqualTo(4),
-          );
-          expect(
-            expectJiabuChipSpacing(
-              tester,
-              reason: 'invite-placeholder $locale $width $scale',
-            ),
-            0,
-          );
-          expect(tester.takeException(), isNull);
           semantics.dispose();
         });
       }
