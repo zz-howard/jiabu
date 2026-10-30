@@ -104,24 +104,25 @@ class JiabuPageHeader extends StatelessWidget {
                   ),
                 ),
                 if (action case final action?)
-                  largeTitle
-                      ? Align(
-                          alignment: Alignment.topCenter,
-                          child: ConstrainedBox(
-                            key: const Key('jiabu-page-action'),
-                            constraints: BoxConstraints(
-                              maxWidth: constraints.maxWidth / 2,
-                            ),
-                            child: action,
-                          ),
-                        )
-                      : ConstrainedBox(
-                          key: const Key('jiabu-page-action'),
-                          constraints: BoxConstraints(
-                            maxWidth: constraints.maxWidth / 2,
-                          ),
-                          child: action,
+                  if (largeTitle)
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        key: const Key('jiabu-page-action'),
+                        constraints: BoxConstraints(
+                          maxWidth: constraints.maxWidth / 2,
                         ),
+                        child: action,
+                      ),
+                    )
+                  else
+                    ConstrainedBox(
+                      key: const Key('jiabu-page-action'),
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth / 2,
+                      ),
+                      child: action,
+                    ),
               ],
             ),
           ),
