@@ -30,7 +30,7 @@ class AuthFrame extends StatelessWidget {
       children: [
         ...children,
         if (errorCode != null)
-          JiabuStackItem.caption(
+          JiabuStackItem.captionAfter(
             child: Semantics(
               liveRegion: true,
               child: Text(

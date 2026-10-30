@@ -7,7 +7,80 @@ import 'package:jiabu_design/jiabu_design.dart';
 import '../support/c4_harness.dart';
 import '../support/vertical_spacing.dart';
 
+const _minimumStackPairs = <String, int>{
+  'switcher': 3,
+  'switcher_offline': 4,
+  'space_new': 5,
+  'space_edit': 2,
+  'space_validation': 6,
+  'space_personal': 1,
+  'space_owner': 1,
+  'space_member': 1,
+  'space_offline': 2,
+  'members': 1,
+  'members_left': 1,
+  'invite': 2,
+  'sent_invitations': 0,
+  'received': 0,
+  'received_empty': 0,
+  'received_offline': 0,
+  'invitation_expired': 0,
+  'leave': 2,
+  'leave_pending': 3,
+  'leave_last_owner': 3,
+  'remove': 3,
+  'transfer': 3,
+  'delete_unmatched': 3,
+  'delete_matched': 3,
+  'settings': 0,
+  'account': 2,
+  'password': 2,
+  'password_error': 3,
+  'language': 0,
+  'about': 1,
+  'lock_disabled': 7,
+  'lock_enabled': 2,
+  'lock_pattern_setup': 10,
+  'lock_pin_mismatch': 8,
+  'unlock_biometric': 3,
+  'unlock_pin': 3,
+  'unlock_pattern': 3,
+  'unlock_error': 4,
+  'unlock_wait': 4,
+  'unlock_recovery': 3,
+  'keys_empty': 3,
+  'keys_list': 3,
+  'keys_offline': 1,
+  'keys_failure': 4,
+  'key_create': 8,
+  'key_never': 9,
+  'key_once': 2,
+  'key_copied': 2,
+  'key_replay': 9,
+  'key_details': 7,
+  'key_revoke': 1,
+  'key_saved_confirm': 1,
+  'logout_confirm': 1,
+  'keys_inactive': 3,
+};
+
+const _minimumChipPairs = <String, int>{
+  'space_new': 12,
+  'space_edit': 7,
+  'space_validation': 12,
+  'lock_disabled': 5,
+  'lock_pattern_setup': 5,
+  'lock_pin_mismatch': 5,
+  'key_create': 4,
+  'key_never': 4,
+  'key_replay': 4,
+};
+
 void main() {
+  test('stack pair table covers every C4 state', () {
+    expect(_minimumStackPairs.keys.toSet(), c4States.toSet());
+  });
+
   for (final state in c4States) {
     for (final locale in ['zh', 'en']) {
       for (final accent in ['pine', 'indigo']) {
@@ -27,13 +100,23 @@ void main() {
                   scale: scale,
                 );
                 expect(tester.takeException(), isNull);
-                expectJiabuVerticalRhythm(
+                final stackPairs = expectJiabuVerticalRhythm(
                   tester,
                   reason: '$state $locale $accent $width $scale',
                 );
-                expectJiabuChipSpacing(
+                expect(
+                  stackPairs,
+                  greaterThanOrEqualTo(_minimumStackPairs[state]!),
+                  reason: '$state minimum stack pair table',
+                );
+                final chipPairs = expectJiabuChipSpacing(
                   tester,
                   reason: '$state $locale $accent $width $scale',
+                );
+                expect(
+                  chipPairs,
+                  greaterThanOrEqualTo(_minimumChipPairs[state] ?? 0),
+                  reason: '$state minimum chip pair table',
                 );
                 for (final element
                     in find.byType(SpaceAccentPicker).evaluate()) {
@@ -297,13 +380,25 @@ void main() {
       tester.widget<JiabuStackMarker>(marker).kind,
       JiabuStackItemKind.action,
     );
-    expectJiabuVerticalRhythm(tester, reason: 'password C4Form');
+    expect(
+      expectJiabuVerticalRhythm(tester, reason: 'password C4Form'),
+      greaterThanOrEqualTo(_minimumStackPairs['password']!),
+    );
   });
 
   testWidgets('account logout is separated as an action block', (tester) async {
     await pumpC4Preview(tester, state: 'account');
     final group = tester.getRect(find.byType(JiabuSettingsGroup));
-    final button = tester.getRect(find.widgetWithText(OutlinedButton, '退出登录'));
+    final buttonFinder = find.widgetWithText(OutlinedButton, '退出登录');
+    final button = tester.getRect(buttonFinder);
+    final marker = find.ancestor(
+      of: buttonFinder,
+      matching: find.byType(JiabuStackMarker),
+    );
+    expect(
+      tester.widget<JiabuStackMarker>(marker).kind,
+      JiabuStackItemKind.action,
+    );
     expect(
       button.top - group.bottom,
       greaterThanOrEqualTo(JiabuSpacing.actionGap),

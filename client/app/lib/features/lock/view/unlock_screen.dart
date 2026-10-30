@@ -78,9 +78,9 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
               const JiabuStackItem.content(child: JiabuLogo()),
               JiabuStackItem.content(child: HandText(l.handC4Locked)),
               if (lock.waiting)
-                JiabuStackItem.caption(child: Text(l.c4LockWait)),
+                JiabuStackItem.captionBefore(child: Text(l.c4LockWait)),
               if (state.error case final String error)
-                JiabuStackItem.caption(child: Text(c4Error(l, error))),
+                JiabuStackItem.captionBefore(child: Text(c4Error(l, error))),
               if (state.values['recovery'] != true) ...[
                 if (usePin)
                   JiabuStackItem.content(

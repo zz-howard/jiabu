@@ -131,7 +131,7 @@ List<CatalogCase> catalogCases() => [
     (context) => JiabuStack(
       children: [
         JiabuStackItem.content(child: Text(_l(context).catalogSampleBody)),
-        JiabuStackItem.caption(child: Text(_l(context).catalogLongBody)),
+        JiabuStackItem.captionAfter(child: Text(_l(context).catalogLongBody)),
         JiabuStackItem.section(
           child: JiabuSectionHeader(title: _l(context).catalogSampleTitle),
         ),

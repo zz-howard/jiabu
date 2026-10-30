@@ -28,6 +28,8 @@
 - API key 权限允许完整换行，覆盖英文 360 宽 200% 字号。
 - 历史筛选渐隐由透明 bg 过渡到 bg，避免透明黑插值发灰。
 - 非聊天的 chip 组选用 `JiabuChipGroup` 提供 8/8 间距；选中态统一为 primary-soft、on-primary-soft、✓ 和白圈。聊天追问胶囊保持 4.10 的独立视觉与实现。
+- `JiabuStack` caption 明确区分描述前一块/后一块；同层直接嵌套 Stack 在 debug 下断言失败。几何矩阵校验 marker 完整数及各状态最低检查对数。
+- 本批不实现 RTL：客户端当前仅支持中文和英文，均使用 LTR 布局。
 
 ## Golden 清单
 

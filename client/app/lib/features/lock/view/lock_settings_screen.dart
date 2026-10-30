@@ -69,7 +69,7 @@ class LockSettingsScreen extends ConsumerWidget {
             JiabuStackItem.content(
               child: Text(enabled ? l.c4Enabled : l.c4Disabled),
             ),
-            JiabuStackItem.caption(child: Text(l.c4LockPrivacy)),
+            JiabuStackItem.captionAfter(child: Text(l.c4LockPrivacy)),
             if (enabled)
               JiabuStackItem.action(
                 child: OutlinedButton(

@@ -7,16 +7,25 @@ enum JiabuStackItemKind { content, section, caption, action }
 class JiabuStackItem {
   const JiabuStackItem.content({required this.child})
     : kind = JiabuStackItemKind.content,
+      captionTarget = null,
       actionCaption = null,
       captionAfter = false;
 
   const JiabuStackItem.section({required this.child})
     : kind = JiabuStackItemKind.section,
+      captionTarget = null,
       actionCaption = null,
       captionAfter = false;
 
-  const JiabuStackItem.caption({required this.child})
+  const JiabuStackItem.captionAfter({required this.child})
     : kind = JiabuStackItemKind.caption,
+      captionTarget = JiabuCaptionTarget.previous,
+      actionCaption = null,
+      captionAfter = false;
+
+  const JiabuStackItem.captionBefore({required this.child})
+    : kind = JiabuStackItemKind.caption,
+      captionTarget = JiabuCaptionTarget.next,
       actionCaption = null,
       captionAfter = false;
 
@@ -24,10 +33,12 @@ class JiabuStackItem {
     required this.child,
     this.actionCaption,
     this.captionAfter = false,
-  }) : kind = JiabuStackItemKind.action;
+  }) : kind = JiabuStackItemKind.action,
+       captionTarget = null;
 
   final Widget child;
   final JiabuStackItemKind kind;
+  final JiabuCaptionTarget? captionTarget;
   final Widget? actionCaption;
   final bool captionAfter;
 }
@@ -44,6 +55,11 @@ class JiabuStack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    assert(
+      children.every((item) => item.child is! JiabuStack),
+      'A JiabuStackItem child cannot be a JiabuStack at the same visual '
+      'level. Flatten the items or wrap the inner stack in a card/group.',
+    );
     final widgets = <Widget>[];
     for (var index = 0; index < children.length; index++) {
       final item = children[index];
@@ -69,6 +85,7 @@ class JiabuStack extends StatelessWidget {
         JiabuStackMarker(
           key: ValueKey('jiabu-stack-item-$index'),
           kind: item.kind,
+          captionTarget: item.captionTarget,
           index: index,
           child: child,
         ),
@@ -84,6 +101,14 @@ class JiabuStack extends StatelessWidget {
   }
 
   static double _gap(JiabuStackItem current, JiabuStackItem next) {
+    if (next.kind == JiabuStackItemKind.caption &&
+        next.captionTarget == JiabuCaptionTarget.previous) {
+      return JiabuSpacing.captionGap;
+    }
+    if (current.kind == JiabuStackItemKind.caption &&
+        current.captionTarget == JiabuCaptionTarget.next) {
+      return JiabuSpacing.captionGap;
+    }
     if (next.kind == JiabuStackItemKind.section) {
       return JiabuSpacing.sectionTop;
     }
@@ -93,22 +118,23 @@ class JiabuStack extends StatelessWidget {
     if (current.kind == JiabuStackItemKind.section) {
       return JiabuSpacing.sectionBottom;
     }
-    if (next.kind == JiabuStackItemKind.caption) {
-      return JiabuSpacing.captionGap;
-    }
     return JiabuSpacing.cardGap;
   }
 }
 
+enum JiabuCaptionTarget { previous, next }
+
 class JiabuStackMarker extends StatelessWidget {
   const JiabuStackMarker({
     required this.kind,
+    required this.captionTarget,
     required this.index,
     required this.child,
     super.key,
   });
 
   final JiabuStackItemKind kind;
+  final JiabuCaptionTarget? captionTarget;
   final int index;
   final Widget child;
 

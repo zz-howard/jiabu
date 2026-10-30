@@ -82,13 +82,19 @@ void main() {
             scale: scale,
           );
           expect(tester.takeException(), isNull);
-          expectJiabuVerticalRhythm(
-            tester,
-            reason: 'auth login $locale $width $scale',
+          expect(
+            expectJiabuVerticalRhythm(
+              tester,
+              reason: 'auth login $locale $width $scale',
+            ),
+            greaterThanOrEqualTo(2),
           );
-          expectJiabuChipSpacing(
-            tester,
-            reason: 'auth login $locale $width $scale',
+          expect(
+            expectJiabuChipSpacing(
+              tester,
+              reason: 'auth login $locale $width $scale',
+            ),
+            0,
           );
           final pageInset = width <= 380 ? 14.0 : 18.0;
           expect(
@@ -491,49 +497,81 @@ void main() {
       for (final locale in ['zh', 'en']) {
         testWidgets('auth_layout_${width}_${scale}_$locale', (tester) async {
           final semantics = tester.ensureSemantics();
-          final widgets = <Widget>[
-            WelcomeScreen(busy: false, onStart: () {}, onLogin: () {}),
-            ServerAddressScreen(
-              state: const AuthUiState(
-                errorCode: 'invalid_server_address',
-                defaultServer: 'https://example.invalid/',
+          final cases = <({String name, Widget widget, int minimumPairs})>[
+            (
+              name: 'welcome',
+              widget: WelcomeScreen(
+                busy: false,
+                onStart: () {},
+                onLogin: () {},
               ),
-              onSelect: (_) {},
+              minimumPairs: 4,
             ),
-            ServerAddressScreen(state: const AuthUiState(), onSelect: (_) {}),
-            LoginScreen(
-              state: const AuthUiState(
-                server: 'https://example.invalid/',
-                errorCode: 'rate_limited',
-                serverProbeSucceeded: true,
+            (
+              name: 'server-collapsed',
+              widget: ServerAddressScreen(
+                state: const AuthUiState(
+                  errorCode: 'invalid_server_address',
+                  defaultServer: 'https://example.invalid/',
+                ),
+                onSelect: (_) {},
               ),
-              onLogin: (a, b) {},
-              onServer: () {},
+              minimumPairs: 2,
             ),
-            ChangePasswordScreen(
-              state: const AuthUiState(
-                forcedPassword: true,
-                errorCode: 'invalid_new_password',
+            (
+              name: 'server-expanded',
+              widget: ServerAddressScreen(
+                state: const AuthUiState(),
+                onSelect: (_) {},
               ),
-              onSave: (a, b, c) {},
-              onBack: () {},
+              minimumPairs: 1,
             ),
-            SessionStatusScreen(
-              state: const AuthUiState(),
-              onPassword: () {},
-              onSwitch: () {},
-              onLogout: () {},
+            (
+              name: 'change-password',
+              widget: ChangePasswordScreen(
+                state: const AuthUiState(
+                  forcedPassword: true,
+                  errorCode: 'invalid_new_password',
+                ),
+                onSave: (a, b, c) {},
+                onBack: () {},
+              ),
+              minimumPairs: 6,
+            ),
+            (
+              name: 'session-status',
+              widget: SessionStatusScreen(
+                state: const AuthUiState(),
+                onPassword: () {},
+                onSwitch: () {},
+                onLogout: () {},
+              ),
+              minimumPairs: 2,
             ),
           ];
-          for (final widget in widgets) {
+          for (final sample in cases) {
             await pumpAuth(
               tester,
-              widget,
+              sample.widget,
               width: width,
               scale: scale,
               locale: locale,
             );
             expect(tester.takeException(), isNull);
+            expect(
+              expectJiabuVerticalRhythm(
+                tester,
+                reason: '${sample.name} $locale $width $scale',
+              ),
+              greaterThanOrEqualTo(sample.minimumPairs),
+            );
+            expect(
+              expectJiabuChipSpacing(
+                tester,
+                reason: '${sample.name} $locale $width $scale',
+              ),
+              0,
+            );
             for (final element
                 in find.bySubtype<ButtonStyleButton>().evaluate()) {
               final size = tester.getSize(find.byWidget(element.widget));
@@ -560,6 +598,33 @@ void main() {
           }
           await pumpAuth(
             tester,
+            Scaffold(
+              body: SwitchPartitionPrompt(
+                count: 3,
+                onContinue: () {},
+                onCancel: () {},
+              ),
+            ),
+            width: width,
+            scale: scale,
+            locale: locale,
+          );
+          expect(
+            expectJiabuVerticalRhythm(
+              tester,
+              reason: 'switch-confirm $locale $width $scale',
+            ),
+            greaterThanOrEqualTo(2),
+          );
+          expect(
+            expectJiabuChipSpacing(
+              tester,
+              reason: 'switch-confirm $locale $width $scale',
+            ),
+            0,
+          );
+          await pumpAuth(
+            tester,
             LoginScreen(
               state: const AuthUiState(server: 'https://example.invalid/'),
               onLogin: (_, _) {},
@@ -576,6 +641,20 @@ void main() {
           expect(
             find.byKey(const Key('invite-signup-placeholder')),
             findsOneWidget,
+          );
+          expect(
+            expectJiabuVerticalRhythm(
+              tester,
+              reason: 'invite-placeholder $locale $width $scale',
+            ),
+            greaterThanOrEqualTo(4),
+          );
+          expect(
+            expectJiabuChipSpacing(
+              tester,
+              reason: 'invite-placeholder $locale $width $scale',
+            ),
+            0,
           );
           expect(tester.takeException(), isNull);
           semantics.dispose();

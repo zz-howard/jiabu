@@ -27,9 +27,9 @@
     },
     {
       "id": "account_logout_returns_to_zero_gap",
-      "file": "client/packages/jiabu_design/lib/src/components/stack.dart",
-      "find": "return JiabuSpacing.actionGap;",
-      "replace": "return 0;",
+      "file": "client/app/lib/features/settings/view/settings_screen.dart",
+      "find": "              JiabuStackItem.action(\n                child: OutlinedButton(\n                  onPressed: () async {",
+      "replace": "              JiabuStackItem.content(\n                child: OutlinedButton(\n                  onPressed: () async {",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
       "test_names": [

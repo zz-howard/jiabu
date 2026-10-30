@@ -39,7 +39,7 @@ class SessionStatusScreen extends StatelessWidget {
         if (state.syncStatus == SyncStatus.serverTooOld)
           JiabuStackItem.content(child: Text(l10n.authServerTooOld)),
         if (state.syncStatus == SyncStatus.offline)
-          JiabuStackItem.caption(child: Text(l10n.authOffline)),
+          JiabuStackItem.captionBefore(child: Text(l10n.authOffline)),
         if (state.spaceCleared)
           JiabuStackItem.content(
             child: Text(l10n.authSpaceCleared(state.clearedCount)),

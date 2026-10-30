@@ -41,9 +41,9 @@ class C4Form extends ConsumerWidget {
           ),
         ...children,
         if (requiresOnline && !state.online)
-          JiabuStackItem.caption(child: Text(l.c4Offline)),
+          JiabuStackItem.captionBefore(child: Text(l.c4Offline)),
         if (state.error case final String code)
-          JiabuStackItem.caption(
+          JiabuStackItem.captionBefore(
             child: Semantics(liveRegion: true, child: Text(c4Error(l, code))),
           ),
         if (onSubmit != null)

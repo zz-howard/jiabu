@@ -110,8 +110,11 @@ class SpaceActionForm extends ConsumerWidget {
         if (action == 'leave') ...[
           JiabuStackItem.content(child: Text(l.c4LeaveWarning)),
           if (pending > 0)
-            JiabuStackItem.caption(child: Text(l.c4PendingWarning(pending))),
-          if (blocked) JiabuStackItem.caption(child: Text(l.c4LastOwner)),
+            JiabuStackItem.captionAfter(
+              child: Text(l.c4PendingWarning(pending)),
+            ),
+          if (blocked)
+            JiabuStackItem.captionAfter(child: Text(l.c4LastOwner)),
         ],
         if (action == 'remove')
           JiabuStackItem.content(child: Text(l.c4RemoveWarning)),

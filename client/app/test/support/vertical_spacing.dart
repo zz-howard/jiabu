@@ -27,6 +27,7 @@ int expectJiabuVerticalRhythm(
   }
   var checkedPairs = 0;
   for (final stack in stackElements) {
+    final stackWidget = stack.widget as JiabuStack;
     final markers =
         find
             .descendant(
@@ -43,12 +44,19 @@ int expectJiabuVerticalRhythm(
             final b = (right.widget as JiabuStackMarker).index;
             return a.compareTo(b);
           });
+    expect(
+      markers.length,
+      stackWidget.children.length,
+      reason:
+          '$reason built ${markers.length}/${stackWidget.children.length} '
+          'stack items; scroll the test or replace lazy page-level content',
+    );
     for (var index = 1; index < markers.length; index++) {
       final previous = markers[index - 1].widget as JiabuStackMarker;
       final current = markers[index].widget as JiabuStackMarker;
       final previousRect = tester.getRect(find.byWidget(previous));
       final currentRect = tester.getRect(find.byWidget(current));
-      final expected = _expectedGap(previous.kind, current.kind);
+      final expected = _expectedGap(previous, current);
       _expectMinimumGap(
         currentRect.top - previousRect.bottom,
         expected,
@@ -127,18 +135,26 @@ Element? _nearestChipGroup(Element element) {
   return result;
 }
 
-double _expectedGap(JiabuStackItemKind previous, JiabuStackItemKind current) {
-  if (current == JiabuStackItemKind.section) {
+double _expectedGap(
+  JiabuStackMarker previous,
+  JiabuStackMarker current,
+) {
+  if (current.kind == JiabuStackItemKind.caption &&
+      current.captionTarget == JiabuCaptionTarget.previous) {
+    return JiabuSpacing.captionGap;
+  }
+  if (previous.kind == JiabuStackItemKind.caption &&
+      previous.captionTarget == JiabuCaptionTarget.next) {
+    return JiabuSpacing.captionGap;
+  }
+  if (current.kind == JiabuStackItemKind.section) {
     return JiabuSpacing.sectionTop;
   }
-  if (current == JiabuStackItemKind.action) {
+  if (current.kind == JiabuStackItemKind.action) {
     return JiabuSpacing.actionGap;
   }
-  if (previous == JiabuStackItemKind.section) {
+  if (previous.kind == JiabuStackItemKind.section) {
     return JiabuSpacing.sectionBottom;
-  }
-  if (current == JiabuStackItemKind.caption) {
-    return JiabuSpacing.captionGap;
   }
   return JiabuSpacing.cardGap;
 }

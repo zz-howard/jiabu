@@ -125,7 +125,9 @@ class OverviewPage extends ConsumerWidget {
               ),
             ),
             if (result is Failure<Map<String, int>>)
-              JiabuStackItem.caption(child: Text(ledgerError(l, result.code))),
+              JiabuStackItem.captionAfter(
+                child: Text(ledgerError(l, result.code)),
+              ),
             if (snapshot.accounts.isEmpty)
               JiabuStackItem.content(
                 child: JiabuEmptyState(
@@ -824,7 +826,9 @@ class AccountsPage extends ConsumerWidget {
           children: [
             JiabuStackItem.content(child: formError(context, state.error)),
             if (result is Failure<Map<String, int>>)
-              JiabuStackItem.caption(child: Text(ledgerError(l, result.code))),
+              JiabuStackItem.captionAfter(
+                child: Text(ledgerError(l, result.code)),
+              ),
             for (final archived in [false, true]) ...[
               if (archived)
                 JiabuStackItem.section(

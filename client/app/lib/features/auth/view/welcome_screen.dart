@@ -64,7 +64,7 @@ class WelcomeScreen extends StatelessWidget {
                             ),
                           ),
                           if (chinese)
-                            JiabuStackItem.caption(
+                            JiabuStackItem.captionAfter(
                               child: HandText(
                                 l.handAuthBrandEnglish,
                                 english: true,

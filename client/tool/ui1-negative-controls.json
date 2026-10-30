@@ -29,7 +29,7 @@
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
       "test_names": ["secondary routed pages expose a back button and title"],
-      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"secondary routed pages expose a back button and title\""
+      "command": "flutter test test/features/c4_layout_test.dart"
     },
     {
       "id": "settings_group_uses_ruled_paper",
@@ -39,7 +39,7 @@
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
       "test_names": ["settings group has no ruled paper or margin decoration"],
-      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"settings group has no ruled paper or margin decoration\""
+      "command": "flutter test test/features/c4_layout_test.dart"
     },
     {
       "id": "login_primary_uses_space_accent",
@@ -49,7 +49,7 @@
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/auth_screens_test.dart",
       "test_names": ["space accent never changes the auth primary color"],
-      "command": "flutter test test/features/auth_screens_test.dart --plain-name \"space accent never changes the auth primary color\""
+      "command": "flutter test test/features/auth_screens_test.dart"
     },
     {
       "id": "text200_header_content_overlap",
@@ -59,17 +59,17 @@
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c3_layout_test.dart",
       "test_names": ["chat content starts below header zh 360.0 2.0"],
-      "command": "flutter test test/features/c3_layout_test.dart --plain-name \"chat content starts below header zh 360.0 2.0\""
+      "command": "flutter test test/features/c3_layout_test.dart"
     },
     {
       "id": "structural_transform_not_reported",
       "file": "client/packages/jiabu_design/lib/src/components/page_header.dart",
-      "find": "child: JiabuIcon(\n                                JiabuIcons.uiRight,\n                                key: const Key('jiabu-page-back-icon'),\n                                size: backIconSize,\n                                flipX: true,\n                              ),",
-      "replace": "child: Transform.rotate(\n                                angle: .1,\n                                child: JiabuIcon(\n                                  JiabuIcons.uiRight,\n                                  key: const Key('jiabu-page-back-icon'),\n                                  size: backIconSize,\n                                  flipX: true,\n                                ),\n                              ),",
+      "find": "child: JiabuIcon(\n                                      JiabuIcons.uiRight,\n                                      key: const Key('jiabu-page-back-icon'),\n                                      size: backIconSize,\n                                      fitGlyph: true,\n                                      flipX: true,\n                                    ),",
+      "replace": "child: Transform.rotate(\n                                      angle: .1,\n                                      child: JiabuIcon(\n                                        JiabuIcons.uiRight,\n                                        key: const Key('jiabu-page-back-icon'),\n                                        size: backIconSize,\n                                        fitGlyph: true,\n                                        flipX: true,\n                                      ),\n                                    ),",
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
       "test_names": ["layout components stay at zero rotation"],
-      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"layout components stay at zero rotation\""
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {
       "id": "empty_route_stack_back_throws",
@@ -79,7 +79,7 @@
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_interaction_test.dart",
       "test_names": ["deep linked space members back falls to space settings"],
-      "command": "flutter test test/features/c4_interaction_test.dart --plain-name \"deep linked space members back falls to space settings\""
+      "command": "flutter test test/features/c4_interaction_test.dart"
     }
   ]
 }

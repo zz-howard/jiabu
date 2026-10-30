@@ -180,7 +180,7 @@ void main() {
       children: [
         const JiabuStackItem.content(child: Text('content')),
         const JiabuStackItem.content(child: Text('second content')),
-        const JiabuStackItem.caption(child: Text('caption')),
+        const JiabuStackItem.captionAfter(child: Text('caption')),
         const JiabuStackItem.section(
           child: JiabuSectionHeader(title: 'section'),
         ),
@@ -189,6 +189,8 @@ void main() {
           actionCaption: const Text('action caption'),
           child: FilledButton(onPressed: () {}, child: const Text('action')),
         ),
+        const JiabuStackItem.captionBefore(child: Text('before content')),
+        const JiabuStackItem.content(child: Text('described content')),
       ],
     );
     await pumpLayout(tester, sample());
@@ -201,6 +203,7 @@ void main() {
     expect(gap(2, 3), JiabuSpacing.sectionTop);
     expect(gap(3, 4), JiabuSpacing.sectionBottom);
     expect(gap(4, 5), JiabuSpacing.actionGap);
+    expect(gap(6, 7), JiabuSpacing.captionGap);
     final caption = tester.getRect(find.text('action caption'));
     final button = tester.getRect(find.widgetWithText(FilledButton, 'action'));
     expect(button.top - caption.bottom, JiabuSpacing.captionGap);
@@ -211,6 +214,36 @@ void main() {
       tester.getSize(find.byType(JiabuStack)).height,
       greaterThan(normalHeight),
     );
+  });
+
+  testWidgets('stack rejects a direct stack child at the same level', (
+    tester,
+  ) async {
+    await pumpLayout(
+      tester,
+      const JiabuStack(
+        children: [
+          JiabuStackItem.content(child: JiabuStack(children: [])),
+        ],
+      ),
+    );
+    expect(tester.takeException(), isAssertionError);
+  });
+
+  testWidgets('stack allows an inner stack behind a visual container', (
+    tester,
+  ) async {
+    await pumpLayout(
+      tester,
+      const JiabuStack(
+        children: [
+          JiabuStackItem.content(
+            child: PaperCard(child: JiabuStack(children: [])),
+          ),
+        ],
+      ),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('list row is 66 high and grows without overflow at 200 percent', (

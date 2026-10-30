@@ -82,7 +82,7 @@ class ApiKeyCreate extends ConsumerWidget {
                   ),
                 ),
                 if (state.values['days'] == 0)
-                  JiabuStackItem.caption(
+                  JiabuStackItem.captionAfter(
                     child: PaperCard(child: Text(l.c4NeverWarning)),
                   ),
                 JiabuStackItem.content(child: Text(l.c4Scope)),
@@ -107,8 +107,8 @@ class ApiKeyCreate extends ConsumerWidget {
                       ),
                     ),
                   ),
-                JiabuStackItem.caption(child: Text(l.c4KeyScopeHelp)),
-                JiabuStackItem.caption(child: Text(l.c4KeyOnceHelp)),
+                JiabuStackItem.captionAfter(child: Text(l.c4KeyScopeHelp)),
+                JiabuStackItem.captionAfter(child: Text(l.c4KeyOnceHelp)),
               ]
             : [
                 JiabuStackItem.content(
@@ -182,7 +182,7 @@ class ApiKeyCreate extends ConsumerWidget {
                     ),
                   ),
                 ),
-                JiabuStackItem.caption(
+                JiabuStackItem.captionAfter(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: context.jiabu.colors.warnSoft,

@@ -7,7 +7,61 @@ import 'package:jiabu_design/jiabu_design.dart';
 import '../support/c3_harness.dart';
 import '../support/vertical_spacing.dart';
 
+const _minimumStackPairs = <String, int>{
+  'settings': 1,
+  'shell_overview': 4,
+  'shell_history': 2,
+  'overview_empty': 4,
+  'overview_accounts': 4,
+  'overview_negative': 4,
+  'overview_pending': 4,
+  'overview_failure': 4,
+  'overview_conflict': 4,
+  'history_empty': 2,
+  'history_grouped': 2,
+  'history_24': 2,
+  'history_search': 2,
+  'history_filters': 3,
+  'accounts_empty': 1,
+  'accounts': 4,
+  'accounts_long_6': 6,
+};
+
+const _minimumChipPairs = <String, int>{
+  'shell_history': 4,
+  'history_empty': 4,
+  'history_grouped': 4,
+  'history_24': 4,
+  'history_search': 4,
+  'history_filters': 4,
+  'edit': 1,
+  'manual_expense': 3,
+  'manual_income': 3,
+  'manual_transfer': 3,
+  'manual_reallocation': 3,
+  'manual_invalid': 3,
+  'refund': 1,
+  'refund_limit': 1,
+  'account_real': 1,
+  'account_purpose': 1,
+};
+
+bool _requiresStack(String state) =>
+    state == 'settings' ||
+    state == 'shell_overview' ||
+    state == 'shell_history' ||
+    state.startsWith('overview_') ||
+    state.startsWith('history_') ||
+    state.startsWith('accounts');
+
 void main() {
+  test('stack pair table covers every migrated C3 state', () {
+    expect(
+      _minimumStackPairs.keys.toSet(),
+      c3States.where(_requiresStack).toSet(),
+    );
+  });
+
   for (final state in c3States) {
     for (final locale in ['zh', 'en']) {
       for (final accent in ['pine', 'indigo']) {
@@ -25,20 +79,24 @@ void main() {
                   scale: scale,
                 );
                 expect(tester.takeException(), isNull);
-                expectJiabuVerticalRhythm(
+                final stackPairs = expectJiabuVerticalRhythm(
                   tester,
                   reason: '$state $locale $accent $width $scale',
-                  requireStack:
-                      state == 'settings' ||
-                      state == 'shell_overview' ||
-                      state == 'shell_history' ||
-                      state.startsWith('overview_') ||
-                      state.startsWith('history_') ||
-                      state.startsWith('accounts'),
+                  requireStack: _requiresStack(state),
                 );
-                expectJiabuChipSpacing(
+                expect(
+                  stackPairs,
+                  greaterThanOrEqualTo(_minimumStackPairs[state] ?? 0),
+                  reason: '$state minimum stack pair table',
+                );
+                final chipPairs = expectJiabuChipSpacing(
                   tester,
                   reason: '$state $locale $accent $width $scale',
+                );
+                expect(
+                  chipPairs,
+                  greaterThanOrEqualTo(_minimumChipPairs[state] ?? 0),
+                  reason: '$state minimum chip pair table',
                 );
                 for (final card in find.byType(LedgerRecordCard).evaluate()) {
                   expect(

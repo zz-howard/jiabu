@@ -52,9 +52,9 @@ class SpacesScreen extends ConsumerWidget {
             child: Text(l.c4Spaces, style: context.jiabu.type.sectionTitle),
           ),
           if (directory.isLoading)
-            JiabuStackItem.caption(child: Text(l.c4Loading)),
+            JiabuStackItem.captionBefore(child: Text(l.c4Loading)),
           if (directory.hasError)
-            JiabuStackItem.caption(child: Text(l.c4Error)),
+            JiabuStackItem.captionBefore(child: Text(l.c4Error)),
           JiabuStackItem.content(
             child: SpaceSwitcher(
               currentId: runtime.currentSpace,
@@ -123,7 +123,7 @@ class SpacesScreen extends ConsumerWidget {
             ),
           ),
           if (!runtime.managementOnline)
-            JiabuStackItem.caption(child: Text(l.c4Offline)),
+            JiabuStackItem.captionAfter(child: Text(l.c4Offline)),
         ],
       );
     }
@@ -206,7 +206,7 @@ class SpacesScreen extends ConsumerWidget {
               child: Text(space.name, style: context.jiabu.type.secondary),
             ),
             if (!runtime.managementOnline)
-              JiabuStackItem.caption(child: Text(l.c4Offline)),
+              JiabuStackItem.captionAfter(child: Text(l.c4Offline)),
             JiabuStackItem.content(
               child: JiabuSettingsGroup(
                 children: [

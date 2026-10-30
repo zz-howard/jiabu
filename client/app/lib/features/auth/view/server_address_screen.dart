@@ -79,7 +79,7 @@ class _ServerAddressScreenState extends State<ServerAddressScreen> {
               child: Text(l.authContinue),
             ),
           ),
-          JiabuStackItem.caption(
+          JiabuStackItem.captionAfter(
             child: Text(
               l.authServerLaterHint,
               textAlign: TextAlign.center,
