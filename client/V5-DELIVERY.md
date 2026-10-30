@@ -35,3 +35,17 @@
 ## Golden
 
 在 CI 镜像内于构建机重录：聊天全部状态（`chat/*`）、所有带底栏的页面（`c3/shell_*` 等）、受底栏影响的 catalog / c4 截图。新增 `chat/conversation_*` 6 张（zh 360/430 × 100/200、en 360 100、en indigo 430 200）。
+
+## V5b 输入栏附件（仿 Telegram）
+
+分支：`v5b-attachment-sheet`（V5 已合并为 #40 / ec00d8a）。Howard 要求输入栏学 Telegram。
+
+- **输入栏**：去掉左侧圆形拍照钮；输入框纸卡右端的选图按钮换成回形针「附件」（Howard 评审后重画：新图标 `uiAttach` = Lucide paperclip，经 `tool/icons/icons.json` → `gen_icons.dart` 生成，与相机 / 图片 / 底栏图标同一线条族（线宽 1.85、圆头圆角、24 视口），尺寸 20、ink-3 与铅笔一致，停用时 line-strong；原来借用的手绘回形针 `doodleClip` 太小、竖直、内外圈挤在一起，远看像一团）（tooltip / 读屏「附件 / Attach」，点击区 48），锁定、回答中、忙时停用。发送 / 停止圆钮不变。
+- **附件弹层** `ChatAttachmentSheet`（`JiabuSheet`：圆角、胶带把手）：底部「相册 / 文件」分段标签（新 `PaperSegmentedTabs`，原稿 家庭 / 私人 开关的画法）。相册页三列格子（新 `PaperAttachTile`）：第一格「拍照」、第二格「从相册选择」；文件页一格「选择图片文件」+ 说明「目前只支持图片文件，PDF 等文件稍后支持」。弹层只返回来源（`ChatAttachSource.camera / gallery / files`），由页面调用原来的 `photos(...)`。
+- **文件来源**：`ImagePickerPort.pick(files: true)` → 家簿自己的 Android 通道 `jiabu/image_files`（`MainActivity`：`ACTION_OPEN_DOCUMENT`、`image/*`、可多选、最多 9 张，后台线程读字节）。不需要存储权限、不加依赖；结果走与相册完全相同的 JPEG 规范化 + 去 EXIF + 入队流程，服务端不变。没有平台实现时（桌面 / 测试）回退到系统照片选择器。
+- **没做最近照片网格（评估结论）**：需要 `photo_manager` 这类新依赖（`tool/allowed_deps.yaml` 需人工审批）和 `READ_MEDIA_IMAGES`（Android 14 起还有部分访问 `READ_MEDIA_VISUAL_USER_SELECTED`、iOS 有限访问）；Google Play 的照片 / 视频权限政策只允许以照片为核心功能的应用申请，记账应用应使用系统照片选择器，否则有上架被拒的风险。所以按备选方案做成“拍照 + 从相册选择”两格（无需任何权限，也就没有“拒绝权限”状态）。
+- **文案**（中英）：`chatAttach`、`chatAttachGallery`、`chatAttachFiles`、`chatAttachChooseGallery`、`chatAttachChooseFiles`、`chatAttachFilesNote`；都是正文字体，不涉及手写字子集。
+- **规范**：文件头 V5b 一条，4.17b 改写（无拍照钮、回形针），新增 4.17c（附件弹层与不做网格的原因），8 验收清单。
+- **测试**：`v5_chat_restore_test.dart` 新增“附件弹层”组（相册页三列、拍照在第一格、格子不矮于格宽、底部分段在格子下面且 ≥ 44；文件页只有图片文件格和说明；三个格子分别让弹层返回 拍照 / 相册 / 文件；`jiabu/image_files` 通道以 `limit: 9` 调用且最多取 9 张），输入栏测试改为“无拍照钮、框内回形针”；`media_and_logs_test` 新增“图片文件走同一条 JPEG 流程”。C5 布局矩阵新增 `attach_gallery`、`attach_files`。负对照：`client/tool/v5b-negative-controls.json`（7 条），并更新 V5 两条的测试名。
+- **Golden**：重录全部聊天 golden（输入栏变化），新增 `chat/attach_gallery_*` 5 张、`chat/attach_files_*` 3 张。
+- **验证**：构建机上 debug APK（dev flavor、arm64）编译通过，包含新的 `MainActivity` 通道；**没有在真机上点过**文件选择器。iOS 端没有工程，不涉及。

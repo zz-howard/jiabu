@@ -72,8 +72,7 @@ void main() {
               regularSends++;
               return true;
             },
-            onPhoto: () {},
-            onGallery: () {},
+            onAttach: () {},
           ),
         ),
       );
@@ -165,8 +164,7 @@ void main() {
             onSent?.call(text);
             return true;
           },
-          onPhoto: () {},
-          onGallery: () {},
+          onAttach: () {},
           photoCount: photos,
           stopActive: stopActive,
           stopRequested: stopRequested,

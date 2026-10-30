@@ -22,8 +22,15 @@ import '../support/sync_harness.dart';
 
 class FakePicker implements ImagePickerPort {
   List<Uint8List> images = [];
+  final requests = <({bool camera, bool files})>[];
   @override
-  Future<List<Uint8List>> pick({required bool camera}) async => images;
+  Future<List<Uint8List>> pick({
+    required bool camera,
+    bool files = false,
+  }) async {
+    requests.add((camera: camera, files: files));
+    return images;
+  }
 }
 
 class FakeCompressor implements ImageCompressorPort {
@@ -79,6 +86,22 @@ void main() {
     ]);
     expect(h.api.server['r']?['note'], 'fictional later edit');
     expect(await h.store.outbox('s'), isEmpty);
+  });
+
+  test('image_files_go_through_the_same_jpeg_pipeline', () async {
+    final h = await SyncHarness.create();
+    addTearDown(h.close);
+    final picker = FakePicker()..images = [testJpeg(gps: true)];
+    final service = MediaService(
+      store: h.store,
+      directory: h.directory,
+      picker: picker,
+      compressor: FakeCompressor(),
+    );
+    final result = await service.pick('s', 'chat', files: true);
+    expect(picker.requests.single, (camera: false, files: true));
+    expect(result, isA<Ok<List<String>>>());
+    expect((result as Ok<List<String>>).value, hasLength(1));
   });
 
   test('dio_exception_url_headers_and_string_are_redacted', () async {

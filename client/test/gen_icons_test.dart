@@ -76,7 +76,12 @@ void main() {
         File('tool/icons/icons.json').readAsStringSync(),
       ) as Map<String, Object?>;
       final icons = json['icons']! as Map<String, Object?>;
-      expect(icons.length, 62);
+      expect(icons.length, 63);
+      // V5b: the composer's paperclip is a Lucide line icon like the rest
+      // of the ui family, not the hand-drawn doodle clip.
+      final attach = icons['uiAttach']! as Map<String, Object?>;
+      expect(attach['category'], 'ui');
+      expect(attach['strokeWidth'], 1.85);
       final key = icons['uiKey']! as Map<String, Object?>;
       expect(key['category'], 'ui');
       expect(key['strokeWidth'], 1.85);

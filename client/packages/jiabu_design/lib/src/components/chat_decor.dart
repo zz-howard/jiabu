@@ -313,3 +313,179 @@ class _FieldRulePainter extends CustomPainter {
   bool shouldRepaint(_FieldRulePainter oldDelegate) =>
       oldDelegate.color != color;
 }
+
+/// One square-ish tile of the chat attachment sheet (design-spec 4.17c): a
+/// white paper tile, radius 12, hairline ring and sticker shadow, a 28 icon
+/// over a Sans 13 label. At least [minHeight] high, taller when the label
+/// wraps at large text sizes.
+class PaperAttachTile extends StatelessWidget {
+  const PaperAttachTile({
+    required this.icon,
+    required this.label,
+    this.minHeight = JiabuChatMetrics.action,
+    this.onPressed,
+    super.key,
+  });
+  final JiabuIconData icon;
+  final String label;
+  final double minHeight;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.jiabu.colors;
+    return Semantics(
+      button: true,
+      enabled: onPressed != null,
+      label: label,
+      excludeSemantics: true,
+      child: DecoratedBox(
+        decoration: ShapeDecoration(
+          color: colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: colors.line),
+          ),
+          shadows: context.jiabu.decor.stickerShadow,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onPressed,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: minHeight),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    JiabuIcon(icon, size: 28, color: colors.primaryText),
+                    const SizedBox(height: 6),
+                    Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: context.jiabu.type.secondary.copyWith(
+                        color: colors.ink2,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Segmented tabs at the bottom of the attachment sheet, drawn like the
+/// original 家庭 / 私人 switch (design-spec 4.8 / 4.17c): a 1.5 dashed
+/// line-strong frame (radius 12, 3 inset) around equal segments 44 high; the
+/// selected one is a primary pill with white text, a white ring and a sticker
+/// shadow, tilted −2°.
+class PaperSegmentedTabs extends StatelessWidget {
+  const PaperSegmentedTabs({
+    required this.labels,
+    required this.icons,
+    required this.selected,
+    required this.onSelect,
+    super.key,
+  });
+  final List<String> labels;
+  final List<JiabuIconData> icons;
+  final int selected;
+  final ValueChanged<int> onSelect;
+
+  static const double tilt = -2;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.jiabu.colors;
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: colors.paper.withValues(alpha: .7),
+        shape: PaperDashedBorder(
+          radius: 12,
+          side: BorderSide(color: colors.lineStrong, width: 1.5),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Row(
+          children: [
+            for (var i = 0; i < labels.length; i++)
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  selected: i == selected,
+                  label: labels[i],
+                  excludeSemantics: true,
+                  child: Tilt(
+                    degrees: i == selected ? tilt : 0,
+                    child: DecoratedBox(
+                      decoration: i == selected
+                          ? BoxDecoration(
+                              color: colors.primary,
+                              borderRadius: BorderRadius.circular(9),
+                              border: Border.all(color: colors.white, width: 2),
+                              boxShadow: context.jiabu.decor.stickerShadow,
+                            )
+                          : const BoxDecoration(),
+                      child: InkWell(
+                        key: ValueKey('paper-tab-$i'),
+                        borderRadius: BorderRadius.circular(9),
+                        onTap: () => onSelect(i),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minHeight: JiabuChatMetrics.fieldButton,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Center(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    JiabuIcon(
+                                      icons[i],
+                                      size: 18,
+                                      color: i == selected
+                                          ? colors.onPrimary
+                                          : colors.ink2,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      labels[i],
+                                      maxLines: 1,
+                                      style: context.jiabu.type.body.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color: i == selected
+                                            ? colors.onPrimary
+                                            : colors.ink2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -57,7 +57,10 @@ class JpegCodecStub implements ImageCompressorPort {
 
 class UnusedPickerStub implements ImagePickerPort {
   @override
-  Future<List<Uint8List>> pick({required bool camera}) async => [];
+  Future<List<Uint8List>> pick({
+    required bool camera,
+    bool files = false,
+  }) async => [];
 }
 
 class RecordedRealApi extends FakeApi {

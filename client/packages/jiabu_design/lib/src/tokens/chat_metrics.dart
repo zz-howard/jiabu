@@ -45,6 +45,9 @@ abstract final class JiabuChatMetrics {
   static const double fieldHeight = 52;
   static const double pencil = 18;
   static const double fieldButton = 44;
+
+  /// The paperclip (attach) icon in the field: optically matches the pencil.
+  static const double attachIcon = 20;
   static const double sendTilt = -8;
 
   /// Lifts the 48 round buttons so they centre on a one-line field.

@@ -164,6 +164,14 @@ abstract final class JiabuIcons {
       JiabuIconShape(_uiAlloc_2, fill: false),
     ],
   );
+  static const uiAttach = JiabuIconData(
+    name: 'uiAttach', category: 'ui',
+    width: 24, height: 24,
+    strokeWidth: 1.85,
+    shapes: [
+      JiabuIconShape(_uiAttach_0, fill: false),
+    ],
+  );
   static const uiBank = JiabuIconData(
     name: 'uiBank', category: 'ui',
     width: 24, height: 24,
@@ -603,6 +611,7 @@ abstract final class JiabuIcons {
     'doodleTravel': doodleTravel,
     'squig': squig,
     'uiAlloc': uiAlloc,
+    'uiAttach': uiAttach,
     'uiBank': uiBank,
     'uiCamera': uiCamera,
     'uiCard': uiCard,
@@ -905,6 +914,16 @@ Path _uiAlloc_1() => Path()
 Path _uiAlloc_2() => Path()
   ..moveTo(5, 21)
   ..lineTo(19, 21);
+
+Path _uiAttach_0() => Path()
+  ..moveTo(21.44, 11.05)
+  ..lineTo(12.25, 20.24)
+  ..arcToPoint(Offset(3.76, 11.75), radius: Radius.elliptical(6, 6), rotation: 0, largeArc: false, clockwise: true)
+  ..lineTo(12.33, 3.18)
+  ..arcToPoint(Offset(18, 8.84), radius: Radius.elliptical(4, 4), rotation: 0, largeArc: true, clockwise: true)
+  ..lineTo(9.41, 17.41)
+  ..arcToPoint(Offset(6.58, 14.58), radius: Radius.elliptical(2, 2), rotation: 0, largeArc: false, clockwise: true)
+  ..lineTo(15.07, 6.1);
 
 Path _uiBank_0() => Path()
   ..moveTo(3, 21)

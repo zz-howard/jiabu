@@ -78,7 +78,7 @@
       "replace": "JiabuIcons.uiEdit,\n                    size: JiabuChatMetrics.pencil,",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/v5_chat_restore_test.dart",
-      "test_names": ["floating composer round camera, pencil in a paper field, round send"],
+      "test_names": ["floating composer no camera button; paperclip in a paper field; round send"],
       "command": "flutter test test/features/v5_chat_restore_test.dart"
     },
     {
@@ -88,7 +88,7 @@
       "replace": "? 0",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/v5_chat_restore_test.dart",
-      "test_names": ["floating composer round camera, pencil in a paper field, round send"],
+      "test_names": ["floating composer no camera button; paperclip in a paper field; round send"],
       "command": "flutter test test/features/v5_chat_restore_test.dart"
     },
     {

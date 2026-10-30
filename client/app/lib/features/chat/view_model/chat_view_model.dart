@@ -94,7 +94,7 @@ class ChatViewModel extends _$ChatViewModel {
     unawaited(state.conversation?.saveDraft(state.draft, state.images));
   }
 
-  Future<void> photos({required bool camera}) async {
+  Future<void> photos({required bool camera, bool files = false}) async {
     final session = state.conversation;
     if (session == null || state.busy) {
       return;
@@ -106,6 +106,7 @@ class ChatViewModel extends _$ChatViewModel {
     state = state.copyWith(busy: true);
     final result = await session.photos(
       camera: camera,
+      files: files,
       limit: 8 - state.images.length,
     );
     if (!ref.mounted) {
