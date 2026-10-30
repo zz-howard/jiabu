@@ -375,7 +375,10 @@ async fn stop_waiting_ai_for_manual_entry_never_calls_provider() -> Result<()> {
         .context("text")?
         .to_string();
     assert!(!text.contains(" / "), "{text}");
-    assert!(!text.contains("Stopped;") && !text.contains("operations saved"), "{text}");
+    assert!(
+        !text.contains("Stopped;") && !text.contains("operations saved"),
+        "{text}"
+    );
     assert_eq!(text.trim(), "已停止。", "{text}");
     Ok(())
 }
