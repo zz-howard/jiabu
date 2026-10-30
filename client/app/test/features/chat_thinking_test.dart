@@ -68,15 +68,33 @@ void main() {
       expect(find.text('处理中'), findsNothing);
     });
 
-    testWidgets('thinking_sits_on_the_assistant_name_line', (tester) async {
+    testWidgets('thinking_sits_below_the_message_not_by_the_name', (
+      tester,
+    ) async {
+      await pumpC3(
+        tester,
+        child: _view(_reply(blocks: [_text('先查一下', status: 'complete')])),
+      );
+      final name = tester.getRect(find.text('家簿助手'));
+      final body = tester.getRect(
+        find.textContaining('先查一下', findRichText: true),
+      );
+      final label = tester.getRect(find.text('思考中'));
+      final dots = tester.getRect(find.byType(JiabuThinkingDots));
+      expect(find.byType(JiabuThinkingDots), findsOneWidget);
+      expect(label.top, greaterThanOrEqualTo(body.bottom));
+      expect(dots.top, greaterThanOrEqualTo(body.bottom));
+      expect(label.left, greaterThan(dots.right));
+      expect(dots.left, greaterThan(name.left));
+      final caption = tester.widget<Text>(find.text('思考中')).style!;
+      expect(caption.fontSize, lessThan(14));
+    });
+
+    testWidgets('thinking_is_the_last_row_of_the_message', (tester) async {
       await pumpC3(tester, child: _view(_reply()));
       final name = tester.getRect(find.text('家簿助手'));
       final label = tester.getRect(find.text('思考中'));
-      final dots = tester.getRect(find.byType(JiabuThinkingDots));
-      expect(label.center.dy, closeTo(name.center.dy, 2));
-      expect(dots.center.dy, closeTo(name.center.dy, 2));
-      expect(dots.left, greaterThan(name.right));
-      expect(label.left, greaterThan(dots.right));
+      expect(label.top, greaterThan(name.bottom));
     });
 
     testWidgets('english_label_is_thinking', (tester) async {
@@ -95,9 +113,9 @@ void main() {
       expect(find.byType(JiabuThinkingDots), findsNothing);
     });
 
-    testWidgets('hidden_while_a_tool_step_runs', (tester) async {
+    testWidgets('shown_while_a_tool_step_runs', (tester) async {
       await pumpC3(tester, child: _view(_reply(steps: [_step('running')])));
-      expect(find.text('思考中'), findsNothing);
+      expect(find.text('思考中'), findsOneWidget);
       expect(find.textContaining('查找账户'), findsOneWidget);
     });
 
@@ -128,6 +146,8 @@ void main() {
       await pumpC3(tester, child: _view(_reply(), stopRequested: true));
       expect(find.text('思考中'), findsNothing);
       expect(find.text('正在停止…'), findsOneWidget);
+      await pumpC3(tester, child: _view(_reply(status: 'interrupted')));
+      expect(find.text('思考中'), findsNothing);
     });
 
     testWidgets('degraded_activity_says_waiting_for_ai', (tester) async {
@@ -142,7 +162,7 @@ void main() {
     test('rule_is_pure_in_message_state', () {
       expect(jiabuShowsThinking(_reply()), isTrue);
       expect(jiabuShowsThinking(_reply(blocks: [_text('x')])), isFalse);
-      expect(jiabuShowsThinking(_reply(steps: [_step('running')])), isFalse);
+      expect(jiabuShowsThinking(_reply(steps: [_step('running')])), isTrue);
       expect(
         jiabuShowsThinking(_reply(blocks: [_text('x', status: 'complete')])),
         isTrue,

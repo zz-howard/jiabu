@@ -14,14 +14,14 @@
       "command": "flutter test test/features/chat_thinking_test.dart"
     },
     {
-      "id": "thinking_shown_while_step_runs",
+      "id": "thinking_hidden_while_step_runs",
       "file": "client/app/lib/shared/chatweave/jiabu_thinking_indicator.dart",
-      "find": "  if (message.steps.any((step) => step['state'] == 'running')) return false;\n",
-      "replace": "",
+      "find": "  if (message.status != 'streaming') return false;\n",
+      "replace": "  if (message.status != 'streaming') return false;\n  if (message.steps.any((step) => step['state'] == 'running')) return false;\n",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/chat_thinking_test.dart",
       "test_names": [
-        "hidden_while_a_tool_step_runs"
+        "shown_while_a_tool_step_runs"
       ],
       "command": "flutter test test/features/chat_thinking_test.dart"
     },
@@ -70,6 +70,18 @@
       "test_file": "client/app/test/features/chat_thinking_test.dart",
       "test_names": [
         "list_and_bold_are_parsed_on_every_streamed_update"
+      ],
+      "command": "flutter test test/features/chat_thinking_test.dart"
+    },
+    {
+      "id": "thinking_back_beside_the_name",
+      "file": "client/app/lib/shared/chatweave/jiabu_message_view.dart",
+      "find": "Text(l.chatAssistant, style: caption),",
+      "replace": "Row(children: [Text(l.chatAssistant, style: caption), if (thinking) const JiabuThinkingDots()]),",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_thinking_test.dart",
+      "test_names": [
+        "thinking_sits_below_the_message_not_by_the_name"
       ],
       "command": "flutter test test/features/chat_thinking_test.dart"
     }

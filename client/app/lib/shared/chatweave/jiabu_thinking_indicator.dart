@@ -5,20 +5,51 @@ import 'package:flutter/material.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 /// Whether the assistant is between visible output: the reply is still being
-/// produced, no tool step is running (the process strip speaks for those), and
-/// no block is being filled right now (streaming text or a component
-/// placeholder speaks for itself). That is before the first token and between
-/// tool calls. The label never appears while text is arriving.
+/// produced and no block is being filled right now (streaming text or a
+/// component placeholder speaks for itself). That is before the first token,
+/// between tool calls and while a tool runs. The row never appears while text
+/// is arriving, after a stop, or once the reply has finished.
 bool jiabuShowsThinking(Message message) {
   if (message.status != 'streaming') return false;
-  if (message.steps.any((step) => step['state'] == 'running')) return false;
   final last = message.blocks.lastOrNull;
   return last == null || last['status'] != 'pending';
 }
 
-/// Three small ink-3 dots that pulse in turn, sitting right after the
-/// assistant's name. Static (all dots equally soft) when the system asks for
-/// reduced motion, so goldens and screen readers see one stable shape.
+/// The tail row under the reply (design-spec 4.17a): indented, three pulsing
+/// dots and a small muted label, so it reads as a status note and not as part
+/// of the reply text. It is the last thing in the message, so it stays in view
+/// while the list follows the bottom.
+class JiabuThinkingRow extends StatelessWidget {
+  const JiabuThinkingRow({required this.label, super.key});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = context.jiabu.type.caption.copyWith(
+      color: context.jiabu.colors.ink3,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0.4,
+    );
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(
+        start: JiabuChatMetrics.thinkingIndent,
+        top: JiabuChatMetrics.thinkingGapTop,
+      ),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: JiabuChatMetrics.gap,
+        children: [
+          const JiabuThinkingDots(),
+          Text(label, style: style),
+        ],
+      ),
+    );
+  }
+}
+
+/// Three small ink-3 dots that pulse in turn, inside the row below the reply.
+/// Static (all dots equally soft) when the system asks for reduced motion,
+/// so goldens and screen readers see one stable shape.
 class JiabuThinkingDots extends StatefulWidget {
   const JiabuThinkingDots({super.key});
   @override

@@ -40,22 +40,7 @@ class JiabuMessageView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: JiabuChatMetrics.gap,
-              children: [
-                Text(l.chatAssistant, style: caption),
-                if (thinking) ...[
-                  const JiabuThinkingDots(),
-                  Text(
-                    source.activity?['phase'] == 'degraded'
-                        ? l.chatWaitingAi
-                        : l.chatThinking,
-                    style: caption,
-                  ),
-                ],
-              ],
-            ),
+            Text(l.chatAssistant, style: caption),
             MessageAnnouncements(message: message),
             if (message.steps.isNotEmpty)
               JiabuProcessStrip(
@@ -78,6 +63,12 @@ class JiabuMessageView extends StatelessWidget {
                     readOnly: source.readOnly,
                   ),
                 ),
+              ),
+            if (thinking)
+              JiabuThinkingRow(
+                label: source.activity?['phase'] == 'degraded'
+                    ? l.chatWaitingAi
+                    : l.chatThinking,
               ),
             if (active && source.stopRequested)
               Text(l.chatStopping, style: context.jiabu.type.caption),
