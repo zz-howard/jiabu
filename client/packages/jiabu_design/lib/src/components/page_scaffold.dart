@@ -10,6 +10,8 @@ class JiabuPageScaffold extends StatelessWidget {
     this.onBack,
     this.action,
     this.showBack = true,
+    this.handEnglish,
+    this.subtitle,
     super.key,
   });
 
@@ -18,6 +20,8 @@ class JiabuPageScaffold extends StatelessWidget {
   final VoidCallback? onBack;
   final Widget? action;
   final bool showBack;
+  final String? handEnglish;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) => ColoredBox(
@@ -29,6 +33,8 @@ class JiabuPageScaffold extends StatelessWidget {
           onBack: onBack,
           action: action,
           showBack: showBack,
+          handEnglish: handEnglish,
+          subtitle: subtitle,
         ),
         Expanded(
           child: ClipRect(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:jiabu_design/src/components/jiabu_icon.dart';
+import 'package:jiabu_design/src/components/page_title_block.dart';
 import 'package:jiabu_design/src/icons/jiabu_icons.g.dart';
 import 'package:jiabu_design/src/theme_context.dart';
 import 'package:jiabu_design/src/tokens/spacing.dart';
@@ -10,10 +11,18 @@ class JiabuPageHeader extends StatelessWidget {
     this.onBack,
     this.action,
     this.showBack = true,
+    this.handEnglish,
+    this.subtitle,
     super.key,
   });
 
   final String title;
+
+  /// With [handEnglish] or [subtitle] the title becomes the shared
+  /// [JiabuPageTitleBlock] (wavy underline + handwritten subtitle). Plain
+  /// second-level pages leave both null and keep the single-line title.
+  final String? handEnglish;
+  final String? subtitle;
   final VoidCallback? onBack;
   final Widget? action;
   final bool showBack;
@@ -101,12 +110,21 @@ class JiabuPageHeader extends StatelessWidget {
                     width: JiabuSpacing.sm,
                   ),
                 Expanded(
-                  child: Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: titleStyle,
-                  ),
+                  child: handEnglish != null || subtitle != null
+                      ? Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: JiabuPageTitleBlock(
+                            title: title,
+                            handEnglish: handEnglish,
+                            subtitle: subtitle,
+                          ),
+                        )
+                      : Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: titleStyle,
+                        ),
                 ),
                 if (action case final action?)
                   if (largeTitle)

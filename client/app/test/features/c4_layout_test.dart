@@ -164,12 +164,15 @@ void main() {
                   );
                   expect(body.top, greaterThanOrEqualTo(header.bottom));
                   final pageInset = width <= 380 ? 14.0 : 18.0;
-                  expect(
-                    tester
-                        .getRect(find.byKey(const Key('jiabu-page-back')))
-                        .left,
-                    closeTo(pageInset, .1),
-                  );
+                  // The settings root is the 我的 tab and has no back arrow.
+                  if (state != 'settings') {
+                    expect(
+                      tester
+                          .getRect(find.byKey(const Key('jiabu-page-back')))
+                          .left,
+                      closeTo(pageInset, .1),
+                    );
+                  }
                   for (final group
                       in find.byType(JiabuSettingsGroup).evaluate()) {
                     expect(
@@ -272,13 +275,16 @@ void main() {
       }
     }
   }
-  testWidgets('secondary routed pages expose a back button and title', (
+  testWidgets('second-level routed pages expose a back button and title', (
     tester,
   ) async {
     final semantics = tester.ensureSemantics();
     try {
+      // The settings root is the 我的 bottom-navigation tab: no back arrow.
+      await pumpC4Preview(tester, state: 'settings');
+      expect(find.byType(JiabuPageHeader), findsOneWidget);
+      expect(find.byKey(const Key('jiabu-page-back')), findsNothing);
       for (final state in const [
-        'settings',
         'account',
         'password',
         'language',

@@ -4,6 +4,7 @@ import 'package:jiabu_design/src/components/hand_text.dart';
 import 'package:jiabu_design/src/components/jiabu_icon.dart';
 import 'package:jiabu_design/src/components/tape.dart';
 import 'package:jiabu_design/src/components/tilt.dart';
+import 'package:jiabu_design/src/icons/icon_data.dart';
 import 'package:jiabu_design/src/icons/jiabu_icons.g.dart';
 import 'package:jiabu_design/src/theme_context.dart';
 import 'package:jiabu_design/src/tokens/ledger_metrics.dart';
@@ -100,46 +101,6 @@ class SpaceHeading extends StatelessWidget {
   );
 }
 
-class MeSealButton extends StatelessWidget {
-  const MeSealButton({required this.label, required this.onPressed, super.key});
-  final String label;
-  final VoidCallback onPressed;
-  @override
-  Widget build(BuildContext context) => Semantics(
-    label: label,
-    button: true,
-    onTap: onPressed,
-    child: ExcludeSemantics(
-      child: SizedBox.square(
-        dimension: JiabuLedgerMetrics.actionExtent,
-        child: InkWell(
-          onTap: onPressed,
-          child: Center(
-            child: Container(
-              width: JiabuLedgerMetrics.meDiameter,
-              height: JiabuLedgerMetrics.meDiameter,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: context.jiabu.colors.paper,
-                border: Border.all(
-                  color: context.jiabu.colors.onPrimary,
-                  width: JiabuLedgerMetrics.manualBorder,
-                ),
-              ),
-              child: const Center(
-                child: JiabuIcon(
-                  JiabuIcons.uiUser,
-                  size: JiabuLedgerMetrics.meIcon,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
 class PaperBottomNavigation extends StatelessWidget {
   const PaperBottomNavigation({
     required this.labels,
@@ -150,6 +111,14 @@ class PaperBottomNavigation extends StatelessWidget {
   final List<String> labels;
   final int selected;
   final ValueChanged<int> onSelect;
+
+  /// Tab icons in order: chat, overview, history, me (settings).
+  static const icons = <JiabuIconData>[
+    JiabuIcons.uiChat,
+    JiabuIcons.uiDash,
+    JiabuIcons.uiHistory,
+    JiabuIcons.uiUser,
+  ];
   @override
   Widget build(BuildContext context) => ClipPath(
     clipper: const _NavigationEdgeClipper(),
@@ -185,11 +154,7 @@ class PaperBottomNavigation extends StatelessWidget {
                             if (i == selected)
                               HandCircle(
                                 child: JiabuIcon(
-                                  [
-                                    JiabuIcons.uiChat,
-                                    JiabuIcons.uiDash,
-                                    JiabuIcons.uiHistory,
-                                  ][i],
+                                  icons[i],
                                   size: JiabuLedgerMetrics.navigationIcon,
                                 ),
                               )
@@ -199,21 +164,24 @@ class PaperBottomNavigation extends StatelessWidget {
                                   context.jiabu.decor.cardGap,
                                 ),
                                 child: JiabuIcon(
-                                  [
-                                    JiabuIcons.uiChat,
-                                    JiabuIcons.uiDash,
-                                    JiabuIcons.uiHistory,
-                                  ][i],
+                                  icons[i],
                                   size: JiabuLedgerMetrics.navigationIcon,
                                 ),
                               ),
-                            Text(
-                              labels[i],
-                              textAlign: TextAlign.center,
-                              style: context.jiabu.type.badge.copyWith(
-                                color: i == selected
-                                    ? context.jiabu.colors.primaryText
-                                    : context.jiabu.colors.ink2,
+                            // Four tabs share the width: at large text
+                            // sizes a long label shrinks to its column
+                            // instead of wrapping and growing the bar.
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                labels[i],
+                                maxLines: 1,
+                                textAlign: TextAlign.center,
+                                style: context.jiabu.type.badge.copyWith(
+                                  color: i == selected
+                                      ? context.jiabu.colors.primaryText
+                                      : context.jiabu.colors.ink2,
+                                ),
                               ),
                             ),
                           ],

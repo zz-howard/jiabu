@@ -55,7 +55,10 @@ void main() {
       ),
     );
     final text = tester.widget<Text>(find.byType(Text));
-    expect(text.textSpan!.toPlainText().replaceAll('\u200B', ''), '−¥1,842.60');
+    expect(
+      text.textSpan!.toPlainText().replaceAll(RegExp('[\u200B\u2060]'), ''),
+      '−¥1,842.60',
+    );
     expect(
       text.style!.fontFeatures,
       contains(const ui.FontFeature.tabularFigures()),

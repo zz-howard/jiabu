@@ -42,11 +42,15 @@ class SettingsScreen extends ConsumerWidget {
     };
     return JiabuPageScaffold(
       title: title,
-      onBack: () => popOrGo(context, switch (page) {
-        'settings' => '/chat',
-        'password' => '/settings/account',
-        _ => '/settings',
-      }),
+      handEnglish: page == 'settings' ? l.handSettingsEnglish : null,
+      subtitle: page == 'settings' ? l.handSettingsSubtitle : null,
+      // The settings root is the 我的 tab: no back arrow, the bottom
+      // navigation leads away from it.
+      showBack: page != 'settings',
+      onBack: () => popOrGo(
+        context,
+        page == 'password' ? '/settings/account' : '/settings',
+      ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(context.jiabu.spacing.page),
         child: C4Form(

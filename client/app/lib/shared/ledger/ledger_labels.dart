@@ -127,6 +127,9 @@ Widget ledgerAmount(
   String currency, {
   AmountRole role = AmountRole.list,
   String? kind,
+  AmountTone tone = AmountTone.auto,
+  bool showPlus = false,
+  bool highlighted = false,
 }) {
   final l = AppLocalizations.of(context);
   final symbols = NumberFormat.decimalPattern(l.localeName).symbols;
@@ -144,7 +147,52 @@ Widget ledgerAmount(
       formatMinor(minor, currency, l.localeName),
     ),
     role: role,
+    tone: tone,
+    showPlus: showPlus,
+    highlighted: highlighted,
   );
+}
+
+/// The amount of one record as a signed movement, the way the original design
+/// shows it: an expense is `−¥68.00` in the ordinary ink (never red, spending
+/// is normal); money coming in (income, refund, monthly allocation) is
+/// `+¥3,000.00` in green; transfers and reallocations move money between
+/// accounts and carry no sign.
+Widget recordAmount(
+  BuildContext context,
+  LedgerRow row,
+  String currency, {
+  AmountRole role = AmountRole.list,
+  String? kind,
+  bool highlighted = false,
+}) {
+  final minor = row.number('amount_minor').abs();
+  final recordKind = row.text('kind');
+  final out = recordKind == 'expense';
+  final incoming = const [
+    'income',
+    'refund',
+    'allocation',
+  ].contains(recordKind);
+  return ledgerAmount(
+    context,
+    out ? -minor : minor,
+    currency,
+    role: role,
+    kind: kind,
+    tone: incoming ? AmountTone.positive : AmountTone.plain,
+    showPlus: incoming,
+    highlighted: highlighted,
+  );
+}
+
+/// The Caveat accent of the overview subtitle, `Oct. 30 · Fri`. Month names of
+/// four letters or fewer (May, June, July) are written out, the rest take a
+/// dot.
+String handDateAccent(DateTime date) {
+  final month = DateFormat.MMMM('en').format(date);
+  final short = month.length <= 4 ? month : '${month.substring(0, 3)}.';
+  return '$short ${date.day} · ${DateFormat.E('en').format(date)}';
 }
 
 String ledgerDate(String value, AppLocalizations l) {

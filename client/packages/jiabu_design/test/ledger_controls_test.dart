@@ -36,6 +36,49 @@ void main() {
       semantics.dispose();
     }
   });
+  testWidgets('bottom navigation has four tabs, the last one is me', (
+    tester,
+  ) async {
+    final taps = <int>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: JiabuTheme.light(),
+        home: Scaffold(
+          bottomNavigationBar: PaperBottomNavigation(
+            labels: const ['聊天', '总览', '历史', '我的'],
+            selected: 3,
+            onSelect: taps.add,
+          ),
+        ),
+      ),
+    );
+    expect(PaperBottomNavigation.icons.last, JiabuIcons.uiUser);
+    final icons = tester
+        .widgetList<JiabuIcon>(find.byType(JiabuIcon))
+        .map((icon) => icon.icon)
+        .toList();
+    expect(icons, PaperBottomNavigation.icons);
+    expect(
+      find.descendant(
+        of: find.byType(HandCircle),
+        matching: find.byType(JiabuIcon),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<JiabuIcon>(
+            find.descendant(
+              of: find.byType(HandCircle),
+              matching: find.byType(JiabuIcon),
+            ),
+          )
+          .icon,
+      JiabuIcons.uiUser,
+    );
+    await tester.tap(find.text('我的'));
+    expect(taps, [3]);
+  });
   for (final surface in ['card', 'sheet', 'note']) {
     for (final toggle in [false, true]) {
       testWidgets('paper row hosts tile ink on $surface toggle=$toggle', (

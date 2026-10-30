@@ -3,12 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:jiabu/app/c4_providers.dart';
 import 'package:jiabu/app/ledger_providers.dart';
 import 'package:jiabu/app/providers.dart';
+import 'package:jiabu/domain/spaces.dart';
 import 'package:jiabu/domain/sync_state.dart';
 import 'package:jiabu/features/spaces/view/spaces_screen.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/ledger/ledger_forms.dart';
+import 'package:jiabu/shared/ledger/ledger_labels.dart';
 import 'package:jiabu/shared/ledger/ledger_view_model.dart';
 import 'package:jiabu/shared/ledger/main_frame.dart';
 import 'package:jiabu_design/jiabu_design.dart';
@@ -30,7 +33,11 @@ class MainShell extends ConsumerWidget {
         path.startsWith('/settings') ||
         path.startsWith('/spaces') ||
         path == '/invitations';
-    final selected = settingsRoute
+    // 我的 (index 3) is the settings tab; space and invitation pages keep the
+    // tab they were opened from.
+    final selected = path.startsWith('/settings')
+        ? 3
+        : settingsRoute
         ? ref.watch(mainNavigationProvider)
         : path.startsWith('/overview')
         ? 1
@@ -39,22 +46,45 @@ class MainShell extends ConsumerWidget {
         : 0;
     final manual =
         (path == '/overview' || path == '/history') && spaceId != null;
+    final personal =
+        (ref.watch(spacesDirectoryProvider).asData?.value ??
+                const <SpaceInfo>[])
+            .any((space) => space.id == spaceId && space.isDefault);
+    // Settings (the 我的 tab), spaces and invitations bring their own page
+    // header; only chat, overview and history get the shared title block here.
+    final tab = settingsRoute ? null : selected;
+
     return MainFrame(
+      title: switch (tab) {
+        0 => l.ledgerChatTitle,
+        1 => l.ledgerOverview,
+        2 => l.ledgerHistory,
+        _ => null,
+      },
+      handEnglish: switch (tab) {
+        0 => l.handChatEnglish,
+        1 => handDateAccent(ref.watch(ledgerClockProvider)()),
+        2 => l.handHistoryEnglish,
+        _ => null,
+      },
+      subtitle: switch (tab) {
+        0 => personal ? l.handChatSubtitlePersonal : l.handChatSubtitleShared,
+        1 => l.handSubtitle,
+        2 => l.handHistorySubtitle,
+        _ => null,
+      },
+      showMark: tab == 0,
+      personalSpace: personal,
       spaceName: data?.space.text('name') ?? l.ledgerNoSpace,
       accent:
           context.jiabu.colors.spaceAccents[data?.space.text('accent_color')] ??
           context.jiabu.colors.primaryText,
-      settingsLabel: l.ledgerMySettings,
       onSpace: () => openSpaceSwitcher(context),
-      labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory],
+      labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory, l.ledgerMe],
       selected: selected,
       onSelect: (index) {
         ref.read(mainNavigationProvider.notifier).selectedIndex = index;
-        context.go(['/chat', '/overview', '/history'][index]);
-      },
-      onSettings: () {
-        ref.read(mainNavigationProvider.notifier).selectedIndex = selected;
-        unawaited(context.push<void>('/settings'));
+        context.go(['/chat', '/overview', '/history', '/settings'][index]);
       },
       status: Column(
         mainAxisSize: MainAxisSize.min,

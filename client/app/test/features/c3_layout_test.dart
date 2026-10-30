@@ -11,23 +11,26 @@ const _minimumStackPairs = <String, int>{
   // The chat placeholder is one top-level component; chat is outside UI2.
   'shell_chat': 0,
   'settings': 1,
-  'shell_overview': 9,
-  'shell_history': 2,
-  // No accounts and no records: title, empty state, pending section + body.
+  'shell_overview': 8,
+  'shell_history': 1,
+  // The 我的 tab: the settings section + group inside the page scaffold.
+  'shell_me': 1,
+  // No accounts and no records: empty state, pending section + body (the
+  // page title now lives in the shared MainFrame header).
   // The summary, account groups and recent changes are intentionally absent.
-  'overview_empty': 3,
-  'overview_accounts': 9,
+  'overview_empty': 2,
+  'overview_accounts': 8,
   // One extra stack item for the negative-balance note.
-  'overview_negative': 10,
-  'overview_pending': 9,
-  'overview_failure': 9,
-  'overview_conflict': 9,
-  'overview_busy': 9,
-  'history_empty': 2,
-  'history_grouped': 2,
-  'history_24': 2,
-  'history_search': 2,
-  'history_filters': 3,
+  'overview_negative': 9,
+  'overview_pending': 8,
+  'overview_failure': 8,
+  'overview_conflict': 8,
+  'overview_busy': 8,
+  'history_empty': 1,
+  'history_grouped': 1,
+  'history_24': 1,
+  'history_search': 1,
+  'history_filters': 2,
   // The empty account page contains one section marker and no block pair.
   'accounts_empty': 0,
   'accounts': 4,
@@ -168,10 +171,10 @@ void main() {
                     greaterThanOrEqualTo(48),
                   );
                 }
-                for (final element in find.byType(MeSealButton).evaluate()) {
+                for (final element in find.byType(SpaceBadge).evaluate()) {
                   expect(
-                    tester.getSize(find.byWidget(element.widget)),
-                    const Size(48, 48),
+                    tester.getSize(find.byWidget(element.widget)).height,
+                    greaterThanOrEqualTo(48),
                   );
                 }
                 if (find.byType(JiabuPageScaffold).evaluate().isNotEmpty) {
@@ -236,7 +239,7 @@ void main() {
                 );
                 if (state.startsWith('shell_')) {
                   expect(find.byType(PaperBottomNavigation), findsOneWidget);
-                  if (state != 'shell_chat') {
+                  if (state != 'shell_chat' && state != 'shell_me') {
                     final nav = tester.getRect(
                       find.byType(PaperBottomNavigation),
                     );
