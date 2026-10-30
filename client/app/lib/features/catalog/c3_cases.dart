@@ -90,7 +90,7 @@ const c3EnglishRepresentatives = <String>[
 LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
   const s = 'fictional-c3';
   final empty = state.endsWith('_empty');
-  final accountFixtures = state == 'accounts_long_6' || state == 'overview_busy'
+  final accountFixtures = state == 'accounts_long_6'
       ? const [
           ('real-a', 'real', '招商银行信用卡（虚构家庭日常共同支出账户）'),
           ('real-b', 'real', '中国银行长期储蓄账户（虚构）'),
@@ -113,7 +113,11 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
         'name': item.$3,
         'kind': item.$2,
         'opening_balance_minor':
-            state == 'overview_negative' && item.$1 == 'purpose-a' ? 0 : 10000,
+            state == 'overview_negative' && item.$1 == 'purpose-a'
+                ? 0
+                : state == 'overview_busy'
+                ? 2000000
+                : 10000,
         'opening_on': '2026-10-01',
         'is_reserve': item.$1 == 'purpose-b',
         'version': 1,

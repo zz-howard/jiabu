@@ -171,7 +171,7 @@ void overviewTotalsTests() {
       [
         account('a', 'real', 10000),
         account('b', 'real', 5000, archived: true),
-        account('p', 'purpose', 15000),
+        account('p', 'purpose', 16000),
       ],
       [record('r1', 'expense', 1200, '2026-10-28')],
     );
