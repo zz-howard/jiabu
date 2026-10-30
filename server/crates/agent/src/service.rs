@@ -461,6 +461,26 @@ pub(crate) fn validate_environment(
     }
     Ok(())
 }
+/// One language per terminal message, taken from what the user typed.
+/// Machine state never depends on this text; clients must not parse it.
+fn is_english(text: &str) -> bool {
+    !text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+        && text.chars().any(|c| c.is_ascii_alphabetic())
+}
+async fn input_is_english(tx: &SpaceTx, space: SpaceId, run: &RunRow) -> bool {
+    match tx.message(space, run.input_entry_id).await {
+        Ok(Some(input)) => is_english(input.message["fallbackText"].as_str().unwrap_or_default()),
+        _ => false,
+    }
+}
+fn stop_text(english: bool, count: usize) -> String {
+    match (english, count) {
+        (false, 0) => "已停止。".into(),
+        (false, n) => format!("已停止，已保存 {n} 项。"),
+        (true, 0) => "Stopped.".into(),
+        (true, n) => format!("Stopped; {n} saved."),
+    }
+}
 pub(crate) async fn close_run(
     tx: &SpaceTx,
     space: SpaceId,
@@ -477,6 +497,7 @@ pub(crate) async fn close_run(
         .await
         .map_err(|error| protocol_error_at("close_run: load checkpoint", error))?;
     let calls = tx.calls(space, run.id).await?;
+    let english = input_is_english(tx, space, run).await;
     let count = calls
         .iter()
         .filter(|c| c.effect == "local_write" && c.status == "succeeded")
@@ -493,11 +514,11 @@ pub(crate) async fn close_run(
     });
     // CW permits one open markdown block. Its terminator closes any persisted
     // model block; terminal_summary still reports counts when we skip this block.
-    if current.status() == "streaming" && reason == "stopped" && !open_markdown {
+    let stop_text_appended =
+        current.status() == "streaming" && reason == "stopped" && !open_markdown;
+    if stop_text_appended {
         stage
-            .markdown(&format!(
-                "已停止，已保存 {count} 项 / Stopped; {count} operations saved."
-            ))
+            .markdown(&stop_text(english, count))
             .await
             .map_err(|error| protocol_error_at("close_run: append stop text", error))?;
     }
@@ -531,11 +552,23 @@ pub(crate) async fn close_run(
                 && !open_markdown
             {
                 stage
-                    .markdown("运行未完成，请重试 / Run did not finish; retry.")
+                    .markdown(if english {
+                        "The run did not finish. Please retry."
+                    } else {
+                        "运行未完成，请重试。"
+                    })
                     .await
                     .map_err(|error| protocol_error_at("close_run: append failure text", error))?;
             }
-            stage.stream.fail(&format!("运行未完成，请重试 / Run did not finish; retry. 已保存 {count} 项 / {count} operations saved.")).await.map_err(|error| protocol_error_at("close_run: fail stream", error))?;
+            stage
+                .stream
+                .fail(&if english {
+                    format!("The run did not finish. Please retry. {count} saved.")
+                } else {
+                    format!("运行未完成，请重试。已保存 {count} 项。")
+                })
+                .await
+                .map_err(|error| protocol_error_at("close_run: fail stream", error))?;
         }
     }
     let mut batch = stage
@@ -552,7 +585,17 @@ pub(crate) async fn close_run(
                         != Some(&serde_json::Value::Bool(true))
             })
             .count();
-        batch=jiabu_chat::terminal_summary(&initial,batch,&format!("已停止；已保存 {count} 项，未完成 {unfinished} 项 / Stopped; {count} operations saved, {unfinished} unfinished.")).map_err(|error| protocol_error_at("close_run: fold terminal summary", error))?;
+        // The appended stop sentence already says everything when nothing was
+        // saved and nothing is unfinished.
+        if !(stop_text_appended && count == 0 && unfinished == 0) {
+            let summary = if english {
+                format!("Stopped; {count} saved, {unfinished} unfinished.")
+            } else {
+                format!("已停止；已保存 {count} 项，未完成 {unfinished} 项。")
+            };
+            batch = jiabu_chat::terminal_summary(&initial, batch, &summary)
+                .map_err(|error| protocol_error_at("close_run: fold terminal summary", error))?;
+        }
     }
     tx.record_interrupt_close(space, run, status).await?;
     jiabu_chat::persist(tx, space, &batch)
@@ -638,4 +681,24 @@ fn validate_answer(block: &Value, request: &Value) -> Result<(), OperationError>
         _ => return Err(OperationError::invalid()),
     }
     Ok(())
+}
+#[cfg(test)]
+mod terminal_text_tests {
+    use super::*;
+    #[test]
+    fn stop_text_is_single_language_and_plain_for_zero() {
+        assert_eq!(stop_text(false, 0), "已停止。");
+        assert_eq!(stop_text(true, 0), "Stopped.");
+        assert_eq!(stop_text(false, 2), "已停止，已保存 2 项。");
+        for s in [stop_text(false, 0), stop_text(true, 3), stop_text(false, 3)] {
+            assert!(!s.contains(" / "));
+        }
+    }
+    #[test]
+    fn language_follows_input() {
+        assert!(!is_english("哈喽"));
+        assert!(!is_english("lunch 午饭 68"));
+        assert!(is_english("hello"));
+        assert!(!is_english("68"));
+    }
 }

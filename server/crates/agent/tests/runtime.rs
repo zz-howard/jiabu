@@ -369,6 +369,17 @@ async fn stop_waiting_ai_for_manual_entry_never_calls_provider() -> Result<()> {
     f.runs().stop(&f.p, r.message_id).await?;
     assert!(!f.work().await?);
     assert!(f.mock.requests().is_empty());
+    // Manual entry on a plain message: one language, no "saved 0 items" noise.
+    let text = f.checkpoint(r.message_id).await?.message.0["fallbackText"]
+        .as_str()
+        .context("text")?
+        .to_string();
+    assert!(!text.contains(" / "), "{text}");
+    assert!(
+        !text.contains("Stopped;") && !text.contains("operations saved"),
+        "{text}"
+    );
+    assert_eq!(text.trim(), "已停止。", "{text}");
     Ok(())
 }
 #[tokio::test]
