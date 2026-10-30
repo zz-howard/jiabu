@@ -8,7 +8,9 @@
       "replace": "return 0;",
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
-      "test_names": ["stack applies token gaps and grows at 200 percent"],
+      "test_names": [
+        "stack applies token gaps and grows at 200 percent"
+      ],
       "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {
@@ -18,7 +20,9 @@
       "replace": "spacing: 0,\n        runSpacing: JiabuSpacing.sm,",
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
-      "test_names": ["chip group applies token gaps and selected theme"],
+      "test_names": [
+        "chip group applies token gaps and selected theme"
+      ],
       "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {
@@ -28,7 +32,9 @@
       "replace": "return 0;",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
-      "test_names": ["account logout is separated as an action block"],
+      "test_names": [
+        "account logout is separated as an action block"
+      ],
       "command": "flutter test test/features/c4_layout_test.dart"
     },
     {
@@ -38,7 +44,9 @@
       "replace": "child: Text(l.c4Disabled),",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
-      "test_names": ["app lock status and action labels are distinct"],
+      "test_names": [
+        "app lock status and action labels are distinct"
+      ],
       "command": "flutter test test/features/c4_layout_test.dart"
     },
     {
@@ -48,7 +56,9 @@
       "replace": ".clamp(24, 24)",
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
-      "test_names": ["page back glyph scales and aligns with title first line"],
+      "test_names": [
+        "page back glyph scales and aligns with title first line"
+      ],
       "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {
@@ -58,7 +68,9 @@
       "replace": "key: Key('jiabu-page-back-gap'),\n                    width: 0,",
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
-      "test_names": ["page back glyph keeps token gap before title"],
+      "test_names": [
+        "page back glyph keeps token gap before title"
+      ],
       "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {
@@ -68,7 +80,9 @@
       "replace": "subtitleMaxLines: 1,",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
-      "test_names": ["api key permissions remain visible beside long prefixes"],
+      "test_names": [
+        "api key permissions remain visible beside long prefixes"
+      ],
       "command": "flutter test test/features/c4_layout_test.dart"
     },
     {
@@ -78,7 +92,9 @@
       "replace": "context.jiabu.colors.transparent,",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c3_layout_test.dart",
-      "test_names": ["history filter fade keeps the paper color channels"],
+      "test_names": [
+        "history filter fade keeps the paper color channels"
+      ],
       "command": "flutter test test/features/c3_layout_test.dart"
     },
     {
@@ -88,8 +104,22 @@
       "replace": "JiabuStackItem.content(\n            child: FilledButton(",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
-      "test_names": ["C4Form submit is an action block with action gap"],
+      "test_names": [
+        "C4Form submit is an action block with action gap"
+      ],
       "command": "flutter test test/features/c4_layout_test.dart"
+    },
+    {
+      "id": "chip_label_state_style_drops_font",
+      "file": "client/packages/jiabu_design/lib/src/components/chip_group.dart",
+      "find": "      labelStyle: body.copyWith(\n        color: WidgetStateColor.resolveWith(\n          (states) => states.contains(WidgetState.selected)\n              ? colors.onPrimarySoft\n              : colors.ink,\n        ),\n      ),",
+      "replace": "      labelStyle: WidgetStateTextStyle.resolveWith(\n        (states) => body.copyWith(\n          color: states.contains(WidgetState.selected)\n              ? colors.onPrimarySoft\n              : colors.ink,\n        ),\n      ),",
+      "expected_occurrences": 1,
+      "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
+      "test_names": [
+        "chip group applies token gaps and selected theme"
+      ],
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     }
   ]
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
@@ -284,9 +285,14 @@ void main() {
       context.jiabu.colors.onPrimarySoft,
     );
     expect(theme.showCheckmark, isTrue);
-    final selectedLabel = (theme.labelStyle! as WidgetStateTextStyle).resolve({
-      WidgetState.selected,
-    });
+    // Check the label as the chip actually paints it: Chip merges the theme
+    // style before resolving state, which once dropped the font family.
+    final selectedLabel = tester
+        .renderObject<RenderParagraph>(
+          find.descendant(of: chip, matching: find.byType(RichText)),
+        )
+        .text
+        .style!;
     expect(selectedLabel.color, context.jiabu.colors.onPrimarySoft);
     expect(selectedLabel.fontFamily, context.jiabu.type.body.fontFamily);
     final selectedSide = (theme.side! as WidgetStateBorderSide).resolve({
