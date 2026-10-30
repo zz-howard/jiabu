@@ -44,26 +44,40 @@ class ApiKeyDetails extends ConsumerWidget {
         }
       },
       children: [
-        Text(
-          row['display_prefix'] as String? ?? '',
-          style: context.jiabu.type.mono,
+        JiabuStackItem.content(
+          child: Text(
+            row['display_prefix'] as String? ?? '',
+            style: context.jiabu.type.mono,
+          ),
         ),
-        Text(row['scope'] == 'read' ? l.c4Read : l.c4ReadWrite),
-        Text('${l.c4CreatedAt}: ${keyTime(l, row['created_at'], '')}'),
-        Text('${l.c4Expiry}: ${keyTime(l, row['expires_at'], l.c4Never)}'),
-        Text(
-          '${l.c4LastUsed}: ${keyTime(l, row['last_used_at'], l.c4NeverUsed)}',
+        JiabuStackItem.content(
+          child: Text(row['scope'] == 'read' ? l.c4Read : l.c4ReadWrite),
         ),
-        Text(l.c4KeyImmutable),
-        const SizedBox(height: JiabuSpacing.cardGap),
-        C4Field(
-          id: id,
-          field: 'name',
-          label: l.c4Name,
-          initial: row['name'] as String? ?? '',
+        JiabuStackItem.content(
+          child: Text('${l.c4CreatedAt}: ${keyTime(l, row['created_at'], '')}'),
         ),
-        OutlinedButton(
-          onPressed: !state.online || state.busy
+        JiabuStackItem.content(
+          child: Text(
+            '${l.c4Expiry}: ${keyTime(l, row['expires_at'], l.c4Never)}',
+          ),
+        ),
+        JiabuStackItem.content(
+          child: Text(
+            '${l.c4LastUsed}: ${keyTime(l, row['last_used_at'], l.c4NeverUsed)}',
+          ),
+        ),
+        JiabuStackItem.caption(child: Text(l.c4KeyImmutable)),
+        JiabuStackItem.content(
+          child: C4Field(
+            id: id,
+            field: 'name',
+            label: l.c4Name,
+            initial: row['name'] as String? ?? '',
+          ),
+        ),
+        JiabuStackItem.action(
+          child: OutlinedButton(
+            onPressed: !state.online || state.busy
               ? null
               : () async {
                   final confirmed = await JiabuSheet.show<bool>(
@@ -86,7 +100,8 @@ class ApiKeyDetails extends ConsumerWidget {
                     }
                   }
                 },
-          child: Text(l.c4Revoke),
+            child: Text(l.c4Revoke),
+          ),
         ),
       ],
     );

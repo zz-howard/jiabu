@@ -16,7 +16,7 @@ class AuthFrame extends StatelessWidget {
     super.key,
   });
   final String title;
-  final List<Widget> children;
+  final List<JiabuStackItem> children;
   final int? step;
   final Widget? subtitle;
   final Widget? footer;
@@ -26,20 +26,19 @@ class AuthFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = Column(
-      spacing: JiabuSpacing.cardGap,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
+    final content = JiabuStack(
       children: [
         ...children,
         if (errorCode != null)
-          Semantics(
-            liveRegion: true,
-            child: Text(
-              authError(context, errorCode),
-              textWidthBasis: TextWidthBasis.parent,
-              style: context.jiabu.type.secondary.copyWith(
-                color: Theme.of(context).colorScheme.error,
+          JiabuStackItem.caption(
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                authError(context, errorCode),
+                textWidthBasis: TextWidthBasis.parent,
+                style: context.jiabu.type.secondary.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
             ),
           ),

@@ -18,17 +18,21 @@ class SwitchPartitionPrompt extends StatelessWidget {
     return JiabuSheet(
       child: Padding(
         padding: const EdgeInsets.only(top: JiabuSpacing.cardGap),
-        child: Column(
-          spacing: JiabuSpacing.cardGap,
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: JiabuStack(
           children: [
-            Text(l10n.authPendingSwitch(count)),
-            FilledButton(
-              onPressed: onContinue,
-              child: Text(l10n.authContinueSwitch),
+            JiabuStackItem.content(child: Text(l10n.authPendingSwitch(count))),
+            JiabuStackItem.action(
+              child: FilledButton(
+                onPressed: onContinue,
+                child: Text(l10n.authContinueSwitch),
+              ),
             ),
-            TextButton(onPressed: onCancel, child: Text(l10n.authCancel)),
+            JiabuStackItem.action(
+              child: TextButton(
+                onPressed: onCancel,
+                child: Text(l10n.authCancel),
+              ),
+            ),
           ],
         ),
       ),

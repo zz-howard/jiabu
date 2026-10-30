@@ -46,17 +46,20 @@ class SpacesScreen extends ConsumerWidget {
       );
     }
     if (page == 'switcher') {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
+      return JiabuStack(
         children: [
-          Text(l.c4Spaces, style: context.jiabu.type.sectionTitle),
-          if (directory.isLoading) Text(l.c4Loading),
-          if (directory.hasError) Text(l.c4Error),
-          SpaceSwitcher(
-            currentId: runtime.currentSpace,
-            personalLabel: l.handC4Personal,
-            spaces: [
+          JiabuStackItem.content(
+            child: Text(l.c4Spaces, style: context.jiabu.type.sectionTitle),
+          ),
+          if (directory.isLoading)
+            JiabuStackItem.caption(child: Text(l.c4Loading)),
+          if (directory.hasError)
+            JiabuStackItem.caption(child: Text(l.c4Error)),
+          JiabuStackItem.content(
+            child: SpaceSwitcher(
+              currentId: runtime.currentSpace,
+              personalLabel: l.handC4Personal,
+              spaces: [
               for (final item in spaces)
                 (
                   id: item.id,
@@ -66,8 +69,8 @@ class SpacesScreen extends ConsumerWidget {
                       context.jiabu.colors.primaryText,
                   personal: item.isDefault,
                 ),
-            ],
-            onSelect: (id) async {
+              ],
+              onSelect: (id) async {
               final repository = ref.read(spacesRepositoryProvider);
               final router = GoRouter.of(context);
               final path = router.routeInformationProvider.value.uri.path;
@@ -80,20 +83,24 @@ class SpacesScreen extends ConsumerWidget {
                 final page = path.split('/').last;
                 router.go('/spaces/$id/$page');
               }
-            },
+              },
+            ),
           ),
-          TextButton(
-            onPressed: runtime.managementOnline
+          JiabuStackItem.action(
+            child: TextButton(
+              onPressed: runtime.managementOnline
                 ? () {
                     final host = Navigator.of(context).context;
                     Navigator.of(context).pop();
                     unawaited(openSpaceForm(host));
                   }
                 : null,
-            child: Text(l.c4CreateSpace),
+              child: Text(l.c4CreateSpace),
+            ),
           ),
-          TextButton(
-            onPressed: space == null
+          JiabuStackItem.action(
+            child: TextButton(
+              onPressed: space == null
                 ? null
                 : () {
                     final router = GoRouter.of(context);
@@ -102,17 +109,21 @@ class SpacesScreen extends ConsumerWidget {
                       router.push<void>('/spaces/${space.id}/settings'),
                     );
                   },
-            child: Text(l.c4SpaceSettings),
+              child: Text(l.c4SpaceSettings),
+            ),
           ),
-          TextButton(
-            onPressed: () {
+          JiabuStackItem.action(
+            child: TextButton(
+              onPressed: () {
               final router = GoRouter.of(context);
               Navigator.of(context).pop();
               unawaited(router.push<void>('/invitations'));
             },
-            child: Text(l.c4Received),
+              child: Text(l.c4Received),
+            ),
           ),
-          if (!runtime.managementOnline) Text(l.c4Offline),
+          if (!runtime.managementOnline)
+            JiabuStackItem.caption(child: Text(l.c4Offline)),
         ],
       );
     }
@@ -189,18 +200,16 @@ class SpacesScreen extends ConsumerWidget {
           : null,
       body: SingleChildScrollView(
         padding: EdgeInsets.all(context.jiabu.spacing.page),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: JiabuStack(
           children: [
-            Padding(
-              padding: const EdgeInsets.only(
-                bottom: JiabuSpacing.sectionBottom,
-              ),
+            JiabuStackItem.content(
               child: Text(space.name, style: context.jiabu.type.secondary),
             ),
-            if (!runtime.managementOnline) Text(l.c4Offline),
-            JiabuSettingsGroup(
-              children: [
+            if (!runtime.managementOnline)
+              JiabuStackItem.caption(child: Text(l.c4Offline)),
+            JiabuStackItem.content(
+              child: JiabuSettingsGroup(
+                children: [
                 if (page == 'settings') ...[
                   if (space.owner)
                     JiabuListRow(
@@ -280,7 +289,8 @@ class SpacesScreen extends ConsumerWidget {
                           )
                         : null,
                   ),
-              ],
+                ],
+              ),
             ),
           ],
         ),

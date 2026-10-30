@@ -30,6 +30,7 @@ export 'src/components/space_accent_picker.dart';
 export 'src/components/space_switcher.dart';
 export 'src/components/stamp.dart';
 export 'src/components/sticker.dart';
+export 'src/components/stack.dart';
 export 'src/components/tape.dart';
 export 'src/components/tilt.dart';
 export 'src/components/trend_plot.dart';

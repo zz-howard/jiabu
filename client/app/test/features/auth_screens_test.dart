@@ -14,6 +14,7 @@ import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 import '../support/image_harness.dart';
+import '../support/vertical_spacing.dart';
 
 Future<void> pumpAuth(
   WidgetTester tester,
@@ -81,6 +82,10 @@ void main() {
             scale: scale,
           );
           expect(tester.takeException(), isNull);
+          expectJiabuVerticalRhythm(
+            tester,
+            reason: 'auth login $locale $width $scale',
+          );
           final pageInset = width <= 380 ? 14.0 : 18.0;
           expect(
             tester.getRect(find.byType(PaperCard).first).left,

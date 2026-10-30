@@ -76,35 +76,39 @@ class SpaceForm extends ConsumerWidget {
         }
       },
       children: [
-        C4Field(
-          id: id,
-          field: 'name',
-          label: l.c4Name,
-          initial: space?.name ?? '',
+        JiabuStackItem.content(
+          child: C4Field(
+            id: id,
+            field: 'name',
+            label: l.c4Name,
+            initial: space?.name ?? '',
+          ),
         ),
-        SpaceAccentPicker(
-          value:
-              state.values['accent_color'] as String? ??
-              space?.accent ??
-              defaultAccent,
-          label: l.c4Accent,
-          names: {
-            'terracotta': l.c4AccentTerracotta,
-            'indigo': l.c4AccentIndigo,
-            'pine': l.c4AccentPine,
-            'plum': l.c4AccentPlum,
-            'teal': l.c4AccentTeal,
-            'amber': l.c4AccentAmber,
-            'rouge': l.c4AccentRouge,
-            'wisteria': l.c4AccentWisteria,
-          },
-          onChanged: (value) => vm.patch('accent_color', value),
+        JiabuStackItem.content(
+          child: SpaceAccentPicker(
+            value:
+                state.values['accent_color'] as String? ??
+                space?.accent ??
+                defaultAccent,
+            label: l.c4Accent,
+            names: {
+              'terracotta': l.c4AccentTerracotta,
+              'indigo': l.c4AccentIndigo,
+              'pine': l.c4AccentPine,
+              'plum': l.c4AccentPlum,
+              'teal': l.c4AccentTeal,
+              'amber': l.c4AccentAmber,
+              'rouge': l.c4AccentRouge,
+              'wisteria': l.c4AccentWisteria,
+            },
+            onChanged: (value) => vm.patch('accent_color', value),
+          ),
         ),
         if (space == null) ...[
-          Text(l.c4Currency),
-          const SizedBox(height: JiabuSpacing.messageGap),
-          Wrap(
-            children: [
+          JiabuStackItem.content(child: Text(l.c4Currency)),
+          JiabuStackItem.content(
+            child: Wrap(
+              children: [
               for (final currency in const [
                 'CNY',
                 'HKD',
@@ -118,14 +122,16 @@ class SpaceForm extends ConsumerWidget {
                   selected: (state.values['currency'] ?? 'CNY') == currency,
                   onSelected: (_) => vm.patch('currency', currency),
                 ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: JiabuSpacing.cardGap),
-          C4Field(
-            id: id,
-            field: 'timezone',
-            label: l.c4Timezone,
-            initial: timezone,
+          JiabuStackItem.content(
+            child: C4Field(
+              id: id,
+              field: 'timezone',
+              label: l.c4Timezone,
+              initial: timezone,
+            ),
           ),
         ],
       ],

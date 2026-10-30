@@ -21,7 +21,7 @@ class C4Form extends ConsumerWidget {
   });
   final String id;
   final String title;
-  final List<Widget> children;
+  final List<JiabuStackItem> children;
   final Future<void> Function()? onSubmit;
   final String? submitLabel;
   final bool requiresOnline;
@@ -31,27 +31,30 @@ class C4Form extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
     final state = ref.watch(c4ViewModelProvider(id));
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
+    return JiabuStack(
       children: [
-        if (showTitle) ...[
-          HandUnderline(
+        if (showTitle)
+          JiabuStackItem.content(
+            child: HandUnderline(
             child: Text(title, style: context.jiabu.type.sectionTitle),
+            ),
           ),
-          const SizedBox(height: JiabuSpacing.cardGap),
-        ],
         ...children,
-        if (requiresOnline && !state.online) Text(l.c4Offline),
+        if (requiresOnline && !state.online)
+          JiabuStackItem.caption(child: Text(l.c4Offline)),
         if (state.error case final String code)
-          Semantics(liveRegion: true, child: Text(c4Error(l, code))),
+          JiabuStackItem.caption(
+            child: Semantics(liveRegion: true, child: Text(c4Error(l, code))),
+          ),
         if (onSubmit != null)
-          FilledButton(
-            onPressed:
-                enabled && !state.busy && (!requiresOnline || state.online)
-                ? onSubmit
-                : null,
-            child: Text(submitLabel ?? l.c4Save),
+          JiabuStackItem.action(
+            child: FilledButton(
+              onPressed:
+                  enabled && !state.busy && (!requiresOnline || state.online)
+                  ? onSubmit
+                  : null,
+              child: Text(submitLabel ?? l.c4Save),
+            ),
           ),
       ],
     );

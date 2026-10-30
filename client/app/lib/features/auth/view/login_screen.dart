@@ -93,7 +93,8 @@ class _LoginScreenState extends State<LoginScreen> {
         ],
       ),
       children: [
-        Stack(
+        JiabuStackItem.content(
+          child: Stack(
           clipBehavior: Clip.none,
           children: [
             PaperCard(
@@ -166,10 +167,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
           ],
+          ),
         ),
-        const SizedBox(height: JiabuSpacing.xl),
-        Row(
-          children: [
+        JiabuStackItem.content(
+          child: Row(
+            children: [
             Expanded(child: Divider(color: context.jiabu.colors.lineStrong)),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: JiabuSpacing.sm),
@@ -181,12 +183,13 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
             Expanded(child: Divider(color: context.jiabu.colors.lineStrong)),
-          ],
+            ],
+          ),
         ),
-        const SizedBox(height: JiabuSpacing.sm),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
+        JiabuStackItem.content(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
             const JiabuMascot(pose: JiabuMascotPose.pen, size: 74),
             const SizedBox(width: JiabuSpacing.sm),
             Expanded(
@@ -213,7 +216,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ],
     );

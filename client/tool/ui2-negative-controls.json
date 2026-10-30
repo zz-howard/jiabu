@@ -1,0 +1,75 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion or rules command to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly.",
+  "controls": [
+    {
+      "id": "stack_omits_default_gap",
+      "file": "client/packages/jiabu_design/lib/src/components/stack.dart",
+      "find": "return JiabuSpacing.cardGap;",
+      "replace": "return 0;",
+      "expected_occurrences": 1,
+      "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
+      "test_names": ["stack applies token gaps and grows at 200 percent"],
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"stack applies token gaps and grows at 200 percent\""
+    },
+    {
+      "id": "account_logout_returns_to_zero_gap",
+      "file": "client/packages/jiabu_design/lib/src/components/stack.dart",
+      "find": "return JiabuSpacing.actionGap;",
+      "replace": "return 0;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c4_layout_test.dart",
+      "test_names": ["account logout is separated as an action block"],
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"account logout is separated as an action block\""
+    },
+    {
+      "id": "lock_disable_uses_status_label",
+      "file": "client/app/lib/features/lock/view/lock_settings_screen.dart",
+      "find": "child: Text(l.c4TurnOffAppLock),",
+      "replace": "child: Text(l.c4Disabled),",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c4_layout_test.dart",
+      "test_names": ["app lock status and action labels are distinct"],
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"app lock status and action labels are distinct\""
+    },
+    {
+      "id": "page_back_icon_stays_fixed",
+      "file": "client/packages/jiabu_design/lib/src/components/page_header.dart",
+      "find": ".clamp(24, 32)",
+      "replace": ".clamp(24, 24)",
+      "expected_occurrences": 1,
+      "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
+      "test_names": ["page back icon scales to 32 and aligns with title first line"],
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"page back icon scales to 32 and aligns with title first line\""
+    },
+    {
+      "id": "api_key_permission_truncates",
+      "file": "client/app/lib/features/settings/api_keys/api_key_row.dart",
+      "find": "subtitleMaxLines: 2,",
+      "replace": "subtitleMaxLines: 1,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c4_layout_test.dart",
+      "test_names": ["api key permissions remain visible beside long prefixes"],
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"api key permissions remain visible beside long prefixes\""
+    },
+    {
+      "id": "history_fade_uses_transparent_black",
+      "file": "client/app/lib/shared/ledger/ledger_pages.dart",
+      "find": "context.jiabu.colors.bg.withValues(alpha: 0),",
+      "replace": "context.jiabu.colors.transparent,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c3_layout_test.dart",
+      "test_names": ["history filter fade keeps the paper color channels"],
+      "command": "flutter test test/features/c3_layout_test.dart --plain-name \"history filter fade keeps the paper color channels\""
+    },
+    {
+      "id": "c4_form_submit_is_not_action",
+      "file": "client/app/lib/shared/c4/c4_form.dart",
+      "find": "JiabuStackItem.action(\n            child: FilledButton(",
+      "replace": "JiabuStackItem.content(\n            child: FilledButton(",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c4_layout_test.dart",
+      "test_names": ["C4Form submit is an action block with action gap"],
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"C4Form submit is an action block with action gap\""
+    }
+  ]
+}

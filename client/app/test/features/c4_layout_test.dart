@@ -5,6 +5,7 @@ import 'package:jiabu/features/catalog/c4_cases.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 import '../support/c4_harness.dart';
+import '../support/vertical_spacing.dart';
 
 void main() {
   for (final state in c4States) {
@@ -26,6 +27,10 @@ void main() {
                   scale: scale,
                 );
                 expect(tester.takeException(), isNull);
+                expectJiabuVerticalRhythm(
+                  tester,
+                  reason: '$state $locale $accent $width $scale',
+                );
                 for (final element
                     in find.byType(SpaceAccentPicker).evaluate()) {
                   final widget = element.widget as SpaceAccentPicker;
@@ -237,20 +242,28 @@ void main() {
   testWidgets('api key permissions remain visible beside long prefixes', (
     tester,
   ) async {
-    for (final (width, scale) in [(360.0, 1.0), (430.0, 2.0)]) {
+    for (final locale in ['zh', 'en']) {
+      for (final (width, scale) in [
+        (360.0, 1.0),
+        (360.0, 2.0),
+        (430.0, 1.0),
+        (430.0, 2.0),
+      ]) {
       await pumpC4Preview(
         tester,
         state: 'keys_list',
+        locale: locale,
         width: width,
         scale: scale,
       );
-      final permission = find.text('只读');
+      final permission = find.text(locale == 'zh' ? '只读' : 'Read only');
       expect(permission, findsOneWidget, reason: '$width at ${scale}x');
       expect(
         tester.renderObject<RenderParagraph>(permission).didExceedMaxLines,
         isFalse,
         reason: '$width at ${scale}x',
       );
+      }
     }
   });
 
@@ -262,7 +275,41 @@ void main() {
         .getRect(find.byType(JiabuSettingsGroup).last)
         .bottom;
     final buttonTop = tester.getRect(find.byType(FilledButton)).top;
-    expect(buttonTop - groupBottom, greaterThanOrEqualTo(JiabuSpacing.cardGap));
+    expect(
+      buttonTop - groupBottom,
+      greaterThanOrEqualTo(JiabuSpacing.actionGap),
+    );
+  });
+
+  testWidgets('C4Form submit is an action block with action gap', (tester) async {
+    await pumpC4Preview(tester, state: 'password');
+    final button = find.byType(FilledButton);
+    final marker = find.ancestor(
+      of: button,
+      matching: find.byType(JiabuStackMarker),
+    ).first;
+    expect(
+      tester.widget<JiabuStackMarker>(marker).kind,
+      JiabuStackItemKind.action,
+    );
+    expectJiabuVerticalRhythm(tester, reason: 'password C4Form');
+  });
+
+  testWidgets('account logout is separated as an action block', (tester) async {
+    await pumpC4Preview(tester, state: 'account');
+    final group = tester.getRect(find.byType(JiabuSettingsGroup));
+    final button = tester.getRect(find.widgetWithText(OutlinedButton, '退出登录'));
+    expect(button.top - group.bottom, greaterThanOrEqualTo(JiabuSpacing.actionGap));
+  });
+
+  testWidgets('app lock status and action labels are distinct', (tester) async {
+    await pumpC4Preview(tester, state: 'lock_enabled');
+    expect(find.text('已开启'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, '关闭应用锁'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, '未开启'), findsNothing);
+    await pumpC4Preview(tester, state: 'lock_disabled');
+    expect(find.text('未开启'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '开启应用锁'), findsOneWidget);
   });
 
   testWidgets('language row exposes selected semantics', (tester) async {

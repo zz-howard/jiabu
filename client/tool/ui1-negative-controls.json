@@ -64,8 +64,8 @@
     {
       "id": "structural_transform_not_reported",
       "file": "client/packages/jiabu_design/lib/src/components/page_header.dart",
-      "find": "child: const SizedBox(\n                          key: Key('jiabu-page-back'),\n                          width: JiabuSpacing.minTapTarget,\n                          height: JiabuSpacing.minTapTarget,\n                          child: Center(\n                            child: JiabuIcon(JiabuIcons.uiRight, flipX: true),\n                          ),\n                        ),",
-      "replace": "child: SizedBox(\n                          key: const Key('jiabu-page-back'),\n                          width: JiabuSpacing.minTapTarget,\n                          height: JiabuSpacing.minTapTarget,\n                          child: Center(\n                            child: Transform.rotate(\n                              angle: .1,\n                              child: const JiabuIcon(JiabuIcons.uiRight, flipX: true),\n                            ),\n                          ),\n                        ),",
+      "find": "child: JiabuIcon(\n                                JiabuIcons.uiRight,\n                                key: const Key('jiabu-page-back-icon'),\n                                size: backIconSize,\n                                flipX: true,\n                              ),",
+      "replace": "child: Transform.rotate(\n                                angle: .1,\n                                child: JiabuIcon(\n                                  JiabuIcons.uiRight,\n                                  key: const Key('jiabu-page-back-icon'),\n                                  size: backIconSize,\n                                  flipX: true,\n                                ),\n                              ),",
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
       "test_names": ["layout components stay at zero rotation"],

@@ -5,6 +5,7 @@ import 'package:jiabu/shared/ledger/record_card.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 import '../support/c3_harness.dart';
+import '../support/vertical_spacing.dart';
 
 void main() {
   for (final state in c3States) {
@@ -24,6 +25,17 @@ void main() {
                   scale: scale,
                 );
                 expect(tester.takeException(), isNull);
+                expectJiabuVerticalRhythm(
+                  tester,
+                  reason: '$state $locale $accent $width $scale',
+                  requireStack:
+                      state == 'settings' ||
+                      state == 'shell_overview' ||
+                      state == 'shell_history' ||
+                      state.startsWith('overview_') ||
+                      state.startsWith('history_') ||
+                      state.startsWith('accounts'),
+                );
                 for (final card in find.byType(LedgerRecordCard).evaluate()) {
                   expect(
                     tester.getSize(find.byWidget(card.widget)).width,
@@ -180,5 +192,26 @@ void main() {
       final content = tester.getRect(contents.at(index));
       expect(line.center.dx, lessThan(content.left - 4));
     }
+  });
+
+  testWidgets('history filter fade keeps the paper color channels', (
+    tester,
+  ) async {
+    await pumpC3(tester, state: 'history_filters');
+    final fade = find.byWidgetPredicate((widget) {
+      if (widget is! Container || widget.decoration is! BoxDecoration) {
+        return false;
+      }
+      return (widget.decoration! as BoxDecoration).gradient is LinearGradient;
+    });
+    final container = tester.widget<Container>(fade.first);
+    final gradient = (container.decoration! as BoxDecoration).gradient!
+        as LinearGradient;
+    final transparentPaper = gradient.colors.first;
+    final paper = gradient.colors.last;
+    expect(transparentPaper.a, 0);
+    expect(transparentPaper.r, paper.r);
+    expect(transparentPaper.g, paper.g);
+    expect(transparentPaper.b, paper.b);
   });
 }

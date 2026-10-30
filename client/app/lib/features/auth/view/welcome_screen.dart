@@ -33,105 +33,117 @@ class WelcomeScreen extends StatelessWidget {
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 520),
-                      child: Column(
+                      child: JiabuStack(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const SizedBox(height: JiabuSpacing.xl),
-                          Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              JiabuLogo(size: logoSize),
-                              const Positioned(
-                                left: -24,
-                                top: 8,
-                                child: Tape(
-                                  pattern: TapePattern.dots,
-                                  degrees: -32,
-                                  width: 64,
+                          JiabuStackItem.content(
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                JiabuLogo(size: logoSize),
+                                const Positioned(
+                                  left: -24,
+                                  top: 8,
+                                  child: Tape(
+                                    pattern: TapePattern.dots,
+                                    degrees: -32,
+                                    width: 64,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: JiabuSpacing.sm),
-                          HandText(
-                            l.handAuthWelcomeTagline,
-                            textAlign: TextAlign.center,
-                            style: context.jiabu.type.subtitle.copyWith(
-                              fontSize: wide ? 22 : 20,
-                              letterSpacing: 2.4,
+                          JiabuStackItem.content(
+                            child: HandText(
+                              l.handAuthWelcomeTagline,
+                              textAlign: TextAlign.center,
+                              style: context.jiabu.type.subtitle.copyWith(
+                                fontSize: wide ? 22 : 20,
+                                letterSpacing: 2.4,
+                              ),
                             ),
                           ),
                           if (chinese)
-                            HandText(
-                              l.handAuthBrandEnglish,
-                              english: true,
-                              textAlign: TextAlign.center,
-                              style: context.jiabu.type.englishSubtitle
-                                  .copyWith(fontSize: 18),
-                            ),
-                          const SizedBox(height: JiabuSpacing.xl),
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            crossAxisAlignment: WrapCrossAlignment.end,
-                            spacing: 6,
-                            runSpacing: 12,
-                            children: [
-                              JiabuMascot(
-                                pose: JiabuMascotPose.greet,
-                                size: mascotSize,
+                            JiabuStackItem.caption(
+                              child: HandText(
+                                l.handAuthBrandEnglish,
+                                english: true,
+                                textAlign: TextAlign.center,
+                                style: context.jiabu.type.englishSubtitle
+                                    .copyWith(fontSize: 18),
                               ),
-                              ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxWidth: wide ? 220 : 190,
+                            ),
+                          JiabuStackItem.content(
+                            child: Wrap(
+                              alignment: WrapAlignment.center,
+                              crossAxisAlignment: WrapCrossAlignment.end,
+                              spacing: 6,
+                              runSpacing: 12,
+                              children: [
+                                JiabuMascot(
+                                  pose: JiabuMascotPose.greet,
+                                  size: mascotSize,
                                 ),
-                                child: Stack(
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    NoteBubble(
-                                      id: 'auth-welcome',
-                                      child: HandText(
-                                        l.handAuthWelcomeGreeting,
-                                        style: context.jiabu.type.subtitle
-                                            .copyWith(fontSize: wide ? 17 : 16),
+                                ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: wide ? 220 : 190,
+                                  ),
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      NoteBubble(
+                                        id: 'auth-welcome',
+                                        child: HandText(
+                                          l.handAuthWelcomeGreeting,
+                                          style: context.jiabu.type.subtitle
+                                              .copyWith(
+                                                fontSize: wide ? 17 : 16,
+                                              ),
+                                        ),
                                       ),
-                                    ),
-                                    const Positioned(
-                                      top: -10,
-                                      left: 56,
-                                      child: Tape(width: 60, degrees: 3),
+                                      const Positioned(
+                                        top: -10,
+                                        left: 56,
+                                        child: Tape(width: 60, degrees: 3),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          JiabuStackItem.action(
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: FilledButton(
+                                onPressed: busy ? null : onStart,
+                                child: Text(l.authWelcomeStart),
+                              ),
+                            ),
+                          ),
+                          JiabuStackItem.action(
+                            child: TextButton(
+                              onPressed: busy ? null : onLogin,
+                              child: Text.rich(
+                                TextSpan(
+                                  text: '${l.authWelcomeExisting} ',
+                                  children: [
+                                    TextSpan(
+                                      text: l.authWelcomeDirectLogin,
+                                      style: context.jiabu.type.secondary
+                                          .copyWith(
+                                            color: context
+                                                .jiabu
+                                                .colors
+                                                .primaryText,
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                     ),
                                   ],
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: JiabuSpacing.xxl),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton(
-                              onPressed: busy ? null : onStart,
-                              child: Text(l.authWelcomeStart),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: busy ? null : onLogin,
-                            child: Text.rich(
-                              TextSpan(
-                                text: '${l.authWelcomeExisting} ',
-                                children: [
-                                  TextSpan(
-                                    text: l.authWelcomeDirectLogin,
-                                    style: context.jiabu.type.secondary
-                                        .copyWith(
-                                          color:
-                                              context.jiabu.colors.primaryText,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                  ),
-                                ],
-                              ),
-                              style: context.jiabu.type.secondary.copyWith(
-                                color: context.jiabu.colors.ink2,
+                                style: context.jiabu.type.secondary.copyWith(
+                                  color: context.jiabu.colors.ink2,
+                                ),
                               ),
                             ),
                           ),

@@ -9,21 +9,26 @@ Future<void> showInviteSignupSheet(BuildContext context) async {
     context: context,
     builder: (sheetContext) {
       final l = AppLocalizations.of(sheetContext);
-      return Column(
+      return JiabuStack(
         key: const Key('invite-signup-placeholder'),
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            l.authInviteComingTitle,
-            style: sheetContext.jiabu.type.cardTitle,
+          JiabuStackItem.content(
+            child: Text(
+              l.authInviteComingTitle,
+              style: sheetContext.jiabu.type.cardTitle,
+            ),
           ),
-          const SizedBox(height: JiabuSpacing.cardGap),
-          Text(l.authInviteComingBody, style: sheetContext.jiabu.type.body),
-          const SizedBox(height: JiabuSpacing.sectionBottom),
-          FilledButton(
-            onPressed: () => Navigator.of(sheetContext).pop(),
-            child: Text(l.authInviteClose),
+          JiabuStackItem.content(
+            child: Text(
+              l.authInviteComingBody,
+              style: sheetContext.jiabu.type.body,
+            ),
+          ),
+          JiabuStackItem.action(
+            child: FilledButton(
+              onPressed: () => Navigator.of(sheetContext).pop(),
+              child: Text(l.authInviteClose),
+            ),
           ),
         ],
       );

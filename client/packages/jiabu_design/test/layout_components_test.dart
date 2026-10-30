@@ -49,6 +49,67 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('page back icon scales to 32 and aligns with title first line', (
+    tester,
+  ) async {
+    await pumpLayout(
+      tester,
+      const JiabuPageHeader(title: '一个很长的二级页面标题用于两行检查'),
+      width: 360,
+      scale: 2,
+    );
+    final icon = find.byKey(const Key('jiabu-page-back-icon'));
+    final title = find.text('一个很长的二级页面标题用于两行检查');
+    expect(tester.getSize(icon).width, 32);
+    final context = tester.element(title);
+    final style = context.jiabu.type.pageTitle;
+    final firstLineHeight =
+        MediaQuery.textScalerOf(context).scale(style.fontSize!) * style.height!;
+    expect(
+      tester.getRect(icon).center.dy,
+      closeTo(tester.getRect(title).top + firstLineHeight / 2, .1),
+    );
+    expect(
+      tester.getSize(find.byKey(const Key('jiabu-page-back'))).height,
+      greaterThanOrEqualTo(48),
+    );
+  });
+
+  testWidgets('stack applies token gaps and grows at 200 percent', (
+    tester,
+  ) async {
+    Widget sample() => JiabuStack(
+      children: [
+        const JiabuStackItem.content(child: Text('content')),
+        const JiabuStackItem.caption(child: Text('caption')),
+        const JiabuStackItem.section(
+          child: JiabuSectionHeader(title: 'section'),
+        ),
+        const JiabuStackItem.content(child: Text('next content')),
+        JiabuStackItem.action(
+          actionCaption: const Text('action caption'),
+          child: FilledButton(onPressed: () {}, child: const Text('action')),
+        ),
+      ],
+    );
+    await pumpLayout(tester, sample());
+    final markers = find.byType(JiabuStackMarker);
+    double gap(int before, int after) =>
+        tester.getRect(markers.at(after)).top -
+        tester.getRect(markers.at(before)).bottom;
+    expect(gap(0, 1), JiabuSpacing.captionGap);
+    expect(gap(1, 2), JiabuSpacing.sectionTop);
+    expect(gap(2, 3), JiabuSpacing.sectionBottom);
+    expect(gap(3, 4), JiabuSpacing.actionGap);
+    final caption = tester.getRect(find.text('action caption'));
+    final button = tester.getRect(find.widgetWithText(FilledButton, 'action'));
+    expect(button.top - caption.bottom, JiabuSpacing.captionGap);
+    final normalHeight = tester.getSize(find.byType(JiabuStack)).height;
+    await pumpLayout(tester, sample(), scale: 2);
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byType(JiabuStack)).height, greaterThan(normalHeight));
+  });
+
   testWidgets('list row is 66 high and grows without overflow at 200 percent', (
     tester,
   ) async {
@@ -82,6 +143,12 @@ void main() {
           JiabuListRow(title: '列表'),
           JiabuSectionHeader(title: '分区'),
           JiabuSettingsGroup(children: [JiabuListRow(title: '设置')]),
+          JiabuStack(
+            children: [
+              JiabuStackItem.content(child: Text('堆叠')),
+              JiabuStackItem.action(child: Text('动作')),
+            ],
+          ),
         ],
       ),
     );
@@ -90,6 +157,7 @@ void main() {
       find.byType(JiabuListRow),
       find.byType(JiabuSectionHeader),
       find.byType(JiabuSettingsGroup),
+      find.byType(JiabuStack),
     ]) {
       expect(_rotationOffenders(component), findsNothing);
     }

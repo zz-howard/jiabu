@@ -275,6 +275,7 @@ void _checkSource(
   }
   if (isUi) {
     _checkSpacingLiterals(source, original, report);
+    _checkSectionHeaders(source, report);
     for (final match in RegExp(
       r'\bPaperSheet(?:\s*\.\s*show)?\b',
     ).allMatches(source)) {
@@ -348,6 +349,33 @@ void _checkSource(
       if (isView && RegExp('(?:^|/)lib/data/').hasMatch(target)) {
         report(6, offset, 'Views cannot import the data layer.');
       }
+    }
+  }
+}
+
+void _checkSectionHeaders(
+  String source,
+  void Function(int rule, int offset, String message) report,
+) {
+  final wrappers = <(int, int)>[];
+  for (final match in RegExp(
+    r'\bJiabuStackItem\s*\.\s*section\s*\(',
+  ).allMatches(source)) {
+    final close = _matchingParen(source, match.end - 1);
+    if (close != null) {
+      wrappers.add((match.start, close));
+    }
+  }
+  for (final match in RegExp(r'\bJiabuSectionHeader\s*\(').allMatches(source)) {
+    final wrapped = wrappers.any(
+      (range) => range.$1 < match.start && match.end <= range.$2,
+    );
+    if (!wrapped) {
+      report(
+        11,
+        match.start,
+        'JiabuSectionHeader must be a JiabuStackItem.section.',
+      );
     }
   }
 }

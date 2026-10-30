@@ -70,28 +70,31 @@ class _ServerAddressScreenState extends State<ServerAddressScreen> {
       busy: widget.state.busy,
       errorCode: _localErrorCode ?? widget.state.errorCode,
       card: false,
-      footer: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      footer: JiabuStack(
         children: [
-          FilledButton(
-            key: const Key('server-continue'),
-            onPressed: widget.state.busy ? null : _submit,
-            child: Text(l.authContinue),
+          JiabuStackItem.action(
+            child: FilledButton(
+              key: const Key('server-continue'),
+              onPressed: widget.state.busy ? null : _submit,
+              child: Text(l.authContinue),
+            ),
           ),
-          const SizedBox(height: JiabuSpacing.sm),
-          Text(
-            l.authServerLaterHint,
-            textAlign: TextAlign.center,
-            style: context.jiabu.type.caption.copyWith(
-              color: context.jiabu.colors.ink3,
+          JiabuStackItem.caption(
+            child: Text(
+              l.authServerLaterHint,
+              textAlign: TextAlign.center,
+              style: context.jiabu.type.caption.copyWith(
+                color: context.jiabu.colors.ink3,
+              ),
             ),
           ),
         ],
       ),
       children: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
+        JiabuStackItem.content(
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
             PaperCard(
               padding: const EdgeInsets.all(JiabuSpacing.cardInset),
               child: Column(
@@ -183,6 +186,7 @@ class _ServerAddressScreenState extends State<ServerAddressScreen> {
               child: JiabuMascot(pose: JiabuMascotPose.idle, size: 84),
             ),
           ],
+        ),
         ),
       ],
     );

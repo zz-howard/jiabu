@@ -70,18 +70,21 @@ class LedgerRoutePage extends ConsumerWidget {
       'history' => HistoryPage(snapshot: snapshot),
       'settings' => SingleChildScrollView(
         padding: EdgeInsets.all(context.jiabu.spacing.page),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: JiabuStack(
           children: [
-            JiabuSectionHeader(title: l.ledgerSettings),
-            JiabuSettingsGroup(
-              children: [
-                JiabuListRow(
-                  title: l.ledgerAccounts,
-                  showChevron: true,
-                  onTap: () => context.push<void>('/settings/accounts'),
-                ),
-              ],
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(title: l.ledgerSettings),
+            ),
+            JiabuStackItem.content(
+              child: JiabuSettingsGroup(
+                children: [
+                  JiabuListRow(
+                    title: l.ledgerAccounts,
+                    showChevron: true,
+                    onTap: () => context.push<void>('/settings/accounts'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -113,40 +116,58 @@ class OverviewPage extends ConsumerWidget {
         JiabuLedgerMetrics.footerClearance,
       ),
       children: [
-        Text(l.ledgerOverview, style: context.jiabu.type.pageTitle),
+        JiabuStack(
+          children: [
+        JiabuStackItem.content(
+          child: Text(l.ledgerOverview, style: context.jiabu.type.pageTitle),
+        ),
         if (result is Failure<Map<String, int>>)
-          Text(ledgerError(l, result.code)),
+          JiabuStackItem.caption(child: Text(ledgerError(l, result.code))),
         if (snapshot.accounts.isEmpty)
-          JiabuEmptyState(
-            message: HandText(l.handNothingHere, textAlign: TextAlign.center),
-            actionLabel: l.ledgerNewAccount,
-            onAction: () => context.push<void>('/settings/accounts'),
+          JiabuStackItem.content(
+            child: JiabuEmptyState(
+              message: HandText(l.handNothingHere, textAlign: TextAlign.center),
+              actionLabel: l.ledgerNewAccount,
+              onAction: () => context.push<void>('/settings/accounts'),
+            ),
           ),
         if (result is Ok<Map<String, int>>)
           for (final kind in ['real', 'purpose']) ...[
-            JiabuSectionHeader(
-              title: kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(
+                title: kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
+              ),
             ),
             for (final account in snapshot.accounts.where(
               (a) =>
                   a.text('kind') == kind &&
                   (!a.archived || (balances[a.id] ?? 0) != 0),
             ))
-              AccountBalanceTile(
-                snapshot: snapshot,
-                account: account,
-                balance: balances[account.id] ?? 0,
+              JiabuStackItem.content(
+                child: AccountBalanceTile(
+                  snapshot: snapshot,
+                  account: account,
+                  balance: balances[account.id] ?? 0,
+                ),
               ),
           ],
-        JiabuSectionHeader(title: l.ledgerPending),
-        PendingItems(snapshot: snapshot),
-        JiabuSectionHeader(title: l.ledgerRecent),
+        JiabuStackItem.section(
+          child: JiabuSectionHeader(title: l.ledgerPending),
+        ),
+        JiabuStackItem.content(child: PendingItems(snapshot: snapshot)),
+        JiabuStackItem.section(
+          child: JiabuSectionHeader(title: l.ledgerRecent),
+        ),
         for (final row in recent)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: liveRecordCard(context, ref, snapshot, row),
+          JiabuStackItem.content(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: liveRecordCard(context, ref, snapshot, row),
+            ),
           ),
         // C6 extension point: family summary. No card in this slice.
+          ],
+        ),
       ],
     );
   }
@@ -467,18 +488,25 @@ class HistoryPage extends ConsumerWidget {
       children: [
         Padding(
           padding: EdgeInsets.all(context.jiabu.spacing.page),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: JiabuStack(
             children: [
-              Text(l.ledgerHistory, style: context.jiabu.type.pageTitle),
-              HistorySearchField(
-                key: ValueKey(snapshot.spaceId),
-                value: filter.text,
-                label: l.ledgerSearch,
-                onChanged: (text) => update(text: text),
+              JiabuStackItem.content(
+                child: Text(
+                  l.ledgerHistory,
+                  style: context.jiabu.type.pageTitle,
+                ),
               ),
-              Stack(
-                children: [
+              JiabuStackItem.content(
+                child: HistorySearchField(
+                  key: ValueKey(snapshot.spaceId),
+                  value: filter.text,
+                  label: l.ledgerSearch,
+                  onChanged: (text) => update(text: text),
+                ),
+              ),
+              JiabuStackItem.content(
+                child: Stack(
+                  children: [
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -578,7 +606,7 @@ class HistoryPage extends ConsumerWidget {
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              context.jiabu.colors.transparent,
+                              context.jiabu.colors.bg.withValues(alpha: 0),
                               context.jiabu.colors.bg,
                             ],
                           ),
@@ -586,21 +614,26 @@ class HistoryPage extends ConsumerWidget {
                       ),
                     ),
                   ),
-                ],
+                  ],
+                ),
               ),
               if (filter.isFiltered)
-                Wrap(
-                  children: [
-                    Text(l.ledgerResultCount(rows.length)),
-                    TextButton(
-                      onPressed: () => ref
-                          .read(
-                            ledgerViewModelProvider(snapshot.spaceId).notifier,
-                          )
-                          .filter(const HistoryFilter()),
-                      child: Text(l.ledgerClear),
-                    ),
-                  ],
+                JiabuStackItem.content(
+                  child: Wrap(
+                    children: [
+                      Text(l.ledgerResultCount(rows.length)),
+                      TextButton(
+                        onPressed: () => ref
+                            .read(
+                              ledgerViewModelProvider(
+                                snapshot.spaceId,
+                              ).notifier,
+                            )
+                            .filter(const HistoryFilter()),
+                        child: Text(l.ledgerClear),
+                      ),
+                    ],
+                  ),
                 ),
             ],
           ),
@@ -782,16 +815,20 @@ class AccountsPage extends ConsumerWidget {
     return ListView(
       padding: EdgeInsets.all(context.jiabu.spacing.page),
       children: [
-        formError(context, state.error),
+        JiabuStack(
+          children: [
+        JiabuStackItem.content(child: formError(context, state.error)),
         if (result is Failure<Map<String, int>>)
-          Text(ledgerError(l, result.code)),
+          JiabuStackItem.caption(child: Text(ledgerError(l, result.code))),
         for (final archived in [false, true]) ...[
-          if (archived) JiabuSectionHeader(title: l.ledgerArchivedAccounts),
+          if (archived)
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(title: l.ledgerArchivedAccounts),
+            ),
           for (final account in snapshot.accounts.where(
             (a) => a.archived == archived,
           ))
-            Padding(
-              padding: const EdgeInsets.only(bottom: JiabuSpacing.cardGap),
+            JiabuStackItem.content(
               child: JiabuSettingsGroup(
                 children: [
                   JiabuListRow(
@@ -929,6 +966,8 @@ class AccountsPage extends ConsumerWidget {
               ),
             ),
         ],
+          ],
+        ),
       ],
     );
   }

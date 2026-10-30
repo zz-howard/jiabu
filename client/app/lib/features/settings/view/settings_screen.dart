@@ -72,8 +72,9 @@ class SettingsScreen extends ConsumerWidget {
                 },
           children: [
             if (page == 'settings')
-              JiabuSettingsGroup(
-                children: [
+              JiabuStackItem.content(
+                child: JiabuSettingsGroup(
+                  children: [
                   // C3's account management entry retains its label and route.
                   row(l.ledgerAccounts, '/settings/accounts'),
                   row(
@@ -96,15 +97,21 @@ class SettingsScreen extends ConsumerWidget {
                   row(l.c4Language, '/settings/language'),
                   row(l.c4Received, '/invitations'),
                   row(l.c4About, '/settings/about'),
-                ],
+                  ],
+                ),
               ),
             if (page == 'account') ...[
-              Text(runtime.auth.current?.user.username ?? ''),
-              JiabuSettingsGroup(
-                children: [row(l.c4Password, '/settings/account/password')],
+              JiabuStackItem.content(
+                child: Text(runtime.auth.current?.user.username ?? ''),
               ),
-              OutlinedButton(
-                onPressed: () async {
+              JiabuStackItem.content(
+                child: JiabuSettingsGroup(
+                  children: [row(l.c4Password, '/settings/account/password')],
+                ),
+              ),
+              JiabuStackItem.action(
+                child: OutlinedButton(
+                  onPressed: () async {
                   final confirmed = await JiabuSheet.show<bool>(
                     context: context,
                     builder: (sheetContext) => C4Confirmation(
@@ -115,27 +122,33 @@ class SettingsScreen extends ConsumerWidget {
                   if (confirmed == true) {
                     await runtime.auth.logout();
                   }
-                },
-                child: Text(l.c4Logout),
+                  },
+                  child: Text(l.c4Logout),
+                ),
               ),
             ],
             if (page == 'password') ...[
-              C4Field(
-                id: id,
-                field: 'current',
-                label: l.c4CurrentPassword,
-                obscure: true,
+              JiabuStackItem.content(
+                child: C4Field(
+                  id: id,
+                  field: 'current',
+                  label: l.c4CurrentPassword,
+                  obscure: true,
+                ),
               ),
-              C4Field(
-                id: id,
-                field: 'new',
-                label: l.c4NewPassword,
-                obscure: true,
+              JiabuStackItem.content(
+                child: C4Field(
+                  id: id,
+                  field: 'new',
+                  label: l.c4NewPassword,
+                  obscure: true,
+                ),
               ),
             ],
             if (page == 'language')
-              JiabuSettingsGroup(
-                children: [
+              JiabuStackItem.content(
+                child: JiabuSettingsGroup(
+                  children: [
                   for (final entry in {
                     'system': l.c4System,
                     'zh-Hans': l.c4Chinese,
@@ -161,19 +174,24 @@ class SettingsScreen extends ConsumerWidget {
                               },
                       ),
                     ),
-                ],
+                  ],
+                ),
               ),
             if (page == 'about') ...[
-              Text(
-                l.c4Version(runtime.device.appVersion, runtime.device.build),
-              ),
-              TextButton(
-                onPressed: () => showLicensePage(
-                  context: context,
-                  applicationName: l.c4ProductName,
-                  applicationVersion: runtime.device.appVersion,
+              JiabuStackItem.content(
+                child: Text(
+                  l.c4Version(runtime.device.appVersion, runtime.device.build),
                 ),
-                child: Text(l.c4Licenses),
+              ),
+              JiabuStackItem.action(
+                child: TextButton(
+                  onPressed: () => showLicensePage(
+                    context: context,
+                    applicationName: l.c4ProductName,
+                    applicationVersion: runtime.device.appVersion,
+                  ),
+                  child: Text(l.c4Licenses),
+                ),
               ),
             ],
           ],

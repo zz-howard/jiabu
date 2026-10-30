@@ -73,20 +73,23 @@ class _ApiKeysScreenState extends ConsumerState<ApiKeysScreen> {
           title: l.c4Keys,
           showTitle: false,
           children: [
-            HandText(l.handC4KeysSubtitle),
+            JiabuStackItem.content(child: HandText(l.handC4KeysSubtitle)),
             if (state.online) ...[
               if (state.rows.isEmpty)
-                JiabuEmptyState(
-                  message: state.busy
-                      ? Text(l.c4Loading)
-                      : HandText(
-                          l.handNothingHere,
-                          textAlign: TextAlign.center,
-                        ),
+                JiabuStackItem.content(
+                  child: JiabuEmptyState(
+                    message: state.busy
+                        ? Text(l.c4Loading)
+                        : HandText(
+                            l.handNothingHere,
+                            textAlign: TextAlign.center,
+                          ),
+                  ),
                 ),
               if (state.rows.any((row) => row['status'] == 'active'))
-                JiabuSettingsGroup(
-                  children: [
+                JiabuStackItem.content(
+                  child: JiabuSettingsGroup(
+                    children: [
                     for (final row in state.rows.where(
                       (row) => row['status'] == 'active',
                     ))
@@ -104,10 +107,12 @@ class _ApiKeysScreenState extends ConsumerState<ApiKeysScreen> {
                           }
                         },
                       ),
-                  ],
+                    ],
+                  ),
                 ),
-              JiabuSettingsGroup(
-                children: [
+              JiabuStackItem.content(
+                child: JiabuSettingsGroup(
+                  children: [
                   Semantics(
                     key: const Key('inactive-keys-toggle'),
                     expanded: _inactiveExpanded,
@@ -127,16 +132,18 @@ class _ApiKeysScreenState extends ConsumerState<ApiKeysScreen> {
                       (row) => row['status'] != 'active',
                     ))
                       ApiKeyRow(row: row),
-                ],
+                  ],
+                ),
               ),
             ],
             if (_loadFailed)
-              TextButton(
-                onPressed: state.online && !state.busy ? _load : null,
-                child: Text(l.c4Retry),
+              JiabuStackItem.action(
+                child: TextButton(
+                  onPressed: state.online && !state.busy ? _load : null,
+                  child: Text(l.c4Retry),
+                ),
               ),
-            Padding(
-              padding: const EdgeInsets.only(top: JiabuSpacing.cardGap),
+            JiabuStackItem.action(
               child: FilledButton(
                 onPressed: !state.online || state.busy
                     ? null

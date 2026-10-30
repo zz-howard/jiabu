@@ -32,6 +32,7 @@ class LockSettingsScreen extends ConsumerWidget {
           title: l.c4Lock,
           showTitle: false,
           requiresOnline: false,
+          submitLabel: enabled ? null : l.c4TurnOnAppLock,
           onSubmit: enabled
               ? null
               : () async {
@@ -65,13 +66,21 @@ class LockSettingsScreen extends ConsumerWidget {
                   }
                 },
           children: [
-            Text(enabled ? l.c4Enabled : l.c4Disabled),
-            Text(l.c4LockPrivacy),
+            JiabuStackItem.content(
+              child: Text(enabled ? l.c4Enabled : l.c4Disabled),
+            ),
+            JiabuStackItem.caption(child: Text(l.c4LockPrivacy)),
             if (enabled)
-              OutlinedButton(onPressed: lock.disable, child: Text(l.c4Disabled))
+              JiabuStackItem.action(
+                child: OutlinedButton(
+                  onPressed: lock.disable,
+                  child: Text(l.c4TurnOffAppLock),
+                ),
+              )
             else ...[
-              Wrap(
-                children: [
+              JiabuStackItem.content(
+                child: Wrap(
+                  children: [
                   for (final entry in {
                     'biometric': l.c4Biometric,
                     'pattern': l.c4Pattern,
@@ -82,51 +91,65 @@ class LockSettingsScreen extends ConsumerWidget {
                       selected: mode == entry.key,
                       onSelected: (_) => vm.patch('mode', entry.key),
                     ),
-                ],
+                  ],
+                ),
               ),
-              C4Field(
-                id: id,
-                field: 'pin',
-                label: l.c4PinPrompt,
-                obscure: true,
-                keyboard: TextInputType.number,
+              JiabuStackItem.content(
+                child: C4Field(
+                  id: id,
+                  field: 'pin',
+                  label: l.c4PinPrompt,
+                  obscure: true,
+                  keyboard: TextInputType.number,
+                ),
               ),
-              C4Field(
-                id: id,
-                field: 'pin_confirm',
-                label: l.c4PinConfirm,
-                obscure: true,
-                keyboard: TextInputType.number,
+              JiabuStackItem.content(
+                child: C4Field(
+                  id: id,
+                  field: 'pin_confirm',
+                  label: l.c4PinConfirm,
+                  obscure: true,
+                  keyboard: TextInputType.number,
+                ),
               ),
               if (mode == 'pattern') ...[
-                Text(
-                  state.values['pattern_first'] == null
-                      ? l.c4PatternPrompt
-                      : l.c4PatternConfirm,
+                JiabuStackItem.content(
+                  child: Text(
+                    state.values['pattern_first'] == null
+                        ? l.c4PatternPrompt
+                        : l.c4PatternConfirm,
+                  ),
                 ),
-                PatternLock(
-                  points: points,
-                  label: l.c4Pattern,
-                  onChanged: (value) => vm.patch('points', value),
+                JiabuStackItem.content(
+                  child: PatternLock(
+                    points: points,
+                    label: l.c4Pattern,
+                    onChanged: (value) => vm.patch('points', value),
+                  ),
                 ),
-                TextButton(
-                  onPressed: () => vm.patch('points', <int>[]),
-                  child: Text(l.c4Clear),
+                JiabuStackItem.action(
+                  child: TextButton(
+                    onPressed: () => vm.patch('points', <int>[]),
+                    child: Text(l.c4Clear),
+                  ),
                 ),
-                TextButton(
-                  onPressed: points.length < 4
-                      ? null
-                      : () {
-                          vm
-                            ..patch('pattern_first', points.join())
-                            ..patch('points', <int>[]);
-                        },
-                  child: Text(l.c4PatternConfirm),
+                JiabuStackItem.action(
+                  child: TextButton(
+                    onPressed: points.length < 4
+                        ? null
+                        : () {
+                            vm
+                              ..patch('pattern_first', points.join())
+                              ..patch('points', <int>[]);
+                          },
+                    child: Text(l.c4PatternConfirm),
+                  ),
                 ),
               ],
-              Text(l.c4Timeout),
-              Wrap(
-                children: [
+              JiabuStackItem.content(child: Text(l.c4Timeout)),
+              JiabuStackItem.content(
+                child: Wrap(
+                  children: [
                   for (final entry in {
                     0: l.c4Immediately,
                     1: l.c4Minute1,
@@ -138,7 +161,8 @@ class LockSettingsScreen extends ConsumerWidget {
                       selected: timeout == entry.key,
                       onSelected: (_) => vm.patch('timeout', entry.key),
                     ),
-                ],
+                  ],
+                ),
               ),
             ],
           ],
