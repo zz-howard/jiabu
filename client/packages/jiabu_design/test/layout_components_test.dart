@@ -359,6 +359,20 @@ void main() {
     ]) {
       expect(_rotationOffenders(component), findsNothing);
     }
+
+    // At 200% the header builds its separate large-title back glyph.
+    await pumpLayout(
+      tester,
+      Builder(
+        builder: (context) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: const JiabuPageHeader(title: '标题'),
+        ),
+      ),
+    );
+    expect(find.byKey(const Key('jiabu-page-back-icon')), findsOneWidget);
+    expect(_rotationOffenders(find.byType(JiabuPageHeader)), findsNothing);
   });
 
   testWidgets('zero rotation guard catches Tilt and transformed widgets', (
