@@ -115,11 +115,11 @@
       "find": "      labelStyle: body.copyWith(\n        color: WidgetStateColor.resolveWith(\n          (states) => states.contains(WidgetState.selected)\n              ? colors.onPrimarySoft\n              : colors.ink,\n        ),\n      ),",
       "replace": "      labelStyle: WidgetStateTextStyle.resolveWith(\n        (states) => body.copyWith(\n          color: states.contains(WidgetState.selected)\n              ? colors.onPrimarySoft\n              : colors.ink,\n        ),\n      ),",
       "expected_occurrences": 1,
-      "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
+      "test_file": "client/app/test/catalog_layout_test.dart",
       "test_names": [
-        "chip group applies token gaps and selected theme"
+        "zh c4_space_new 360.0 1.0"
       ],
-      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
+      "command": "flutter test test/catalog_layout_test.dart"
     }
   ]
 }

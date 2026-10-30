@@ -285,8 +285,8 @@ void main() {
       context.jiabu.colors.onPrimarySoft,
     );
     expect(theme.showCheckmark, isTrue);
-    // Check the label as the chip actually paints it: Chip merges the theme
-    // style before resolving state, which once dropped the font family.
+    // Check the label as the chip actually paints it. The app catalog font
+    // check guards the font family across every chip group.
     final selectedLabel = tester
         .renderObject<RenderParagraph>(
           find.descendant(of: chip, matching: find.byType(RichText)),
