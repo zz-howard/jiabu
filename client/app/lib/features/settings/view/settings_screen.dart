@@ -75,7 +75,7 @@ class SettingsScreen extends ConsumerWidget {
               JiabuStackItem.content(
                 child: JiabuSettingsGroup(
                   children: [
-                    // C3's account management entry retains its label and route.
+                    // Keep C3's account management label and route.
                     row(l.ledgerAccounts, '/settings/accounts'),
                     row(
                       l.c4Account,

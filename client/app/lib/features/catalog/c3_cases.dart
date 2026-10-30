@@ -442,11 +442,11 @@ class C3Preview extends StatelessWidget {
                 semanticLabel: l.ledgerManualSemantics,
                 onPressed: () {},
               ),
-        child: Center(
-          child: Text(
-            state == 'shell_chat' ? l.ledgerChatPlaceholder : l.ledgerOverview,
-          ),
-        ),
+        child: switch (state) {
+          'shell_overview' => OverviewPage(snapshot: data),
+          'shell_history' => HistoryPage(snapshot: data),
+          _ => Center(child: Text(l.ledgerChatPlaceholder)),
+        },
       );
     }
     if (state.startsWith('overview_')) {

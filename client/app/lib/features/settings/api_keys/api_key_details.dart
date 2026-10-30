@@ -63,7 +63,8 @@ class ApiKeyDetails extends ConsumerWidget {
         ),
         JiabuStackItem.content(
           child: Text(
-            '${l.c4LastUsed}: ${keyTime(l, row['last_used_at'], l.c4NeverUsed)}',
+            '${l.c4LastUsed}: '
+            '${keyTime(l, row['last_used_at'], l.c4NeverUsed)}',
           ),
         ),
         JiabuStackItem.caption(child: Text(l.c4KeyImmutable)),

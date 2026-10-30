@@ -55,7 +55,6 @@ void main() {
     await pumpLayout(
       tester,
       const JiabuPageHeader(title: '一个很长的二级页面标题用于两行检查'),
-      width: 360,
       scale: 2,
     );
     final icon = find.byKey(const Key('jiabu-page-back-icon'));

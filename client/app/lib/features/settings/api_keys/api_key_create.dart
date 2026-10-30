@@ -151,21 +151,20 @@ class ApiKeyCreate extends ConsumerWidget {
                                 style: context.jiabu.type.mono.copyWith(
                                   fontSize: context.jiabu.type.body.fontSize,
                                 ),
-                                contextMenuBuilder:
-                                    (context, editableTextState) =>
-                                        AdaptiveTextSelectionToolbar.buttonItems(
-                                          anchors: editableTextState
-                                              .contextMenuAnchors,
-                                          buttonItems: [
-                                            ContextMenuButtonItem(
-                                              label: l.c4Copy,
-                                              onPressed: () {
-                                                editableTextState.hideToolbar();
-                                                unawaited(vm.copyKey());
-                                              },
-                                            ),
-                                          ],
+                                contextMenuBuilder: (context, editableState) =>
+                                    AdaptiveTextSelectionToolbar.buttonItems(
+                                      anchors:
+                                          editableState.contextMenuAnchors,
+                                      buttonItems: [
+                                        ContextMenuButtonItem(
+                                          label: l.c4Copy,
+                                          onPressed: () {
+                                            editableState.hideToolbar();
+                                            unawaited(vm.copyKey());
+                                          },
                                         ),
+                                      ],
+                                    ),
                               ),
                             ),
                           ),

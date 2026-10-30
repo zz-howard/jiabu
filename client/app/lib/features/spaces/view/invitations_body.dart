@@ -52,6 +52,11 @@ class _InvitationsBodyState extends ConsumerState<InvitationsBody> {
     final l = AppLocalizations.of(context);
     final state = ref.watch(c4ViewModelProvider(id));
     final vm = ref.read(c4ViewModelProvider(id).notifier);
+    String? statusLabel(Map<String, Object?> row) {
+      final status = row['status'];
+      return status is String ? invitationStatus(l, status) : null;
+    }
+
     return SingleChildScrollView(
       padding: EdgeInsets.all(context.jiabu.spacing.page),
       child: C4Form(
@@ -71,16 +76,9 @@ class _InvitationsBodyState extends ConsumerState<InvitationsBody> {
                                   '')
                               as String,
                       subtitle: widget.space == null
-                          ? row['inviter_display_name'] as String? ?? ''
-                          : row['status'] case final String status
-                          ? invitationStatus(l, status)
-                          : null,
-                      status: widget.space == null
-                          ? invitationStatus(
-                              l,
-                              row['status'] as String? ?? 'pending',
-                            )
-                          : null,
+                          ? (row['inviter_display_name'] as String?) ?? ''
+                          : statusLabel(row),
+                      status: widget.space == null ? statusLabel(row) : null,
                       supportingGap: JiabuSpacing.sm,
                       supporting: widget.space == null
                           ? Wrap(
