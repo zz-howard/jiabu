@@ -105,7 +105,7 @@ void main() {
       composer!.beginOtherInput();
       await tester.pump();
       await tester.enterText(find.byKey(const ValueKey('chat-input')), '用信用卡');
-      await tester.tap(find.text('发送'));
+      await tester.tap(find.byKey(const ValueKey('chat-send')));
       await pumpUntil(
         tester,
         () =>
@@ -122,6 +122,106 @@ void main() {
       );
       expect(regularSends, 0);
     }, timeout: const Timeout(Duration(seconds: 60)));
+  });
+  group('round send/stop button', () {
+    late BlockStore store;
+    late InteractionController actions;
+    late InterruptComposerController composer;
+    setUp(() {
+      store = BlockStore();
+      actions = InteractionController(
+        store: store,
+        persistence: CatalogChatStore(),
+        nextId: () => 'action',
+        transport: CatalogQueuedAction(),
+      );
+      composer = InterruptComposerController(
+        store: store,
+        interactions: actions,
+        conversationId: 'conversation',
+      );
+    });
+    tearDown(() async {
+      await composer.dispose();
+      await actions.dispose();
+      await store.dispose();
+    });
+    Future<void> pumpComposer(
+      WidgetTester tester, {
+      bool stopActive = false,
+      bool stopRequested = false,
+      int photos = 0,
+      void Function(String)? onSent,
+      VoidCallback? onStop,
+    }) => pumpC3(
+      tester,
+      settle: false,
+      child: JiabuChatWeaveTheme(
+        child: JiabuChatComposer(
+          composer: composer,
+          draft: '',
+          onDraft: (_) {},
+          onSend: (text) async {
+            onSent?.call(text);
+            return true;
+          },
+          onPhoto: () {},
+          onGallery: () {},
+          photoCount: photos,
+          stopActive: stopActive,
+          stopRequested: stopRequested,
+          onStop: onStop ?? () {},
+        ),
+      ),
+    );
+    testWidgets('empty_field_send_is_disabled_and_typing_enables_it', (
+      tester,
+    ) async {
+      final sent = <String>[];
+      await pumpComposer(tester, onSent: sent.add);
+      final send = find.byKey(const ValueKey('chat-send'));
+      expect(send, findsOneWidget);
+      expect(tester.getSize(send), const Size(48, 48));
+      await tester.tap(send);
+      await tester.pump();
+      expect(sent, isEmpty);
+      await tester.enterText(find.byKey(const ValueKey('chat-input')), '午饭 68');
+      await tester.pump();
+      await tester.tap(send);
+      await tester.pump();
+      expect(sent, ['午饭 68']);
+      // Same row as the field; attach actions are at least 48 dp.
+      final row = tester
+          .getRect(find.byKey(const ValueKey('chat-input')))
+          .center
+          .dy;
+      expect((tester.getCenter(send).dy - row).abs() < 30, isTrue);
+      expect(find.text('发送'), findsNothing);
+    });
+    testWidgets('processing_turns_send_into_stop_and_typing_flips_back', (
+      tester,
+    ) async {
+      var stops = 0;
+      await pumpComposer(tester, stopActive: true, onStop: () => stops++);
+      expect(find.byKey(const ValueKey('chat-send')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('chat-stop')));
+      expect(stops, 1);
+      await tester.enterText(find.byKey(const ValueKey('chat-input')), '再记一笔');
+      await tester.pump();
+      expect(find.byKey(const ValueKey('chat-stop')), findsNothing);
+      expect(find.byKey(const ValueKey('chat-send')), findsOneWidget);
+    });
+    testWidgets('stop_is_inert_while_stopping', (tester) async {
+      var stops = 0;
+      await pumpComposer(
+        tester,
+        stopActive: true,
+        stopRequested: true,
+        onStop: () => stops++,
+      );
+      await tester.tap(find.byKey(const ValueKey('chat-stop')));
+      expect(stops, 0);
+    });
   });
   test('queued_action_keeps_authoritative_block_open', () async {
     final h = await ChatHarness.create();

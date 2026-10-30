@@ -1,0 +1,41 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion to fail, then restore.",
+  "controls": [
+    {
+      "id": "send_enabled_when_empty",
+      "file": "client/app/lib/shared/chatweave/chat_composer.dart",
+      "find": "                          : hasInput && !locked && !widget.busy;",
+      "replace": "                          : !locked && !widget.busy;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_composer_test.dart",
+      "test_names": [
+        "empty_field_send_is_disabled_and_typing_enables_it"
+      ],
+      "command": "flutter test test/features/chat_composer_test.dart"
+    },
+    {
+      "id": "stop_ignores_typed_text",
+      "file": "client/app/lib/shared/chatweave/chat_composer.dart",
+      "find": "                          widget.onStop != null &&\n                          !hasInput;",
+      "replace": "                          widget.onStop != null;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_composer_test.dart",
+      "test_names": [
+        "processing_turns_send_into_stop_and_typing_flips_back"
+      ],
+      "command": "flutter test test/features/chat_composer_test.dart"
+    },
+    {
+      "id": "stop_not_inert_while_stopping",
+      "file": "client/app/lib/shared/chatweave/chat_composer.dart",
+      "find": "                          ? !widget.stopRequested\n",
+      "replace": "                          ? true\n",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_composer_test.dart",
+      "test_names": [
+        "stop_is_inert_while_stopping"
+      ],
+      "command": "flutter test test/features/chat_composer_test.dart"
+    }
+  ]
+}

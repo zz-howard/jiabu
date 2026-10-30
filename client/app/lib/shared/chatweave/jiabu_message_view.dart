@@ -7,15 +7,9 @@ import 'package:jiabu_design/jiabu_design.dart';
 /// CW2 has no processStripBuilder. Reuse the MessageView handed to the public
 /// frame hook, including its list-owned anchor keys and resize callbacks.
 class JiabuMessageView extends StatelessWidget {
-  const JiabuMessageView({
-    required this.source,
-    this.onRetry,
-    this.stopEnabled = true,
-    super.key,
-  });
+  const JiabuMessageView({required this.source, this.onRetry, super.key});
   final MessageView source;
   final VoidCallback? onRetry;
-  final bool stopEnabled;
   void _reveal(BuildContext context, String id) {
     final target = source.blockKeys?[id]?.currentContext;
     if (target != null) {
@@ -77,18 +71,8 @@ class JiabuMessageView extends StatelessWidget {
                     : l.chatRunning,
                 style: context.jiabu.type.caption,
               ),
-            if (active && source.onStop != null)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: source.stopRequested || !stopEnabled
-                      ? null
-                      : source.onStop,
-                  child: Text(
-                    source.stopRequested ? l.chatStopping : l.chatStop,
-                  ),
-                ),
-              ),
+            if (active && source.stopRequested)
+              Text(l.chatStopping, style: context.jiabu.type.caption),
             if (const {'error', 'interrupted'}.contains(message.status))
               Wrap(
                 crossAxisAlignment: WrapCrossAlignment.center,

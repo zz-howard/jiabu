@@ -76,7 +76,7 @@ void main() {
         File('tool/icons/icons.json').readAsStringSync(),
       ) as Map<String, Object?>;
       final icons = json['icons']! as Map<String, Object?>;
-      expect(icons.length, 61);
+      expect(icons.length, 62);
       final key = icons['uiKey']! as Map<String, Object?>;
       expect(key['category'], 'ui');
       expect(key['strokeWidth'], 1.85);

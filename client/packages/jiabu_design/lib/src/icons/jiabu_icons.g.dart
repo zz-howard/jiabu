@@ -521,6 +521,14 @@ abstract final class JiabuIcons {
       JiabuIconShape(_uiSparkle_1, fill: true),
     ],
   );
+  static const uiStop = JiabuIconData(
+    name: 'uiStop', category: 'ui',
+    width: 24, height: 24,
+    strokeWidth: 1.85,
+    shapes: [
+      JiabuIconShape(_uiStop_0, fill: true),
+    ],
+  );
   static const uiTag = JiabuIconData(
     name: 'uiTag', category: 'ui',
     width: 24, height: 24,
@@ -633,6 +641,7 @@ abstract final class JiabuIcons {
     'uiSend': uiSend,
     'uiSendPlane': uiSendPlane,
     'uiSparkle': uiSparkle,
+    'uiStop': uiStop,
     'uiTag': uiTag,
     'uiTrend': uiTrend,
     'uiUndo': uiUndo,
@@ -1378,6 +1387,18 @@ Path _uiSparkle_1() => Path()
   ..lineTo(10.7, 13.3)
   ..lineTo(7.5, 12)
   ..lineTo(10.7, 10.7)
+  ..close();
+
+Path _uiStop_0() => Path()
+  ..moveTo(7.5, 6.5)
+  ..lineTo(16.5, 6.5)
+  ..arcToPoint(Offset(17.5, 7.5), radius: Radius.elliptical(1, 1), rotation: 0, largeArc: false, clockwise: true)
+  ..lineTo(17.5, 16.5)
+  ..arcToPoint(Offset(16.5, 17.5), radius: Radius.elliptical(1, 1), rotation: 0, largeArc: false, clockwise: true)
+  ..lineTo(7.5, 17.5)
+  ..arcToPoint(Offset(6.5, 16.5), radius: Radius.elliptical(1, 1), rotation: 0, largeArc: false, clockwise: true)
+  ..lineTo(6.5, 7.5)
+  ..arcToPoint(Offset(7.5, 6.5), radius: Radius.elliptical(1, 1), rotation: 0, largeArc: false, clockwise: true)
   ..close();
 
 Path _uiTag_0() => Path()
