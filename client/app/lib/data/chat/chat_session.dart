@@ -339,8 +339,18 @@ final class LocalChatSession implements ChatConversation {
             final op = queue
                 .where((op) => op.kind == 'chat_send' && op.id == messageId)
                 .firstOrNull;
+            // A streamed reply carries no replyTo until the next pull, so the
+            // send/retry response ids saved on this message count as links too.
+            final replyIds = {
+              if (local['assistantId'] case final String id) id,
+              if (local['retryMessageId'] case final String id) id,
+            };
             final assistant = own
-                .where((row) => row.data['reply_to_id'] == messageId)
+                .where(
+                  (row) =>
+                      row.data['reply_to_id'] == messageId ||
+                      replyIds.contains(row.data['id']),
+                )
                 .lastOrNull;
             nextDelivery[messageId] = local['manual'] == true
                 ? ChatDelivery.manual

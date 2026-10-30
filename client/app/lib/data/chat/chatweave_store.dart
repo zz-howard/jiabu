@@ -113,7 +113,7 @@ final class JiabuChatWeaveStore implements ChatWeaveStore {
       'member_id': memberId,
       'conversation_id': message['conversationId'],
       'role': message['role'],
-      'reply_to_id': message['replyTo'],
+      'reply_to_id': message['replyTo'] ?? existing?['reply_to_id'],
       'created_at': message['createdAt'],
       'protocol_version': message['protocolVersion'],
       'fallback_text': message['fallbackText'] ?? '',
