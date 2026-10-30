@@ -1,0 +1,77 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion to fail, then restore.",
+  "controls": [
+    {
+      "id": "thinking_shown_while_text_streams",
+      "file": "client/app/lib/shared/chatweave/jiabu_thinking_indicator.dart",
+      "find": "return last == null || last['status'] != 'pending';",
+      "replace": "return true;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_thinking_test.dart",
+      "test_names": [
+        "hidden_while_text_is_streaming"
+      ],
+      "command": "flutter test test/features/chat_thinking_test.dart"
+    },
+    {
+      "id": "thinking_shown_while_step_runs",
+      "file": "client/app/lib/shared/chatweave/jiabu_thinking_indicator.dart",
+      "find": "  if (message.steps.any((step) => step['state'] == 'running')) return false;\n",
+      "replace": "",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_thinking_test.dart",
+      "test_names": [
+        "hidden_while_a_tool_step_runs"
+      ],
+      "command": "flutter test test/features/chat_thinking_test.dart"
+    },
+    {
+      "id": "thinking_shown_when_not_streaming",
+      "file": "client/app/lib/shared/chatweave/jiabu_thinking_indicator.dart",
+      "find": "if (message.status != 'streaming') return false;",
+      "replace": "",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_thinking_test.dart",
+      "test_names": [
+        "hidden_when_complete_or_stopping"
+      ],
+      "command": "flutter test test/features/chat_thinking_test.dart"
+    },
+    {
+      "id": "thinking_label_back_to_working",
+      "file": "client/app/lib/shared/chatweave/jiabu_message_view.dart",
+      "find": ": l.chatThinking,",
+      "replace": ": l.chatRunning,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_thinking_test.dart",
+      "test_names": [
+        "before_first_token_shows_thinking_not_working"
+      ],
+      "command": "flutter test test/features/chat_thinking_test.dart"
+    },
+    {
+      "id": "thinking_shown_while_stopping",
+      "file": "client/app/lib/shared/chatweave/jiabu_message_view.dart",
+      "find": " && !source.stopRequested;",
+      "replace": ";",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_thinking_test.dart",
+      "test_names": [
+        "hidden_when_complete_or_stopping"
+      ],
+      "command": "flutter test test/features/chat_thinking_test.dart"
+    },
+    {
+      "id": "markdown_batched_reparse_midstream",
+      "file": "client/app/lib/shared/chatweave/jiabu_chat_registry.dart",
+      "find": "complete: true",
+      "replace": "complete: block['status'] != 'pending'",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/chat_thinking_test.dart",
+      "test_names": [
+        "list_and_bold_are_parsed_on_every_streamed_update"
+      ],
+      "command": "flutter test test/features/chat_thinking_test.dart"
+    }
+  ]
+}

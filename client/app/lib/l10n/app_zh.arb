@@ -487,6 +487,7 @@
   "chatAwaitAnswer": "等你回答",
   "chatAwaitConfirm": "等你确认",
   "chatRunning": "处理中",
+  "chatThinking": "思考中",
   "chatSucceeded": "完成",
   "chatExpand": "展开",
   "chatCollapse": "收起",

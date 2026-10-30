@@ -8,6 +8,18 @@ BlockRegistry jiabuChatRegistry({
   BlockRenderError? onError,
 }) {
   final registry = BlockRegistry.withDefaults(onBlockRenderError: onError);
+  // ChatWeave (f11bd4f) re-parses a growing markdown tail only after it has
+  // grown by max(256 chars, its parsed length) and shows the characters in
+  // between as literal text, so lists and bold appeared as raw "- **" mid
+  // stream. Our replies are short; ask for a full parse on every update
+  // (stable paragraphs are still sealed) so structure is correct while streaming.
+  registry.override(
+    'markdown',
+    BlockRegistration(
+      build: (context, block) =>
+          MarkdownBlockView(text: block.data['text'] as String, complete: true),
+    ),
+  );
   for (final type in [
     'metric',
     'metric_group',

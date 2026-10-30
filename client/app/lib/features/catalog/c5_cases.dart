@@ -17,6 +17,9 @@ const c5States = [
   'empty',
   'setup_entry',
   'streaming',
+  'thinking',
+  'thinking_tools',
+  'streaming_text',
   'paused',
   'interrupted_retry',
   'stopping',
@@ -200,7 +203,10 @@ Message c5Message(String state) {
     };
   }
   final hasSteps =
-      state.startsWith('process_') || state == 'streaming' || state == 'paused';
+      state.startsWith('process_') ||
+      state == 'streaming' ||
+      state == 'thinking_tools' ||
+      state == 'paused';
   final status = paused
       ? 'paused'
       : state == 'interrupted_retry'
@@ -209,6 +215,9 @@ Message c5Message(String state) {
       ? 'interrupted'
       : [
           'streaming',
+          'thinking',
+          'thinking_tools',
+          'streaming_text',
           'stopping',
           'recovering',
           'ai_unavailable',
@@ -226,7 +235,19 @@ Message c5Message(String state) {
     'rev': const {'complete', 'error', 'interrupted'}.contains(status) ? 1 : 0,
     'createdAt': '2026-10-29T12:00:00Z',
     'fallbackText': '午饭已记下',
-    'blocks': [block],
+    // Before the first token and between tool calls there is no block yet;
+    // while text arrives the markdown block is still pending.
+    'blocks': state == 'thinking' || state == 'thinking_tools'
+        ? <Object?>[]
+        : state == 'streaming_text'
+        ? [
+            {
+              ...block,
+              'status': 'pending',
+              'data': {'text': '午饭已记下，可以在卡片上'},
+            },
+          ]
+        : [block],
     if (paused)
       'interrupt': {
         'id': 'question',
@@ -247,7 +268,9 @@ Message c5Message(String state) {
           'id': 'write',
           'label': '整理午饭记录',
           'kind': 'tool',
-          'state': paused
+          'state': state == 'thinking_tools'
+              ? 'succeeded'
+              : paused
               ? 'awaiting_user'
               : state == 'process_stopped'
               ? 'cancelled'
@@ -255,7 +278,8 @@ Message c5Message(String state) {
               ? 'succeeded'
               : 'running',
           if (paused) 'blockId': 'card',
-          if (status == 'complete') 'durationMs': 400,
+          if (status == 'complete' || state == 'thinking_tools')
+            'durationMs': 400,
         },
       ],
   });
@@ -323,6 +347,9 @@ class _C5PreviewState extends State<C5Preview> {
     _store.apply(SyncMessage(c5Message(widget.state)));
     if (const {
       'streaming',
+      'thinking',
+      'thinking_tools',
+      'streaming_text',
       'paused',
       'interrupted_retry',
       'stopping',
@@ -460,6 +487,9 @@ class _C5PreviewState extends State<C5Preview> {
       'empty',
       'setup_entry',
       'streaming',
+      'thinking',
+      'thinking_tools',
+      'streaming_text',
       'paused',
       'interrupted_retry',
       'stopping',
@@ -517,6 +547,9 @@ class _C5PreviewState extends State<C5Preview> {
                 onGallery: () {},
                 stopActive: const {
                   'streaming',
+                  'thinking',
+                  'thinking_tools',
+                  'streaming_text',
                   'paused',
                   'stopping',
                 }.contains(state),

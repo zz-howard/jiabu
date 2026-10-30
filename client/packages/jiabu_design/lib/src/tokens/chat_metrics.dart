@@ -18,5 +18,6 @@ abstract final class JiabuChatMetrics {
   static const double skeletonShort = 160;
   static const double fieldRadius = 12;
   static const double sendDisc = 40;
+  static const double thinkingDot = 4;
   static const double pageHeight = 720;
 }

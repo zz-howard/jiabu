@@ -487,6 +487,7 @@
   "chatAwaitAnswer": "Waiting for your answer",
   "chatAwaitConfirm": "Waiting for confirmation",
   "chatRunning": "Working",
+  "chatThinking": "Thinking",
   "chatSucceeded": "Completed",
   "chatExpand": "Expand",
   "chatCollapse": "Collapse",
