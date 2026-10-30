@@ -26,6 +26,15 @@ class AuthFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final titleBlock = Column(
+      key: const Key('auth-title-block'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(title, style: context.jiabu.type.pageTitle),
+        const JiabuIcon(JiabuIcons.squig, size: 112),
+      ],
+    );
     final content = JiabuStack(
       children: [
         ...children,
@@ -64,36 +73,34 @@ class AuthFrame extends StatelessWidget {
                               JiabuStackItem.content(
                                 child: AuthProgress(step: value),
                               ),
-                            JiabuStackItem.content(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    title,
-                                    style: context.jiabu.type.pageTitle,
-                                  ),
-                                  const JiabuIcon(JiabuIcons.squig, size: 112),
-                                ],
-                              ),
-                            ),
+                            if (step != null)
+                              JiabuStackItem.section(child: titleBlock)
+                            else
+                              JiabuStackItem.content(child: titleBlock),
                             if (subtitle != null)
-                              JiabuStackItem.captionAfter(child: subtitle!),
+                              JiabuStackItem.captionAfter(
+                                child: KeyedSubtree(
+                                  key: const Key('auth-subtitle'),
+                                  child: subtitle!,
+                                ),
+                              ),
                             if (busy)
                               const JiabuStackItem.content(
                                 child: LinearProgressIndicator(),
                               ),
-                            JiabuStackItem.content(
-                              child: card
-                                  ? PaperCard(child: content)
-                                  : SizedBox(
-                                      width: double.infinity,
-                                      child: content,
-                                    ),
+                            JiabuStackItem.section(
+                              child: SizedBox(
+                                key: const Key('auth-body'),
+                                width: double.infinity,
+                                child: card
+                                    ? PaperCard(child: content)
+                                    : content,
+                              ),
                             ),
                             if (footer != null)
-                              JiabuStackItem.content(
+                              JiabuStackItem.action(
                                 child: SizedBox(
+                                  key: const Key('auth-footer'),
                                   width: double.infinity,
                                   child: footer,
                                 ),

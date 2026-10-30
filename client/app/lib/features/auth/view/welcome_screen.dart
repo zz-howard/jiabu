@@ -35,9 +35,11 @@ class WelcomeScreen extends StatelessWidget {
                       constraints: const BoxConstraints(maxWidth: 520),
                       child: JiabuStack(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          JiabuStackItem.content(
+                          JiabuStackItem.section(
                             child: Stack(
+                              key: const Key('welcome-logo-group'),
                               clipBehavior: Clip.none,
                               children: [
                                 JiabuLogo(size: logoSize),
@@ -56,6 +58,7 @@ class WelcomeScreen extends StatelessWidget {
                           JiabuStackItem.content(
                             child: HandText(
                               l.handAuthWelcomeTagline,
+                              key: const Key('welcome-tagline'),
                               textAlign: TextAlign.center,
                               style: context.jiabu.type.subtitle.copyWith(
                                 fontSize: wide ? 22 : 20,
@@ -73,8 +76,9 @@ class WelcomeScreen extends StatelessWidget {
                                     .copyWith(fontSize: 18),
                               ),
                             ),
-                          JiabuStackItem.content(
+                          JiabuStackItem.section(
                             child: Wrap(
+                              key: const Key('welcome-mascot-note'),
                               alignment: WrapAlignment.center,
                               crossAxisAlignment: WrapCrossAlignment.end,
                               spacing: 6,
@@ -113,11 +117,17 @@ class WelcomeScreen extends StatelessWidget {
                             ),
                           ),
                           JiabuStackItem.action(
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: FilledButton(
-                                onPressed: busy ? null : onStart,
-                                child: Text(l.authWelcomeStart),
+                            child: Padding(
+                              padding: const EdgeInsets.only(
+                                top: JiabuSpacing.sm,
+                              ),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: FilledButton(
+                                  key: const Key('welcome-primary-action'),
+                                  onPressed: busy ? null : onStart,
+                                  child: Text(l.authWelcomeStart),
+                                ),
                               ),
                             ),
                           ),

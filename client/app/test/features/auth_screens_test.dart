@@ -81,6 +81,153 @@ void main() {
     expect(Theme.of(context).colorScheme.primary, context.jiabu.colors.primary);
   });
 
+  testWidgets('welcome logo stays centered at approved viewport sizes', (
+    tester,
+  ) async {
+    for (final config in [(360.0, 1.0), (430.0, 2.0)]) {
+      await pumpAuth(
+        tester,
+        WelcomeScreen(busy: false, onStart: () {}, onLogin: () {}),
+        width: config.$1,
+        scale: config.$2,
+      );
+      expect(
+        tester.getRect(find.byType(JiabuLogo)).center.dx,
+        closeTo(config.$1 / 2, 1),
+        reason: '${config.$1} at ${config.$2}x',
+      );
+      expect(
+        tester
+            .getRect(find.byKey(const Key('welcome-tagline')))
+            .center
+            .dx,
+        closeTo(config.$1 / 2, 1),
+      );
+      expect(
+        tester
+            .getRect(find.byKey(const Key('welcome-mascot-note')))
+            .center
+            .dx,
+        closeTo(config.$1 / 2, 1),
+      );
+      final logoTape = find.descendant(
+        of: find.byKey(const Key('welcome-logo-group')),
+        matching: find.byType(Tape),
+      );
+      expect(tester.getRect(logoTape).left, greaterThanOrEqualTo(0));
+      expect(tester.getRect(logoTape).right, lessThanOrEqualTo(config.$1));
+      final stack = tester.getRect(find.byType(JiabuStack).first);
+      final logo = tester.getRect(
+        find.byKey(const Key('welcome-logo-group')),
+      );
+      final tagline = tester.getRect(
+        find.byKey(const Key('welcome-tagline')),
+      );
+      final mascot = tester.getRect(
+        find.byKey(const Key('welcome-mascot-note')),
+      );
+      final action = tester.getRect(
+        find.byKey(const Key('welcome-primary-action')),
+      );
+      expect(
+        logo.top - stack.top,
+        greaterThanOrEqualTo(JiabuSpacing.xl),
+      );
+      expect(
+        tagline.top - logo.bottom,
+        greaterThanOrEqualTo(JiabuSpacing.sm),
+      );
+      expect(
+        action.top - mascot.bottom,
+        greaterThanOrEqualTo(JiabuSpacing.xxl),
+      );
+    }
+  });
+
+  testWidgets('C4b primary screens preserve approved block gaps', (
+    tester,
+  ) async {
+    for (final config in [(360.0, 1.0), (430.0, 2.0)]) {
+      for (final sample in <({String name, Widget screen})>[
+        (
+          name: 'server',
+          screen: ServerAddressScreen(
+            key: const ValueKey('server-collapsed-gap-check'),
+            state: const AuthUiState(
+              page: AuthPage.server,
+              defaultServer: 'https://example.invalid/',
+            ),
+            onSelect: (_) {},
+          ),
+        ),
+        (
+          name: 'server-expanded',
+          screen: ServerAddressScreen(
+            key: const ValueKey('server-expanded-gap-check'),
+            state: const AuthUiState(page: AuthPage.server),
+            onSelect: (_) {},
+          ),
+        ),
+        (
+          name: 'login',
+          screen: LoginScreen(
+            state: const AuthUiState(
+              page: AuthPage.login,
+              server: 'https://example.invalid/',
+              defaultServer: 'https://example.invalid/',
+            ),
+            onLogin: (_, _) {},
+            onServer: () {},
+          ),
+        ),
+      ]) {
+        await pumpAuth(
+          tester,
+          sample.screen,
+          width: config.$1,
+          scale: config.$2,
+        );
+        final progress = tester.getRect(
+          find.byKey(const Key('auth-progress')),
+        );
+        final title = tester.getRect(
+          find.byKey(const Key('auth-title-block')),
+        );
+        final subtitle = tester.getRect(
+          find.byKey(const Key('auth-subtitle')),
+        );
+        final card = tester.getRect(find.byType(PaperCard).first);
+        final body = tester.getRect(find.byKey(const Key('auth-body')));
+        final footer = tester.getRect(find.byKey(const Key('auth-footer')));
+        expect(
+          title.top - progress.bottom,
+          greaterThanOrEqualTo(JiabuSpacing.sectionTop),
+          reason: '${sample.name} title ${config.$1}/${config.$2}',
+        );
+        expect(
+          card.top - subtitle.bottom,
+          greaterThanOrEqualTo(JiabuSpacing.sectionTop),
+          reason: '${sample.name} body ${config.$1}/${config.$2}',
+        );
+        expect(
+          footer.top - body.bottom,
+          greaterThanOrEqualTo(JiabuSpacing.actionGap),
+          reason: '${sample.name} footer ${config.$1}/${config.$2}',
+        );
+        if (sample.name == 'login') {
+          final accountSection = tester.getRect(
+            find.byKey(const Key('login-account-section')),
+          );
+          expect(
+            accountSection.top - card.bottom,
+            greaterThanOrEqualTo(JiabuSpacing.sectionTop),
+            reason: 'login account section ${config.$1}/${config.$2}',
+          );
+        }
+      }
+    }
+  });
+
   for (final locale in ['zh', 'en']) {
     for (final width in [360.0, 430.0]) {
       for (final scale in [1.0, 2.0]) {

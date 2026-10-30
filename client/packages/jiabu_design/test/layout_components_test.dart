@@ -228,6 +228,30 @@ void main() {
     expect(tester.takeException(), isAssertionError);
   });
 
+  testWidgets('stack defaults to stretch and supports centered children', (
+    tester,
+  ) async {
+    await pumpLayout(
+      tester,
+      const JiabuStack(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          JiabuStackItem.content(
+            child: SizedBox(key: Key('centered-stack-child'), width: 40),
+          ),
+        ],
+      ),
+    );
+    expect(
+      tester.getRect(find.byKey(const Key('centered-stack-child'))).center.dx,
+      tester.getRect(find.byType(JiabuStack)).center.dx,
+    );
+    expect(
+      const JiabuStack(children: []).crossAxisAlignment,
+      CrossAxisAlignment.stretch,
+    );
+  });
+
   testWidgets('stack allows an inner stack behind a visual container', (
     tester,
   ) async {

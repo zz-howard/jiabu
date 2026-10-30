@@ -47,11 +47,13 @@ class JiabuStack extends StatelessWidget {
   const JiabuStack({
     required this.children,
     this.mainAxisAlignment = MainAxisAlignment.start,
+    this.crossAxisAlignment = CrossAxisAlignment.stretch,
     super.key,
   });
 
   final List<JiabuStackItem> children;
   final MainAxisAlignment mainAxisAlignment;
+  final CrossAxisAlignment crossAxisAlignment;
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +95,7 @@ class JiabuStack extends StatelessWidget {
     }
     return Column(
       key: const Key('jiabu-stack'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: crossAxisAlignment,
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: mainAxisAlignment,
       children: widgets,

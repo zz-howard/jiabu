@@ -169,8 +169,9 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
           ),
         ),
-        JiabuStackItem.content(
+        JiabuStackItem.section(
           child: Row(
+            key: const Key('login-account-section'),
             children: [
               Expanded(child: Divider(color: context.jiabu.colors.lineStrong)),
               Padding(
