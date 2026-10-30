@@ -29,7 +29,7 @@
 - 历史筛选渐隐由透明 bg 过渡到 bg，避免透明黑插值发灰。
 - 非聊天的 chip 组选用 `JiabuChipGroup` 提供 8/8 间距；选中态统一为 primary-soft、on-primary-soft、✓ 和白圈。聊天追问胶囊保持 4.10 的独立视觉与实现。
 - `JiabuStack` caption 明确区分描述前一块/后一块；同层直接嵌套 Stack 在 debug 下断言失败。几何矩阵校验 marker 完整数及各状态最低检查对数。
-- 规则 12 禁止把 `JiabuStack` / `JiabuChipGroup` 直接放进 `ListView.builder`、`SliverList` 等惰性 delegate，避免未构建项绕过 marker 完整性检查。
+- 规则 12 禁止把 `JiabuStack` / `JiabuChipGroup` 直接放进 `ListView.builder`、`SliverList` 等惰性 delegate，避免未构建项绕过 marker 完整性检查。规则是源码文本检查，只认 delegate 里直接写出的组件；通过 helper 间接构建（如 catalog 的 `sample.builder`）不会被拦。catalog 只是开发预览页，几何测试逐个状态单独渲染、不经过它的惰性列表，所以不影响覆盖；不为此引入 AST 分析。
 - C4b golden 与几何检查共享同一份 14 状态表；几何侧对每个状态执行 zh/en × 360/430 × 100%/200% 完整矩阵。
 - C4b 输入框在打开 modal 前逐项验证 EditableText 读屏标签；modal 背景会按 Flutter 路由语义规则被排除。
 - 本批不实现 RTL：客户端当前仅支持中文和英文，均使用 LTR 布局。

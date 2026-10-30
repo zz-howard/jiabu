@@ -11,7 +11,7 @@
       "test_names": [
         "stack applies token gaps and grows at 200 percent"
       ],
-      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"stack applies token gaps and grows at 200 percent\""
     },
     {
       "id": "chip_group_omits_horizontal_gap",
@@ -23,7 +23,7 @@
       "test_names": [
         "chip group applies token gaps and selected theme"
       ],
-      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"chip group applies token gaps and selected theme\""
     },
     {
       "id": "account_logout_returns_to_zero_gap",
@@ -35,7 +35,7 @@
       "test_names": [
         "account logout is separated as an action block"
       ],
-      "command": "flutter test test/features/c4_layout_test.dart"
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"account logout is separated as an action block\""
     },
     {
       "id": "lock_disable_uses_status_label",
@@ -47,7 +47,7 @@
       "test_names": [
         "app lock status and action labels are distinct"
       ],
-      "command": "flutter test test/features/c4_layout_test.dart"
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"app lock status and action labels are distinct\""
     },
     {
       "id": "page_back_icon_stays_fixed",
@@ -59,7 +59,7 @@
       "test_names": [
         "page back glyph scales and aligns with title first line"
       ],
-      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"page back glyph scales and aligns with title first line\""
     },
     {
       "id": "page_back_title_gap_returns_to_zero",
@@ -71,7 +71,7 @@
       "test_names": [
         "page back glyph keeps token gap before title"
       ],
-      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
+      "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"page back glyph keeps token gap before title\""
     },
     {
       "id": "api_key_permission_truncates",
@@ -83,7 +83,7 @@
       "test_names": [
         "api key permissions remain visible beside long prefixes"
       ],
-      "command": "flutter test test/features/c4_layout_test.dart"
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"api key permissions remain visible beside long prefixes\""
     },
     {
       "id": "history_fade_uses_transparent_black",
@@ -95,7 +95,7 @@
       "test_names": [
         "history filter fade keeps the paper color channels"
       ],
-      "command": "flutter test test/features/c3_layout_test.dart"
+      "command": "flutter test test/features/c3_layout_test.dart --plain-name \"history filter fade keeps the paper color channels\""
     },
     {
       "id": "c4_form_submit_is_not_action",
@@ -107,7 +107,7 @@
       "test_names": [
         "C4Form submit is an action block with action gap"
       ],
-      "command": "flutter test test/features/c4_layout_test.dart"
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"C4Form submit is an action block with action gap\""
     },
     {
       "id": "chip_label_state_style_drops_font",
@@ -119,7 +119,7 @@
       "test_names": [
         "zh c4_space_new 360.0 1.0"
       ],
-      "command": "flutter test test/catalog_layout_test.dart"
+      "command": "flutter test test/catalog_layout_test.dart --plain-name \"zh c4_space_new 360.0 1.0\""
     }
   ]
 }
