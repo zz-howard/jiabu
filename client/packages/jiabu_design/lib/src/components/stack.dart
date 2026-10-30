@@ -54,8 +54,8 @@ class JiabuStack extends StatelessWidget {
       } else {
         widgets.add(SizedBox(height: _gap(children[index - 1], item)));
       }
-      final child = item.kind == JiabuStackItemKind.action &&
-              item.actionCaption != null
+      final child =
+          item.kind == JiabuStackItemKind.action && item.actionCaption != null
           ? Column(
               spacing: JiabuSpacing.captionGap,
               crossAxisAlignment: CrossAxisAlignment.stretch,

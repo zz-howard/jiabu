@@ -75,28 +75,30 @@ class SettingsScreen extends ConsumerWidget {
               JiabuStackItem.content(
                 child: JiabuSettingsGroup(
                   children: [
-                  // C3's account management entry retains its label and route.
-                  row(l.ledgerAccounts, '/settings/accounts'),
-                  row(
-                    l.c4Account,
-                    '/settings/account',
-                    subtitle: runtime.auth.current?.user.username,
-                  ),
-                  row(
-                    l.c4Lock,
-                    '/settings/app-lock',
-                    subtitle: runtime.lock.configuration.enabled
-                        ? l.c4Enabled
-                        : l.c4Disabled,
-                  ),
-                  row(
-                    l.c4Keys,
-                    '/settings/api-keys',
-                    subtitle: keyCount == null ? null : l.c4KeyCount(keyCount),
-                  ),
-                  row(l.c4Language, '/settings/language'),
-                  row(l.c4Received, '/invitations'),
-                  row(l.c4About, '/settings/about'),
+                    // C3's account management entry retains its label and route.
+                    row(l.ledgerAccounts, '/settings/accounts'),
+                    row(
+                      l.c4Account,
+                      '/settings/account',
+                      subtitle: runtime.auth.current?.user.username,
+                    ),
+                    row(
+                      l.c4Lock,
+                      '/settings/app-lock',
+                      subtitle: runtime.lock.configuration.enabled
+                          ? l.c4Enabled
+                          : l.c4Disabled,
+                    ),
+                    row(
+                      l.c4Keys,
+                      '/settings/api-keys',
+                      subtitle: keyCount == null
+                          ? null
+                          : l.c4KeyCount(keyCount),
+                    ),
+                    row(l.c4Language, '/settings/language'),
+                    row(l.c4Received, '/invitations'),
+                    row(l.c4About, '/settings/about'),
                   ],
                 ),
               ),
@@ -112,16 +114,16 @@ class SettingsScreen extends ConsumerWidget {
               JiabuStackItem.action(
                 child: OutlinedButton(
                   onPressed: () async {
-                  final confirmed = await JiabuSheet.show<bool>(
-                    context: context,
-                    builder: (sheetContext) => C4Confirmation(
-                      message: l.c4Logout,
-                      onConfirm: () => Navigator.of(sheetContext).pop(true),
-                    ),
-                  );
-                  if (confirmed == true) {
-                    await runtime.auth.logout();
-                  }
+                    final confirmed = await JiabuSheet.show<bool>(
+                      context: context,
+                      builder: (sheetContext) => C4Confirmation(
+                        message: l.c4Logout,
+                        onConfirm: () => Navigator.of(sheetContext).pop(true),
+                      ),
+                    );
+                    if (confirmed == true) {
+                      await runtime.auth.logout();
+                    }
                   },
                   child: Text(l.c4Logout),
                 ),
@@ -149,31 +151,33 @@ class SettingsScreen extends ConsumerWidget {
               JiabuStackItem.content(
                 child: JiabuSettingsGroup(
                   children: [
-                  for (final entry in {
-                    'system': l.c4System,
-                    'zh-Hans': l.c4Chinese,
-                    'en': l.c4English,
-                  }.entries)
-                    Semantics(
-                      key: ValueKey('language-${entry.key}'),
-                      selected: runtime.auth.current?.user.locale == entry.key,
-                      child: JiabuListRow(
-                        title: entry.value,
-                        enabled: state.online && !state.busy,
-                        trailing: runtime.auth.current?.user.locale == entry.key
-                            ? const Text('✓')
-                            : null,
-                        onTap: !state.online || state.busy
-                            ? null
-                            : () async {
-                                if (await vm.run(
-                                  () => runtime.auth.setLocale(entry.key),
-                                )) {
-                                  runtime.notify();
-                                }
-                              },
+                    for (final entry in {
+                      'system': l.c4System,
+                      'zh-Hans': l.c4Chinese,
+                      'en': l.c4English,
+                    }.entries)
+                      Semantics(
+                        key: ValueKey('language-${entry.key}'),
+                        selected:
+                            runtime.auth.current?.user.locale == entry.key,
+                        child: JiabuListRow(
+                          title: entry.value,
+                          enabled: state.online && !state.busy,
+                          trailing:
+                              runtime.auth.current?.user.locale == entry.key
+                              ? const Text('✓')
+                              : null,
+                          onTap: !state.online || state.busy
+                              ? null
+                              : () async {
+                                  if (await vm.run(
+                                    () => runtime.auth.setLocale(entry.key),
+                                  )) {
+                                    runtime.notify();
+                                  }
+                                },
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

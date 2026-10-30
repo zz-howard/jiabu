@@ -90,48 +90,48 @@ class _ApiKeysScreenState extends ConsumerState<ApiKeysScreen> {
                 JiabuStackItem.content(
                   child: JiabuSettingsGroup(
                     children: [
-                    for (final row in state.rows.where(
-                      (row) => row['status'] == 'active',
-                    ))
-                      ApiKeyRow(
-                        row: row,
-                        onTap: () async {
-                          await JiabuSheet.show<void>(
-                            context: context,
-                            builder: (_) => ApiKeyDetails(row: row),
-                            wrapperBuilder: (_, child) =>
-                                C4ScopeFence(child: child),
-                          );
-                          if (mounted) {
-                            await _load();
-                          }
-                        },
-                      ),
+                      for (final row in state.rows.where(
+                        (row) => row['status'] == 'active',
+                      ))
+                        ApiKeyRow(
+                          row: row,
+                          onTap: () async {
+                            await JiabuSheet.show<void>(
+                              context: context,
+                              builder: (_) => ApiKeyDetails(row: row),
+                              wrapperBuilder: (_, child) =>
+                                  C4ScopeFence(child: child),
+                            );
+                            if (mounted) {
+                              await _load();
+                            }
+                          },
+                        ),
                     ],
                   ),
                 ),
               JiabuStackItem.content(
                 child: JiabuSettingsGroup(
                   children: [
-                  Semantics(
-                    key: const Key('inactive-keys-toggle'),
-                    expanded: _inactiveExpanded,
-                    child: JiabuListRow(
-                      title: l.c4Inactive,
-                      trailing: JiabuIcon(
-                        JiabuIcons.uiDown,
-                        flipY: _inactiveExpanded,
-                      ),
-                      onTap: () => setState(
-                        () => _inactiveExpanded = !_inactiveExpanded,
+                    Semantics(
+                      key: const Key('inactive-keys-toggle'),
+                      expanded: _inactiveExpanded,
+                      child: JiabuListRow(
+                        title: l.c4Inactive,
+                        trailing: JiabuIcon(
+                          JiabuIcons.uiDown,
+                          flipY: _inactiveExpanded,
+                        ),
+                        onTap: () => setState(
+                          () => _inactiveExpanded = !_inactiveExpanded,
+                        ),
                       ),
                     ),
-                  ),
-                  if (_inactiveExpanded)
-                    for (final row in state.rows.where(
-                      (row) => row['status'] != 'active',
-                    ))
-                      ApiKeyRow(row: row),
+                    if (_inactiveExpanded)
+                      for (final row in state.rows.where(
+                        (row) => row['status'] != 'active',
+                      ))
+                        ApiKeyRow(row: row),
                   ],
                 ),
               ),

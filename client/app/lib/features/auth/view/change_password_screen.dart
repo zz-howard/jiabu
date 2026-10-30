@@ -67,14 +67,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           JiabuStackItem.action(
             child: FilledButton(
               onPressed: widget.state.busy
-                ? null
-                : () {
-                    final values = [_current.text, _next.text, _repeat.text];
-                    for (final controller in [_current, _next, _repeat]) {
-                      controller.clear();
-                    }
-                    widget.onSave(values[0], values[1], values[2]);
-                  },
+                  ? null
+                  : () {
+                      final values = [_current.text, _next.text, _repeat.text];
+                      for (final controller in [_current, _next, _repeat]) {
+                        controller.clear();
+                      }
+                      widget.onSave(values[0], values[1], values[2]);
+                    },
               child: Text(l10n.authSavePassword),
             ),
           ),

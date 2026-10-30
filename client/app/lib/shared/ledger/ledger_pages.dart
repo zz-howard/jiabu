@@ -118,54 +118,60 @@ class OverviewPage extends ConsumerWidget {
       children: [
         JiabuStack(
           children: [
-        JiabuStackItem.content(
-          child: Text(l.ledgerOverview, style: context.jiabu.type.pageTitle),
-        ),
-        if (result is Failure<Map<String, int>>)
-          JiabuStackItem.caption(child: Text(ledgerError(l, result.code))),
-        if (snapshot.accounts.isEmpty)
-          JiabuStackItem.content(
-            child: JiabuEmptyState(
-              message: HandText(l.handNothingHere, textAlign: TextAlign.center),
-              actionLabel: l.ledgerNewAccount,
-              onAction: () => context.push<void>('/settings/accounts'),
-            ),
-          ),
-        if (result is Ok<Map<String, int>>)
-          for (final kind in ['real', 'purpose']) ...[
-            JiabuStackItem.section(
-              child: JiabuSectionHeader(
-                title: kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
+            JiabuStackItem.content(
+              child: Text(
+                l.ledgerOverview,
+                style: context.jiabu.type.pageTitle,
               ),
             ),
-            for (final account in snapshot.accounts.where(
-              (a) =>
-                  a.text('kind') == kind &&
-                  (!a.archived || (balances[a.id] ?? 0) != 0),
-            ))
+            if (result is Failure<Map<String, int>>)
+              JiabuStackItem.caption(child: Text(ledgerError(l, result.code))),
+            if (snapshot.accounts.isEmpty)
               JiabuStackItem.content(
-                child: AccountBalanceTile(
-                  snapshot: snapshot,
-                  account: account,
-                  balance: balances[account.id] ?? 0,
+                child: JiabuEmptyState(
+                  message: HandText(
+                    l.handNothingHere,
+                    textAlign: TextAlign.center,
+                  ),
+                  actionLabel: l.ledgerNewAccount,
+                  onAction: () => context.push<void>('/settings/accounts'),
                 ),
               ),
-          ],
-        JiabuStackItem.section(
-          child: JiabuSectionHeader(title: l.ledgerPending),
-        ),
-        JiabuStackItem.content(child: PendingItems(snapshot: snapshot)),
-        JiabuStackItem.section(
-          child: JiabuSectionHeader(title: l.ledgerRecent),
-        ),
-        for (final row in recent)
-          JiabuStackItem.content(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: liveRecordCard(context, ref, snapshot, row),
+            if (result is Ok<Map<String, int>>)
+              for (final kind in ['real', 'purpose']) ...[
+                JiabuStackItem.section(
+                  child: JiabuSectionHeader(
+                    title: kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
+                  ),
+                ),
+                for (final account in snapshot.accounts.where(
+                  (a) =>
+                      a.text('kind') == kind &&
+                      (!a.archived || (balances[a.id] ?? 0) != 0),
+                ))
+                  JiabuStackItem.content(
+                    child: AccountBalanceTile(
+                      snapshot: snapshot,
+                      account: account,
+                      balance: balances[account.id] ?? 0,
+                    ),
+                  ),
+              ],
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(title: l.ledgerPending),
             ),
-          ),
-        // C6 extension point: family summary. No card in this slice.
+            JiabuStackItem.content(child: PendingItems(snapshot: snapshot)),
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(title: l.ledgerRecent),
+            ),
+            for (final row in recent)
+              JiabuStackItem.content(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: liveRecordCard(context, ref, snapshot, row),
+                ),
+              ),
+            // C6 extension point: family summary. No card in this slice.
           ],
         ),
       ],
@@ -507,113 +513,113 @@ class HistoryPage extends ConsumerWidget {
               JiabuStackItem.content(
                 child: Stack(
                   children: [
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        PaperFilterChip(
-                          label: l.ledgerMembers,
-                          selected: filter.member != null,
-                          onPressed: () => select(
-                            l.ledgerMembers,
-                            [
-                              for (final member in snapshot.members)
-                                (member.id, memberName(member, l)),
-                            ],
-                            filter.member,
-                            (id) => update(
-                              member: id,
-                              clear: id == null ? 'member' : null,
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          PaperFilterChip(
+                            label: l.ledgerMembers,
+                            selected: filter.member != null,
+                            onPressed: () => select(
+                              l.ledgerMembers,
+                              [
+                                for (final member in snapshot.members)
+                                  (member.id, memberName(member, l)),
+                              ],
+                              filter.member,
+                              (id) => update(
+                                member: id,
+                                clear: id == null ? 'member' : null,
+                              ),
                             ),
                           ),
-                        ),
-                        PaperFilterChip(
-                          label: l.ledgerAccounts,
-                          selected: filter.account != null,
-                          onPressed: () => select(
-                            l.ledgerAccounts,
-                            [
-                              for (final a in snapshot.accounts)
-                                (a.id, a.text('name')),
-                            ],
-                            filter.account,
-                            (id) => update(
-                              account: id,
-                              clear: id == null ? 'account' : null,
+                          PaperFilterChip(
+                            label: l.ledgerAccounts,
+                            selected: filter.account != null,
+                            onPressed: () => select(
+                              l.ledgerAccounts,
+                              [
+                                for (final a in snapshot.accounts)
+                                  (a.id, a.text('name')),
+                              ],
+                              filter.account,
+                              (id) => update(
+                                account: id,
+                                clear: id == null ? 'account' : null,
+                              ),
                             ),
                           ),
-                        ),
-                        PaperFilterChip(
-                          label: l.ledgerTags,
-                          selected: filter.tag != null,
-                          onPressed: () => select(
-                            l.ledgerTags,
-                            [
-                              for (final tag in snapshot.tags)
-                                (tag.id, tagName(tag, ledgerLabels(l))),
-                            ],
-                            filter.tag,
-                            (id) => update(
-                              tag: id,
-                              clear: id == null ? 'tag' : null,
+                          PaperFilterChip(
+                            label: l.ledgerTags,
+                            selected: filter.tag != null,
+                            onPressed: () => select(
+                              l.ledgerTags,
+                              [
+                                for (final tag in snapshot.tags)
+                                  (tag.id, tagName(tag, ledgerLabels(l))),
+                              ],
+                              filter.tag,
+                              (id) => update(
+                                tag: id,
+                                clear: id == null ? 'tag' : null,
+                              ),
                             ),
                           ),
-                        ),
-                        PaperFilterChip(
-                          label: l.ledgerTypes,
-                          selected: filter.kind != null,
-                          onPressed: () => select(
-                            l.ledgerTypes,
-                            [
-                              for (final kind in [
-                                'expense',
-                                'income',
-                                'transfer',
-                                'reallocation',
-                                'refund',
-                                'allocation',
-                              ])
-                                (kind, ledgerLabels(l)[kind] ?? ''),
-                            ],
-                            filter.kind,
-                            (id) => update(
-                              kind: id,
-                              clear: id == null ? 'kind' : null,
+                          PaperFilterChip(
+                            label: l.ledgerTypes,
+                            selected: filter.kind != null,
+                            onPressed: () => select(
+                              l.ledgerTypes,
+                              [
+                                for (final kind in [
+                                  'expense',
+                                  'income',
+                                  'transfer',
+                                  'reallocation',
+                                  'refund',
+                                  'allocation',
+                                ])
+                                  (kind, ledgerLabels(l)[kind] ?? ''),
+                              ],
+                              filter.kind,
+                              (id) => update(
+                                kind: id,
+                                clear: id == null ? 'kind' : null,
+                              ),
                             ),
                           ),
-                        ),
-                        PaperFilterChip(
-                          label: l.ledgerPeriod,
-                          selected:
-                              filter.from != null || filter.through != null,
-                          onPressed: () => LedgerSheet.show<void>(
-                            context: context,
-                            spaceId: snapshot.spaceId,
-                            builder: (sheetContext) =>
-                                DateFilterForm(spaceId: snapshot.spaceId),
+                          PaperFilterChip(
+                            label: l.ledgerPeriod,
+                            selected:
+                                filter.from != null || filter.through != null,
+                            onPressed: () => LedgerSheet.show<void>(
+                              context: context,
+                              spaceId: snapshot.spaceId,
+                              builder: (sheetContext) =>
+                                  DateFilterForm(spaceId: snapshot.spaceId),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  PositionedDirectional(
-                    end: 0,
-                    top: 0,
-                    bottom: 0,
-                    child: IgnorePointer(
-                      child: Container(
-                        width: JiabuSpacing.xxl,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              context.jiabu.colors.bg.withValues(alpha: 0),
-                              context.jiabu.colors.bg,
-                            ],
+                    PositionedDirectional(
+                      end: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: IgnorePointer(
+                        child: Container(
+                          width: JiabuSpacing.xxl,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                context.jiabu.colors.bg.withValues(alpha: 0),
+                                context.jiabu.colors.bg,
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
                   ],
                 ),
               ),
@@ -625,9 +631,8 @@ class HistoryPage extends ConsumerWidget {
                       TextButton(
                         onPressed: () => ref
                             .read(
-                              ledgerViewModelProvider(
-                                snapshot.spaceId,
-                              ).notifier,
+                              ledgerViewModelProvider(snapshot.spaceId)
+                                  .notifier,
                             )
                             .filter(const HistoryFilter()),
                         child: Text(l.ledgerClear),
@@ -817,155 +822,160 @@ class AccountsPage extends ConsumerWidget {
       children: [
         JiabuStack(
           children: [
-        JiabuStackItem.content(child: formError(context, state.error)),
-        if (result is Failure<Map<String, int>>)
-          JiabuStackItem.caption(child: Text(ledgerError(l, result.code))),
-        for (final archived in [false, true]) ...[
-          if (archived)
-            JiabuStackItem.section(
-              child: JiabuSectionHeader(title: l.ledgerArchivedAccounts),
-            ),
-          for (final account in snapshot.accounts.where(
-            (a) => a.archived == archived,
-          ))
-            JiabuStackItem.content(
-              child: JiabuSettingsGroup(
-                children: [
-                  JiabuListRow(
-                    title: account.text('name'),
-                    subtitle: account.text('kind') == 'real'
-                        ? l.ledgerReal
-                        : l.ledgerPurpose,
-                    status: accountOperationFailed(account)
-                        ? l.ledgerFailed
-                        : account.syncState == 'pending'
-                        ? l.ledgerUpload
-                        : null,
-                    valueWidget: balances.containsKey(account.id)
-                        ? ledgerAmount(
-                            context,
-                            balances[account.id] ?? 0,
-                            snapshot.currency,
-                          )
-                        : null,
-                    supporting:
-                        accountCreateFailed(account) ||
-                            (account.archived &&
-                                (balances[account.id] ?? 0) != 0)
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (accountCreateFailed(account))
-                                Text(
-                                  l.ledgerAccountCreateRejected,
-                                  key: const Key(
-                                    'account-create-rejected-explanation',
-                                  ),
-                                  style: context.jiabu.type.secondary.copyWith(
-                                    color: context.jiabu.colors.neg,
-                                  ),
-                                ),
-                              if (account.archived &&
-                                  (balances[account.id] ?? 0) != 0)
-                                Text(
-                                  l.ledgerArchiveUnavailable,
-                                  key: const Key(
-                                    'archived-account-balance-explanation',
-                                  ),
-                                  style: context.jiabu.type.secondary.copyWith(
-                                    color: context.jiabu.colors.warn,
-                                  ),
-                                ),
-                            ],
-                          )
-                        : null,
-                    trailing:
-                        (!account.archived && snapshot.writable) ||
-                            account.syncState == 'conflict'
-                        ? PopupMenuButton<String>(
-                            icon: JiabuIcon(
-                              JiabuIcons.uiMore,
-                              color:
-                                  account.syncState == 'conflict' || !state.busy
-                                  ? null
-                                  : context.jiabu.colors.ink.withValues(
-                                      alpha: .38,
+            JiabuStackItem.content(child: formError(context, state.error)),
+            if (result is Failure<Map<String, int>>)
+              JiabuStackItem.caption(child: Text(ledgerError(l, result.code))),
+            for (final archived in [false, true]) ...[
+              if (archived)
+                JiabuStackItem.section(
+                  child: JiabuSectionHeader(title: l.ledgerArchivedAccounts),
+                ),
+              for (final account in snapshot.accounts.where(
+                (a) => a.archived == archived,
+              ))
+                JiabuStackItem.content(
+                  child: JiabuSettingsGroup(
+                    children: [
+                      JiabuListRow(
+                        title: account.text('name'),
+                        subtitle: account.text('kind') == 'real'
+                            ? l.ledgerReal
+                            : l.ledgerPurpose,
+                        status: accountOperationFailed(account)
+                            ? l.ledgerFailed
+                            : account.syncState == 'pending'
+                            ? l.ledgerUpload
+                            : null,
+                        valueWidget: balances.containsKey(account.id)
+                            ? ledgerAmount(
+                                context,
+                                balances[account.id] ?? 0,
+                                snapshot.currency,
+                              )
+                            : null,
+                        supporting:
+                            accountCreateFailed(account) ||
+                                (account.archived &&
+                                    (balances[account.id] ?? 0) != 0)
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (accountCreateFailed(account))
+                                    Text(
+                                      l.ledgerAccountCreateRejected,
+                                      key: const Key(
+                                        'account-create-rejected-explanation',
+                                      ),
+                                      style: context.jiabu.type.secondary
+                                          .copyWith(
+                                            color: context.jiabu.colors.neg,
+                                          ),
                                     ),
-                            ),
-                            enabled:
-                                account.syncState == 'conflict' || !state.busy,
-                            onSelected: (value) {
-                              if (value == 'rename') {
-                                unawaited(
-                                  openAccountForm(
-                                    context,
-                                    snapshot.spaceId,
-                                    account: account,
-                                  ),
-                                );
-                              } else if (value == 'plan') {
-                                unawaited(
-                                  openPlan(
-                                    context,
-                                    snapshot.spaceId,
-                                    account.id,
-                                  ),
-                                );
-                              } else if (value == 'archive') {
-                                unawaited(
-                                  archiveGuide(
-                                    context,
-                                    ref,
-                                    snapshot,
-                                    account,
-                                    balances[account.id] ?? 0,
-                                  ),
-                                );
-                              } else if (value == 'conflict') {
-                                unawaited(
-                                  openConflict(
-                                    context,
-                                    snapshot.spaceId,
-                                    'account',
-                                    account.id,
-                                  ),
-                                );
-                              }
-                            },
-                            itemBuilder: (_) => [
-                              if (!account.archived && snapshot.writable) ...[
-                                PopupMenuItem(
-                                  value: 'rename',
-                                  enabled: !state.busy,
-                                  child: Text(l.ledgerRename),
+                                  if (account.archived &&
+                                      (balances[account.id] ?? 0) != 0)
+                                    Text(
+                                      l.ledgerArchiveUnavailable,
+                                      key: const Key(
+                                        'archived-account-balance-explanation',
+                                      ),
+                                      style: context.jiabu.type.secondary
+                                          .copyWith(
+                                            color: context.jiabu.colors.warn,
+                                          ),
+                                    ),
+                                ],
+                              )
+                            : null,
+                        trailing:
+                            (!account.archived && snapshot.writable) ||
+                                account.syncState == 'conflict'
+                            ? PopupMenuButton<String>(
+                                icon: JiabuIcon(
+                                  JiabuIcons.uiMore,
+                                  color:
+                                      account.syncState == 'conflict' ||
+                                          !state.busy
+                                      ? null
+                                      : context.jiabu.colors.ink.withValues(
+                                          alpha: .38,
+                                        ),
                                 ),
-                                if (account.text('kind') == 'purpose')
-                                  PopupMenuItem(
-                                    value: 'plan',
-                                    enabled: !state.busy,
-                                    child: Text(l.ledgerPlan),
-                                  ),
-                                PopupMenuItem(
-                                  value: 'archive',
-                                  enabled:
-                                      !state.busy &&
-                                      balances.containsKey(account.id),
-                                  child: Text(l.ledgerArchive),
-                                ),
-                              ],
-                              if (account.syncState == 'conflict')
-                                PopupMenuItem(
-                                  value: 'conflict',
-                                  child: Text(l.ledgerConflict),
-                                ),
-                            ],
-                          )
-                        : null,
+                                enabled:
+                                    account.syncState == 'conflict' ||
+                                    !state.busy,
+                                onSelected: (value) {
+                                  if (value == 'rename') {
+                                    unawaited(
+                                      openAccountForm(
+                                        context,
+                                        snapshot.spaceId,
+                                        account: account,
+                                      ),
+                                    );
+                                  } else if (value == 'plan') {
+                                    unawaited(
+                                      openPlan(
+                                        context,
+                                        snapshot.spaceId,
+                                        account.id,
+                                      ),
+                                    );
+                                  } else if (value == 'archive') {
+                                    unawaited(
+                                      archiveGuide(
+                                        context,
+                                        ref,
+                                        snapshot,
+                                        account,
+                                        balances[account.id] ?? 0,
+                                      ),
+                                    );
+                                  } else if (value == 'conflict') {
+                                    unawaited(
+                                      openConflict(
+                                        context,
+                                        snapshot.spaceId,
+                                        'account',
+                                        account.id,
+                                      ),
+                                    );
+                                  }
+                                },
+                                itemBuilder: (_) => [
+                                  if (!account.archived &&
+                                      snapshot.writable) ...[
+                                    PopupMenuItem(
+                                      value: 'rename',
+                                      enabled: !state.busy,
+                                      child: Text(l.ledgerRename),
+                                    ),
+                                    if (account.text('kind') == 'purpose')
+                                      PopupMenuItem(
+                                        value: 'plan',
+                                        enabled: !state.busy,
+                                        child: Text(l.ledgerPlan),
+                                      ),
+                                    PopupMenuItem(
+                                      value: 'archive',
+                                      enabled:
+                                          !state.busy &&
+                                          balances.containsKey(account.id),
+                                      child: Text(l.ledgerArchive),
+                                    ),
+                                  ],
+                                  if (account.syncState == 'conflict')
+                                    PopupMenuItem(
+                                      value: 'conflict',
+                                      child: Text(l.ledgerConflict),
+                                    ),
+                                ],
+                              )
+                            : null,
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-        ],
+                ),
+            ],
           ],
         ),
       ],

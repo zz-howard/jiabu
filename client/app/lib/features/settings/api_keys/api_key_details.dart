@@ -78,28 +78,28 @@ class ApiKeyDetails extends ConsumerWidget {
         JiabuStackItem.action(
           child: OutlinedButton(
             onPressed: !state.online || state.busy
-              ? null
-              : () async {
-                  final confirmed = await JiabuSheet.show<bool>(
-                    context: context,
-                    builder: (sheetContext) => C4Confirmation(
-                      message: l.c4RevokeWarning,
-                      onConfirm: () => Navigator.of(sheetContext).pop(true),
-                    ),
-                  );
-                  if (confirmed == true && context.mounted) {
-                    final repository = ref.read(apiKeysRepositoryProvider);
-                    if (await vm.run(
-                          () => repository.change(
-                            requireValue<String>(row['id']),
-                            const Uuid().v7(),
-                          ),
-                        ) &&
-                        context.mounted) {
-                      Navigator.of(context).pop();
+                ? null
+                : () async {
+                    final confirmed = await JiabuSheet.show<bool>(
+                      context: context,
+                      builder: (sheetContext) => C4Confirmation(
+                        message: l.c4RevokeWarning,
+                        onConfirm: () => Navigator.of(sheetContext).pop(true),
+                      ),
+                    );
+                    if (confirmed == true && context.mounted) {
+                      final repository = ref.read(apiKeysRepositoryProvider);
+                      if (await vm.run(
+                            () => repository.change(
+                              requireValue<String>(row['id']),
+                              const Uuid().v7(),
+                            ),
+                          ) &&
+                          context.mounted) {
+                        Navigator.of(context).pop();
+                      }
                     }
-                  }
-                },
+                  },
             child: Text(l.c4Revoke),
           ),
         ),

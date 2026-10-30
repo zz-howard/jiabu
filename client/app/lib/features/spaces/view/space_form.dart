@@ -109,19 +109,19 @@ class SpaceForm extends ConsumerWidget {
           JiabuStackItem.content(
             child: Wrap(
               children: [
-              for (final currency in const [
-                'CNY',
-                'HKD',
-                'USD',
-                'EUR',
-                'GBP',
-                'JPY',
-              ])
-                ChoiceChip(
-                  label: Text(currency),
-                  selected: (state.values['currency'] ?? 'CNY') == currency,
-                  onSelected: (_) => vm.patch('currency', currency),
-                ),
+                for (final currency in const [
+                  'CNY',
+                  'HKD',
+                  'USD',
+                  'EUR',
+                  'GBP',
+                  'JPY',
+                ])
+                  ChoiceChip(
+                    label: Text(currency),
+                    selected: (state.values['currency'] ?? 'CNY') == currency,
+                    onSelected: (_) => vm.patch('currency', currency),
+                  ),
               ],
             ),
           ),

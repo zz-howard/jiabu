@@ -13,19 +13,22 @@ int expectJiabuVerticalRhythm(
   }
   var checkedPairs = 0;
   for (final stack in stackElements) {
-    final markers = find
-        .descendant(
-          of: find.byElementPredicate((element) => identical(element, stack)),
-          matching: find.byType(JiabuStackMarker),
-        )
-        .evaluate()
-        .where((marker) => identical(_nearestStack(marker), stack))
-        .toList()
-      ..sort((left, right) {
-        final a = (left.widget as JiabuStackMarker).index;
-        final b = (right.widget as JiabuStackMarker).index;
-        return a.compareTo(b);
-      });
+    final markers =
+        find
+            .descendant(
+              of: find.byElementPredicate(
+                (element) => identical(element, stack),
+              ),
+              matching: find.byType(JiabuStackMarker),
+            )
+            .evaluate()
+            .where((marker) => identical(_nearestStack(marker), stack))
+            .toList()
+          ..sort((left, right) {
+            final a = (left.widget as JiabuStackMarker).index;
+            final b = (right.widget as JiabuStackMarker).index;
+            return a.compareTo(b);
+          });
     for (var index = 1; index < markers.length; index++) {
       final previous = markers[index - 1].widget as JiabuStackMarker;
       final current = markers[index].widget as JiabuStackMarker;
@@ -57,10 +60,7 @@ Element? _nearestStack(Element element) {
   return result;
 }
 
-double _expectedGap(
-  JiabuStackItemKind previous,
-  JiabuStackItemKind current,
-) {
+double _expectedGap(JiabuStackItemKind previous, JiabuStackItemKind current) {
   if (current == JiabuStackItemKind.section) {
     return JiabuSpacing.sectionTop;
   }

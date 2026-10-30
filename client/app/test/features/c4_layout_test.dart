@@ -249,20 +249,20 @@ void main() {
         (430.0, 1.0),
         (430.0, 2.0),
       ]) {
-      await pumpC4Preview(
-        tester,
-        state: 'keys_list',
-        locale: locale,
-        width: width,
-        scale: scale,
-      );
-      final permission = find.text(locale == 'zh' ? '只读' : 'Read only');
-      expect(permission, findsOneWidget, reason: '$width at ${scale}x');
-      expect(
-        tester.renderObject<RenderParagraph>(permission).didExceedMaxLines,
-        isFalse,
-        reason: '$width at ${scale}x',
-      );
+        await pumpC4Preview(
+          tester,
+          state: 'keys_list',
+          locale: locale,
+          width: width,
+          scale: scale,
+        );
+        final permission = find.text(locale == 'zh' ? '只读' : 'Read only');
+        expect(permission, findsOneWidget, reason: '$width at ${scale}x');
+        expect(
+          tester.renderObject<RenderParagraph>(permission).didExceedMaxLines,
+          isFalse,
+          reason: '$width at ${scale}x',
+        );
       }
     }
   });
@@ -281,13 +281,14 @@ void main() {
     );
   });
 
-  testWidgets('C4Form submit is an action block with action gap', (tester) async {
+  testWidgets('C4Form submit is an action block with action gap', (
+    tester,
+  ) async {
     await pumpC4Preview(tester, state: 'password');
     final button = find.byType(FilledButton);
-    final marker = find.ancestor(
-      of: button,
-      matching: find.byType(JiabuStackMarker),
-    ).first;
+    final marker = find
+        .ancestor(of: button, matching: find.byType(JiabuStackMarker))
+        .first;
     expect(
       tester.widget<JiabuStackMarker>(marker).kind,
       JiabuStackItemKind.action,
@@ -299,7 +300,10 @@ void main() {
     await pumpC4Preview(tester, state: 'account');
     final group = tester.getRect(find.byType(JiabuSettingsGroup));
     final button = tester.getRect(find.widgetWithText(OutlinedButton, '退出登录'));
-    expect(button.top - group.bottom, greaterThanOrEqualTo(JiabuSpacing.actionGap));
+    expect(
+      button.top - group.bottom,
+      greaterThanOrEqualTo(JiabuSpacing.actionGap),
+    );
   });
 
   testWidgets('app lock status and action labels are distinct', (tester) async {

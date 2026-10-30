@@ -95,98 +95,103 @@ class _ServerAddressScreenState extends State<ServerAddressScreen> {
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-            PaperCard(
-              padding: const EdgeInsets.all(JiabuSpacing.cardInset),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      const Sticker(category: 'home'),
-                      const SizedBox(width: JiabuSpacing.md),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+              PaperCard(
+                padding: const EdgeInsets.all(JiabuSpacing.cardInset),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Sticker(category: 'home'),
+                        const SizedBox(width: JiabuSpacing.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _advanced
+                                    ? l.authCustomServerTitle
+                                    : l.authUseDefaultServer,
+                                style: context.jiabu.type.listTitle,
+                              ),
+                              Text(
+                                _advanced
+                                    ? l.authCustomServerDescription
+                                    : l.authDefaultServerDescription,
+                                style: context.jiabu.type.secondary.copyWith(
+                                  color: context.jiabu.colors.ink2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (hasDefault) ...[
+                      const SizedBox(height: JiabuSpacing.gap14),
+                      Divider(color: context.jiabu.colors.lineStrong),
+                      TextButton(
+                        key: const Key('advanced-settings'),
+                        onPressed: widget.state.busy
+                            ? null
+                            : () => setState(() => _advanced = !_advanced),
+                        child: Row(
                           children: [
-                            Text(
-                              _advanced
-                                  ? l.authCustomServerTitle
-                                  : l.authUseDefaultServer,
-                              style: context.jiabu.type.listTitle,
-                            ),
-                            Text(
-                              _advanced
-                                  ? l.authCustomServerDescription
-                                  : l.authDefaultServerDescription,
-                              style: context.jiabu.type.secondary.copyWith(
-                                color: context.jiabu.colors.ink2,
+                            Expanded(child: Text(l.authAdvancedSettings)),
+                            Tilt(
+                              degrees: _advanced ? 180 : 0,
+                              child: const JiabuIcon(
+                                JiabuIcons.uiDown,
+                                size: 16,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ],
-                  ),
-                  if (hasDefault) ...[
-                    const SizedBox(height: JiabuSpacing.gap14),
-                    Divider(color: context.jiabu.colors.lineStrong),
-                    TextButton(
-                      key: const Key('advanced-settings'),
-                      onPressed: widget.state.busy
-                          ? null
-                          : () => setState(() => _advanced = !_advanced),
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(l.authAdvancedSettings)),
-                          Tilt(
-                            degrees: _advanced ? 180 : 0,
-                            child: const JiabuIcon(JiabuIcons.uiDown, size: 16),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (_advanced) ...[
-                    const SizedBox(height: JiabuSpacing.xs),
-                    TextField(
-                      key: const Key('server-address'),
-                      controller: _address,
-                      keyboardType: TextInputType.url,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      decoration: InputDecoration(
-                        labelText: l.authServerAddress,
-                        helperText: l.authHttpsHint,
-                      ),
-                    ),
-                    const SizedBox(height: JiabuSpacing.sm),
-                    Text(
-                      l.authServerSelfHostedHint,
-                      style: context.jiabu.type.caption.copyWith(
-                        color: context.jiabu.colors.ink3,
-                      ),
-                    ),
-                    if (hasDefault)
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton(
-                          key: const Key('restore-default'),
-                          onPressed: widget.state.busy ? null : _restoreDefault,
-                          child: Text(l.authRestoreDefault),
+                    if (_advanced) ...[
+                      const SizedBox(height: JiabuSpacing.xs),
+                      TextField(
+                        key: const Key('server-address'),
+                        controller: _address,
+                        keyboardType: TextInputType.url,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        decoration: InputDecoration(
+                          labelText: l.authServerAddress,
+                          helperText: l.authHttpsHint,
                         ),
                       ),
+                      const SizedBox(height: JiabuSpacing.sm),
+                      Text(
+                        l.authServerSelfHostedHint,
+                        style: context.jiabu.type.caption.copyWith(
+                          color: context.jiabu.colors.ink3,
+                        ),
+                      ),
+                      if (hasDefault)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton(
+                            key: const Key('restore-default'),
+                            onPressed: widget.state.busy
+                                ? null
+                                : _restoreDefault,
+                            child: Text(l.authRestoreDefault),
+                          ),
+                        ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            const Positioned(left: -10, top: -10, child: Tape()),
-            const Positioned(
-              right: 4,
-              top: -70,
-              child: JiabuMascot(pose: JiabuMascotPose.idle, size: 84),
-            ),
-          ],
-        ),
+              const Positioned(left: -10, top: -10, child: Tape()),
+              const Positioned(
+                right: 4,
+                top: -70,
+                child: JiabuMascot(pose: JiabuMascotPose.idle, size: 84),
+              ),
+            ],
+          ),
         ),
       ],
     );

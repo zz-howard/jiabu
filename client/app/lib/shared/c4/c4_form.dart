@@ -36,7 +36,7 @@ class C4Form extends ConsumerWidget {
         if (showTitle)
           JiabuStackItem.content(
             child: HandUnderline(
-            child: Text(title, style: context.jiabu.type.sectionTitle),
+              child: Text(title, style: context.jiabu.type.sectionTitle),
             ),
           ),
         ...children,

@@ -64,21 +64,21 @@ class ApiKeyCreate extends ConsumerWidget {
                   child: Wrap(
                     spacing: JiabuSpacing.cardGap,
                     children: [
-                    for (final entry in {
-                      7: l.c4Days7,
-                      30: l.c4Days30,
-                      90: l.c4Days90,
-                      365: l.c4Year,
-                      0: l.c4Never,
-                    }.entries)
-                      ChoiceChip(
-                        label: Text(entry.value),
-                        selected: (state.values['days'] ?? 90) == entry.key,
-                        onSelected:
-                            state.values['_frozen'] == true || state.busy
-                            ? null
-                            : (_) => vm.patch('days', entry.key),
-                      ),
+                      for (final entry in {
+                        7: l.c4Days7,
+                        30: l.c4Days30,
+                        90: l.c4Days90,
+                        365: l.c4Year,
+                        0: l.c4Never,
+                      }.entries)
+                        ChoiceChip(
+                          label: Text(entry.value),
+                          selected: (state.values['days'] ?? 90) == entry.key,
+                          onSelected:
+                              state.values['_frozen'] == true || state.busy
+                              ? null
+                              : (_) => vm.patch('days', entry.key),
+                        ),
                     ],
                   ),
                 ),
@@ -178,9 +178,7 @@ class ApiKeyCreate extends ConsumerWidget {
                                   ? context.jiabu.colors.pos
                                   : context.jiabu.colors.primaryText,
                             ),
-                            child: Text(
-                              state.copied ? l.c4Copied : l.c4Copy,
-                            ),
+                            child: Text(state.copied ? l.c4Copied : l.c4Copy),
                           ),
                         ),
                       ],

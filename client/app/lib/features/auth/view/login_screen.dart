@@ -95,94 +95,96 @@ class _LoginScreenState extends State<LoginScreen> {
       children: [
         JiabuStackItem.content(
           child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            PaperCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    key: const Key('username'),
-                    controller: _username,
-                    autocorrect: false,
-                    decoration: InputDecoration(labelText: l.authUsername),
-                  ),
-                  const SizedBox(height: JiabuSpacing.gap14),
-                  TextField(
-                    key: const Key('password'),
-                    controller: _password,
-                    obscureText: _obscurePassword,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: InputDecoration(
-                      labelText: l.authPassword,
-                      suffixIcon: IconButton(
-                        key: const Key('toggle-password'),
-                        tooltip: _obscurePassword
-                            ? l.authShowPassword
-                            : l.authHidePassword,
-                        onPressed: () => setState(
-                          () => _obscurePassword = !_obscurePassword,
+            clipBehavior: Clip.none,
+            children: [
+              PaperCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      key: const Key('username'),
+                      controller: _username,
+                      autocorrect: false,
+                      decoration: InputDecoration(labelText: l.authUsername),
+                    ),
+                    const SizedBox(height: JiabuSpacing.gap14),
+                    TextField(
+                      key: const Key('password'),
+                      controller: _password,
+                      obscureText: _obscurePassword,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: InputDecoration(
+                        labelText: l.authPassword,
+                        suffixIcon: IconButton(
+                          key: const Key('toggle-password'),
+                          tooltip: _obscurePassword
+                              ? l.authShowPassword
+                              : l.authHidePassword,
+                          onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
+                          icon: const JiabuIcon(JiabuIcons.uiEye),
                         ),
-                        icon: const JiabuIcon(JiabuIcons.uiEye),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: JiabuSpacing.xl),
-                  FilledButton(
-                    key: const Key('login-submit'),
-                    onPressed: widget.state.busy
-                        ? null
-                        : () {
-                            final password = _password.text;
-                            _password.clear();
-                            widget.onLogin(_username.text, password);
-                          },
-                    child: Text(l.authLogin),
-                  ),
-                  const SizedBox(height: JiabuSpacing.sm),
-                  Text(
-                    l.authForgotPassword,
-                    textAlign: TextAlign.center,
-                    style: context.jiabu.type.secondary.copyWith(
-                      color: context.jiabu.colors.ink2,
+                    const SizedBox(height: JiabuSpacing.xl),
+                    FilledButton(
+                      key: const Key('login-submit'),
+                      onPressed: widget.state.busy
+                          ? null
+                          : () {
+                              final password = _password.text;
+                              _password.clear();
+                              widget.onLogin(_username.text, password);
+                            },
+                      child: Text(l.authLogin),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            const Positioned(
-              left: -10,
-              top: -10,
-              child: Tape(pattern: TapePattern.grid),
-            ),
-            if (widget.state.serverProbeSucceeded)
-              Positioned(
-                right: 14,
-                top: -12,
-                child: Stamp(
-                  key: const Key('server-connected'),
-                  label: l.authConnected,
-                  state: StampState.recorded,
+                    const SizedBox(height: JiabuSpacing.sm),
+                    Text(
+                      l.authForgotPassword,
+                      textAlign: TextAlign.center,
+                      style: context.jiabu.type.secondary.copyWith(
+                        color: context.jiabu.colors.ink2,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-          ],
+              const Positioned(
+                left: -10,
+                top: -10,
+                child: Tape(pattern: TapePattern.grid),
+              ),
+              if (widget.state.serverProbeSucceeded)
+                Positioned(
+                  right: 14,
+                  top: -12,
+                  child: Stamp(
+                    key: const Key('server-connected'),
+                    label: l.authConnected,
+                    state: StampState.recorded,
+                  ),
+                ),
+            ],
           ),
         ),
         JiabuStackItem.content(
           child: Row(
             children: [
-            Expanded(child: Divider(color: context.jiabu.colors.lineStrong)),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: JiabuSpacing.sm),
-              child: Text(
-                l.authNoAccount,
-                style: context.jiabu.type.secondary.copyWith(
-                  color: context.jiabu.colors.ink3,
+              Expanded(child: Divider(color: context.jiabu.colors.lineStrong)),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: JiabuSpacing.sm,
+                ),
+                child: Text(
+                  l.authNoAccount,
+                  style: context.jiabu.type.secondary.copyWith(
+                    color: context.jiabu.colors.ink3,
+                  ),
                 ),
               ),
-            ),
-            Expanded(child: Divider(color: context.jiabu.colors.lineStrong)),
+              Expanded(child: Divider(color: context.jiabu.colors.lineStrong)),
             ],
           ),
         ),
@@ -190,32 +192,32 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-            const JiabuMascot(pose: JiabuMascotPose.pen, size: 74),
-            const SizedBox(width: JiabuSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  OutlinedButton(
-                    key: const Key('invite-signup'),
-                    onPressed: widget.state.busy
-                        ? null
-                        : () {
-                            unawaited(showInviteSignupSheet(context));
-                          },
-                    child: Text(l.authJoinFamily),
-                  ),
-                  const SizedBox(height: JiabuSpacing.sm),
-                  Text(
-                    l.authInviteHint,
-                    textAlign: TextAlign.center,
-                    style: context.jiabu.type.caption.copyWith(
-                      color: context.jiabu.colors.ink3,
+              const JiabuMascot(pose: JiabuMascotPose.pen, size: 74),
+              const SizedBox(width: JiabuSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    OutlinedButton(
+                      key: const Key('invite-signup'),
+                      onPressed: widget.state.busy
+                          ? null
+                          : () {
+                              unawaited(showInviteSignupSheet(context));
+                            },
+                      child: Text(l.authJoinFamily),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: JiabuSpacing.sm),
+                    Text(
+                      l.authInviteHint,
+                      textAlign: TextAlign.center,
+                      style: context.jiabu.type.caption.copyWith(
+                        color: context.jiabu.colors.ink3,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
             ],
           ),
         ),

@@ -8,9 +8,9 @@ class JiabuSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-      children: [
-        Expanded(child: Text(title, style: context.jiabu.type.sectionTitle)),
-        ?trailing,
-      ],
-    );
+    children: [
+      Expanded(child: Text(title, style: context.jiabu.type.sectionTitle)),
+      ?trailing,
+    ],
+  );
 }

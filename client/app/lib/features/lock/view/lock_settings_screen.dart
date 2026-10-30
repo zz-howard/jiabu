@@ -81,16 +81,16 @@ class LockSettingsScreen extends ConsumerWidget {
               JiabuStackItem.content(
                 child: Wrap(
                   children: [
-                  for (final entry in {
-                    'biometric': l.c4Biometric,
-                    'pattern': l.c4Pattern,
-                    'pin': l.c4Pin,
-                  }.entries)
-                    ChoiceChip(
-                      label: Text(entry.value),
-                      selected: mode == entry.key,
-                      onSelected: (_) => vm.patch('mode', entry.key),
-                    ),
+                    for (final entry in {
+                      'biometric': l.c4Biometric,
+                      'pattern': l.c4Pattern,
+                      'pin': l.c4Pin,
+                    }.entries)
+                      ChoiceChip(
+                        label: Text(entry.value),
+                        selected: mode == entry.key,
+                        onSelected: (_) => vm.patch('mode', entry.key),
+                      ),
                   ],
                 ),
               ),
@@ -150,17 +150,17 @@ class LockSettingsScreen extends ConsumerWidget {
               JiabuStackItem.content(
                 child: Wrap(
                   children: [
-                  for (final entry in {
-                    0: l.c4Immediately,
-                    1: l.c4Minute1,
-                    5: l.c4Minutes5,
-                    15: l.c4Minutes15,
-                  }.entries)
-                    ChoiceChip(
-                      label: Text(entry.value),
-                      selected: timeout == entry.key,
-                      onSelected: (_) => vm.patch('timeout', entry.key),
-                    ),
+                    for (final entry in {
+                      0: l.c4Immediately,
+                      1: l.c4Minute1,
+                      5: l.c4Minutes5,
+                      15: l.c4Minutes15,
+                    }.entries)
+                      ChoiceChip(
+                        label: Text(entry.value),
+                        selected: timeout == entry.key,
+                        onSelected: (_) => vm.patch('timeout', entry.key),
+                      ),
                   ],
                 ),
               ),

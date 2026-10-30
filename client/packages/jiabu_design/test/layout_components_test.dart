@@ -107,7 +107,10 @@ void main() {
     final normalHeight = tester.getSize(find.byType(JiabuStack)).height;
     await pumpLayout(tester, sample(), scale: 2);
     expect(tester.takeException(), isNull);
-    expect(tester.getSize(find.byType(JiabuStack)).height, greaterThan(normalHeight));
+    expect(
+      tester.getSize(find.byType(JiabuStack)).height,
+      greaterThan(normalHeight),
+    );
   });
 
   testWidgets('list row is 66 high and grows without overflow at 200 percent', (

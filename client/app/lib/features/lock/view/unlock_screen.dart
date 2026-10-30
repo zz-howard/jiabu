@@ -175,35 +175,36 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                 JiabuStackItem.action(
                   child: FilledButton(
                     onPressed: () async {
-                    final session = runtime.auth.current;
-                    final saved =
-                        session?.partition ?? await runtime.settings.current();
-                    final username = session?.user.username ?? '';
-                    if (saved == null || username.isEmpty) {
-                      // Use the existing login without a cached identity.
-                      // Retain the lock until password login succeeds.
-                      await runtime.auth.logout();
-                      return;
-                    }
-                    final result = await runtime.auth.login(
-                      saved.server,
-                      username,
-                      state.values['password'] as String? ?? '',
-                    );
-                    if (result is Ok<Object?> &&
-                        runtime.auth.current?.partition.prefix ==
-                            saved.prefix) {
-                      final authenticated = runtime.auth.current;
-                      await runtime.sessionWork;
-                      if (identical(runtime.auth.current, authenticated) &&
-                          lock.scope == saved.prefix &&
-                          authenticated?.passwordChangeRequired == false) {
-                        await lock.resetAfterPasswordLogin();
+                      final session = runtime.auth.current;
+                      final saved =
+                          session?.partition ??
+                          await runtime.settings.current();
+                      final username = session?.user.username ?? '';
+                      if (saved == null || username.isEmpty) {
+                        // Use the existing login without a cached identity.
+                        // Retain the lock until password login succeeds.
+                        await runtime.auth.logout();
+                        return;
                       }
-                    } else if (mounted) {
-                      vm.fail('lock_failed');
-                    }
-                  },
+                      final result = await runtime.auth.login(
+                        saved.server,
+                        username,
+                        state.values['password'] as String? ?? '',
+                      );
+                      if (result is Ok<Object?> &&
+                          runtime.auth.current?.partition.prefix ==
+                              saved.prefix) {
+                        final authenticated = runtime.auth.current;
+                        await runtime.sessionWork;
+                        if (identical(runtime.auth.current, authenticated) &&
+                            lock.scope == saved.prefix &&
+                            authenticated?.passwordChangeRequired == false) {
+                          await lock.resetAfterPasswordLogin();
+                        }
+                      } else if (mounted) {
+                        vm.fail('lock_failed');
+                      }
+                    },
                     child: Text(l.c4Confirm),
                   ),
                 ),

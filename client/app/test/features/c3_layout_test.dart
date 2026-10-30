@@ -205,8 +205,8 @@ void main() {
       return (widget.decoration! as BoxDecoration).gradient is LinearGradient;
     });
     final container = tester.widget<Container>(fade.first);
-    final gradient = (container.decoration! as BoxDecoration).gradient!
-        as LinearGradient;
+    final gradient =
+        (container.decoration! as BoxDecoration).gradient! as LinearGradient;
     final transparentPaper = gradient.colors.first;
     final paper = gradient.colors.last;
     expect(transparentPaper.a, 0);
