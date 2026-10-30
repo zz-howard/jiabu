@@ -38,7 +38,7 @@
       "replace": ".clamp(24, 24)",
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
-      "test_names": ["page back icon scales to 32 and aligns with title first line"],
+      "test_names": ["page back glyph scales and aligns with title first line"],
       "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart"
     },
     {

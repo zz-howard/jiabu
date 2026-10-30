@@ -49,7 +49,27 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('page back icon scales to 32 and aligns with title first line', (
+  testWidgets('page header preserves UI1 geometry at 100 percent', (
+    tester,
+  ) async {
+    const titleText = '二级页面';
+    await pumpLayout(tester, const JiabuPageHeader(title: titleText));
+    final header = find.byType(JiabuPageHeader);
+    final title = find.text(titleText);
+    final titleHeight = tester.getSize(title).height;
+    final expectedTop = (JiabuSpacing.listRowMinHeight - titleHeight) / 2;
+    expect(tester.getSize(header).height, JiabuSpacing.listRowMinHeight);
+    expect(
+      tester.getRect(title).top - tester.getRect(header).top,
+      closeTo(expectedTop, .1),
+    );
+    expect(
+      tester.getRect(find.byKey(const Key('jiabu-page-back'))).center.dy,
+      closeTo(tester.getRect(header).center.dy, .1),
+    );
+  });
+
+  testWidgets('page back glyph scales and aligns with title first line', (
     tester,
   ) async {
     await pumpLayout(
@@ -59,11 +79,25 @@ void main() {
     );
     final icon = find.byKey(const Key('jiabu-page-back-icon'));
     final title = find.text('一个很长的二级页面标题用于两行检查');
-    expect(tester.getSize(icon).width, 32);
+    final iconSize = tester.getSize(icon);
+    expect(iconSize.width, lessThanOrEqualTo(32));
     final context = tester.element(title);
     final style = context.jiabu.type.pageTitle;
     final firstLineHeight =
         MediaQuery.textScalerOf(context).scale(style.fontSize!) * style.height!;
+    final iconWidget = tester.widget<JiabuIcon>(icon);
+    final bounds = JiabuIcons.uiRight.shapes.first.path().getBounds();
+    final glyphScale = (iconSize.width / bounds.width)
+        .clamp(0, iconSize.height / bounds.height)
+        .toDouble();
+    final visibleGlyphHeight = bounds.height * glyphScale;
+    expect(iconWidget.fitGlyph, isTrue);
+    expect(
+      visibleGlyphHeight,
+      greaterThanOrEqualTo(
+        firstLineHeight * JiabuPageHeader.backGlyphTitleRatio,
+      ),
+    );
     expect(
       tester.getRect(icon).center.dy,
       closeTo(tester.getRect(title).top + firstLineHeight / 2, .1),

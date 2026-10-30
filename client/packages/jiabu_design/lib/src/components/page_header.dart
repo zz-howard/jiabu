@@ -18,6 +18,8 @@ class JiabuPageHeader extends StatelessWidget {
   final Widget? action;
   final bool showBack;
 
+  static const double backGlyphTitleRatio = .5;
+
   @override
   Widget build(BuildContext context) {
     final handleBack = onBack ?? () => Navigator.maybePop(context);
@@ -25,6 +27,7 @@ class JiabuPageHeader extends StatelessWidget {
     final titleStyle = context.jiabu.type.pageTitle;
     final titleLineHeight =
         scaler.scale(titleStyle.fontSize ?? 0) * (titleStyle.height ?? 1);
+    final largeTitle = titleLineHeight > JiabuSpacing.minTapTarget;
     final backIconSize = scaler
         .scale(24) // The icon follows text, while the tap target stays >= 48.
         .clamp(24, 32)
@@ -44,7 +47,9 @@ class JiabuPageHeader extends StatelessWidget {
               minHeight: JiabuSpacing.listRowMinHeight,
             ),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: largeTitle
+                  ? CrossAxisAlignment.start
+                  : CrossAxisAlignment.center,
               children: [
                 if (showBack)
                   Semantics(
@@ -56,23 +61,39 @@ class JiabuPageHeader extends StatelessWidget {
                       type: MaterialType.transparency,
                       child: InkWell(
                         onTap: handleBack,
-                        child: SizedBox(
-                          key: const Key('jiabu-page-back'),
-                          width: JiabuSpacing.minTapTarget,
-                          height: backTargetHeight,
-                          child: Padding(
-                            padding: EdgeInsets.only(top: backIconTop),
-                            child: Align(
-                              alignment: Alignment.topCenter,
-                              child: JiabuIcon(
-                                JiabuIcons.uiRight,
-                                key: const Key('jiabu-page-back-icon'),
-                                size: backIconSize,
-                                flipX: true,
+                        child: largeTitle
+                            ? SizedBox(
+                                key: const Key('jiabu-page-back'),
+                                width: JiabuSpacing.minTapTarget,
+                                height: backTargetHeight,
+                                child: Padding(
+                                  padding: EdgeInsets.only(top: backIconTop),
+                                  child: Align(
+                                    alignment: Alignment.topCenter,
+                                    child: JiabuIcon(
+                                      JiabuIcons.uiRight,
+                                      key: const Key(
+                                        'jiabu-page-back-icon',
+                                      ),
+                                      size: backIconSize,
+                                      fitGlyph: true,
+                                      flipX: true,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : const SizedBox(
+                                key: Key('jiabu-page-back'),
+                                width: JiabuSpacing.minTapTarget,
+                                height: JiabuSpacing.minTapTarget,
+                                child: Center(
+                                  child: JiabuIcon(
+                                    JiabuIcons.uiRight,
+                                    key: Key('jiabu-page-back-icon'),
+                                    flipX: true,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                        ),
                       ),
                     ),
                   ),
@@ -85,16 +106,24 @@ class JiabuPageHeader extends StatelessWidget {
                   ),
                 ),
                 if (action case final action?)
-                  Align(
-                    alignment: Alignment.topCenter,
-                    child: ConstrainedBox(
-                      key: const Key('jiabu-page-action'),
-                      constraints: BoxConstraints(
-                        maxWidth: constraints.maxWidth / 2,
-                      ),
-                      child: action,
-                    ),
-                  ),
+                  largeTitle
+                      ? Align(
+                          alignment: Alignment.topCenter,
+                          child: ConstrainedBox(
+                            key: const Key('jiabu-page-action'),
+                            constraints: BoxConstraints(
+                              maxWidth: constraints.maxWidth / 2,
+                            ),
+                            child: action,
+                          ),
+                        )
+                      : ConstrainedBox(
+                          key: const Key('jiabu-page-action'),
+                          constraints: BoxConstraints(
+                            maxWidth: constraints.maxWidth / 2,
+                          ),
+                          child: action,
+                        ),
               ],
             ),
           ),
