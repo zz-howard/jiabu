@@ -100,46 +100,6 @@ class SpaceHeading extends StatelessWidget {
   );
 }
 
-class MeSealButton extends StatelessWidget {
-  const MeSealButton({required this.label, required this.onPressed, super.key});
-  final String label;
-  final VoidCallback onPressed;
-  @override
-  Widget build(BuildContext context) => Semantics(
-    label: label,
-    button: true,
-    onTap: onPressed,
-    child: ExcludeSemantics(
-      child: SizedBox.square(
-        dimension: JiabuLedgerMetrics.actionExtent,
-        child: InkWell(
-          onTap: onPressed,
-          child: Center(
-            child: Container(
-              width: JiabuLedgerMetrics.meDiameter,
-              height: JiabuLedgerMetrics.meDiameter,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: context.jiabu.colors.paper,
-                border: Border.all(
-                  color: context.jiabu.colors.onPrimary,
-                  width: JiabuLedgerMetrics.manualBorder,
-                ),
-              ),
-              child: const Center(
-                child: JiabuIcon(
-                  JiabuIcons.uiUser,
-                  size: JiabuLedgerMetrics.meIcon,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
 class PaperBottomNavigation extends StatelessWidget {
   const PaperBottomNavigation({
     required this.labels,

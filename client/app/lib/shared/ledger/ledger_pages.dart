@@ -131,12 +131,6 @@ class OverviewPage extends ConsumerWidget {
       children: [
         JiabuStack(
           children: [
-            JiabuStackItem.content(
-              child: Text(
-                l.ledgerOverview,
-                style: context.jiabu.type.pageTitle,
-              ),
-            ),
             if (result is Failure<Map<String, int>>)
               JiabuStackItem.captionAfter(
                 child: Text(ledgerError(l, result.code)),
@@ -505,12 +499,6 @@ class HistoryPage extends ConsumerWidget {
           padding: EdgeInsets.all(context.jiabu.spacing.page),
           child: JiabuStack(
             children: [
-              JiabuStackItem.content(
-                child: Text(
-                  l.ledgerHistory,
-                  style: context.jiabu.type.pageTitle,
-                ),
-              ),
               JiabuStackItem.content(
                 child: HistorySearchField(
                   key: ValueKey(snapshot.spaceId),
@@ -1129,6 +1117,9 @@ class LedgerHistoryRow extends StatelessWidget {
   });
   final LedgerSnapshot snapshot;
   final LedgerRow row;
+
+  /// The widest share of the row the amount may take.
+  static const double amountShare = .7;
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
@@ -1158,33 +1149,34 @@ class LedgerHistoryRow extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: Text(
-                              recordTitle(snapshot, row, l),
-                              style: context.jiabu.type.listTitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                      LayoutBuilder(
+                        // The amount keeps its own width (a signed amount must
+                        // not wrap), capped so the title always keeps a share.
+                        builder: (context, box) => Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                recordTitle(snapshot, row, l),
+                                style: context.jiabu.type.listTitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: JiabuSpacing.messageGap),
-                          Expanded(
-                            flex: 2,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                ledgerAmount(
-                                  context,
-                                  row.number('amount_minor'),
-                                  snapshot.currency,
-                                ),
-                              ],
+                            const SizedBox(width: JiabuSpacing.messageGap),
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: box.maxWidth * amountShare,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  recordAmount(context, row, snapshot.currency),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                       Text(memberLabel(snapshot, row, l)),
                       if (display != RecordDisplay.recorded)

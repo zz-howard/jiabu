@@ -302,11 +302,12 @@ class RecordDetails extends ConsumerWidget {
           child: Text(ledgerLabels(l)[row.text('kind')] ?? ''),
         ),
         JiabuStackItem.content(
-          child: ledgerAmount(
+          child: recordAmount(
             context,
-            row.number('amount_minor'),
+            row,
             data.currency,
             role: AmountRole.detail,
+            highlighted: row.active,
           ),
         ),
         JiabuStackItem.content(

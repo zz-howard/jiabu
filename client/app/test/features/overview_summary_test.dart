@@ -40,8 +40,9 @@ void main() {
     expect(find.text('本月支出'), findsOneWidget);
     final summary = tester.getRect(find.byKey(const Key('overview-summary')));
     final firstSection = tester.getRect(find.text('真实资金账户'));
-    final title = tester.getRect(find.text('总览'));
-    expect(summary.top, greaterThanOrEqualTo(title.bottom));
+    // The page title is the MainFrame's; the summary is the first block.
+    expect(find.text('总览'), findsNothing);
+    expect(summary.top, greaterThanOrEqualTo(0));
     expect(summary.bottom, lessThan(firstSection.top));
   });
 

@@ -38,6 +38,7 @@ class OverviewSummary extends StatelessWidget {
               currency,
               role: AmountRole.record,
               kind: l.ledgerTotalBalance,
+              highlighted: true,
             ),
           ),
           const SizedBox(height: JiabuSpacing.md),
@@ -124,11 +125,7 @@ class OverviewRecentRow extends StatelessWidget {
           '${memberLabel(snapshot, row, l)} · '
           '${ledgerDate(row.text('occurred_on'), l)}',
       status: status,
-      valueWidget: ledgerAmount(
-        context,
-        row.number('amount_minor'),
-        snapshot.currency,
-      ),
+      valueWidget: recordAmount(context, row, snapshot.currency),
       trailing: keyName.isEmpty
           ? null
           : Semantics(

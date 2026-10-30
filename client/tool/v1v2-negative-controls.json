@@ -1,0 +1,149 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion or rules command to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly.",
+  "controls": [
+    {
+      "id": "expense_amount_loses_minus_sign",
+      "file": "client/app/lib/shared/ledger/ledger_labels.dart",
+      "find": "out ? -minor : minor,",
+      "replace": "minor,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "record_card_amount_is_minus_signed_highlighted_not_red"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "expense_amount_turns_red",
+      "file": "client/app/lib/shared/ledger/ledger_labels.dart",
+      "find": "tone: incoming ? AmountTone.positive : AmountTone.plain,",
+      "replace": "tone: AmountTone.auto,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "history_rows_show_expenses_as_minus_in_ink"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "record_card_amount_not_highlighted",
+      "file": "client/app/lib/shared/ledger/record_card.dart",
+      "find": "highlighted: value.active,",
+      "replace": "highlighted: false,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "record_card_amount_is_minus_signed_highlighted_not_red"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "voided_record_card_stays_highlighted",
+      "file": "client/app/lib/shared/ledger/record_card.dart",
+      "find": "highlighted: value.active,",
+      "replace": "highlighted: true,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "voided_record_card_amount_is_not_highlighted"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "overview_hero_not_highlighted",
+      "file": "client/app/lib/shared/ledger/overview_widgets.dart",
+      "find": "highlighted: true,",
+      "replace": "highlighted: false,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "overview_hero_total_is_highlighted"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "page_title_loses_wavy_underline",
+      "file": "client/packages/jiabu_design/lib/src/components/page_title_block.dart",
+      "find": "HandUnderline(\n          child: Text(",
+      "replace": "Padding(\n          padding: EdgeInsets.zero,\n          child: Text(",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "page_title_block_and_space_badge_shell_history"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "header_space_badge_loses_the_space_name",
+      "file": "client/app/lib/shared/ledger/main_frame.dart",
+      "find": "name: spaceName,",
+      "replace": "name: '',",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "page_title_block_and_space_badge_shell_chat"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "settings_entry_missing_from_space_sheet",
+      "file": "client/app/lib/features/spaces/view/spaces_screen.dart",
+      "find": "label: Text(l.ledgerMySettings),",
+      "replace": "label: const SizedBox.shrink(),",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "space_sheet_offers_my_settings"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "caveat_amount_fakes_bold",
+      "file": "client/packages/jiabu_design/lib/src/tokens/type.dart",
+      "find": "fontSize: 62,\n      height: .95,\n      fontWeight: FontWeight.w600,",
+      "replace": "fontSize: 62,\n      height: .95,\n      fontWeight: FontWeight.w800,",
+      "expected_occurrences": 1,
+      "test_file": "client/packages/jiabu_design/test/numerals_weight_test.dart",
+      "test_names": [
+        "no theme text style fakes a bold Caveat"
+      ],
+      "command": "cd ../packages/jiabu_design && flutter test test/numerals_weight_test.dart"
+    },
+    {
+      "id": "chat_title_loses_home_mark",
+      "file": "client/app/lib/shared/ledger/main_frame.dart",
+      "find": "leading: showMark ? const JiabuHomeMark() : null,",
+      "replace": "leading: null,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "page_title_block_and_space_badge_shell_chat"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "large_text_paints_the_subtitle_again",
+      "file": "client/app/lib/shared/ledger/main_frame.dart",
+      "find": "showSubtitle: !stacked,",
+      "replace": "showSubtitle: true,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "large_text_stacks_the_badge_and_keeps_the_subtitle_readable"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    },
+    {
+      "id": "second_level_routes_get_a_header_again",
+      "file": "client/app/lib/shared/ledger/main_frame.dart",
+      "find": "if (title != null)",
+      "replace": "if (true)",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v1v2_restore_test.dart",
+      "test_names": [
+        "second_level_routes_get_no_main_frame_header"
+      ],
+      "command": "flutter test test/features/v1v2_restore_test.dart"
+    }
+  ]
+}

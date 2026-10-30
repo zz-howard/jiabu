@@ -87,12 +87,13 @@ class LedgerRecordCard extends StatelessWidget {
     final balances = balanceResult is Ok<Map<String, int>>
         ? balanceResult.value
         : <String, int>{};
-    final amount = ledgerAmount(
+    final amount = recordAmount(
       context,
-      value.number('amount_minor'),
+      value,
       snapshot.currency,
       role: AmountRole.record,
       kind: ledgerLabels(l)[value.text('kind')],
+      highlighted: value.active,
     );
     final titleStyle = value.text('note').isEmpty
         ? context.jiabu.type.cardTitle
@@ -114,13 +115,15 @@ class LedgerRecordCard extends StatelessWidget {
           textScaler: textScaler,
           maxLines: 1,
         )..layout();
+        // "−" + symbol + digits, plus the highlighter's side padding.
+        final amountText = formatMinor(
+          value.number('amount_minor'),
+          snapshot.currency,
+          l.localeName,
+        );
         final amountPainter = TextPainter(
           text: TextSpan(
-            text: formatMinor(
-              value.number('amount_minor'),
-              snapshot.currency,
-              l.localeName,
-            ),
+            text: '−$amountText\u2003',
             style: context.jiabu.type.recordAmount,
           ),
           textDirection: direction,

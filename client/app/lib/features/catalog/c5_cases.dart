@@ -499,15 +499,17 @@ class _C5PreviewState extends State<C5Preview> {
       final empty = state == 'empty' || state == 'setup_entry';
       return JiabuChatWeaveTheme(
         child: MainFrame(
+          title: l.ledgerChatTitle,
+          handEnglish: l.handChatEnglish,
+          subtitle: l.handChatSubtitleShared,
+          showMark: true,
           spaceName: '虚构空间A',
           accent:
               context.jiabu.colors.spaceAccents[widget.accent] ??
               context.jiabu.colors.primaryText,
-          settingsLabel: l.ledgerMySettings,
           labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory],
           selected: 0,
           onSelect: (_) {},
-          onSettings: () {},
           child: Column(
             children: [
               if (state == 'ai_unavailable')

@@ -42,6 +42,8 @@ class SettingsScreen extends ConsumerWidget {
     };
     return JiabuPageScaffold(
       title: title,
+      handEnglish: page == 'settings' ? l.handSettingsEnglish : null,
+      subtitle: page == 'settings' ? l.handSettingsSubtitle : null,
       onBack: () => popOrGo(context, switch (page) {
         'settings' => '/chat',
         'password' => '/settings/account',
