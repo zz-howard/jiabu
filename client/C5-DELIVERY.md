@@ -1,6 +1,6 @@
 # C5 聊天交付说明
 
-构建机已验证（Flutter 3.47.8，ChatWeave 固定 f11bd4f，其 dart/ 与本地 CW2 b3fb497 相同）：format、`flutter analyze --fatal-infos`、check_rules 0 问题；app 非 golden 测试 3130/3130；固定镜像 golden 全过（含 164 张新 C5 PNG，已人工看图：基础与 430×200% 两组联系表）；11 项负对照全部以断言失败捕获。**未运行**真实服务端集成 `server-it.sh`：master 尚无 loopback 假上游入口（Howard 的独立服务端 PR），合并后补跑。
+构建机已验证（Flutter 3.47.8，ChatWeave 固定 ab5cabb；本段验证数据取自此前固定的 f11bd4f，升级后 golden 已重跑）：format、`flutter analyze --fatal-infos`、check_rules 0 问题；app 非 golden 测试 3130/3130；固定镜像 golden 全过（含 164 张新 C5 PNG，已人工看图：基础与 430×200% 两组联系表）；11 项负对照全部以断言失败捕获。**未运行**真实服务端集成 `server-it.sh`：master 尚无 loopback 假上游入口（Howard 的独立服务端 PR），合并后补跑。
 
 没有修改 `server/`、`docs/` 或 ChatWeave 库。没有手写 `*.g.dart`、`*.freezed.dart`、drift schema/helper、lockfile、字体或 PNG。没有提交任何真实数据或凭据。
 
@@ -50,7 +50,7 @@
 
 ## ChatWeave 缺口与文档差异
 
-固定使用 `f11bd4f66479d8a06160b6af5f9c8d0f980577ef`，不修改库、不自动升级。
+固定使用 `ab5cabb1b67338a52078e8da875804b9a1543a75`，不修改库、不自动升级。
 
 1. 没有 processStripBuilder。MessageView 直接创建 ProcessStrip；家簿用 messageFrameBuilder，保留公开的 block keys、ProcessState、resize 回调与控制器。
 2. 主题实际是扁平字段，少于文档中的 icons/status/blockFrame/motion 等插槽。通过注册表覆盖皮肤及家簿消息/输入组件补齐。
@@ -174,7 +174,7 @@ client/tool/server-it.sh
 ## 构建机反馈修正
 
 - analyze：修正类型错误与 lint（void 流回调、SafeLogEvent 日志捕获、Tags 名称冲突、Future await、控制流花括号、长行、cascade、命名布尔参数、getter/setter 与依赖顺序），未加 ignore。
-- 生成物：drift 生成代码与 schema v2 helper 在构建机重新生成后入库；ChatWeave 在 pubspec.lock 中按 git 来源（f11bd4f）记录，不含构建机路径覆盖。
+- 生成物：drift 生成代码与 schema v2 helper 在构建机重新生成后入库；ChatWeave 在 pubspec.lock 中按 git 来源（ab5cabb）记录，不含构建机路径覆盖。
 - 布局：`JiabuMessageView` 改为 `Alignment.topLeft`，下方组件增高时只向下展开（几何测试 `component_fill_preserves_text_top_left_jiabu`）。
 - 用户照片 Polaroid 用设计系统默认倾角 −2°（原传 0° 违反 ±2° 断言）。
 - AI 不可用入口文案改为“手动记一笔”（新键 `chatManualEntry`），与需求一致；原 `ledgerManual`“记一笔”在此语境含义不清。
