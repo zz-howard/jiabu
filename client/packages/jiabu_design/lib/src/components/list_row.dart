@@ -8,11 +8,13 @@ class JiabuListRow extends StatelessWidget {
   const JiabuListRow({
     required this.title,
     this.subtitle,
+    this.subtitleMaxLines = 1,
     this.status,
     this.leading,
     this.value,
     this.valueWidget,
     this.supporting,
+    this.supportingGap = JiabuSpacing.xs,
     this.trailing,
     this.showChevron = false,
     this.enabled = true,
@@ -22,11 +24,13 @@ class JiabuListRow extends StatelessWidget {
 
   final String title;
   final String? subtitle;
+  final int? subtitleMaxLines;
   final String? status;
   final Widget? leading;
   final String? value;
   final Widget? valueWidget;
   final Widget? supporting;
+  final double supportingGap;
   final Widget? trailing;
   final bool showChevron;
   final bool enabled;
@@ -81,8 +85,10 @@ class JiabuListRow extends StatelessWidget {
                             if (subtitle != null)
                               Text(
                                 subtitle!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                maxLines: subtitleMaxLines,
+                                overflow: subtitleMaxLines == null
+                                    ? TextOverflow.clip
+                                    : TextOverflow.ellipsis,
                                 style: context.jiabu.type.secondary.copyWith(
                                   color: enabled ? null : disabledSecondary,
                                 ),
@@ -145,7 +151,7 @@ class JiabuListRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       row,
-                      const SizedBox(height: JiabuSpacing.xs),
+                      SizedBox(height: supportingGap),
                       faded(supporting!),
                     ],
                   );

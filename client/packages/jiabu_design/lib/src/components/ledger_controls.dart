@@ -7,6 +7,7 @@ import 'package:jiabu_design/src/components/tilt.dart';
 import 'package:jiabu_design/src/icons/jiabu_icons.g.dart';
 import 'package:jiabu_design/src/theme_context.dart';
 import 'package:jiabu_design/src/tokens/ledger_metrics.dart';
+import 'package:jiabu_design/src/tokens/spacing.dart';
 
 class ManualEntryButton extends StatelessWidget {
   const ManualEntryButton({
@@ -240,47 +241,45 @@ class PaperFilterChip extends StatelessWidget {
   final bool selected;
   final VoidCallback onPressed;
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(right: context.jiabu.decor.cardGap),
-    child: FilterChip(
-      label: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (selected)
-            const ExcludeSemantics(
-              child: JiabuIcon(
-                JiabuIcons.uiCheck,
-                size: JiabuLedgerMetrics.meIcon,
-              ),
+  Widget build(BuildContext context) => FilterChip(
+    label: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (selected) ...[
+          ExcludeSemantics(
+            child: JiabuIcon(
+              JiabuIcons.uiCheck,
+              size: JiabuLedgerMetrics.meIcon,
+              color: context.jiabu.colors.onPrimarySoft,
             ),
-          Text(label),
+          ),
+          const SizedBox(width: JiabuSpacing.xs),
         ],
-      ),
-      selected: selected,
-      onSelected: (_) => onPressed(),
-      selectedColor: context.jiabu.colors.primarySoft,
-      side: BorderSide(
-        color: selected
-            ? context.jiabu.colors.white
-            : context.jiabu.colors.lineStrong,
-        width: selected ? JiabuLedgerMetrics.manualBorder : 1,
-      ),
-      showCheckmark: false,
-      shape: selected
-          ? RoundedRectangleBorder(
-              side: BorderSide(
-                color: context.jiabu.colors.white,
-                width: JiabuLedgerMetrics.manualBorder,
-              ),
-              borderRadius: BorderRadius.circular(
-                context.jiabu.decor.chipRadius,
-              ),
-            )
-          : PaperDashedBorder(
-              radius: context.jiabu.decor.chipRadius,
-              side: BorderSide(color: context.jiabu.colors.lineStrong),
-            ),
+        Text(label),
+      ],
     ),
+    selected: selected,
+    onSelected: (_) => onPressed(),
+    selectedColor: context.jiabu.colors.primarySoft,
+    side: BorderSide(
+      color: selected
+          ? context.jiabu.colors.white
+          : context.jiabu.colors.lineStrong,
+      width: selected ? JiabuLedgerMetrics.manualBorder : 1,
+    ),
+    showCheckmark: false,
+    shape: selected
+        ? RoundedRectangleBorder(
+            side: BorderSide(
+              color: context.jiabu.colors.white,
+              width: JiabuLedgerMetrics.manualBorder,
+            ),
+            borderRadius: BorderRadius.circular(context.jiabu.decor.chipRadius),
+          )
+        : PaperDashedBorder(
+            radius: context.jiabu.decor.chipRadius,
+            side: BorderSide(color: context.jiabu.colors.lineStrong),
+          ),
   );
 }
 

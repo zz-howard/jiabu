@@ -16,6 +16,8 @@ enum JiabuSpacing {
   static const double sectionBottom = 12;
   static const double cardInset = 16;
   static const double cardGap = 12;
+  static const double actionGap = 24;
+  static const double captionGap = 8;
   static const double gridGap = 14;
   static const double listRowInset = 14;
   static const double listRowMinHeight = 66;

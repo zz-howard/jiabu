@@ -650,6 +650,8 @@
   "c4Lock": "App lock",
   "c4Enabled": "On",
   "c4Disabled": "Off",
+  "c4TurnOnAppLock": "Turn on app lock",
+  "c4TurnOffAppLock": "Turn off app lock",
   "c4LockPrivacy": "Hides recent-app previews and blocks screenshots and recording. Notifications only say “Jiabu has a new message”.",
   "c4GenericNotification": "Jiabu has a new message",
   "handC4Personal": "Only you can see this",

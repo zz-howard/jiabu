@@ -8,7 +8,9 @@
       "replace": "padding: const EdgeInsets.all(18),",
       "expected_occurrences": 1,
       "test_file": "client/test/check_rules_test.dart",
-      "test_names": ["rule 10 rejects literal spacing and accepts tokens and zero"],
+      "test_names": [
+        "rule 10 rejects literal spacing and accepts tokens and zero"
+      ],
       "command": "cd .. && dart run tool/check_rules.dart"
     },
     {
@@ -18,8 +20,10 @@
       "replace": "\"handNoResults\": \"没有找到符合条件的记录龘\"",
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/font_coverage_test.dart",
-      "test_names": ["every declared source is covered; Caveat never contains Han"],
-      "command": "cd ../packages/jiabu_design && flutter test test/font_coverage_test.dart"
+      "test_names": [
+        "every declared source is covered; Caveat never contains Han"
+      ],
+      "command": "cd ../packages/jiabu_design && flutter test test/font_coverage_test.dart --plain-name \"every declared source is covered; Caveat never contains Han\""
     },
     {
       "id": "secondary_page_without_back",
@@ -28,7 +32,9 @@
       "replace": "if (showBack && false)\n                  Semantics(",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
-      "test_names": ["secondary routed pages expose a back button and title"],
+      "test_names": [
+        "secondary routed pages expose a back button and title"
+      ],
       "command": "flutter test test/features/c4_layout_test.dart --plain-name \"secondary routed pages expose a back button and title\""
     },
     {
@@ -38,7 +44,9 @@
       "replace": "static const PaperPattern? paperPattern = PaperPattern.ruled;",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_layout_test.dart",
-      "test_names": ["settings group has no ruled paper or margin decoration"],
+      "test_names": [
+        "settings group has no ruled paper or margin decoration"
+      ],
       "command": "flutter test test/features/c4_layout_test.dart --plain-name \"settings group has no ruled paper or margin decoration\""
     },
     {
@@ -48,7 +56,9 @@
       "replace": "theme: theme.copyWith(colorScheme: theme.colorScheme.copyWith(primary: theme.extension<JiabuColors>()!.spaceAccents[accent])),",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/auth_screens_test.dart",
-      "test_names": ["space accent never changes the auth primary color"],
+      "test_names": [
+        "space accent never changes the auth primary color"
+      ],
       "command": "flutter test test/features/auth_screens_test.dart --plain-name \"space accent never changes the auth primary color\""
     },
     {
@@ -58,17 +68,21 @@
       "replace": "child: Transform.translate(\n                offset: const Offset(0, -80),\n                key: const Key('main-frame-content'),",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c3_layout_test.dart",
-      "test_names": ["chat content starts below header zh 360.0 2.0"],
+      "test_names": [
+        "chat content starts below header zh 360.0 2.0"
+      ],
       "command": "flutter test test/features/c3_layout_test.dart --plain-name \"chat content starts below header zh 360.0 2.0\""
     },
     {
       "id": "structural_transform_not_reported",
       "file": "client/packages/jiabu_design/lib/src/components/page_header.dart",
-      "find": "child: const SizedBox(\n                          key: Key('jiabu-page-back'),\n                          width: JiabuSpacing.minTapTarget,\n                          height: JiabuSpacing.minTapTarget,\n                          child: Center(\n                            child: JiabuIcon(JiabuIcons.uiRight, flipX: true),\n                          ),\n                        ),",
-      "replace": "child: SizedBox(\n                          key: const Key('jiabu-page-back'),\n                          width: JiabuSpacing.minTapTarget,\n                          height: JiabuSpacing.minTapTarget,\n                          child: Center(\n                            child: Transform.rotate(\n                              angle: .1,\n                              child: const JiabuIcon(JiabuIcons.uiRight, flipX: true),\n                            ),\n                          ),\n                        ),",
+      "find": "child: JiabuIcon(\n                                      JiabuIcons.uiRight,\n                                      key: const Key('jiabu-page-back-icon'),\n                                      size: backIconSize,\n                                      fitGlyph: true,\n                                      flipX: true,\n                                    ),",
+      "replace": "child: Transform.rotate(\n                                      angle: .1,\n                                      child: JiabuIcon(\n                                        JiabuIcons.uiRight,\n                                        key: const Key('jiabu-page-back-icon'),\n                                        size: backIconSize,\n                                        fitGlyph: true,\n                                        flipX: true,\n                                      ),\n                                    ),",
       "expected_occurrences": 1,
       "test_file": "client/packages/jiabu_design/test/layout_components_test.dart",
-      "test_names": ["layout components stay at zero rotation"],
+      "test_names": [
+        "layout components stay at zero rotation"
+      ],
       "command": "cd ../packages/jiabu_design && flutter test test/layout_components_test.dart --plain-name \"layout components stay at zero rotation\""
     },
     {
@@ -78,7 +92,9 @@
       "replace": "void popOrGo(BuildContext context, String fallbackLocation) {\n  GoRouter.of(context).pop();\n}",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/c4_interaction_test.dart",
-      "test_names": ["deep linked space members back falls to space settings"],
+      "test_names": [
+        "deep linked space members back falls to space settings"
+      ],
       "command": "flutter test test/features/c4_interaction_test.dart --plain-name \"deep linked space members back falls to space settings\""
     }
   ]

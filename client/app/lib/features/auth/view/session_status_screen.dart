@@ -4,6 +4,7 @@ import 'package:jiabu/domain/sync_state.dart';
 import 'package:jiabu/features/auth/view_model/auth_ui_state.dart';
 import 'package:jiabu/features/auth/widgets/auth_frame.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
+import 'package:jiabu_design/jiabu_design.dart';
 
 class SessionStatusScreen extends StatelessWidget {
   const SessionStatusScreen({
@@ -26,25 +27,45 @@ class SessionStatusScreen extends StatelessWidget {
       title: l10n.authSignedIn,
       children: [
         if (state.adminResetAt case final DateTime date)
-          Text(
-            l10n.authAdminReset(
-              DateFormat.yMd(l10n.localeName).add_Hm().format(date.toLocal()),
+          JiabuStackItem.content(
+            child: Text(
+              l10n.authAdminReset(
+                DateFormat.yMd(l10n.localeName).add_Hm().format(date.toLocal()),
+              ),
             ),
           ),
         if (state.syncStatus == SyncStatus.clientTooOld)
-          Text(l10n.authClientTooOld),
+          JiabuStackItem.content(child: Text(l10n.authClientTooOld)),
         if (state.syncStatus == SyncStatus.serverTooOld)
-          Text(l10n.authServerTooOld),
-        if (state.syncStatus == SyncStatus.offline) Text(l10n.authOffline),
-        if (state.spaceCleared) Text(l10n.authSpaceCleared(state.clearedCount)),
+          JiabuStackItem.content(child: Text(l10n.authServerTooOld)),
+        if (state.syncStatus == SyncStatus.offline)
+          JiabuStackItem.captionBefore(child: Text(l10n.authOffline)),
         if (state.spaceCleared)
-          TextButton(
-            onPressed: onDismissNotice,
-            child: Text(l10n.authDismissNotice),
+          JiabuStackItem.content(
+            child: Text(l10n.authSpaceCleared(state.clearedCount)),
           ),
-        TextButton(onPressed: onPassword, child: Text(l10n.authChangePassword)),
-        TextButton(onPressed: onSwitch, child: Text(l10n.authChangeServer)),
-        TextButton(onPressed: onLogout, child: Text(l10n.authLogout)),
+        if (state.spaceCleared)
+          JiabuStackItem.action(
+            child: TextButton(
+              onPressed: onDismissNotice,
+              child: Text(l10n.authDismissNotice),
+            ),
+          ),
+        JiabuStackItem.action(
+          child: TextButton(
+            onPressed: onPassword,
+            child: Text(l10n.authChangePassword),
+          ),
+        ),
+        JiabuStackItem.action(
+          child: TextButton(
+            onPressed: onSwitch,
+            child: Text(l10n.authChangeServer),
+          ),
+        ),
+        JiabuStackItem.action(
+          child: TextButton(onPressed: onLogout, child: Text(l10n.authLogout)),
+        ),
       ],
     );
   }

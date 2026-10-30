@@ -279,6 +279,37 @@ final good = SizedBox(height: 72); // rules:allow-literal fixed preview canvas
     expect(violationsFor(10), hasLength(1));
   });
 
+  test('section headers require JiabuStack section spacing in app UI', () {
+    const path = 'app/lib/features/home/home_screen.dart';
+    write(path, "final bad = JiabuSectionHeader(title: 'Loose');\n");
+    expect(violationsFor(11), hasLength(1));
+    write(path, '''
+final good = JiabuStackItem.section(
+  child: JiabuSectionHeader(title: 'Stacked'),
+);
+''');
+    expect(violationsFor(11), isEmpty);
+  });
+
+  test('lazy delegates cannot directly build marked layout components', () {
+    const path = 'app/lib/features/home/home_screen.dart';
+    for (final source in [
+      'ListView.builder(itemBuilder: (_, i) => JiabuStack(children: []));',
+      '''
+SliverList(delegate: SliverChildBuilderDelegate(
+  (_, i) => JiabuChipGroup(children: []),
+));''',
+    ]) {
+      write(path, '$source\n');
+      expect(violationsFor(12), hasLength(1));
+    }
+    write(
+      path,
+      'ListView.builder(itemBuilder: (_, i) => const Text("safe"));\n',
+    );
+    expect(violationsFor(12), isEmpty);
+  });
+
   group('design package color literals outside tokens/colors.dart', () {
     const path = 'packages/jiabu_design/lib/src/components/example.dart';
     for (final source in [

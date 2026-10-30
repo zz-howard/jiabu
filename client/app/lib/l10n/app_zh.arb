@@ -650,6 +650,8 @@
   "c4Lock": "应用锁",
   "c4Enabled": "已开启",
   "c4Disabled": "未开启",
+  "c4TurnOnAppLock": "开启应用锁",
+  "c4TurnOffAppLock": "关闭应用锁",
   "c4LockPrivacy": "开启后将遮挡最近任务缩略图，并禁止截屏、录屏。通知只显示“家簿有新消息”。",
   "c4GenericNotification": "家簿有新消息",
   "handC4Personal": "只有你能看到",

@@ -46,73 +46,84 @@ class SpacesScreen extends ConsumerWidget {
       );
     }
     if (page == 'switcher') {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
+      return JiabuStack(
         children: [
-          Text(l.c4Spaces, style: context.jiabu.type.sectionTitle),
-          if (directory.isLoading) Text(l.c4Loading),
-          if (directory.hasError) Text(l.c4Error),
-          SpaceSwitcher(
-            currentId: runtime.currentSpace,
-            personalLabel: l.handC4Personal,
-            spaces: [
-              for (final item in spaces)
-                (
-                  id: item.id,
-                  name: item.name,
-                  accent:
-                      context.jiabu.colors.spaceAccents[item.accent] ??
-                      context.jiabu.colors.primaryText,
-                  personal: item.isDefault,
-                ),
-            ],
-            onSelect: (id) async {
-              final repository = ref.read(spacesRepositoryProvider);
-              final router = GoRouter.of(context);
-              final path = router.routeInformationProvider.value.uri.path;
-              ref
-                ..invalidate(ledgerViewModelProvider)
-                ..invalidate(ledgerFormViewModelProvider);
-              Navigator.of(context).pop();
-              final result = await repository.select(id);
-              if (result is Ok<void> && path.startsWith('/spaces/')) {
-                final page = path.split('/').last;
-                router.go('/spaces/$id/$page');
-              }
-            },
+          JiabuStackItem.content(
+            child: Text(l.c4Spaces, style: context.jiabu.type.sectionTitle),
           ),
-          TextButton(
-            onPressed: runtime.managementOnline
-                ? () {
-                    final host = Navigator.of(context).context;
-                    Navigator.of(context).pop();
-                    unawaited(openSpaceForm(host));
-                  }
-                : null,
-            child: Text(l.c4CreateSpace),
+          if (directory.isLoading)
+            JiabuStackItem.captionBefore(child: Text(l.c4Loading)),
+          if (directory.hasError)
+            JiabuStackItem.captionBefore(child: Text(l.c4Error)),
+          JiabuStackItem.content(
+            child: SpaceSwitcher(
+              currentId: runtime.currentSpace,
+              personalLabel: l.handC4Personal,
+              spaces: [
+                for (final item in spaces)
+                  (
+                    id: item.id,
+                    name: item.name,
+                    accent:
+                        context.jiabu.colors.spaceAccents[item.accent] ??
+                        context.jiabu.colors.primaryText,
+                    personal: item.isDefault,
+                  ),
+              ],
+              onSelect: (id) async {
+                final repository = ref.read(spacesRepositoryProvider);
+                final router = GoRouter.of(context);
+                final path = router.routeInformationProvider.value.uri.path;
+                ref
+                  ..invalidate(ledgerViewModelProvider)
+                  ..invalidate(ledgerFormViewModelProvider);
+                Navigator.of(context).pop();
+                final result = await repository.select(id);
+                if (result is Ok<void> && path.startsWith('/spaces/')) {
+                  final page = path.split('/').last;
+                  router.go('/spaces/$id/$page');
+                }
+              },
+            ),
           ),
-          TextButton(
-            onPressed: space == null
-                ? null
-                : () {
-                    final router = GoRouter.of(context);
-                    Navigator.of(context).pop();
-                    unawaited(
-                      router.push<void>('/spaces/${space.id}/settings'),
-                    );
-                  },
-            child: Text(l.c4SpaceSettings),
+          JiabuStackItem.action(
+            child: TextButton(
+              onPressed: runtime.managementOnline
+                  ? () {
+                      final host = Navigator.of(context).context;
+                      Navigator.of(context).pop();
+                      unawaited(openSpaceForm(host));
+                    }
+                  : null,
+              child: Text(l.c4CreateSpace),
+            ),
           ),
-          TextButton(
-            onPressed: () {
-              final router = GoRouter.of(context);
-              Navigator.of(context).pop();
-              unawaited(router.push<void>('/invitations'));
-            },
-            child: Text(l.c4Received),
+          JiabuStackItem.action(
+            child: TextButton(
+              onPressed: space == null
+                  ? null
+                  : () {
+                      final router = GoRouter.of(context);
+                      Navigator.of(context).pop();
+                      unawaited(
+                        router.push<void>('/spaces/${space.id}/settings'),
+                      );
+                    },
+              child: Text(l.c4SpaceSettings),
+            ),
           ),
-          if (!runtime.managementOnline) Text(l.c4Offline),
+          JiabuStackItem.action(
+            child: TextButton(
+              onPressed: () {
+                final router = GoRouter.of(context);
+                Navigator.of(context).pop();
+                unawaited(router.push<void>('/invitations'));
+              },
+              child: Text(l.c4Received),
+            ),
+          ),
+          if (!runtime.managementOnline)
+            JiabuStackItem.captionAfter(child: Text(l.c4Offline)),
         ],
       );
     }
@@ -189,98 +200,98 @@ class SpacesScreen extends ConsumerWidget {
           : null,
       body: SingleChildScrollView(
         padding: EdgeInsets.all(context.jiabu.spacing.page),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: JiabuStack(
           children: [
-            Padding(
-              padding: const EdgeInsets.only(
-                bottom: JiabuSpacing.sectionBottom,
-              ),
+            JiabuStackItem.content(
               child: Text(space.name, style: context.jiabu.type.secondary),
             ),
-            if (!runtime.managementOnline) Text(l.c4Offline),
-            JiabuSettingsGroup(
-              children: [
-                if (page == 'settings') ...[
-                  if (space.owner)
+            if (!runtime.managementOnline)
+              JiabuStackItem.captionAfter(child: Text(l.c4Offline)),
+            JiabuStackItem.content(
+              child: JiabuSettingsGroup(
+                children: [
+                  if (page == 'settings') ...[
+                    if (space.owner)
+                      JiabuListRow(
+                        title: l.c4Edit,
+                        showChevron: true,
+                        enabled: runtime.managementOnline,
+                        onTap: () => openSpaceForm(context, space: space),
+                      ),
                     JiabuListRow(
-                      title: l.c4Edit,
+                      title: l.c4DisplayName,
                       showChevron: true,
                       enabled: runtime.managementOnline,
-                      onTap: () => openSpaceForm(context, space: space),
+                      onTap: () =>
+                          openSpaceAction(context, space, 'display_name'),
                     ),
-                  JiabuListRow(
-                    title: l.c4DisplayName,
-                    showChevron: true,
-                    enabled: runtime.managementOnline,
-                    onTap: () =>
-                        openSpaceAction(context, space, 'display_name'),
-                  ),
-                  JiabuListRow(
-                    title: l.c4Members,
-                    showChevron: true,
-                    onTap: () =>
-                        context.push<void>('/spaces/${space.id}/members'),
-                  ),
-                  if (space.canInvite)
                     JiabuListRow(
-                      title: l.c4Invite,
-                      showChevron: true,
-                      enabled: runtime.managementOnline,
-                      onTap: () => openSpaceAction(context, space, 'invite'),
-                    ),
-                  if (space.canInvite)
-                    JiabuListRow(
-                      title: l.c4Invitations,
+                      title: l.c4Members,
                       showChevron: true,
                       onTap: () =>
-                          context.push<void>('/spaces/${space.id}/invitations'),
+                          context.push<void>('/spaces/${space.id}/members'),
+                    ),
+                    if (space.canInvite)
+                      JiabuListRow(
+                        title: l.c4Invite,
+                        showChevron: true,
+                        enabled: runtime.managementOnline,
+                        onTap: () => openSpaceAction(context, space, 'invite'),
+                      ),
+                    if (space.canInvite)
+                      JiabuListRow(
+                        title: l.c4Invitations,
+                        showChevron: true,
+                        onTap: () => context.push<void>(
+                          '/spaces/${space.id}/invitations',
+                        ),
+                      ),
+                  ],
+                  // TODO(S9): photo storage totals. Deliberately no visible row
+                  // until GET /spaces/{id}/storage exists; do not infer locally.
+                  for (final member in space.members)
+                    JiabuListRow(
+                      title: member.name,
+                      subtitle: !member.active
+                          ? l.c4Left
+                          : member.role == 'owner'
+                          ? l.c4Owner
+                          : l.c4Member,
+                      trailing:
+                          space.owner &&
+                              member.active &&
+                              member.id != space.memberId
+                          ? PopupMenuButton<String>(
+                              icon: JiabuIcon(
+                                JiabuIcons.uiMore,
+                                color: runtime.managementOnline
+                                    ? null
+                                    : context.jiabu.colors.ink.withValues(
+                                        alpha: .38,
+                                      ),
+                              ),
+                              enabled: runtime.managementOnline,
+                              onSelected: (value) => openSpaceAction(
+                                context,
+                                space,
+                                value,
+                                target: member.id,
+                              ),
+                              itemBuilder: (_) => [
+                                PopupMenuItem(
+                                  value: 'remove',
+                                  child: Text(l.c4Remove),
+                                ),
+                                PopupMenuItem(
+                                  value: 'transfer',
+                                  child: Text(l.c4Transfer),
+                                ),
+                              ],
+                            )
+                          : null,
                     ),
                 ],
-                // TODO(S9): photo storage totals. Deliberately no visible row
-                // until GET /spaces/{id}/storage exists; do not infer locally.
-                for (final member in space.members)
-                  JiabuListRow(
-                    title: member.name,
-                    subtitle: !member.active
-                        ? l.c4Left
-                        : member.role == 'owner'
-                        ? l.c4Owner
-                        : l.c4Member,
-                    trailing:
-                        space.owner &&
-                            member.active &&
-                            member.id != space.memberId
-                        ? PopupMenuButton<String>(
-                            icon: JiabuIcon(
-                              JiabuIcons.uiMore,
-                              color: runtime.managementOnline
-                                  ? null
-                                  : context.jiabu.colors.ink.withValues(
-                                      alpha: .38,
-                                    ),
-                            ),
-                            enabled: runtime.managementOnline,
-                            onSelected: (value) => openSpaceAction(
-                              context,
-                              space,
-                              value,
-                              target: member.id,
-                            ),
-                            itemBuilder: (_) => [
-                              PopupMenuItem(
-                                value: 'remove',
-                                child: Text(l.c4Remove),
-                              ),
-                              PopupMenuItem(
-                                value: 'transfer',
-                                child: Text(l.c4Transfer),
-                              ),
-                            ],
-                          )
-                        : null,
-                  ),
-              ],
+              ),
             ),
           ],
         ),

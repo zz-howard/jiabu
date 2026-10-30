@@ -70,18 +70,21 @@ class LedgerRoutePage extends ConsumerWidget {
       'history' => HistoryPage(snapshot: snapshot),
       'settings' => SingleChildScrollView(
         padding: EdgeInsets.all(context.jiabu.spacing.page),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: JiabuStack(
           children: [
-            JiabuSectionHeader(title: l.ledgerSettings),
-            JiabuSettingsGroup(
-              children: [
-                JiabuListRow(
-                  title: l.ledgerAccounts,
-                  showChevron: true,
-                  onTap: () => context.push<void>('/settings/accounts'),
-                ),
-              ],
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(title: l.ledgerSettings),
+            ),
+            JiabuStackItem.content(
+              child: JiabuSettingsGroup(
+                children: [
+                  JiabuListRow(
+                    title: l.ledgerAccounts,
+                    showChevron: true,
+                    onTap: () => context.push<void>('/settings/accounts'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -113,40 +116,66 @@ class OverviewPage extends ConsumerWidget {
         JiabuLedgerMetrics.footerClearance,
       ),
       children: [
-        Text(l.ledgerOverview, style: context.jiabu.type.pageTitle),
-        if (result is Failure<Map<String, int>>)
-          Text(ledgerError(l, result.code)),
-        if (snapshot.accounts.isEmpty)
-          JiabuEmptyState(
-            message: HandText(l.handNothingHere, textAlign: TextAlign.center),
-            actionLabel: l.ledgerNewAccount,
-            onAction: () => context.push<void>('/settings/accounts'),
-          ),
-        if (result is Ok<Map<String, int>>)
-          for (final kind in ['real', 'purpose']) ...[
-            JiabuSectionHeader(
-              title: kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
-            ),
-            for (final account in snapshot.accounts.where(
-              (a) =>
-                  a.text('kind') == kind &&
-                  (!a.archived || (balances[a.id] ?? 0) != 0),
-            ))
-              AccountBalanceTile(
-                snapshot: snapshot,
-                account: account,
-                balance: balances[account.id] ?? 0,
+        JiabuStack(
+          children: [
+            JiabuStackItem.content(
+              child: Text(
+                l.ledgerOverview,
+                style: context.jiabu.type.pageTitle,
               ),
+            ),
+            if (result is Failure<Map<String, int>>)
+              JiabuStackItem.captionAfter(
+                child: Text(ledgerError(l, result.code)),
+              ),
+            if (snapshot.accounts.isEmpty)
+              JiabuStackItem.content(
+                child: JiabuEmptyState(
+                  message: HandText(
+                    l.handNothingHere,
+                    textAlign: TextAlign.center,
+                  ),
+                  actionLabel: l.ledgerNewAccount,
+                  onAction: () => context.push<void>('/settings/accounts'),
+                ),
+              ),
+            if (result is Ok<Map<String, int>>)
+              for (final kind in ['real', 'purpose']) ...[
+                JiabuStackItem.section(
+                  child: JiabuSectionHeader(
+                    title: kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
+                  ),
+                ),
+                for (final account in snapshot.accounts.where(
+                  (a) =>
+                      a.text('kind') == kind &&
+                      (!a.archived || (balances[a.id] ?? 0) != 0),
+                ))
+                  JiabuStackItem.content(
+                    child: AccountBalanceTile(
+                      snapshot: snapshot,
+                      account: account,
+                      balance: balances[account.id] ?? 0,
+                    ),
+                  ),
+              ],
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(title: l.ledgerPending),
+            ),
+            JiabuStackItem.content(child: PendingItems(snapshot: snapshot)),
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(title: l.ledgerRecent),
+            ),
+            for (final row in recent)
+              JiabuStackItem.content(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: liveRecordCard(context, ref, snapshot, row),
+                ),
+              ),
+            // C6 extension point: family summary. No card in this slice.
           ],
-        JiabuSectionHeader(title: l.ledgerPending),
-        PendingItems(snapshot: snapshot),
-        JiabuSectionHeader(title: l.ledgerRecent),
-        for (final row in recent)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: liveRecordCard(context, ref, snapshot, row),
-          ),
-        // C6 extension point: family summary. No card in this slice.
+        ),
       ],
     );
   }
@@ -321,60 +350,65 @@ class PendingItems extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return JiabuStack(
       children: [
         if (snapshot.pending.isEmpty && snapshot.conflicts.isEmpty)
-          Text(l.ledgerNoPending),
+          JiabuStackItem.content(child: Text(l.ledgerNoPending)),
         for (final op in snapshot.pending)
-          PaperCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  operationTitle(snapshot, op, l),
-                  style: context.jiabu.type.listTitle,
-                ),
-                Text(
-                  op.text('state') == 'failed'
-                      ? l.ledgerFailed
-                      : op.text('state') == 'blocked'
-                      ? l.ledgerPendingBlocked
-                      : l.ledgerUpload,
-                ),
-                if (op.text('error').isNotEmpty)
-                  Text(ledgerError(l, op.text('error'))),
-                for (final entity in op.strings('entity_ids'))
-                  if (entity.startsWith('record:'))
-                    TextButton(
-                      onPressed: () => openRecordDetails(
-                        context,
-                        snapshot.spaceId,
-                        entity.substring('record:'.length),
-                      ),
-                      child: Text(l.ledgerDetails),
-                    ),
-                if (op.text('state') == 'failed')
-                  TextButton(
-                    onPressed: () => ref
-                        .read(
-                          ledgerViewModelProvider(snapshot.spaceId).notifier,
-                        )
-                        .command((repo) => repo.retry(snapshot.spaceId, op.id)),
-                    child: Text(l.ledgerRetry),
+          JiabuStackItem.content(
+            child: PaperCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    operationTitle(snapshot, op, l),
+                    style: context.jiabu.type.listTitle,
                   ),
-              ],
+                  Text(
+                    op.text('state') == 'failed'
+                        ? l.ledgerFailed
+                        : op.text('state') == 'blocked'
+                        ? l.ledgerPendingBlocked
+                        : l.ledgerUpload,
+                  ),
+                  if (op.text('error').isNotEmpty)
+                    Text(ledgerError(l, op.text('error'))),
+                  for (final entity in op.strings('entity_ids'))
+                    if (entity.startsWith('record:'))
+                      TextButton(
+                        onPressed: () => openRecordDetails(
+                          context,
+                          snapshot.spaceId,
+                          entity.substring('record:'.length),
+                        ),
+                        child: Text(l.ledgerDetails),
+                      ),
+                  if (op.text('state') == 'failed')
+                    TextButton(
+                      onPressed: () => ref
+                          .read(
+                            ledgerViewModelProvider(snapshot.spaceId).notifier,
+                          )
+                          .command(
+                            (repo) => repo.retry(snapshot.spaceId, op.id),
+                          ),
+                      child: Text(l.ledgerRetry),
+                    ),
+                ],
+              ),
             ),
           ),
         for (final conflict in snapshot.conflicts)
-          TextButton(
-            onPressed: () => openConflict(
-              context,
-              snapshot.spaceId,
-              conflict.text('entity_kind'),
-              conflict.text('entity_id'),
+          JiabuStackItem.content(
+            child: TextButton(
+              onPressed: () => openConflict(
+                context,
+                snapshot.spaceId,
+                conflict.text('entity_kind'),
+                conflict.text('entity_id'),
+              ),
+              child: Text(l.ledgerConflict),
             ),
-            child: Text(l.ledgerConflict),
           ),
       ],
     );
@@ -429,33 +463,39 @@ class HistoryPage extends ConsumerWidget {
       await LedgerSheet.show<void>(
         context: context,
         spaceId: snapshot.spaceId,
-        builder: (sheetContext) => Column(
-          mainAxisSize: MainAxisSize.min,
+        builder: (sheetContext) => JiabuStack(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(label, style: context.jiabu.type.cardTitle),
-            PaperRow(
-              child: ListTile(
-                title: Text(l.ledgerAll),
-                selected: selected == null,
-                onTap: () {
-                  choose(null);
-                  Navigator.of(sheetContext).pop();
-                },
+            JiabuStackItem.content(
+              child: Text(label, style: context.jiabu.type.cardTitle),
+            ),
+            JiabuStackItem.content(
+              child: PaperRow(
+                child: ListTile(
+                  title: Text(l.ledgerAll),
+                  selected: selected == null,
+                  onTap: () {
+                    choose(null);
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
               ),
             ),
             for (final item in options)
-              PaperRow(
-                child: ListTile(
-                  title: Text(item.$2),
-                  selected: item.$1 == selected,
-                  selectedTileColor: context.jiabu.colors.primarySoft,
-                  trailing: item.$1 == selected
-                      ? const JiabuIcon(JiabuIcons.uiCheck)
-                      : null,
-                  onTap: () {
-                    choose(item.$1);
-                    Navigator.of(sheetContext).pop();
-                  },
+              JiabuStackItem.content(
+                child: PaperRow(
+                  child: ListTile(
+                    title: Text(item.$2),
+                    selected: item.$1 == selected,
+                    selectedTileColor: context.jiabu.colors.primarySoft,
+                    trailing: item.$1 == selected
+                        ? const JiabuIcon(JiabuIcons.uiCheck)
+                        : null,
+                    onTap: () {
+                      choose(item.$1);
+                      Navigator.of(sheetContext).pop();
+                    },
+                  ),
                 ),
               ),
           ],
@@ -467,140 +507,151 @@ class HistoryPage extends ConsumerWidget {
       children: [
         Padding(
           padding: EdgeInsets.all(context.jiabu.spacing.page),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: JiabuStack(
             children: [
-              Text(l.ledgerHistory, style: context.jiabu.type.pageTitle),
-              HistorySearchField(
-                key: ValueKey(snapshot.spaceId),
-                value: filter.text,
-                label: l.ledgerSearch,
-                onChanged: (text) => update(text: text),
+              JiabuStackItem.content(
+                child: Text(
+                  l.ledgerHistory,
+                  style: context.jiabu.type.pageTitle,
+                ),
               ),
-              Stack(
-                children: [
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        PaperFilterChip(
-                          label: l.ledgerMembers,
-                          selected: filter.member != null,
-                          onPressed: () => select(
-                            l.ledgerMembers,
-                            [
-                              for (final member in snapshot.members)
-                                (member.id, memberName(member, l)),
-                            ],
-                            filter.member,
-                            (id) => update(
-                              member: id,
-                              clear: id == null ? 'member' : null,
+              JiabuStackItem.content(
+                child: HistorySearchField(
+                  key: ValueKey(snapshot.spaceId),
+                  value: filter.text,
+                  label: l.ledgerSearch,
+                  onChanged: (text) => update(text: text),
+                ),
+              ),
+              JiabuStackItem.content(
+                child: Stack(
+                  children: [
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: JiabuChipGroup(
+                        children: [
+                          PaperFilterChip(
+                            label: l.ledgerMembers,
+                            selected: filter.member != null,
+                            onPressed: () => select(
+                              l.ledgerMembers,
+                              [
+                                for (final member in snapshot.members)
+                                  (member.id, memberName(member, l)),
+                              ],
+                              filter.member,
+                              (id) => update(
+                                member: id,
+                                clear: id == null ? 'member' : null,
+                              ),
                             ),
                           ),
-                        ),
-                        PaperFilterChip(
-                          label: l.ledgerAccounts,
-                          selected: filter.account != null,
-                          onPressed: () => select(
-                            l.ledgerAccounts,
-                            [
-                              for (final a in snapshot.accounts)
-                                (a.id, a.text('name')),
-                            ],
-                            filter.account,
-                            (id) => update(
-                              account: id,
-                              clear: id == null ? 'account' : null,
+                          PaperFilterChip(
+                            label: l.ledgerAccounts,
+                            selected: filter.account != null,
+                            onPressed: () => select(
+                              l.ledgerAccounts,
+                              [
+                                for (final a in snapshot.accounts)
+                                  (a.id, a.text('name')),
+                              ],
+                              filter.account,
+                              (id) => update(
+                                account: id,
+                                clear: id == null ? 'account' : null,
+                              ),
                             ),
                           ),
-                        ),
-                        PaperFilterChip(
-                          label: l.ledgerTags,
-                          selected: filter.tag != null,
-                          onPressed: () => select(
-                            l.ledgerTags,
-                            [
-                              for (final tag in snapshot.tags)
-                                (tag.id, tagName(tag, ledgerLabels(l))),
-                            ],
-                            filter.tag,
-                            (id) => update(
-                              tag: id,
-                              clear: id == null ? 'tag' : null,
+                          PaperFilterChip(
+                            label: l.ledgerTags,
+                            selected: filter.tag != null,
+                            onPressed: () => select(
+                              l.ledgerTags,
+                              [
+                                for (final tag in snapshot.tags)
+                                  (tag.id, tagName(tag, ledgerLabels(l))),
+                              ],
+                              filter.tag,
+                              (id) => update(
+                                tag: id,
+                                clear: id == null ? 'tag' : null,
+                              ),
                             ),
                           ),
-                        ),
-                        PaperFilterChip(
-                          label: l.ledgerTypes,
-                          selected: filter.kind != null,
-                          onPressed: () => select(
-                            l.ledgerTypes,
-                            [
-                              for (final kind in [
-                                'expense',
-                                'income',
-                                'transfer',
-                                'reallocation',
-                                'refund',
-                                'allocation',
-                              ])
-                                (kind, ledgerLabels(l)[kind] ?? ''),
-                            ],
-                            filter.kind,
-                            (id) => update(
-                              kind: id,
-                              clear: id == null ? 'kind' : null,
+                          PaperFilterChip(
+                            label: l.ledgerTypes,
+                            selected: filter.kind != null,
+                            onPressed: () => select(
+                              l.ledgerTypes,
+                              [
+                                for (final kind in [
+                                  'expense',
+                                  'income',
+                                  'transfer',
+                                  'reallocation',
+                                  'refund',
+                                  'allocation',
+                                ])
+                                  (kind, ledgerLabels(l)[kind] ?? ''),
+                              ],
+                              filter.kind,
+                              (id) => update(
+                                kind: id,
+                                clear: id == null ? 'kind' : null,
+                              ),
                             ),
                           ),
-                        ),
-                        PaperFilterChip(
-                          label: l.ledgerPeriod,
-                          selected:
-                              filter.from != null || filter.through != null,
-                          onPressed: () => LedgerSheet.show<void>(
-                            context: context,
-                            spaceId: snapshot.spaceId,
-                            builder: (sheetContext) =>
-                                DateFilterForm(spaceId: snapshot.spaceId),
+                          PaperFilterChip(
+                            label: l.ledgerPeriod,
+                            selected:
+                                filter.from != null || filter.through != null,
+                            onPressed: () => LedgerSheet.show<void>(
+                              context: context,
+                              spaceId: snapshot.spaceId,
+                              builder: (sheetContext) =>
+                                  DateFilterForm(spaceId: snapshot.spaceId),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  PositionedDirectional(
-                    end: 0,
-                    top: 0,
-                    bottom: 0,
-                    child: IgnorePointer(
-                      child: Container(
-                        width: JiabuSpacing.xxl,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              context.jiabu.colors.transparent,
-                              context.jiabu.colors.bg,
-                            ],
+                    PositionedDirectional(
+                      end: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: IgnorePointer(
+                        child: Container(
+                          width: JiabuSpacing.xxl,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                context.jiabu.colors.bg.withValues(alpha: 0),
+                                context.jiabu.colors.bg,
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               if (filter.isFiltered)
-                Wrap(
-                  children: [
-                    Text(l.ledgerResultCount(rows.length)),
-                    TextButton(
-                      onPressed: () => ref
-                          .read(
-                            ledgerViewModelProvider(snapshot.spaceId).notifier,
-                          )
-                          .filter(const HistoryFilter()),
-                      child: Text(l.ledgerClear),
-                    ),
-                  ],
+                JiabuStackItem.content(
+                  child: Wrap(
+                    children: [
+                      Text(l.ledgerResultCount(rows.length)),
+                      TextButton(
+                        onPressed: () => ref
+                            .read(
+                              ledgerViewModelProvider(snapshot.spaceId)
+                                  .notifier,
+                            )
+                            .filter(const HistoryFilter()),
+                        child: Text(l.ledgerClear),
+                      ),
+                    ],
+                  ),
                 ),
             ],
           ),
@@ -717,39 +768,48 @@ class DateFilterForm extends ConsumerWidget {
       spaceId: spaceId,
       formId: 'date-filter',
       initial: {'from': filter.from ?? '', 'through': filter.through ?? ''},
-      builder: (context, ref, state, model) => Column(
-        mainAxisSize: MainAxisSize.min,
+      builder: (context, ref, state, model) => JiabuStack(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          formField(context, state, model, 'from', l.ledgerFromDate),
-          formField(context, state, model, 'through', l.ledgerThroughDate),
-          formError(context, state.error),
-          FilledButton(
-            onPressed: () {
-              final from = state.values['from']?.toString() ?? '';
-              final through = state.values['through']?.toString() ?? '';
-              if (!validLedgerDate(from) ||
-                  !validLedgerDate(through) ||
-                  from.compareTo(through) > 0) {
-                model.fail('validation_failed');
-                return;
-              }
-              ref
-                  .read(ledgerViewModelProvider(spaceId).notifier)
-                  .filter(
-                    HistoryFilter(
-                      text: filter.text,
-                      member: filter.member,
-                      account: filter.account,
-                      tag: filter.tag,
-                      kind: filter.kind,
-                      from: from,
-                      through: through,
-                      labels: ledgerLabels(l),
-                    ),
-                  );
-              Navigator.of(context).pop();
-            },
-            child: Text(l.ledgerSave),
+          ...formFieldItems(context, state, model, 'from', l.ledgerFromDate),
+          ...formFieldItems(
+            context,
+            state,
+            model,
+            'through',
+            l.ledgerThroughDate,
+          ),
+          if (state.error != null)
+            JiabuStackItem.captionAfter(child: formError(context, state.error)),
+          JiabuStackItem.action(
+            child: FilledButton(
+              onPressed: () {
+                final from = state.values['from']?.toString() ?? '';
+                final through = state.values['through']?.toString() ?? '';
+                if (!validLedgerDate(from) ||
+                    !validLedgerDate(through) ||
+                    from.compareTo(through) > 0) {
+                  model.fail('validation_failed');
+                  return;
+                }
+                ref
+                    .read(ledgerViewModelProvider(spaceId).notifier)
+                    .filter(
+                      HistoryFilter(
+                        text: filter.text,
+                        member: filter.member,
+                        account: filter.account,
+                        tag: filter.tag,
+                        kind: filter.kind,
+                        from: from,
+                        through: through,
+                        labels: ledgerLabels(l),
+                      ),
+                    );
+                Navigator.of(context).pop();
+              },
+              child: Text(l.ledgerSave),
+            ),
           ),
         ],
       ),
@@ -782,153 +842,169 @@ class AccountsPage extends ConsumerWidget {
     return ListView(
       padding: EdgeInsets.all(context.jiabu.spacing.page),
       children: [
-        formError(context, state.error),
-        if (result is Failure<Map<String, int>>)
-          Text(ledgerError(l, result.code)),
-        for (final archived in [false, true]) ...[
-          if (archived) JiabuSectionHeader(title: l.ledgerArchivedAccounts),
-          for (final account in snapshot.accounts.where(
-            (a) => a.archived == archived,
-          ))
-            Padding(
-              padding: const EdgeInsets.only(bottom: JiabuSpacing.cardGap),
-              child: JiabuSettingsGroup(
-                children: [
-                  JiabuListRow(
-                    title: account.text('name'),
-                    subtitle: account.text('kind') == 'real'
-                        ? l.ledgerReal
-                        : l.ledgerPurpose,
-                    status: accountOperationFailed(account)
-                        ? l.ledgerFailed
-                        : account.syncState == 'pending'
-                        ? l.ledgerUpload
-                        : null,
-                    valueWidget: balances.containsKey(account.id)
-                        ? ledgerAmount(
-                            context,
-                            balances[account.id] ?? 0,
-                            snapshot.currency,
-                          )
-                        : null,
-                    supporting:
-                        accountCreateFailed(account) ||
-                            (account.archived &&
-                                (balances[account.id] ?? 0) != 0)
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (accountCreateFailed(account))
-                                Text(
-                                  l.ledgerAccountCreateRejected,
-                                  key: const Key(
-                                    'account-create-rejected-explanation',
-                                  ),
-                                  style: context.jiabu.type.secondary.copyWith(
-                                    color: context.jiabu.colors.neg,
-                                  ),
-                                ),
-                              if (account.archived &&
-                                  (balances[account.id] ?? 0) != 0)
-                                Text(
-                                  l.ledgerArchiveUnavailable,
-                                  key: const Key(
-                                    'archived-account-balance-explanation',
-                                  ),
-                                  style: context.jiabu.type.secondary.copyWith(
-                                    color: context.jiabu.colors.warn,
-                                  ),
-                                ),
-                            ],
-                          )
-                        : null,
-                    trailing:
-                        (!account.archived && snapshot.writable) ||
-                            account.syncState == 'conflict'
-                        ? PopupMenuButton<String>(
-                            icon: JiabuIcon(
-                              JiabuIcons.uiMore,
-                              color:
-                                  account.syncState == 'conflict' || !state.busy
-                                  ? null
-                                  : context.jiabu.colors.ink.withValues(
-                                      alpha: .38,
-                                    ),
-                            ),
-                            enabled:
-                                account.syncState == 'conflict' || !state.busy,
-                            onSelected: (value) {
-                              if (value == 'rename') {
-                                unawaited(
-                                  openAccountForm(
-                                    context,
-                                    snapshot.spaceId,
-                                    account: account,
-                                  ),
-                                );
-                              } else if (value == 'plan') {
-                                unawaited(
-                                  openPlan(
-                                    context,
-                                    snapshot.spaceId,
-                                    account.id,
-                                  ),
-                                );
-                              } else if (value == 'archive') {
-                                unawaited(
-                                  archiveGuide(
-                                    context,
-                                    ref,
-                                    snapshot,
-                                    account,
-                                    balances[account.id] ?? 0,
-                                  ),
-                                );
-                              } else if (value == 'conflict') {
-                                unawaited(
-                                  openConflict(
-                                    context,
-                                    snapshot.spaceId,
-                                    'account',
-                                    account.id,
-                                  ),
-                                );
-                              }
-                            },
-                            itemBuilder: (_) => [
-                              if (!account.archived && snapshot.writable) ...[
-                                PopupMenuItem(
-                                  value: 'rename',
-                                  enabled: !state.busy,
-                                  child: Text(l.ledgerRename),
-                                ),
-                                if (account.text('kind') == 'purpose')
-                                  PopupMenuItem(
-                                    value: 'plan',
-                                    enabled: !state.busy,
-                                    child: Text(l.ledgerPlan),
-                                  ),
-                                PopupMenuItem(
-                                  value: 'archive',
-                                  enabled:
-                                      !state.busy &&
-                                      balances.containsKey(account.id),
-                                  child: Text(l.ledgerArchive),
-                                ),
-                              ],
-                              if (account.syncState == 'conflict')
-                                PopupMenuItem(
-                                  value: 'conflict',
-                                  child: Text(l.ledgerConflict),
-                                ),
-                            ],
-                          )
-                        : null,
-                  ),
-                ],
+        JiabuStack(
+          children: [
+            if (state.error != null)
+              JiabuStackItem.captionAfter(
+                child: formError(context, state.error),
               ),
-            ),
-        ],
+            if (result is Failure<Map<String, int>>)
+              JiabuStackItem.captionAfter(
+                child: Text(ledgerError(l, result.code)),
+              ),
+            for (final archived in [false, true]) ...[
+              if (archived)
+                JiabuStackItem.section(
+                  child: JiabuSectionHeader(title: l.ledgerArchivedAccounts),
+                ),
+              for (final account in snapshot.accounts.where(
+                (a) => a.archived == archived,
+              ))
+                JiabuStackItem.content(
+                  child: JiabuSettingsGroup(
+                    children: [
+                      JiabuListRow(
+                        title: account.text('name'),
+                        subtitle: account.text('kind') == 'real'
+                            ? l.ledgerReal
+                            : l.ledgerPurpose,
+                        status: accountOperationFailed(account)
+                            ? l.ledgerFailed
+                            : account.syncState == 'pending'
+                            ? l.ledgerUpload
+                            : null,
+                        valueWidget: balances.containsKey(account.id)
+                            ? ledgerAmount(
+                                context,
+                                balances[account.id] ?? 0,
+                                snapshot.currency,
+                              )
+                            : null,
+                        supporting:
+                            accountCreateFailed(account) ||
+                                (account.archived &&
+                                    (balances[account.id] ?? 0) != 0)
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (accountCreateFailed(account))
+                                    Text(
+                                      l.ledgerAccountCreateRejected,
+                                      key: const Key(
+                                        'account-create-rejected-explanation',
+                                      ),
+                                      style: context.jiabu.type.secondary
+                                          .copyWith(
+                                            color: context.jiabu.colors.neg,
+                                          ),
+                                    ),
+                                  if (account.archived &&
+                                      (balances[account.id] ?? 0) != 0)
+                                    Text(
+                                      l.ledgerArchiveUnavailable,
+                                      key: const Key(
+                                        'archived-account-balance-explanation',
+                                      ),
+                                      style: context.jiabu.type.secondary
+                                          .copyWith(
+                                            color: context.jiabu.colors.warn,
+                                          ),
+                                    ),
+                                ],
+                              )
+                            : null,
+                        trailing:
+                            (!account.archived && snapshot.writable) ||
+                                account.syncState == 'conflict'
+                            ? PopupMenuButton<String>(
+                                icon: JiabuIcon(
+                                  JiabuIcons.uiMore,
+                                  color:
+                                      account.syncState == 'conflict' ||
+                                          !state.busy
+                                      ? null
+                                      : context.jiabu.colors.ink.withValues(
+                                          alpha: .38,
+                                        ),
+                                ),
+                                enabled:
+                                    account.syncState == 'conflict' ||
+                                    !state.busy,
+                                onSelected: (value) {
+                                  if (value == 'rename') {
+                                    unawaited(
+                                      openAccountForm(
+                                        context,
+                                        snapshot.spaceId,
+                                        account: account,
+                                      ),
+                                    );
+                                  } else if (value == 'plan') {
+                                    unawaited(
+                                      openPlan(
+                                        context,
+                                        snapshot.spaceId,
+                                        account.id,
+                                      ),
+                                    );
+                                  } else if (value == 'archive') {
+                                    unawaited(
+                                      archiveGuide(
+                                        context,
+                                        ref,
+                                        snapshot,
+                                        account,
+                                        balances[account.id] ?? 0,
+                                      ),
+                                    );
+                                  } else if (value == 'conflict') {
+                                    unawaited(
+                                      openConflict(
+                                        context,
+                                        snapshot.spaceId,
+                                        'account',
+                                        account.id,
+                                      ),
+                                    );
+                                  }
+                                },
+                                itemBuilder: (_) => [
+                                  if (!account.archived &&
+                                      snapshot.writable) ...[
+                                    PopupMenuItem(
+                                      value: 'rename',
+                                      enabled: !state.busy,
+                                      child: Text(l.ledgerRename),
+                                    ),
+                                    if (account.text('kind') == 'purpose')
+                                      PopupMenuItem(
+                                        value: 'plan',
+                                        enabled: !state.busy,
+                                        child: Text(l.ledgerPlan),
+                                      ),
+                                    PopupMenuItem(
+                                      value: 'archive',
+                                      enabled:
+                                          !state.busy &&
+                                          balances.containsKey(account.id),
+                                      child: Text(l.ledgerArchive),
+                                    ),
+                                  ],
+                                  if (account.syncState == 'conflict')
+                                    PopupMenuItem(
+                                      value: 'conflict',
+                                      child: Text(l.ledgerConflict),
+                                    ),
+                                ],
+                              )
+                            : null,
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ],
+        ),
       ],
     );
   }
@@ -945,46 +1021,56 @@ Future<void> archiveGuide(
   await LedgerSheet.show<void>(
     context: context,
     spaceId: snapshot.spaceId,
-    builder: (sheetContext) => Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    builder: (sheetContext) => JiabuStack(
       children: [
-        Text(balance == 0 ? l.ledgerArchiveConfirm : l.ledgerArchiveGuide),
+        JiabuStackItem.content(
+          child: Text(
+            balance == 0 ? l.ledgerArchiveConfirm : l.ledgerArchiveGuide,
+          ),
+        ),
         if (balance != 0)
-          FilledButton(
-            onPressed: () {
-              Navigator.of(sheetContext).pop();
-              final real = account.text('kind') == 'real';
-              unawaited(
-                openManualEntry(
-                  context,
-                  snapshot.spaceId,
-                  initial: {
-                    'kind': real ? 'transfer' : 'reallocation',
-                    balance > 0
-                            ? (real ? 'account_id' : 'purpose_id')
-                            : (real ? 'to_account_id' : 'to_purpose_id'):
-                        account.id,
-                    'amount_text': minorInput(balance.abs(), snapshot.currency),
-                  },
-                ),
-              );
-            },
-            child: Text(l.ledgerMoveBalance),
+          JiabuStackItem.action(
+            child: FilledButton(
+              onPressed: () {
+                Navigator.of(sheetContext).pop();
+                final real = account.text('kind') == 'real';
+                unawaited(
+                  openManualEntry(
+                    context,
+                    snapshot.spaceId,
+                    initial: {
+                      'kind': real ? 'transfer' : 'reallocation',
+                      balance > 0
+                              ? (real ? 'account_id' : 'purpose_id')
+                              : (real ? 'to_account_id' : 'to_purpose_id'):
+                          account.id,
+                      'amount_text': minorInput(
+                        balance.abs(),
+                        snapshot.currency,
+                      ),
+                    },
+                  ),
+                );
+              },
+              child: Text(l.ledgerMoveBalance),
+            ),
           )
         else
-          FilledButton(
-            onPressed: () async {
-              final ok = await ref
-                  .read(ledgerViewModelProvider(snapshot.spaceId).notifier)
-                  .command(
-                    (repo) => repo.archiveAccount(snapshot.spaceId, account.id),
-                  );
-              if (ok && sheetContext.mounted) {
-                Navigator.of(sheetContext).pop();
-              }
-            },
-            child: Text(l.ledgerArchive),
+          JiabuStackItem.action(
+            child: FilledButton(
+              onPressed: () async {
+                final ok = await ref
+                    .read(ledgerViewModelProvider(snapshot.spaceId).notifier)
+                    .command(
+                      (repo) =>
+                          repo.archiveAccount(snapshot.spaceId, account.id),
+                    );
+                if (ok && sheetContext.mounted) {
+                  Navigator.of(sheetContext).pop();
+                }
+              },
+              child: Text(l.ledgerArchive),
+            ),
           ),
       ],
     ),

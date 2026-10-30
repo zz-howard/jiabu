@@ -13,7 +13,9 @@ import 'package:jiabu/features/auth/widgets/switch_partition_prompt.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
+import '../support/auth_test_cases.dart';
 import '../support/image_harness.dart';
+import '../support/vertical_spacing.dart';
 
 Future<void> pumpAuth(
   WidgetTester tester,
@@ -49,6 +51,25 @@ Future<void> pumpAuth(
 }
 
 void main() {
+  test('auth geometry table covers every C4b golden state', () {
+    expect(allAuthTestCases.map((sample) => sample.state).toSet(), {
+      'welcome',
+      'server_collapsed',
+      'server_expanded',
+      'server_unreachable',
+      'login_connected',
+      'login_invalid',
+      'login_busy',
+      'invite_placeholder',
+      'password_forced',
+      'password_invalid',
+      'session_idle',
+      'session_admin_reset',
+      'session_space_cleared',
+      'switch_pending',
+    });
+  });
+
   testWidgets('space accent never changes the auth primary color', (
     tester,
   ) async {
@@ -58,6 +79,137 @@ void main() {
     );
     final context = tester.element(find.byType(WelcomeScreen));
     expect(Theme.of(context).colorScheme.primary, context.jiabu.colors.primary);
+  });
+
+  testWidgets('welcome logo stays centered at approved viewport sizes', (
+    tester,
+  ) async {
+    for (final config in [(360.0, 1.0), (430.0, 2.0)]) {
+      await pumpAuth(
+        tester,
+        WelcomeScreen(busy: false, onStart: () {}, onLogin: () {}),
+        width: config.$1,
+        scale: config.$2,
+      );
+      expect(
+        tester.getRect(find.byType(JiabuLogo)).center.dx,
+        closeTo(config.$1 / 2, 1),
+        reason: '${config.$1} at ${config.$2}x',
+      );
+      expect(
+        tester.getRect(find.byKey(const Key('welcome-tagline'))).center.dx,
+        closeTo(config.$1 / 2, 1),
+      );
+      expect(
+        tester.getRect(find.byKey(const Key('welcome-mascot-note'))).center.dx,
+        closeTo(config.$1 / 2, 1),
+      );
+      final logoTape = find.descendant(
+        of: find.byKey(const Key('welcome-logo-group')),
+        matching: find.byType(Tape),
+      );
+      expect(tester.getRect(logoTape).left, greaterThanOrEqualTo(0));
+      expect(tester.getRect(logoTape).right, lessThanOrEqualTo(config.$1));
+      final stack = tester.getRect(find.byType(JiabuStack).first);
+      final logo = tester.getRect(find.byKey(const Key('welcome-logo-group')));
+      final tagline = tester.getRect(find.byKey(const Key('welcome-tagline')));
+      final mascot = tester.getRect(
+        find.byKey(const Key('welcome-mascot-note')),
+      );
+      final action = tester.getRect(
+        find.byKey(const Key('welcome-primary-action')),
+      );
+      expect(
+        logo.top - stack.top,
+        greaterThanOrEqualTo(JiabuSpacing.xl - geometryTolerance),
+      );
+      expect(
+        tagline.top - logo.bottom,
+        greaterThanOrEqualTo(JiabuSpacing.sm - geometryTolerance),
+      );
+      expect(
+        action.top - mascot.bottom,
+        greaterThanOrEqualTo(JiabuSpacing.xxl - geometryTolerance),
+      );
+    }
+  });
+
+  testWidgets('C4b primary screens preserve approved block gaps', (
+    tester,
+  ) async {
+    for (final config in [(360.0, 1.0), (430.0, 2.0)]) {
+      for (final sample in <({String name, Widget screen})>[
+        (
+          name: 'server',
+          screen: ServerAddressScreen(
+            key: const ValueKey('server-collapsed-gap-check'),
+            state: const AuthUiState(
+              page: AuthPage.server,
+              defaultServer: 'https://example.invalid/',
+            ),
+            onSelect: (_) {},
+          ),
+        ),
+        (
+          name: 'server-expanded',
+          screen: ServerAddressScreen(
+            key: const ValueKey('server-expanded-gap-check'),
+            state: const AuthUiState(page: AuthPage.server),
+            onSelect: (_) {},
+          ),
+        ),
+        (
+          name: 'login',
+          screen: LoginScreen(
+            state: const AuthUiState(
+              page: AuthPage.login,
+              server: 'https://example.invalid/',
+              defaultServer: 'https://example.invalid/',
+            ),
+            onLogin: (_, _) {},
+            onServer: () {},
+          ),
+        ),
+      ]) {
+        await pumpAuth(
+          tester,
+          sample.screen,
+          width: config.$1,
+          scale: config.$2,
+        );
+        final progress = tester.getRect(find.byKey(const Key('auth-progress')));
+        final title = tester.getRect(find.byKey(const Key('auth-title-block')));
+        final subtitle = tester.getRect(find.byKey(const Key('auth-subtitle')));
+        final card = tester.getRect(find.byType(PaperCard).first);
+        final body = tester.getRect(find.byKey(const Key('auth-body')));
+        final footer = tester.getRect(find.byKey(const Key('auth-footer')));
+        expect(
+          title.top - progress.bottom,
+          greaterThanOrEqualTo(JiabuSpacing.sectionTop - geometryTolerance),
+          reason: '${sample.name} title ${config.$1}/${config.$2}',
+        );
+        expect(
+          card.top - subtitle.bottom,
+          greaterThanOrEqualTo(JiabuSpacing.sectionTop - geometryTolerance),
+          reason: '${sample.name} body ${config.$1}/${config.$2}',
+        );
+        expect(
+          footer.top - body.bottom,
+          greaterThanOrEqualTo(JiabuSpacing.actionGap - geometryTolerance),
+          reason: '${sample.name} footer ${config.$1}/${config.$2}',
+        );
+        if (sample.name == 'login') {
+          final accountSection = tester.getRect(
+            find.byKey(const Key('login-account-section')),
+          );
+          expect(
+            accountSection.top - card.bottom,
+            greaterThanOrEqualTo(JiabuSpacing.sectionTop - geometryTolerance),
+            reason: 'login account section ${config.$1}/${config.$2}',
+          );
+        }
+      }
+    }
   });
 
   for (final locale in ['zh', 'en']) {
@@ -81,6 +233,20 @@ void main() {
             scale: scale,
           );
           expect(tester.takeException(), isNull);
+          expect(
+            expectJiabuVerticalRhythm(
+              tester,
+              reason: 'auth login $locale $width $scale',
+            ),
+            greaterThanOrEqualTo(2),
+          );
+          expect(
+            expectJiabuChipSpacing(
+              tester,
+              reason: 'auth login $locale $width $scale',
+            ),
+            0,
+          );
           final pageInset = width <= 380 ? 14.0 : 18.0;
           expect(
             tester.getRect(find.byType(PaperCard).first).left,
@@ -482,66 +648,80 @@ void main() {
       for (final locale in ['zh', 'en']) {
         testWidgets('auth_layout_${width}_${scale}_$locale', (tester) async {
           final semantics = tester.ensureSemantics();
-          final widgets = <Widget>[
-            WelcomeScreen(busy: false, onStart: () {}, onLogin: () {}),
-            ServerAddressScreen(
-              state: const AuthUiState(
-                errorCode: 'invalid_server_address',
-                defaultServer: 'https://example.invalid/',
-              ),
-              onSelect: (_) {},
-            ),
-            ServerAddressScreen(state: const AuthUiState(), onSelect: (_) {}),
-            LoginScreen(
-              state: const AuthUiState(
-                server: 'https://example.invalid/',
-                errorCode: 'rate_limited',
-                serverProbeSucceeded: true,
-              ),
-              onLogin: (a, b) {},
-              onServer: () {},
-            ),
-            ChangePasswordScreen(
-              state: const AuthUiState(
-                forcedPassword: true,
-                errorCode: 'invalid_new_password',
-              ),
-              onSave: (a, b, c) {},
-              onBack: () {},
-            ),
-            SessionStatusScreen(
-              state: const AuthUiState(),
-              onPassword: () {},
-              onSwitch: () {},
-              onLogout: () {},
-            ),
-          ];
-          for (final widget in widgets) {
+          for (final sample in allAuthTestCases) {
+            // Start each state from a fresh tree: a sheet opened by the
+            // previous state would otherwise stay on the Navigator and hide
+            // this screen from semantics.
+            await tester.pumpWidget(const SizedBox());
             await pumpAuth(
               tester,
-              widget,
+              sample.builder(),
               width: width,
               scale: scale,
               locale: locale,
             );
-            expect(tester.takeException(), isNull);
-            for (final element
-                in find.bySubtype<ButtonStyleButton>().evaluate()) {
-              final size = tester.getSize(find.byWidget(element.widget));
-              expect(size.width, greaterThanOrEqualTo(44));
-              expect(size.height, greaterThanOrEqualTo(44));
-            }
-            // The label lives on the EditableText node that screen readers
-            // focus; the TextField's own render object may resolve to an
-            // ancestor scroll node.
-            for (final field in find.byType(TextField).evaluate()) {
-              final editable = find.descendant(
-                of: find.byWidget(field.widget),
-                matching: find.byType(EditableText),
-              );
+            // Modal routes exclude their background fields from semantics.
+            // Check the source screen before opening invite_placeholder.
+            final fieldCount = find.byType(EditableText).evaluate().length;
+            for (var index = 0; index < fieldCount; index++) {
+              // Fields scrolled out of the viewport drop out of the
+              // semantics tree, so bring each one into view first. Find by
+              // index: scrolling rebuilds the widgets.
+              final editable = find.byType(EditableText).at(index);
+              await tester.ensureVisible(editable);
+              await tester.pump();
               expect(
                 tester.getSemantics(editable).getSemanticsData().label,
                 isNotEmpty,
+                reason: '${sample.state} TextField semantics label',
+              );
+            }
+            if (sample.tapKey case final String key) {
+              final target = find.byKey(Key(key));
+              await tester.ensureVisible(target);
+              await tester.tap(target);
+              await tester.pumpAndSettle();
+              if (sample.state != 'invite_placeholder') {
+                for (final field in find.byType(TextField).evaluate()) {
+                  final editable = find.descendant(
+                    of: find.byWidget(field.widget),
+                    matching: find.byType(EditableText),
+                  );
+                  expect(
+                    tester.getSemantics(editable).getSemanticsData().label,
+                    isNotEmpty,
+                    reason: '${sample.state} expanded TextField label',
+                  );
+                }
+              }
+            }
+            expect(tester.takeException(), isNull);
+            expect(
+              expectJiabuVerticalRhythm(
+                tester,
+                reason: '${sample.state} $locale $width $scale',
+              ),
+              greaterThanOrEqualTo(sample.minimumPairs),
+            );
+            expect(
+              expectJiabuChipSpacing(
+                tester,
+                reason: '${sample.state} $locale $width $scale',
+              ),
+              0,
+            );
+            for (final element
+                in find.bySubtype<ButtonStyleButton>().evaluate()) {
+              final box = tester.renderObject<RenderBox>(
+                find.byWidget(element.widget),
+              );
+              expect(
+                box.size.width,
+                greaterThanOrEqualTo(JiabuSpacing.minTapTarget),
+              );
+              expect(
+                box.size.height,
+                greaterThanOrEqualTo(JiabuSpacing.minTapTarget),
               );
             }
             final scroll = find.byType(SingleChildScrollView).first;
@@ -549,26 +729,6 @@ void main() {
             await tester.pump();
             expect(tester.takeException(), isNull);
           }
-          await pumpAuth(
-            tester,
-            LoginScreen(
-              state: const AuthUiState(server: 'https://example.invalid/'),
-              onLogin: (_, _) {},
-              onServer: () {},
-            ),
-            width: width,
-            scale: scale,
-            locale: locale,
-          );
-          final invite = find.byKey(const Key('invite-signup'));
-          await tester.ensureVisible(invite);
-          await tester.tap(invite);
-          await tester.pumpAndSettle();
-          expect(
-            find.byKey(const Key('invite-signup-placeholder')),
-            findsOneWidget,
-          );
-          expect(tester.takeException(), isNull);
           semantics.dispose();
         });
       }

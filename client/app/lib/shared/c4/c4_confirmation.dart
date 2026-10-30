@@ -13,14 +13,16 @@ class C4Confirmation extends StatelessWidget {
   final VoidCallback onConfirm;
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget build(BuildContext context) => JiabuStack(
     children: [
-      Text(message, style: context.jiabu.type.body),
-      FilledButton(
-        onPressed: onConfirm,
-        child: Text(AppLocalizations.of(context).c4Confirm),
+      JiabuStackItem.content(
+        child: Text(message, style: context.jiabu.type.body),
+      ),
+      JiabuStackItem.action(
+        child: FilledButton(
+          onPressed: onConfirm,
+          child: Text(AppLocalizations.of(context).c4Confirm),
+        ),
       ),
     ],
   );

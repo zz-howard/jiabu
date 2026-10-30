@@ -117,7 +117,37 @@ List<CatalogCase> catalogCases() => [
   CatalogCase(
     'ui1_section_header',
     'basic',
-    (context) => JiabuSectionHeader(title: _l(context).catalogSampleTitle),
+    (context) => JiabuStack(
+      children: [
+        JiabuStackItem.section(
+          child: JiabuSectionHeader(title: _l(context).catalogSampleTitle),
+        ),
+      ],
+    ),
+  ),
+  CatalogCase(
+    'ui2_stack',
+    'vertical_rhythm',
+    (context) => JiabuStack(
+      children: [
+        JiabuStackItem.content(child: Text(_l(context).catalogSampleBody)),
+        JiabuStackItem.captionAfter(child: Text(_l(context).catalogLongBody)),
+        JiabuStackItem.section(
+          child: JiabuSectionHeader(title: _l(context).catalogSampleTitle),
+        ),
+        JiabuStackItem.content(
+          child: JiabuSettingsGroup(
+            children: [JiabuListRow(title: _l(context).catalogSampleBody)],
+          ),
+        ),
+        JiabuStackItem.action(
+          child: FilledButton(
+            onPressed: () {},
+            child: Text(_l(context).catalogOpenSheet),
+          ),
+        ),
+      ],
+    ),
   ),
   CatalogCase(
     'ui1_empty_state',

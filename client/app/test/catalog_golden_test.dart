@@ -15,7 +15,9 @@ void main() {
         sample.component != 'c4b' &&
         sample.component != 'c5',
   )) {
-    final variants = sample.component.startsWith('ui1_')
+    final variants =
+        sample.component.startsWith('ui1_') ||
+            sample.component.startsWith('ui2_')
         ? const [(360.0, 1.0), (430.0, 2.0)]
         : const [(360.0, 1.0), (360.0, 2.0), (430.0, 1.0), (430.0, 2.0)];
     for (final (width, scale) in variants) {

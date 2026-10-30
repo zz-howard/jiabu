@@ -96,39 +96,52 @@ class SpaceActionForm extends ConsumerWidget {
         }
       },
       children: [
-        Text(space.name),
+        JiabuStackItem.content(child: Text(space.name)),
         if (target != null)
-          Text(
-            space.members
-                    .where((member) => member.id == target)
-                    .firstOrNull
-                    ?.name ??
-                '',
+          JiabuStackItem.content(
+            child: Text(
+              space.members
+                      .where((member) => member.id == target)
+                      .firstOrNull
+                      ?.name ??
+                  '',
+            ),
           ),
         if (action == 'leave') ...[
-          Text(l.c4LeaveWarning),
-          if (pending > 0) Text(l.c4PendingWarning(pending)),
-          if (blocked) Text(l.c4LastOwner),
+          JiabuStackItem.content(child: Text(l.c4LeaveWarning)),
+          if (pending > 0)
+            JiabuStackItem.captionAfter(
+              child: Text(l.c4PendingWarning(pending)),
+            ),
+          if (blocked) JiabuStackItem.captionAfter(child: Text(l.c4LastOwner)),
         ],
-        if (action == 'remove') Text(l.c4RemoveWarning),
-        if (action == 'transfer') Text(l.c4TransferWarning),
+        if (action == 'remove')
+          JiabuStackItem.content(child: Text(l.c4RemoveWarning)),
+        if (action == 'transfer')
+          JiabuStackItem.content(child: Text(l.c4TransferWarning)),
         if (action == 'delete') ...[
-          Text(l.c4DeleteWarning),
-          C4Field(id: id, field: 'name', label: l.c4Name),
+          JiabuStackItem.content(child: Text(l.c4DeleteWarning)),
+          JiabuStackItem.content(
+            child: C4Field(id: id, field: 'name', label: l.c4Name),
+          ),
         ],
         if (action == 'invite')
-          C4Field(id: id, field: 'username', label: l.c4Username),
+          JiabuStackItem.content(
+            child: C4Field(id: id, field: 'username', label: l.c4Username),
+          ),
         if (action == 'display_name')
-          C4Field(
-            id: id,
-            field: 'display_name',
-            label: l.c4DisplayName,
-            initial:
-                space.members
-                    .where((m) => m.id == space.memberId)
-                    .firstOrNull
-                    ?.name ??
-                '',
+          JiabuStackItem.content(
+            child: C4Field(
+              id: id,
+              field: 'display_name',
+              label: l.c4DisplayName,
+              initial:
+                  space.members
+                      .where((m) => m.id == space.memberId)
+                      .firstOrNull
+                      ?.name ??
+                  '',
+            ),
           ),
       ],
     );

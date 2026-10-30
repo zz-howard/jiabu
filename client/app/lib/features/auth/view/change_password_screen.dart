@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:jiabu/features/auth/view_model/auth_ui_state.dart';
 import 'package:jiabu/features/auth/widgets/auth_frame.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
+import 'package:jiabu_design/jiabu_design.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({
@@ -46,36 +47,43 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         busy: widget.state.busy,
         errorCode: widget.state.errorCode,
         children: [
-          if (widget.state.forcedPassword) Text(l10n.authTemporaryPassword),
+          if (widget.state.forcedPassword)
+            JiabuStackItem.content(child: Text(l10n.authTemporaryPassword)),
           for (final field in [
             (_current, l10n.authCurrentPassword, 'current-password'),
             (_next, l10n.authNewPassword, 'new-password'),
             (_repeat, l10n.authRepeatPassword, 'repeat-password'),
           ])
-            TextField(
-              key: Key(field.$3),
-              controller: field.$1,
-              obscureText: true,
-              autocorrect: false,
-              enableSuggestions: false,
-              decoration: InputDecoration(labelText: field.$2),
+            JiabuStackItem.content(
+              child: TextField(
+                key: Key(field.$3),
+                controller: field.$1,
+                obscureText: true,
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: InputDecoration(labelText: field.$2),
+              ),
             ),
-          FilledButton(
-            onPressed: widget.state.busy
-                ? null
-                : () {
-                    final values = [_current.text, _next.text, _repeat.text];
-                    for (final controller in [_current, _next, _repeat]) {
-                      controller.clear();
-                    }
-                    widget.onSave(values[0], values[1], values[2]);
-                  },
-            child: Text(l10n.authSavePassword),
+          JiabuStackItem.action(
+            child: FilledButton(
+              onPressed: widget.state.busy
+                  ? null
+                  : () {
+                      final values = [_current.text, _next.text, _repeat.text];
+                      for (final controller in [_current, _next, _repeat]) {
+                        controller.clear();
+                      }
+                      widget.onSave(values[0], values[1], values[2]);
+                    },
+              child: Text(l10n.authSavePassword),
+            ),
           ),
-          TextButton(
-            onPressed: widget.state.busy ? null : widget.onBack,
-            child: Text(
-              widget.state.forcedPassword ? l10n.authLogout : l10n.authBack,
+          JiabuStackItem.action(
+            child: TextButton(
+              onPressed: widget.state.busy ? null : widget.onBack,
+              child: Text(
+                widget.state.forcedPassword ? l10n.authLogout : l10n.authBack,
+              ),
             ),
           ),
         ],

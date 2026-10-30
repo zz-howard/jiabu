@@ -21,7 +21,7 @@ class C4Form extends ConsumerWidget {
   });
   final String id;
   final String title;
-  final List<Widget> children;
+  final List<JiabuStackItem> children;
   final Future<void> Function()? onSubmit;
   final String? submitLabel;
   final bool requiresOnline;
@@ -31,27 +31,35 @@ class C4Form extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
     final state = ref.watch(c4ViewModelProvider(id));
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
+    return JiabuStack(
       children: [
-        if (showTitle) ...[
-          HandUnderline(
-            child: Text(title, style: context.jiabu.type.sectionTitle),
+        if (showTitle)
+          JiabuStackItem.content(
+            child: HandUnderline(
+              child: Text(title, style: context.jiabu.type.sectionTitle),
+            ),
           ),
-          const SizedBox(height: JiabuSpacing.cardGap),
-        ],
         ...children,
-        if (requiresOnline && !state.online) Text(l.c4Offline),
+        // The error explains the fields above it. When there is a submit
+        // action, its offline note belongs inside that action group.
         if (state.error case final String code)
-          Semantics(liveRegion: true, child: Text(c4Error(l, code))),
+          JiabuStackItem.captionAfter(
+            child: Semantics(liveRegion: true, child: Text(c4Error(l, code))),
+          ),
+        if (onSubmit == null && requiresOnline && !state.online)
+          JiabuStackItem.captionAfter(child: Text(l.c4Offline)),
         if (onSubmit != null)
-          FilledButton(
-            onPressed:
-                enabled && !state.busy && (!requiresOnline || state.online)
-                ? onSubmit
+          JiabuStackItem.action(
+            actionCaption: requiresOnline && !state.online
+                ? Text(l.c4Offline)
                 : null,
-            child: Text(submitLabel ?? l.c4Save),
+            child: FilledButton(
+              onPressed:
+                  enabled && !state.busy && (!requiresOnline || state.online)
+                  ? onSubmit
+                  : null,
+              child: Text(submitLabel ?? l.c4Save),
+            ),
           ),
       ],
     );

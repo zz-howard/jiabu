@@ -442,11 +442,11 @@ class C3Preview extends StatelessWidget {
                 semanticLabel: l.ledgerManualSemantics,
                 onPressed: () {},
               ),
-        child: Center(
-          child: Text(
-            state == 'shell_chat' ? l.ledgerChatPlaceholder : l.ledgerOverview,
-          ),
-        ),
+        child: switch (state) {
+          'shell_overview' => OverviewPage(snapshot: data),
+          'shell_history' => HistoryPage(snapshot: data),
+          _ => Center(child: Text(l.ledgerChatPlaceholder)),
+        },
       );
     }
     if (state.startsWith('overview_')) {
@@ -530,12 +530,19 @@ class C3Preview extends StatelessWidget {
     }
     if (state.startsWith('archive_')) {
       return JiabuSheet(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: JiabuStack(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(l.ledgerArchiveGuide),
-            Text(state == 'archive_negative' ? '−¥12.00' : '¥12.00'),
-            FilledButton(onPressed: () {}, child: Text(l.ledgerMoveBalance)),
+            JiabuStackItem.content(child: Text(l.ledgerArchiveGuide)),
+            JiabuStackItem.content(
+              child: Text(state == 'archive_negative' ? '−¥12.00' : '¥12.00'),
+            ),
+            JiabuStackItem.action(
+              child: FilledButton(
+                onPressed: () {},
+                child: Text(l.ledgerMoveBalance),
+              ),
+            ),
           ],
         ),
       );
@@ -543,6 +550,25 @@ class C3Preview extends StatelessWidget {
     if (state.startsWith('plan_')) {
       return JiabuSheet(
         child: AllocationPlanForm(spaceId: s, accountId: 'purpose-a'),
+      );
+    }
+    if (state == 'settings') {
+      return SingleChildScrollView(
+        padding: EdgeInsets.all(context.jiabu.spacing.page),
+        child: JiabuStack(
+          children: [
+            JiabuStackItem.section(
+              child: JiabuSectionHeader(title: l.ledgerSettings),
+            ),
+            JiabuStackItem.content(
+              child: JiabuSettingsGroup(
+                children: [
+                  JiabuListRow(title: l.ledgerAccounts, showChevron: true),
+                ],
+              ),
+            ),
+          ],
+        ),
       );
     }
     return SingleChildScrollView(

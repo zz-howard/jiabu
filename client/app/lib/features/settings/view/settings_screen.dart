@@ -72,108 +72,130 @@ class SettingsScreen extends ConsumerWidget {
                 },
           children: [
             if (page == 'settings')
-              JiabuSettingsGroup(
-                children: [
-                  // C3's account management entry retains its label and route.
-                  row(l.ledgerAccounts, '/settings/accounts'),
-                  row(
-                    l.c4Account,
-                    '/settings/account',
-                    subtitle: runtime.auth.current?.user.username,
-                  ),
-                  row(
-                    l.c4Lock,
-                    '/settings/app-lock',
-                    subtitle: runtime.lock.configuration.enabled
-                        ? l.c4Enabled
-                        : l.c4Disabled,
-                  ),
-                  row(
-                    l.c4Keys,
-                    '/settings/api-keys',
-                    subtitle: keyCount == null ? null : l.c4KeyCount(keyCount),
-                  ),
-                  row(l.c4Language, '/settings/language'),
-                  row(l.c4Received, '/invitations'),
-                  row(l.c4About, '/settings/about'),
-                ],
+              JiabuStackItem.content(
+                child: JiabuSettingsGroup(
+                  children: [
+                    // Keep C3's account management label and route.
+                    row(l.ledgerAccounts, '/settings/accounts'),
+                    row(
+                      l.c4Account,
+                      '/settings/account',
+                      subtitle: runtime.auth.current?.user.username,
+                    ),
+                    row(
+                      l.c4Lock,
+                      '/settings/app-lock',
+                      subtitle: runtime.lock.configuration.enabled
+                          ? l.c4Enabled
+                          : l.c4Disabled,
+                    ),
+                    row(
+                      l.c4Keys,
+                      '/settings/api-keys',
+                      subtitle: keyCount == null
+                          ? null
+                          : l.c4KeyCount(keyCount),
+                    ),
+                    row(l.c4Language, '/settings/language'),
+                    row(l.c4Received, '/invitations'),
+                    row(l.c4About, '/settings/about'),
+                  ],
+                ),
               ),
             if (page == 'account') ...[
-              Text(runtime.auth.current?.user.username ?? ''),
-              JiabuSettingsGroup(
-                children: [row(l.c4Password, '/settings/account/password')],
+              JiabuStackItem.content(
+                child: Text(runtime.auth.current?.user.username ?? ''),
               ),
-              OutlinedButton(
-                onPressed: () async {
-                  final confirmed = await JiabuSheet.show<bool>(
-                    context: context,
-                    builder: (sheetContext) => C4Confirmation(
-                      message: l.c4Logout,
-                      onConfirm: () => Navigator.of(sheetContext).pop(true),
-                    ),
-                  );
-                  if (confirmed == true) {
-                    await runtime.auth.logout();
-                  }
-                },
-                child: Text(l.c4Logout),
+              JiabuStackItem.content(
+                child: JiabuSettingsGroup(
+                  children: [row(l.c4Password, '/settings/account/password')],
+                ),
+              ),
+              JiabuStackItem.action(
+                child: OutlinedButton(
+                  onPressed: () async {
+                    final confirmed = await JiabuSheet.show<bool>(
+                      context: context,
+                      builder: (sheetContext) => C4Confirmation(
+                        message: l.c4Logout,
+                        onConfirm: () => Navigator.of(sheetContext).pop(true),
+                      ),
+                    );
+                    if (confirmed == true) {
+                      await runtime.auth.logout();
+                    }
+                  },
+                  child: Text(l.c4Logout),
+                ),
               ),
             ],
             if (page == 'password') ...[
-              C4Field(
-                id: id,
-                field: 'current',
-                label: l.c4CurrentPassword,
-                obscure: true,
+              JiabuStackItem.content(
+                child: C4Field(
+                  id: id,
+                  field: 'current',
+                  label: l.c4CurrentPassword,
+                  obscure: true,
+                ),
               ),
-              C4Field(
-                id: id,
-                field: 'new',
-                label: l.c4NewPassword,
-                obscure: true,
+              JiabuStackItem.content(
+                child: C4Field(
+                  id: id,
+                  field: 'new',
+                  label: l.c4NewPassword,
+                  obscure: true,
+                ),
               ),
             ],
             if (page == 'language')
-              JiabuSettingsGroup(
-                children: [
-                  for (final entry in {
-                    'system': l.c4System,
-                    'zh-Hans': l.c4Chinese,
-                    'en': l.c4English,
-                  }.entries)
-                    Semantics(
-                      key: ValueKey('language-${entry.key}'),
-                      selected: runtime.auth.current?.user.locale == entry.key,
-                      child: JiabuListRow(
-                        title: entry.value,
-                        enabled: state.online && !state.busy,
-                        trailing: runtime.auth.current?.user.locale == entry.key
-                            ? const Text('✓')
-                            : null,
-                        onTap: !state.online || state.busy
-                            ? null
-                            : () async {
-                                if (await vm.run(
-                                  () => runtime.auth.setLocale(entry.key),
-                                )) {
-                                  runtime.notify();
-                                }
-                              },
+              JiabuStackItem.content(
+                child: JiabuSettingsGroup(
+                  children: [
+                    for (final entry in {
+                      'system': l.c4System,
+                      'zh-Hans': l.c4Chinese,
+                      'en': l.c4English,
+                    }.entries)
+                      Semantics(
+                        key: ValueKey('language-${entry.key}'),
+                        selected:
+                            runtime.auth.current?.user.locale == entry.key,
+                        child: JiabuListRow(
+                          title: entry.value,
+                          enabled: state.online && !state.busy,
+                          trailing:
+                              runtime.auth.current?.user.locale == entry.key
+                              ? const Text('✓')
+                              : null,
+                          onTap: !state.online || state.busy
+                              ? null
+                              : () async {
+                                  if (await vm.run(
+                                    () => runtime.auth.setLocale(entry.key),
+                                  )) {
+                                    runtime.notify();
+                                  }
+                                },
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             if (page == 'about') ...[
-              Text(
-                l.c4Version(runtime.device.appVersion, runtime.device.build),
-              ),
-              TextButton(
-                onPressed: () => showLicensePage(
-                  context: context,
-                  applicationName: l.c4ProductName,
-                  applicationVersion: runtime.device.appVersion,
+              JiabuStackItem.content(
+                child: Text(
+                  l.c4Version(runtime.device.appVersion, runtime.device.build),
                 ),
-                child: Text(l.c4Licenses),
+              ),
+              JiabuStackItem.action(
+                child: TextButton(
+                  onPressed: () => showLicensePage(
+                    context: context,
+                    applicationName: l.c4ProductName,
+                    applicationVersion: runtime.device.appVersion,
+                  ),
+                  child: Text(l.c4Licenses),
+                ),
               ),
             ],
           ],

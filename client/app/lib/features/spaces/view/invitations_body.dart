@@ -52,6 +52,11 @@ class _InvitationsBodyState extends ConsumerState<InvitationsBody> {
     final l = AppLocalizations.of(context);
     final state = ref.watch(c4ViewModelProvider(id));
     final vm = ref.read(c4ViewModelProvider(id).notifier);
+    String? statusLabel(Map<String, Object?> row) {
+      final status = row['status'];
+      return status is String ? invitationStatus(l, status) : null;
+    }
+
     return SingleChildScrollView(
       padding: EdgeInsets.all(context.jiabu.spacing.page),
       child: C4Form(
@@ -59,93 +64,121 @@ class _InvitationsBodyState extends ConsumerState<InvitationsBody> {
         title: widget.space == null ? l.c4Received : l.c4Invitations,
         showTitle: false,
         children: [
-          for (final row in state.rows)
-            PaperCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+          if (state.rows.isNotEmpty)
+            JiabuStackItem.content(
+              child: JiabuSettingsGroup(
                 children: [
-                  Text(
-                    (row['space_name'] ?? row['invitee_username'] ?? '')
-                        as String,
-                  ),
-                  if (widget.space == null)
-                    Text(row['inviter_display_name'] as String? ?? ''),
-                  if (row['status'] case final String status)
-                    Text(invitationStatus(l, status)),
-                  if (widget.space == null)
-                    Wrap(
-                      children: [
-                        for (final accept in [true, false])
-                          TextButton(
-                            onPressed: !state.online || state.busy
-                                ? null
-                                : () async {
-                                    final repository = ref.read(
-                                      spacesRepositoryProvider,
-                                    );
-                                    final success = await vm.run(() async {
-                                      final result = await repository.decide(
-                                        requireValue<String>(row['id']),
-                                        const Uuid().v7(),
-                                        accept: accept,
-                                      );
-                                      return result is Failure<void> &&
-                                              result.code == 'not_found'
-                                          ? const Failure<void>(
-                                              'invitation_expired',
-                                            )
-                                          : result;
-                                    });
-                                    if (success) {
-                                      await _load();
-                                    }
-                                  },
-                            child: Text(accept ? l.c4Accept : l.c4Decline),
-                          ),
-                      ],
-                    )
-                  else if (row['status'] == 'pending' &&
-                      widget.space?.canCancel(
-                            requireValue<String>(row['invited_by_member_id']),
-                          ) ==
-                          true)
-                    TextButton(
-                      onPressed: !state.online || state.busy
-                          ? null
-                          : () async {
-                              final space = widget.space;
-                              if (space == null) {
-                                return;
-                              }
-                              final repository = ref.read(
-                                spacesRepositoryProvider,
-                              );
-                              if (await vm.run(
-                                () => repository.change(
-                                  space,
-                                  'cancel',
-                                  const Uuid().v7(),
-                                  target: requireValue<String>(row['id']),
+                  for (final row in state.rows)
+                    JiabuListRow(
+                      title:
+                          (row['space_name'] ?? row['invitee_username'] ?? '')
+                              as String,
+                      subtitle: widget.space == null
+                          ? (row['inviter_display_name'] as String?) ?? ''
+                          : statusLabel(row),
+                      status: widget.space == null ? statusLabel(row) : null,
+                      supportingGap: JiabuSpacing.sm,
+                      supporting: widget.space == null
+                          ? Wrap(
+                              spacing: JiabuSpacing.sm,
+                              runSpacing: JiabuSpacing.sm,
+                              children: [
+                                for (final accept in [true, false])
+                                  TextButton(
+                                    onPressed: !state.online || state.busy
+                                        ? null
+                                        : () async {
+                                            final repository = ref.read(
+                                              spacesRepositoryProvider,
+                                            );
+                                            final success = await vm.run(
+                                              () async {
+                                                final result = await repository
+                                                    .decide(
+                                                      requireValue<String>(
+                                                        row['id'],
+                                                      ),
+                                                      const Uuid().v7(),
+                                                      accept: accept,
+                                                    );
+                                                return result
+                                                            is Failure<void> &&
+                                                        result.code ==
+                                                            'not_found'
+                                                    ? const Failure<void>(
+                                                        'invitation_expired',
+                                                      )
+                                                    : result;
+                                              },
+                                            );
+                                            if (success) {
+                                              await _load();
+                                            }
+                                          },
+                                    child: Text(
+                                      accept ? l.c4Accept : l.c4Decline,
+                                    ),
+                                  ),
+                              ],
+                            )
+                          : row['status'] == 'pending' &&
+                                widget.space?.canCancel(
+                                      requireValue<String>(
+                                        row['invited_by_member_id'],
+                                      ),
+                                    ) ==
+                                    true
+                          ? Wrap(
+                              spacing: JiabuSpacing.sm,
+                              runSpacing: JiabuSpacing.sm,
+                              children: [
+                                TextButton(
+                                  onPressed: !state.online || state.busy
+                                      ? null
+                                      : () async {
+                                          final space = widget.space;
+                                          if (space == null) {
+                                            return;
+                                          }
+                                          final repository = ref.read(
+                                            spacesRepositoryProvider,
+                                          );
+                                          if (await vm.run(
+                                            () => repository.change(
+                                              space,
+                                              'cancel',
+                                              const Uuid().v7(),
+                                              target: requireValue<String>(
+                                                row['id'],
+                                              ),
+                                            ),
+                                          )) {
+                                            await _load();
+                                          }
+                                        },
+                                  child: Text(l.c4CancelInvitation),
                                 ),
-                              )) {
-                                await _load();
-                              }
-                            },
-                      child: Text(l.c4CancelInvitation),
+                              ],
+                            )
+                          : null,
                     ),
                 ],
               ),
             ),
           if (state.rows.isEmpty)
-            JiabuEmptyState(
-              message: state.busy
-                  ? Text(l.c4Loading)
-                  : HandText(l.handNothingHere, textAlign: TextAlign.center),
+            JiabuStackItem.content(
+              child: JiabuEmptyState(
+                message: state.busy
+                    ? Text(l.c4Loading)
+                    : HandText(l.handNothingHere, textAlign: TextAlign.center),
+              ),
             ),
           if (_loadFailed)
-            TextButton(
-              onPressed: state.online && !state.busy ? _load : null,
-              child: Text(l.c4Retry),
+            JiabuStackItem.action(
+              child: TextButton(
+                onPressed: state.online && !state.busy ? _load : null,
+                child: Text(l.c4Retry),
+              ),
             ),
         ],
       ),

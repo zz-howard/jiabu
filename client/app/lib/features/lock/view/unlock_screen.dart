@@ -73,116 +73,141 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
       child: SafeArea(
         child: SingleChildScrollView(
           padding: EdgeInsets.all(context.jiabu.spacing.page),
-          child: Column(
+          child: JiabuStack(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const JiabuLogo(),
-              HandText(l.handC4Locked),
-              if (lock.waiting) Text(l.c4LockWait),
-              if (state.error case final String error) Text(c4Error(l, error)),
+              const JiabuStackItem.content(child: JiabuLogo()),
+              JiabuStackItem.content(child: HandText(l.handC4Locked)),
+              if (lock.waiting)
+                JiabuStackItem.captionBefore(child: Text(l.c4LockWait)),
+              if (state.error case final String error)
+                JiabuStackItem.captionBefore(child: Text(c4Error(l, error))),
               if (state.values['recovery'] != true) ...[
                 if (usePin)
-                  LockErrorMotion(
-                    error: state.error != null,
-                    child: PinPad(
-                      length: pin.length,
-                      enabled: enabled,
-                      deleteLabel: l.c4Backspace,
-                      onDigit: (digit) {
-                        if (pin.length < 6) {
-                          vm.patch('pin', '$pin$digit');
-                        }
-                      },
-                      onDelete: () => vm.patch(
-                        'pin',
-                        pin.isEmpty ? '' : pin.substring(0, pin.length - 1),
+                  JiabuStackItem.content(
+                    child: LockErrorMotion(
+                      error: state.error != null,
+                      child: PinPad(
+                        length: pin.length,
+                        enabled: enabled,
+                        deleteLabel: l.c4Backspace,
+                        onDigit: (digit) {
+                          if (pin.length < 6) {
+                            vm.patch('pin', '$pin$digit');
+                          }
+                        },
+                        onDelete: () => vm.patch(
+                          'pin',
+                          pin.isEmpty ? '' : pin.substring(0, pin.length - 1),
+                        ),
                       ),
                     ),
                   )
                 else if (lock.configuration.mode == 'pattern') ...[
-                  LockErrorMotion(
-                    error: state.error != null,
-                    child: PatternLock(
-                      points: points,
-                      label: l.c4Pattern,
-                      enabled: enabled,
+                  JiabuStackItem.content(
+                    child: LockErrorMotion(
                       error: state.error != null,
-                      onChanged: (value) => vm.patch('points', value),
+                      child: PatternLock(
+                        points: points,
+                        label: l.c4Pattern,
+                        enabled: enabled,
+                        error: state.error != null,
+                        onChanged: (value) => vm.patch('points', value),
+                      ),
                     ),
                   ),
-                  TextButton(
-                    onPressed: () => vm.patch('points', <int>[]),
-                    child: Text(l.c4Clear),
+                  JiabuStackItem.action(
+                    child: TextButton(
+                      onPressed: () => vm.patch('points', <int>[]),
+                      child: Text(l.c4Clear),
+                    ),
                   ),
                 ] else
-                  OutlinedButton(
-                    onPressed: enabled
-                        ? () => verify(reason: l.c4Authenticate)
-                        : null,
-                    child: Text(l.c4Biometric),
+                  JiabuStackItem.action(
+                    child: OutlinedButton(
+                      onPressed: enabled
+                          ? () => verify(reason: l.c4Authenticate)
+                          : null,
+                      child: Text(l.c4Biometric),
+                    ),
                   ),
-                FilledButton(
-                  onPressed:
-                      enabled && (usePin ? pin.length >= 4 : points.length >= 4)
-                      ? verify
-                      : null,
-                  child: Text(l.c4Unlock),
+                JiabuStackItem.action(
+                  child: FilledButton(
+                    onPressed:
+                        enabled &&
+                            (usePin ? pin.length >= 4 : points.length >= 4)
+                        ? verify
+                        : null,
+                    child: Text(l.c4Unlock),
+                  ),
                 ),
-                TextButton(
-                  onPressed: () => vm.patch('use_pin', true),
-                  child: Text(l.c4UsePin),
+                JiabuStackItem.action(
+                  child: TextButton(
+                    onPressed: () => vm.patch('use_pin', true),
+                    child: Text(l.c4UsePin),
+                  ),
                 ),
-                TextButton(
-                  onPressed: () => vm.patch('recovery', true),
-                  child: Text(l.c4ForgotPin),
+                JiabuStackItem.action(
+                  child: TextButton(
+                    onPressed: () => vm.patch('recovery', true),
+                    child: Text(l.c4ForgotPin),
+                  ),
                 ),
               ],
               if (state.values['recovery'] == true) ...[
-                TextButton(
-                  onPressed: () {
-                    vm
-                      ..patch('password', '')
-                      ..patch('recovery', false);
-                  },
-                  child: Text(l.c4Back),
+                JiabuStackItem.action(
+                  child: TextButton(
+                    onPressed: () {
+                      vm
+                        ..patch('password', '')
+                        ..patch('recovery', false);
+                    },
+                    child: Text(l.c4Back),
+                  ),
                 ),
-                C4Field(
-                  id: id,
-                  field: 'password',
-                  label: l.c4CurrentPassword,
-                  obscure: true,
+                JiabuStackItem.content(
+                  child: C4Field(
+                    id: id,
+                    field: 'password',
+                    label: l.c4CurrentPassword,
+                    obscure: true,
+                  ),
                 ),
-                FilledButton(
-                  onPressed: () async {
-                    final session = runtime.auth.current;
-                    final saved =
-                        session?.partition ?? await runtime.settings.current();
-                    final username = session?.user.username ?? '';
-                    if (saved == null || username.isEmpty) {
-                      // Use the existing login without a cached identity.
-                      // Retain the lock until password login succeeds.
-                      await runtime.auth.logout();
-                      return;
-                    }
-                    final result = await runtime.auth.login(
-                      saved.server,
-                      username,
-                      state.values['password'] as String? ?? '',
-                    );
-                    if (result is Ok<Object?> &&
-                        runtime.auth.current?.partition.prefix ==
-                            saved.prefix) {
-                      final authenticated = runtime.auth.current;
-                      await runtime.sessionWork;
-                      if (identical(runtime.auth.current, authenticated) &&
-                          lock.scope == saved.prefix &&
-                          authenticated?.passwordChangeRequired == false) {
-                        await lock.resetAfterPasswordLogin();
+                JiabuStackItem.action(
+                  child: FilledButton(
+                    onPressed: () async {
+                      final session = runtime.auth.current;
+                      final saved =
+                          session?.partition ??
+                          await runtime.settings.current();
+                      final username = session?.user.username ?? '';
+                      if (saved == null || username.isEmpty) {
+                        // Use the existing login without a cached identity.
+                        // Retain the lock until password login succeeds.
+                        await runtime.auth.logout();
+                        return;
                       }
-                    } else if (mounted) {
-                      vm.fail('lock_failed');
-                    }
-                  },
-                  child: Text(l.c4Confirm),
+                      final result = await runtime.auth.login(
+                        saved.server,
+                        username,
+                        state.values['password'] as String? ?? '',
+                      );
+                      if (result is Ok<Object?> &&
+                          runtime.auth.current?.partition.prefix ==
+                              saved.prefix) {
+                        final authenticated = runtime.auth.current;
+                        await runtime.sessionWork;
+                        if (identical(runtime.auth.current, authenticated) &&
+                            lock.scope == saved.prefix &&
+                            authenticated?.passwordChangeRequired == false) {
+                          await lock.resetAfterPasswordLogin();
+                        }
+                      } else if (mounted) {
+                        vm.fail('lock_failed');
+                      }
+                    },
+                    child: Text(l.c4Confirm),
+                  ),
                 ),
               ],
             ],

@@ -73,70 +73,77 @@ class _ApiKeysScreenState extends ConsumerState<ApiKeysScreen> {
           title: l.c4Keys,
           showTitle: false,
           children: [
-            HandText(l.handC4KeysSubtitle),
+            JiabuStackItem.content(child: HandText(l.handC4KeysSubtitle)),
             if (state.online) ...[
               if (state.rows.isEmpty)
-                JiabuEmptyState(
-                  message: state.busy
-                      ? Text(l.c4Loading)
-                      : HandText(
-                          l.handNothingHere,
-                          textAlign: TextAlign.center,
-                        ),
+                JiabuStackItem.content(
+                  child: JiabuEmptyState(
+                    message: state.busy
+                        ? Text(l.c4Loading)
+                        : HandText(
+                            l.handNothingHere,
+                            textAlign: TextAlign.center,
+                          ),
+                  ),
                 ),
               if (state.rows.any((row) => row['status'] == 'active'))
-                JiabuSettingsGroup(
-                  children: [
-                    for (final row in state.rows.where(
-                      (row) => row['status'] == 'active',
-                    ))
-                      ApiKeyRow(
-                        row: row,
-                        onTap: () async {
-                          await JiabuSheet.show<void>(
-                            context: context,
-                            builder: (_) => ApiKeyDetails(row: row),
-                            wrapperBuilder: (_, child) =>
-                                C4ScopeFence(child: child),
-                          );
-                          if (mounted) {
-                            await _load();
-                          }
-                        },
-                      ),
-                  ],
+                JiabuStackItem.content(
+                  child: JiabuSettingsGroup(
+                    children: [
+                      for (final row in state.rows.where(
+                        (row) => row['status'] == 'active',
+                      ))
+                        ApiKeyRow(
+                          row: row,
+                          onTap: () async {
+                            await JiabuSheet.show<void>(
+                              context: context,
+                              builder: (_) => ApiKeyDetails(row: row),
+                              wrapperBuilder: (_, child) =>
+                                  C4ScopeFence(child: child),
+                            );
+                            if (mounted) {
+                              await _load();
+                            }
+                          },
+                        ),
+                    ],
+                  ),
                 ),
-              JiabuSettingsGroup(
-                children: [
-                  Semantics(
-                    key: const Key('inactive-keys-toggle'),
-                    expanded: _inactiveExpanded,
-                    child: JiabuListRow(
-                      title: l.c4Inactive,
-                      trailing: JiabuIcon(
-                        JiabuIcons.uiDown,
-                        flipY: _inactiveExpanded,
-                      ),
-                      onTap: () => setState(
-                        () => _inactiveExpanded = !_inactiveExpanded,
+              JiabuStackItem.content(
+                child: JiabuSettingsGroup(
+                  children: [
+                    Semantics(
+                      key: const Key('inactive-keys-toggle'),
+                      expanded: _inactiveExpanded,
+                      child: JiabuListRow(
+                        title: l.c4Inactive,
+                        trailing: JiabuIcon(
+                          JiabuIcons.uiDown,
+                          flipY: _inactiveExpanded,
+                        ),
+                        onTap: () => setState(
+                          () => _inactiveExpanded = !_inactiveExpanded,
+                        ),
                       ),
                     ),
-                  ),
-                  if (_inactiveExpanded)
-                    for (final row in state.rows.where(
-                      (row) => row['status'] != 'active',
-                    ))
-                      ApiKeyRow(row: row),
-                ],
+                    if (_inactiveExpanded)
+                      for (final row in state.rows.where(
+                        (row) => row['status'] != 'active',
+                      ))
+                        ApiKeyRow(row: row),
+                  ],
+                ),
               ),
             ],
             if (_loadFailed)
-              TextButton(
-                onPressed: state.online && !state.busy ? _load : null,
-                child: Text(l.c4Retry),
+              JiabuStackItem.action(
+                child: TextButton(
+                  onPressed: state.online && !state.busy ? _load : null,
+                  child: Text(l.c4Retry),
+                ),
               ),
-            Padding(
-              padding: const EdgeInsets.only(top: JiabuSpacing.cardGap),
+            JiabuStackItem.action(
               child: FilledButton(
                 onPressed: !state.online || state.busy
                     ? null
