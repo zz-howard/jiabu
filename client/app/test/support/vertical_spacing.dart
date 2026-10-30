@@ -48,10 +48,7 @@ int expectJiabuVerticalRhythm(
   return checkedPairs;
 }
 
-int expectJiabuChipSpacing(
-  WidgetTester tester, {
-  required String reason,
-}) {
+int expectJiabuChipSpacing(WidgetTester tester, {required String reason}) {
   var checkedPairs = 0;
   for (final group in find.byType(JiabuChipGroup).evaluate()) {
     final markers =
@@ -75,7 +72,8 @@ int expectJiabuChipSpacing(
       final current = markers[index].widget as JiabuChipGroupMarker;
       final previousRect = tester.getRect(find.byWidget(previous));
       final currentRect = tester.getRect(find.byWidget(current));
-      final overlap = currentRect.top < previousRect.bottom &&
+      final overlap =
+          currentRect.top < previousRect.bottom &&
           previousRect.top < currentRect.bottom;
       final gap = overlap
           ? currentRect.left - previousRect.right

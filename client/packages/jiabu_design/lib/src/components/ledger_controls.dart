@@ -274,9 +274,7 @@ class PaperFilterChip extends StatelessWidget {
               color: context.jiabu.colors.white,
               width: JiabuLedgerMetrics.manualBorder,
             ),
-            borderRadius: BorderRadius.circular(
-              context.jiabu.decor.chipRadius,
-            ),
+            borderRadius: BorderRadius.circular(context.jiabu.decor.chipRadius),
           )
         : PaperDashedBorder(
             radius: context.jiabu.decor.chipRadius,

@@ -36,9 +36,7 @@ Rect visibleGlyphRect(WidgetTester tester, Finder finder) {
   if (widget.fitGlyph) {
     return box;
   }
-  bounds = bounds.inflate(
-    (widget.strokeWidth ?? widget.icon.strokeWidth) / 2,
-  );
+  bounds = bounds.inflate((widget.strokeWidth ?? widget.icon.strokeWidth) / 2);
   final scaleX = box.width / widget.icon.width;
   final scaleY = box.height / widget.icon.height;
   final left = widget.flipX
@@ -146,8 +144,8 @@ void main() {
         );
         final icon = find.byKey(const Key('jiabu-page-back-icon'));
         final title = find.text(titleText);
-        final gap = tester.getRect(title).left -
-            visibleGlyphRect(tester, icon).right;
+        final gap =
+            tester.getRect(title).left - visibleGlyphRect(tester, icon).right;
         expect(
           gap,
           greaterThanOrEqualTo(JiabuSpacing.sm),
@@ -256,13 +254,11 @@ void main() {
     );
     final markers = find.byType(JiabuChipGroupMarker);
     expect(
-      tester.getRect(markers.at(1)).left -
-          tester.getRect(markers.at(0)).right,
+      tester.getRect(markers.at(1)).left - tester.getRect(markers.at(0)).right,
       JiabuSpacing.sm,
     );
     expect(
-      tester.getRect(markers.at(2)).top -
-          tester.getRect(markers.at(0)).bottom,
+      tester.getRect(markers.at(2)).top - tester.getRect(markers.at(0)).bottom,
       JiabuSpacing.sm,
     );
 
