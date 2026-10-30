@@ -394,6 +394,31 @@ void main() {
     );
   });
 
+  testWidgets('C4Form error sits 8 under the fields and 24 above submit', (
+    tester,
+  ) async {
+    await pumpC4Preview(tester, state: 'password_error');
+    final markers = find.byType(JiabuStackMarker);
+    final kinds = [
+      for (final element in markers.evaluate())
+        (element.widget as JiabuStackMarker).kind,
+    ];
+    final error = kinds.indexOf(JiabuStackItemKind.caption);
+    expect(error, greaterThan(0));
+    expect(kinds[error + 1], JiabuStackItemKind.action);
+    final field = tester.getRect(markers.at(error - 1));
+    final message = tester.getRect(markers.at(error));
+    final submit = tester.getRect(markers.at(error + 1));
+    expect(
+      message.top - field.bottom,
+      moreOrLessEquals(JiabuSpacing.captionGap, epsilon: geometryTolerance),
+    );
+    expect(
+      submit.top - message.bottom,
+      moreOrLessEquals(JiabuSpacing.actionGap, epsilon: geometryTolerance),
+    );
+  });
+
   testWidgets('account logout is separated as an action block', (tester) async {
     await pumpC4Preview(tester, state: 'account');
     final group = tester.getRect(find.byType(JiabuSettingsGroup));

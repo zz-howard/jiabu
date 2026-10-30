@@ -120,6 +120,18 @@
         "zh c4_space_new 360.0 1.0"
       ],
       "command": "flutter test test/catalog_layout_test.dart --plain-name \"zh c4_space_new 360.0 1.0\""
+    },
+    {
+      "id": "c4_form_error_describes_submit",
+      "file": "client/app/lib/shared/c4/c4_form.dart",
+      "find": "          JiabuStackItem.captionAfter(\n            child: Semantics(liveRegion: true",
+      "replace": "          JiabuStackItem.captionBefore(\n            child: Semantics(liveRegion: true",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c4_layout_test.dart",
+      "test_names": [
+        "C4Form error sits 8 under the fields and 24 above submit"
+      ],
+      "command": "flutter test test/features/c4_layout_test.dart --plain-name \"C4Form error sits 8 under the fields and 24 above submit\""
     }
   ]
 }
