@@ -53,25 +53,22 @@ Future<void> pumpAuth(
 
 void main() {
   test('auth geometry table covers every C4b golden state', () {
-    expect(
-      allAuthTestCases.map((sample) => sample.state).toSet(),
-      {
-        'welcome',
-        'server_collapsed',
-        'server_expanded',
-        'server_unreachable',
-        'login_connected',
-        'login_invalid',
-        'login_busy',
-        'invite_placeholder',
-        'password_forced',
-        'password_invalid',
-        'session_idle',
-        'session_admin_reset',
-        'session_space_cleared',
-        'switch_pending',
-      },
-    );
+    expect(allAuthTestCases.map((sample) => sample.state).toSet(), {
+      'welcome',
+      'server_collapsed',
+      'server_expanded',
+      'server_unreachable',
+      'login_connected',
+      'login_invalid',
+      'login_busy',
+      'invite_placeholder',
+      'password_forced',
+      'password_invalid',
+      'session_idle',
+      'session_admin_reset',
+      'session_space_cleared',
+      'switch_pending',
+    });
   });
 
   testWidgets('space accent never changes the auth primary color', (

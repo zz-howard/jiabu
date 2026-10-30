@@ -177,11 +177,7 @@ final authSecondaryTestCases = <AuthTestCase>[
   (
     state: 'switch_pending',
     builder: () => Scaffold(
-      body: SwitchPartitionPrompt(
-        count: 3,
-        onContinue: () {},
-        onCancel: () {},
-      ),
+      body: SwitchPartitionPrompt(count: 3, onContinue: () {}, onCancel: () {}),
     ),
     tapKey: null,
     minimumPairs: 2,

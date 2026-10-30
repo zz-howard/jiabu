@@ -368,9 +368,8 @@ void _checkLazyLayoutComponents(
       continue;
     }
     final body = source.substring(lazy.end, close);
-    final component = RegExp(
-      r'\bJiabu(?:Stack|ChipGroup)\s*\(',
-    ).firstMatch(body);
+    final component = RegExp(r'\bJiabu(?:Stack|ChipGroup)\s*\(')
+        .firstMatch(body);
     final componentOffset = component == null
         ? null
         : lazy.end + component.start;

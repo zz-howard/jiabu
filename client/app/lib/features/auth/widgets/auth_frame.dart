@@ -73,10 +73,7 @@ class AuthFrame extends StatelessWidget {
                                     title,
                                     style: context.jiabu.type.pageTitle,
                                   ),
-                                  const JiabuIcon(
-                                    JiabuIcons.squig,
-                                    size: 112,
-                                  ),
+                                  const JiabuIcon(JiabuIcons.squig, size: 112),
                                 ],
                               ),
                             ),
