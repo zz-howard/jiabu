@@ -71,9 +71,7 @@ class _InvitationsBodyState extends ConsumerState<InvitationsBody> {
                   for (final row in state.rows)
                     JiabuListRow(
                       title:
-                          (row['space_name'] ??
-                                  row['invitee_username'] ??
-                                  '')
+                          (row['space_name'] ?? row['invitee_username'] ?? '')
                               as String,
                       subtitle: widget.space == null
                           ? (row['inviter_display_name'] as String?) ?? ''
@@ -85,33 +83,42 @@ class _InvitationsBodyState extends ConsumerState<InvitationsBody> {
                               spacing: JiabuSpacing.sm,
                               runSpacing: JiabuSpacing.sm,
                               children: [
-                        for (final accept in [true, false])
-                          TextButton(
-                            onPressed: !state.online || state.busy
-                                ? null
-                                : () async {
-                                    final repository = ref.read(
-                                      spacesRepositoryProvider,
-                                    );
-                                    final success = await vm.run(() async {
-                                      final result = await repository.decide(
-                                        requireValue<String>(row['id']),
-                                        const Uuid().v7(),
-                                        accept: accept,
-                                      );
-                                      return result is Failure<void> &&
-                                              result.code == 'not_found'
-                                          ? const Failure<void>(
-                                              'invitation_expired',
-                                            )
-                                          : result;
-                                    });
-                                    if (success) {
-                                      await _load();
-                                    }
-                                  },
-                            child: Text(accept ? l.c4Accept : l.c4Decline),
-                          ),
+                                for (final accept in [true, false])
+                                  TextButton(
+                                    onPressed: !state.online || state.busy
+                                        ? null
+                                        : () async {
+                                            final repository = ref.read(
+                                              spacesRepositoryProvider,
+                                            );
+                                            final success = await vm.run(
+                                              () async {
+                                                final result = await repository
+                                                    .decide(
+                                                      requireValue<String>(
+                                                        row['id'],
+                                                      ),
+                                                      const Uuid().v7(),
+                                                      accept: accept,
+                                                    );
+                                                return result
+                                                            is Failure<void> &&
+                                                        result.code ==
+                                                            'not_found'
+                                                    ? const Failure<void>(
+                                                        'invitation_expired',
+                                                      )
+                                                    : result;
+                                              },
+                                            );
+                                            if (success) {
+                                              await _load();
+                                            }
+                                          },
+                                    child: Text(
+                                      accept ? l.c4Accept : l.c4Decline,
+                                    ),
+                                  ),
                               ],
                             )
                           : row['status'] == 'pending' &&

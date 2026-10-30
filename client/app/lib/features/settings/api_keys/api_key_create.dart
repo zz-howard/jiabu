@@ -153,8 +153,7 @@ class ApiKeyCreate extends ConsumerWidget {
                                 ),
                                 contextMenuBuilder: (context, editableState) =>
                                     AdaptiveTextSelectionToolbar.buttonItems(
-                                      anchors:
-                                          editableState.contextMenuAnchors,
+                                      anchors: editableState.contextMenuAnchors,
                                       buttonItems: [
                                         ContextMenuButtonItem(
                                           label: l.c4Copy,
