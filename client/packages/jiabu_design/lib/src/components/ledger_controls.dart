@@ -120,78 +120,77 @@ class PaperBottomNavigation extends StatelessWidget {
     JiabuIcons.uiUser,
   ];
   @override
-  Widget build(BuildContext context) => ClipPath(
-    clipper: const _NavigationEdgeClipper(),
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        color: context.jiabu.colors.paper,
-        border: Border(top: BorderSide(color: context.jiabu.colors.line)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: JiabuLedgerMetrics.navigationHeight,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < labels.length; i++)
-                Expanded(
-                  child: Semantics(
-                    selected: i == selected,
-                    button: true,
-                    child: InkWell(
-                      onTap: () => onSelect(i),
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: context.jiabu.decor.cardGap,
-                          vertical: context.jiabu.decor.messageGap,
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (i == selected)
-                              HandCircle(
-                                child: JiabuIcon(
-                                  icons[i],
-                                  size: JiabuLedgerMetrics.navigationIcon,
-                                ),
-                              )
-                            else
-                              Padding(
-                                padding: EdgeInsets.all(
-                                  context.jiabu.decor.cardGap,
-                                ),
-                                child: JiabuIcon(
-                                  icons[i],
-                                  size: JiabuLedgerMetrics.navigationIcon,
-                                ),
+  Widget build(BuildContext context) => CustomPaint(
+    key: const Key('paper-navigation-edge'),
+    painter: PaperTornEdgePainter(
+      paper: context.jiabu.colors.paper,
+      line: context.jiabu.colors.lineStrong,
+      shadow: context.jiabu.colors.shadowInk,
+    ),
+    child: SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: JiabuLedgerMetrics.navigationHeight,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < labels.length; i++)
+              Expanded(
+                child: Semantics(
+                  selected: i == selected,
+                  button: true,
+                  child: InkWell(
+                    onTap: () => onSelect(i),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: context.jiabu.decor.cardGap,
+                        vertical: context.jiabu.decor.messageGap,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (i == selected)
+                            HandCircle(
+                              child: JiabuIcon(
+                                icons[i],
+                                size: JiabuLedgerMetrics.navigationIcon,
                               ),
-                            // Four tabs share the width: at large text
-                            // sizes a long label shrinks to its column
-                            // instead of wrapping and growing the bar.
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                labels[i],
-                                maxLines: 1,
-                                textAlign: TextAlign.center,
-                                style: context.jiabu.type.badge.copyWith(
-                                  color: i == selected
-                                      ? context.jiabu.colors.primaryText
-                                      : context.jiabu.colors.ink2,
-                                ),
+                            )
+                          else
+                            Padding(
+                              padding: EdgeInsets.all(
+                                context.jiabu.decor.cardGap,
+                              ),
+                              child: JiabuIcon(
+                                icons[i],
+                                size: JiabuLedgerMetrics.navigationIcon,
                               ),
                             ),
-                          ],
-                        ),
+                          // Four tabs share the width: at large text
+                          // sizes a long label shrinks to its column
+                          // instead of wrapping and growing the bar.
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              labels[i],
+                              maxLines: 1,
+                              textAlign: TextAlign.center,
+                              style: context.jiabu.type.badge.copyWith(
+                                color: i == selected
+                                    ? context.jiabu.colors.primaryText
+                                    : context.jiabu.colors.ink2,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     ),
@@ -418,23 +417,61 @@ class DateTapeLabel extends StatelessWidget {
   );
 }
 
-class _NavigationEdgeClipper extends CustomClipper<Path> {
-  const _NavigationEdgeClipper();
-  @override
-  Path getClip(Size size) {
-    const radius = 4.0;
-    final path = Path()..moveTo(0, radius);
-    for (var x = 0.0; x < size.width; x += radius * 2) {
-      path.quadraticBezierTo(x + radius, -radius, x + radius * 2, radius);
+/// The bottom bar's torn top edge (design-spec 4.7, original `.nb::before`):
+/// a row of paper half-circles (radius 7, every 14) that stand 7 above the
+/// bar over the page, with a soft shadow and a line-strong hairline along the
+/// scallops so the edge reads on the dotted paper. The bar keeps its height;
+/// the scallops paint outside it, like the original's `top: -7px`.
+class PaperTornEdgePainter extends CustomPainter {
+  const PaperTornEdgePainter({
+    required this.paper,
+    required this.line,
+    required this.shadow,
+  });
+  final Color paper;
+  final Color line;
+  final Color shadow;
+
+  static const double scallop = JiabuLedgerMetrics.navigationScallop;
+  static const double rise = scallop / 2;
+
+  /// The scalloped top edge, from the left to the right of [width]; each arc
+  /// bulges up to `-rise` above the bar.
+  static Path edge(double width) {
+    final path = Path()..moveTo(0, 0);
+    for (var x = 0.0; x < width; x += scallop) {
+      path.arcToPoint(
+        Offset(x + scallop, 0),
+        radius: const Radius.circular(rise),
+      );
     }
-    return path
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
+    return path;
   }
 
   @override
-  bool shouldReclip(_NavigationEdgeClipper oldClipper) => false;
+  void paint(Canvas canvas, Size size) {
+    final top = edge(size.width);
+    final body = Path.from(top)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas
+      ..drawShadow(body, shadow.withValues(alpha: .5), 2, false)
+      ..drawPath(body, Paint()..color = paper)
+      ..drawPath(
+        top,
+        Paint()
+          ..color = line.withValues(alpha: .7)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
+  }
+
+  @override
+  bool shouldRepaint(PaperTornEdgePainter oldDelegate) =>
+      paper != oldDelegate.paper ||
+      line != oldDelegate.line ||
+      shadow != oldDelegate.shadow;
 }
 
 /// Keeps tile ink above the decorated paper underneath it.

@@ -22,4 +22,31 @@ abstract final class JiabuChatMetrics {
   static const double thinkingIndent = 12;
   static const double thinkingGapTop = 8;
   static const double pageHeight = 720;
+
+  /// V5 (design-spec 4.9): the assistant's round seal before its name.
+  static const double avatar = 26;
+  static const double avatarRing = 2;
+  static const double avatarGlyph = 14;
+  static const double avatarTilt = -10;
+
+  /// My sticky note keeps this much free paper on its left (4.9).
+  static const double noteLead = 56;
+
+  /// Answer pills (4.10): capsule height, side inset, ring widths.
+  static const double option = 44;
+  static const double optionInset = 18;
+  static const double optionRing = 1.5;
+  static const double optionSelectedRing = 2.5;
+
+  /// Floating composer (4.17b): round paper buttons with a white sticker
+  /// ring, the paper field card and its pencil, the in-field gallery button,
+  /// and the send button's tilt once there is something to send.
+  static const double roundRing = 2.5;
+  static const double fieldHeight = 52;
+  static const double pencil = 18;
+  static const double fieldButton = 44;
+  static const double sendTilt = -8;
+
+  /// Lifts the 48 round buttons so they centre on a one-line field.
+  static const double roundLift = (fieldHeight - action) / 2;
 }

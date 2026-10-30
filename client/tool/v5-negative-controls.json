@@ -1,0 +1,115 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly. Commands run from client/app.",
+  "controls": [
+    {
+      "id": "chat_has_no_date_tapes",
+      "file": "client/app/lib/shared/chatweave/chat_day_tape.dart",
+      "find": "if (day != null && day != last) {",
+      "replace": "if (day != null && day != last && starts.isEmpty) {",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["date tapes conversation_shows_one_tape_per_day_zh"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "assistant_loses_round_seal",
+      "file": "client/app/lib/shared/chatweave/jiabu_message_view.dart",
+      "find": "const ChatAvatarSeal(),",
+      "replace": "const SizedBox.shrink(),",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["assistant seal round primary seal at -10 before the name"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "selected_pill_without_check",
+      "file": "client/packages/jiabu_design/lib/src/components/chat_decor.dart",
+      "find": "if (selected || other) ...[",
+      "replace": "if (other) ...[",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["answer pills pills alternate tilt; the answer gets primary-soft and a check"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "pills_not_tilted",
+      "file": "client/packages/jiabu_design/lib/src/components/chat_decor.dart",
+      "find": "return index.isEven ? decor.answerOddTilt : decor.answerEvenTilt;",
+      "replace": "return index.isEven ? 0 : 0;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["answer pills pills alternate tilt; the answer gets primary-soft and a check"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "choice_back_on_a_card",
+      "file": "client/app/lib/shared/chatweave/jiabu_structured_blocks.dart",
+      "find": "if (block.type == 'choice') {",
+      "replace": "if (block.type == 'choice-on-page') {",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["answer pills question is highlighted and written on the page, not a card"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "note_loses_handwritten_time",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "if (time.isNotEmpty)",
+      "replace": "if (time.isEmpty)",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["my sticky note small note, handwritten time under it, 56 lead"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "manual_link_is_large_again",
+      "file": "client/app/lib/shared/chatweave/user_message_note.dart",
+      "find": "style: context.jiabu.type.secondary.copyWith(",
+      "replace": "style: context.jiabu.type.question.copyWith(",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["my sticky note manual entry is a small text link with a 44 tap area"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "composer_field_loses_pencil",
+      "file": "client/packages/jiabu_design/lib/src/components/chat_decor.dart",
+      "find": "JiabuIcons.doodlePencil,\n                    size: JiabuChatMetrics.pencil,",
+      "replace": "JiabuIcons.uiEdit,\n                    size: JiabuChatMetrics.pencil,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["floating composer round camera, pencil in a paper field, round send"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "send_does_not_turn",
+      "file": "client/app/lib/shared/chatweave/chat_composer.dart",
+      "find": "? JiabuChatMetrics.sendTilt",
+      "replace": "? 0",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["floating composer round camera, pencil in a paper field, round send"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "torn_edge_flat",
+      "file": "client/packages/jiabu_design/lib/src/components/ledger_controls.dart",
+      "find": "radius: const Radius.circular(rise),",
+      "replace": "radius: Radius.zero,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["torn bottom edge scallops rise half their width above the bar"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "cjk_bold_shows_raw",
+      "file": "client/app/lib/shared/chatweave/cjk_emphasis.dart",
+      "find": "if (!source.contains('*')) return source;",
+      "replace": "if (source.isNotEmpty) return source;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": ["markdown next to Chinese punctuation no raw asterisks reach the screen"],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    }
+  ]
+}

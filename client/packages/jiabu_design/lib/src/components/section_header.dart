@@ -25,7 +25,7 @@ class JiabuSectionHeader extends StatelessWidget {
           child: highlighted
               ? CustomPaint(
                   key: const Key('jiabu-section-highlight'),
-                  painter: _MarkerPainter(
+                  painter: TextMarkerPainter(
                     text: title,
                     style: DefaultTextStyle.of(context).style.merge(style),
                     scaler: MediaQuery.textScalerOf(context),
@@ -42,11 +42,32 @@ class JiabuSectionHeader extends StatelessWidget {
   }
 }
 
+/// Text with the same lower-half highlighter as a highlighted section title,
+/// following every wrapped line (design-spec 4.10: the follow-up question).
+class HighlightedText extends StatelessWidget {
+  const HighlightedText(this.text, {required this.style, super.key});
+  final String text;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    key: const Key('jiabu-text-highlight'),
+    painter: TextMarkerPainter(
+      text: text,
+      style: DefaultTextStyle.of(context).style.merge(style),
+      scaler: MediaQuery.textScalerOf(context),
+      direction: Directionality.of(context),
+      color: context.jiabu.colors.highlight,
+    ),
+    child: Text(text, style: style),
+  );
+}
+
 /// Paints the 55%–95% band of every line box of [text], laid out exactly like
 /// the [Text] it sits behind, so the marker hugs the words instead of the
 /// full row width and follows wrapped lines at large text sizes.
-class _MarkerPainter extends CustomPainter {
-  const _MarkerPainter({
+class TextMarkerPainter extends CustomPainter {
+  const TextMarkerPainter({
     required this.text,
     required this.style,
     required this.scaler,
@@ -88,7 +109,7 @@ class _MarkerPainter extends CustomPainter {
   static const _bleedEnd = 3.0;
 
   @override
-  bool shouldRepaint(_MarkerPainter oldDelegate) =>
+  bool shouldRepaint(TextMarkerPainter oldDelegate) =>
       text != oldDelegate.text ||
       style != oldDelegate.style ||
       scaler != oldDelegate.scaler ||
