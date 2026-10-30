@@ -114,10 +114,10 @@ LedgerSnapshot c3Snapshot(String state, {String accent = 'pine'}) {
         'kind': item.$2,
         'opening_balance_minor':
             state == 'overview_negative' && item.$1 == 'purpose-a'
-                ? 0
-                : state == 'overview_busy'
-                ? 2000000
-                : 10000,
+            ? 0
+            : state == 'overview_busy'
+            ? 2000000
+            : 10000,
         'opening_on': '2026-10-01',
         'is_reserve': item.$1 == 'purpose-b',
         'version': 1,
