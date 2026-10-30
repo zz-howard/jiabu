@@ -59,16 +59,11 @@ int expectJiabuVerticalRhythm(
         find.byElementPredicate((element) => identical(element, stack)),
       );
       final firstRect = tester.getRect(
-        find.byElementPredicate(
-          (element) => identical(element, markers.first),
-        ),
+        find.byElementPredicate((element) => identical(element, markers.first)),
       );
       expect(
         firstRect.top - stackRect.top,
-        moreOrLessEquals(
-          JiabuSpacing.sectionTop,
-          epsilon: geometryTolerance,
-        ),
+        moreOrLessEquals(JiabuSpacing.sectionTop, epsilon: geometryTolerance),
         reason: '$reason first section top gap',
       );
     }

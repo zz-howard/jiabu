@@ -430,9 +430,7 @@ void main() {
       matching: find.byType(JiabuStackMarker),
     );
     final markers = find.byType(JiabuStackMarker);
-    final actionIndex = tester
-        .widget<JiabuStackMarker>(actionMarker)
-        .index;
+    final actionIndex = tester.widget<JiabuStackMarker>(actionMarker).index;
     expect(
       tester.widget<JiabuStackMarker>(actionMarker).kind,
       JiabuStackItemKind.action,
@@ -444,17 +442,11 @@ void main() {
     expect(
       tester.getRect(actionMarker).top -
           tester.getRect(markers.at(actionIndex - 1)).bottom,
-      moreOrLessEquals(
-        JiabuSpacing.actionGap,
-        epsilon: geometryTolerance,
-      ),
+      moreOrLessEquals(JiabuSpacing.actionGap, epsilon: geometryTolerance),
     );
     expect(
       tester.getRect(button).top - tester.getRect(offline).bottom,
-      moreOrLessEquals(
-        JiabuSpacing.captionGap,
-        epsilon: geometryTolerance,
-      ),
+      moreOrLessEquals(JiabuSpacing.captionGap, epsilon: geometryTolerance),
     );
   });
 
@@ -474,10 +466,7 @@ void main() {
     expect(
       tester.getRect(captionMarker).top -
           tester.getRect(markers.at(caption.index - 1)).bottom,
-      moreOrLessEquals(
-        JiabuSpacing.captionGap,
-        epsilon: geometryTolerance,
-      ),
+      moreOrLessEquals(JiabuSpacing.captionGap, epsilon: geometryTolerance),
     );
   });
 
@@ -490,10 +479,7 @@ void main() {
           width: width,
           scale: scale,
         );
-        for (final finder in [
-          find.byType(JiabuLogo),
-          find.text('家簿已上锁'),
-        ]) {
+        for (final finder in [find.byType(JiabuLogo), find.text('家簿已上锁')]) {
           expect(
             tester.getRect(finder).center.dx,
             closeTo(width / 2, 1),
