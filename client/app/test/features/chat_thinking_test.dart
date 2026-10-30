@@ -5,7 +5,6 @@ import 'package:jiabu/shared/chatweave/jiabu_chat_registry.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chatweave_theme.dart';
 import 'package:jiabu/shared/chatweave/jiabu_message_view.dart';
 import 'package:jiabu/shared/chatweave/jiabu_thinking_indicator.dart';
-import 'package:jiabu_design/jiabu_design.dart';
 
 import '../support/c3_harness.dart';
 

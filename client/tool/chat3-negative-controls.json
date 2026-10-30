@@ -64,8 +64,8 @@
     {
       "id": "markdown_batched_reparse_midstream",
       "file": "client/app/lib/shared/chatweave/jiabu_chat_registry.dart",
-      "find": "complete: true",
-      "replace": "complete: block['status'] != 'pending'",
+      "find": "block.data['text']! as String",
+      "replace": "block.data['text']! as String, complete: block['status'] != 'pending'",
       "expected_occurrences": 1,
       "test_file": "client/app/test/features/chat_thinking_test.dart",
       "test_names": [
