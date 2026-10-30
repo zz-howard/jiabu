@@ -23,13 +23,9 @@ class JiabuChipGroup extends StatelessWidget {
       secondarySelectedColor: colors.primarySoft,
       checkmarkColor: colors.onPrimarySoft,
       showCheckmark: true,
-      labelStyle: WidgetStateTextStyle.resolveWith(
-        (states) => body.copyWith(
-          color: states.contains(WidgetState.selected)
-              ? colors.onPrimarySoft
-              : colors.ink,
-        ),
-      ),
+      // A plain TextStyle: Chip merges labelStyle without resolving a
+      // WidgetStateTextStyle, which would drop the font family.
+      labelStyle: body.copyWith(color: colors.ink),
       secondaryLabelStyle: body.copyWith(color: colors.onPrimarySoft),
       side: WidgetStateBorderSide.resolveWith(
         (states) => BorderSide(
