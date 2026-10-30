@@ -145,12 +145,8 @@ List<JiabuStackItem> formFieldItems(
   int? maxLength,
 }) {
   final value = state.values[key]?.toString() ?? '';
-  final field = const [
-    'occurred_on',
-    'opening_on',
-    'from',
-    'through',
-  ].contains(key)
+  final field =
+      const ['occurred_on', 'opening_on', 'from', 'through'].contains(key)
       ? LedgerDateField(
           value: value,
           label: label,
@@ -421,47 +417,44 @@ class RecordForm extends ConsumerWidget {
               ),
             if (hasTags) ...[
               JiabuStackItem.captionBefore(
-                child: Text(
-                  l.ledgerTags,
-                  style: context.jiabu.type.listTitle,
-                ),
+                child: Text(l.ledgerTags, style: context.jiabu.type.listTitle),
               ),
               JiabuStackItem.content(
                 child: JiabuChipGroup(
                   children: [
-                  for (final tag in snapshot.tags.where(
-                    (tag) =>
-                        tag.data['deleted_at'] == null ||
-                        selectedTags.contains(tag.id),
-                  ))
-                    FilterChip(
-                      label: Text(
-                        tag.text('name').isNotEmpty
-                            ? tag.text('name')
-                            : labels[tag.text('preset_key')] ?? '',
+                    for (final tag in snapshot.tags.where(
+                      (tag) =>
+                          tag.data['deleted_at'] == null ||
+                          selectedTags.contains(tag.id),
+                    ))
+                      FilterChip(
+                        label: Text(
+                          tag.text('name').isNotEmpty
+                              ? tag.text('name')
+                              : labels[tag.text('preset_key')] ?? '',
+                        ),
+                        selected: selectedTags.contains(tag.id),
+                        onSelected:
+                            tag.data['deleted_at'] != null &&
+                                !selectedTags.contains(tag.id)
+                            ? null
+                            : (selected) {
+                                model.patch(
+                                  'tag_ids',
+                                  selected
+                                      ? [...selectedTags, tag.id]
+                                      : selectedTags
+                                            .where((id) => id != tag.id)
+                                            .toList(),
+                                );
+                              },
                       ),
-                      selected: selectedTags.contains(tag.id),
-                      onSelected:
-                          tag.data['deleted_at'] != null &&
-                              !selectedTags.contains(tag.id)
+                    ActionChip(
+                      label: Text(l.ledgerAddTag),
+                      onPressed: state.busy
                           ? null
-                          : (selected) {
-                              model.patch(
-                                'tag_ids',
-                                selected
-                                    ? [...selectedTags, tag.id]
-                                    : selectedTags
-                                          .where((id) => id != tag.id)
-                                          .toList(),
-                              );
-                            },
+                          : () => model.patch('show_new_tag', true),
                     ),
-                  ActionChip(
-                    label: Text(l.ledgerAddTag),
-                    onPressed: state.busy
-                        ? null
-                        : () => model.patch('show_new_tag', true),
-                  ),
                   ],
                 ),
               ),
@@ -516,75 +509,78 @@ class RecordForm extends ConsumerWidget {
               ),
             JiabuStackItem.action(
               child: FilledButton(
-              onPressed: state.busy || !snapshot.writable
-                  ? null
-                  : () async {
-                      final baseline =
-                          state.values['_opened_record']
-                              as Map<String, Object?>?;
-                      final amount = parseMinor(
-                        state.values['amount_text']?.toString() ?? '',
-                        snapshot.currency,
-                        decimal: NumberFormat.decimalPattern(l.localeName)
-                            .symbols
-                            .DECIMAL_SEP,
-                      );
-                      if (amount == null || amount <= 0) {
-                        model.fail('validation_failed');
-                        return;
-                      }
-                      final values = <String, Object?>{
-                        for (final key in [
-                          'kind',
-                          'occurred_on',
-                          'account_id',
-                          'to_account_id',
-                          'purpose_id',
-                          'to_purpose_id',
-                          'refund_of_id',
-                          'note',
-                        ])
-                          if (state.values.containsKey(key))
-                            key: state.values[key],
-                        'amount_minor': amount,
-                        if (hasTags)
-                          'tag_ids': selectedTags
-                        else if (original == null)
-                          'tag_ids': <String>[],
-                      };
-                      final ok = await model.submit((repo, _) async {
-                        if (original == null) {
-                          return await repo.createRecord(spaceId, values);
+                onPressed: state.busy || !snapshot.writable
+                    ? null
+                    : () async {
+                        final baseline =
+                            state.values['_opened_record']
+                                as Map<String, Object?>?;
+                        final amount = parseMinor(
+                          state.values['amount_text']?.toString() ?? '',
+                          snapshot.currency,
+                          decimal: NumberFormat.decimalPattern(l.localeName)
+                              .symbols
+                              .DECIMAL_SEP,
+                        );
+                        if (amount == null || amount <= 0) {
+                          model.fail('validation_failed');
+                          return;
                         }
-                        final editable = {...values}
-                          ..remove('kind')
-                          ..remove('refund_of_id');
-                        final changes = changedRecordFields(
-                          editable,
-                          baseline ?? original.data,
-                        );
-                        final result = await repo.editRecord(
-                          spaceId,
-                          original.id,
-                          changes,
-                          openedVersion:
-                              state.values['_opened_version'] as int? ??
-                              original.number('version'),
-                        );
-                        if (result is Failure<String> &&
-                            result.code == 'record_changed_elsewhere') {
-                          final latest = await repo.watch(spaceId).first;
-                          final row = latest.find(latest.records, original.id);
-                          if (row != null && context.mounted) {
-                            model.refreshRecord(row, latest.currency);
+                        final values = <String, Object?>{
+                          for (final key in [
+                            'kind',
+                            'occurred_on',
+                            'account_id',
+                            'to_account_id',
+                            'purpose_id',
+                            'to_purpose_id',
+                            'refund_of_id',
+                            'note',
+                          ])
+                            if (state.values.containsKey(key))
+                              key: state.values[key],
+                          'amount_minor': amount,
+                          if (hasTags)
+                            'tag_ids': selectedTags
+                          else if (original == null)
+                            'tag_ids': <String>[],
+                        };
+                        final ok = await model.submit((repo, _) async {
+                          if (original == null) {
+                            return await repo.createRecord(spaceId, values);
                           }
+                          final editable = {...values}
+                            ..remove('kind')
+                            ..remove('refund_of_id');
+                          final changes = changedRecordFields(
+                            editable,
+                            baseline ?? original.data,
+                          );
+                          final result = await repo.editRecord(
+                            spaceId,
+                            original.id,
+                            changes,
+                            openedVersion:
+                                state.values['_opened_version'] as int? ??
+                                original.number('version'),
+                          );
+                          if (result is Failure<String> &&
+                              result.code == 'record_changed_elsewhere') {
+                            final latest = await repo.watch(spaceId).first;
+                            final row = latest.find(
+                              latest.records,
+                              original.id,
+                            );
+                            if (row != null && context.mounted) {
+                              model.refreshRecord(row, latest.currency);
+                            }
+                          }
+                          return result;
+                        });
+                        if (ok && context.mounted) {
+                          Navigator.of(context).pop();
                         }
-                        return result;
-                      });
-                      if (ok && context.mounted) {
-                        Navigator.of(context).pop();
-                      }
-                    },
+                      },
                 child: Text(l.ledgerSave),
               ),
             ),
@@ -695,46 +691,45 @@ class AccountForm extends ConsumerWidget {
               ),
           ],
           if (state.error != null)
-            JiabuStackItem.captionAfter(
-              child: formError(context, state.error),
-            ),
+            JiabuStackItem.captionAfter(child: formError(context, state.error)),
           JiabuStackItem.action(
             child: FilledButton(
-            onPressed: state.busy || !snapshot.writable
-                ? null
-                : () async {
-                    final name = state.values['name']?.toString() ?? '';
-                    final opening = parseMinor(
-                      state.values['opening_text']?.toString() ?? '0',
-                      snapshot.currency,
-                      signed: true,
-                      decimal: NumberFormat.decimalPattern(l.localeName)
-                          .symbols
-                          .DECIMAL_SEP,
-                    );
-                    if (name.trim().isEmpty ||
-                        opening == null ||
-                        !validLedgerDate(
-                          state.values['opening_on']?.toString() ?? '',
-                        )) {
-                      model.fail('validation_failed');
-                      return;
-                    }
-                    final ok = await model.submit(
-                      (repo, _) => account != null
-                          ? repo.renameAccount(spaceId, account.id, name)
-                          : repo.createAccount(spaceId, {
-                              'kind': state.values['kind'],
-                              'name': name,
-                              'opening_balance_minor': opening,
-                              'opening_on': state.values['opening_on'],
-                              'is_reserve': state.values['is_reserve'] == true,
-                            }),
-                    );
-                    if (ok && context.mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  },
+              onPressed: state.busy || !snapshot.writable
+                  ? null
+                  : () async {
+                      final name = state.values['name']?.toString() ?? '';
+                      final opening = parseMinor(
+                        state.values['opening_text']?.toString() ?? '0',
+                        snapshot.currency,
+                        signed: true,
+                        decimal: NumberFormat.decimalPattern(l.localeName)
+                            .symbols
+                            .DECIMAL_SEP,
+                      );
+                      if (name.trim().isEmpty ||
+                          opening == null ||
+                          !validLedgerDate(
+                            state.values['opening_on']?.toString() ?? '',
+                          )) {
+                        model.fail('validation_failed');
+                        return;
+                      }
+                      final ok = await model.submit(
+                        (repo, _) => account != null
+                            ? repo.renameAccount(spaceId, account.id, name)
+                            : repo.createAccount(spaceId, {
+                                'kind': state.values['kind'],
+                                'name': name,
+                                'opening_balance_minor': opening,
+                                'opening_on': state.values['opening_on'],
+                                'is_reserve':
+                                    state.values['is_reserve'] == true,
+                              }),
+                      );
+                      if (ok && context.mounted) {
+                        Navigator.of(context).pop();
+                      }
+                    },
               child: Text(l.ledgerSave),
             ),
           ),
@@ -776,9 +771,7 @@ class AllocationPlanForm extends ConsumerWidget {
           JiabuStackItem.content(
             child: Text(l.ledgerPlan, style: context.jiabu.type.cardTitle),
           ),
-          JiabuStackItem.captionAfter(
-            child: Text(account?.text('name') ?? ''),
-          ),
+          JiabuStackItem.captionAfter(child: Text(account?.text('name') ?? '')),
           ...formFieldItems(
             context,
             state,
@@ -807,9 +800,7 @@ class AllocationPlanForm extends ConsumerWidget {
           ),
           JiabuStackItem.content(
             child: Text(
-              l.ledgerPlanSchedule(
-                state.values['day_text']?.toString() ?? '1',
-              ),
+              l.ledgerPlanSchedule(state.values['day_text']?.toString() ?? '1'),
             ),
           ),
           JiabuStackItem.captionAfter(
@@ -830,47 +821,45 @@ class AllocationPlanForm extends ConsumerWidget {
               ),
             ),
           if (state.error != null)
-            JiabuStackItem.captionAfter(
-              child: formError(context, state.error),
-            ),
+            JiabuStackItem.captionAfter(child: formError(context, state.error)),
           JiabuStackItem.action(
             child: FilledButton(
-            onPressed:
-                state.busy ||
-                    !snapshot.writable ||
-                    account == null ||
-                    account.archived
-                ? null
-                : () async {
-                    final amount = parseMinor(
-                      state.values['amount_text']?.toString() ?? '',
-                      snapshot.currency,
-                      decimal: NumberFormat.decimalPattern(l.localeName)
-                          .symbols
-                          .DECIMAL_SEP,
-                    );
-                    final day = int.tryParse(
-                      state.values['day_text']?.toString() ?? '',
-                    );
-                    if (amount == null ||
-                        amount <= 0 ||
-                        day == null ||
-                        day < 1 ||
-                        day > 31) {
-                      model.fail('validation_failed');
-                      return;
-                    }
-                    final ok = await model.submit(
-                      (repo, _) => repo.setPlan(spaceId, accountId, {
-                        'amount_minor': amount,
-                        'day_of_month': day,
-                        'enabled': state.values['enabled'] == true,
-                      }),
-                    );
-                    if (ok && context.mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  },
+              onPressed:
+                  state.busy ||
+                      !snapshot.writable ||
+                      account == null ||
+                      account.archived
+                  ? null
+                  : () async {
+                      final amount = parseMinor(
+                        state.values['amount_text']?.toString() ?? '',
+                        snapshot.currency,
+                        decimal: NumberFormat.decimalPattern(l.localeName)
+                            .symbols
+                            .DECIMAL_SEP,
+                      );
+                      final day = int.tryParse(
+                        state.values['day_text']?.toString() ?? '',
+                      );
+                      if (amount == null ||
+                          amount <= 0 ||
+                          day == null ||
+                          day < 1 ||
+                          day > 31) {
+                        model.fail('validation_failed');
+                        return;
+                      }
+                      final ok = await model.submit(
+                        (repo, _) => repo.setPlan(spaceId, accountId, {
+                          'amount_minor': amount,
+                          'day_of_month': day,
+                          'enabled': state.values['enabled'] == true,
+                        }),
+                      );
+                      if (ok && context.mounted) {
+                        Navigator.of(context).pop();
+                      }
+                    },
               child: Text(l.ledgerSave),
             ),
           ),

@@ -147,43 +147,41 @@ class RecordActions extends ConsumerWidget {
     return JiabuStack(
       children: [
         if (state.error != null)
-          JiabuStackItem.captionAfter(
-            child: formError(context, state.error),
-          ),
+          JiabuStackItem.captionAfter(child: formError(context, state.error)),
         if (row.active && row.text('kind') == 'expense')
           JiabuStackItem.action(
             child: TextButton(
               onPressed: busy
                   ? null
                   : () {
-                    final account = data.find(
-                      data.accounts,
-                      row.text('account_id'),
-                    );
-                    final purpose = data.find(
-                      data.accounts,
-                      row.text('purpose_id'),
-                    );
-                    final reserve = data.accounts
-                        .where((a) => a.flag('is_reserve') && !a.archived)
-                        .firstOrNull;
-                    unawaited(
-                      openManualEntry(
-                        context,
-                        spaceId,
-                        initial: {
-                          'kind': 'refund',
-                          'refund_of_id': row.id,
-                          if (account != null && !account.archived)
-                            'account_id': account.id,
-                          if (purpose != null && !purpose.archived)
-                            'purpose_id': purpose.id
-                          else if (reserve != null)
-                            'purpose_id': reserve.id,
-                        },
-                      ),
-                    );
-                  },
+                      final account = data.find(
+                        data.accounts,
+                        row.text('account_id'),
+                      );
+                      final purpose = data.find(
+                        data.accounts,
+                        row.text('purpose_id'),
+                      );
+                      final reserve = data.accounts
+                          .where((a) => a.flag('is_reserve') && !a.archived)
+                          .firstOrNull;
+                      unawaited(
+                        openManualEntry(
+                          context,
+                          spaceId,
+                          initial: {
+                            'kind': 'refund',
+                            'refund_of_id': row.id,
+                            if (account != null && !account.archived)
+                              'account_id': account.id,
+                            if (purpose != null && !purpose.archived)
+                              'purpose_id': purpose.id
+                            else if (reserve != null)
+                              'purpose_id': reserve.id,
+                          },
+                        ),
+                      );
+                    },
               child: Text(l.ledgerRefund),
             ),
           ),
@@ -192,45 +190,45 @@ class RecordActions extends ConsumerWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-              Expanded(
-                child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(
-                      JiabuLedgerMetrics.actionExtent,
-                      JiabuLedgerMetrics.actionExtent,
+                Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(
+                        JiabuLedgerMetrics.actionExtent,
+                        JiabuLedgerMetrics.actionExtent,
+                      ),
                     ),
+                    onPressed: busy
+                        ? null
+                        : () => changeRecordStatus(
+                            context,
+                            ref,
+                            spaceId,
+                            row,
+                            restore: false,
+                          ),
+                    child: Text(l.ledgerVoid),
                   ),
-                  onPressed: busy
-                      ? null
-                      : () => changeRecordStatus(
-                          context,
-                          ref,
-                          spaceId,
-                          row,
-                          restore: false,
-                        ),
-                  child: Text(l.ledgerVoid),
                 ),
-              ),
-              const SizedBox(width: JiabuSpacing.cardGap),
-              Expanded(
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(
-                      JiabuLedgerMetrics.actionExtent,
-                      JiabuLedgerMetrics.actionExtent,
+                const SizedBox(width: JiabuSpacing.cardGap),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(
+                        JiabuLedgerMetrics.actionExtent,
+                        JiabuLedgerMetrics.actionExtent,
+                      ),
+                      textStyle: context.jiabu.type.listTitle.copyWith(
+                        shadows: const [],
+                        decoration: TextDecoration.none,
+                      ),
                     ),
-                    textStyle: context.jiabu.type.listTitle.copyWith(
-                      shadows: const [],
-                      decoration: TextDecoration.none,
-                    ),
+                    onPressed: busy
+                        ? null
+                        : () => openEditRecord(context, spaceId, row),
+                    child: Text(l.ledgerEdit),
                   ),
-                  onPressed: busy
-                      ? null
-                      : () => openEditRecord(context, spaceId, row),
-                  child: Text(l.ledgerEdit),
                 ),
-              ),
               ],
             ),
           )
@@ -382,11 +380,7 @@ class RecordDetails extends ConsumerWidget {
           for (final refund in refunds)
             JiabuStackItem.action(
               child: TextButton(
-                onPressed: () => openRecordDetails(
-                  context,
-                  spaceId,
-                  refund.id,
-                ),
+                onPressed: () => openRecordDetails(context, spaceId, refund.id),
                 child: Text(refundLabel(refund, data, l)),
               ),
             ),
@@ -627,77 +621,75 @@ class ConflictSheet extends ConsumerWidget {
               ),
               child: PaperCard(
                 child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(pair.$1, style: context.jiabu.type.sectionTitle),
-                  if (pair.$2.data['amount_minor'] is int)
-                    ledgerAmount(
-                      context,
-                      pair.$2.number('amount_minor'),
-                      data.currency,
-                    ),
-                  if (pair.$2.text('name').isNotEmpty)
-                    Text(pair.$2.text('name')),
-                  if (pair.$2.text('occurred_on').isNotEmpty)
-                    Text(ledgerDate(pair.$2.text('occurred_on'), l)),
-                  for (final field in [
-                    'account_id',
-                    'to_account_id',
-                    'purpose_id',
-                    'to_purpose_id',
-                  ])
-                    if (pair.$2.text(field).isNotEmpty)
-                      Text(
-                        data
-                                .find(data.accounts, pair.$2.text(field))
-                                ?.text('name') ??
-                            '',
-                      ),
-                  Text(
-                    pair.$2
-                        .strings('tag_ids')
-                        .map(
-                          (id) => tagName(
-                            data.find(data.tags, id),
-                            ledgerLabels(l),
-                          ),
-                        )
-                        .join(' · '),
-                  ),
-                  Text(pair.$2.text('note')),
-                  if (entityKind == 'record')
-                    Text(pair.$2.active ? l.ledgerRecorded : l.ledgerVoided),
-                  if (entityKind == 'account') ...[
-                    DottedFieldRow(
-                      label: l.ledgerOpening,
-                      value: formatMinor(
-                        pair.$2.number('opening_balance_minor'),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(pair.$1, style: context.jiabu.type.sectionTitle),
+                    if (pair.$2.data['amount_minor'] is int)
+                      ledgerAmount(
+                        context,
+                        pair.$2.number('amount_minor'),
                         data.currency,
-                        l.localeName,
                       ),
-                    ),
-                    if (pair.$2.archived) Text(l.ledgerArchived),
-                  ],
-                  if (entityKind == 'allocation_plan') ...[
-                    DottedFieldRow(
-                      label: l.ledgerDay,
-                      value: pair.$2.text('day_of_month'),
-                    ),
+                    if (pair.$2.text('name').isNotEmpty)
+                      Text(pair.$2.text('name')),
+                    if (pair.$2.text('occurred_on').isNotEmpty)
+                      Text(ledgerDate(pair.$2.text('occurred_on'), l)),
+                    for (final field in [
+                      'account_id',
+                      'to_account_id',
+                      'purpose_id',
+                      'to_purpose_id',
+                    ])
+                      if (pair.$2.text(field).isNotEmpty)
+                        Text(
+                          data
+                                  .find(data.accounts, pair.$2.text(field))
+                                  ?.text('name') ??
+                              '',
+                        ),
                     Text(
-                      pair.$2.flag('enabled')
-                          ? l.ledgerEnabled
-                          : l.ledgerPlanDisabled,
+                      pair.$2
+                          .strings('tag_ids')
+                          .map(
+                            (id) => tagName(
+                              data.find(data.tags, id),
+                              ledgerLabels(l),
+                            ),
+                          )
+                          .join(' · '),
                     ),
+                    Text(pair.$2.text('note')),
+                    if (entityKind == 'record')
+                      Text(pair.$2.active ? l.ledgerRecorded : l.ledgerVoided),
+                    if (entityKind == 'account') ...[
+                      DottedFieldRow(
+                        label: l.ledgerOpening,
+                        value: formatMinor(
+                          pair.$2.number('opening_balance_minor'),
+                          data.currency,
+                          l.localeName,
+                        ),
+                      ),
+                      if (pair.$2.archived) Text(l.ledgerArchived),
+                    ],
+                    if (entityKind == 'allocation_plan') ...[
+                      DottedFieldRow(
+                        label: l.ledgerDay,
+                        value: pair.$2.text('day_of_month'),
+                      ),
+                      Text(
+                        pair.$2.flag('enabled')
+                            ? l.ledgerEnabled
+                            : l.ledgerPlanDisabled,
+                      ),
+                    ],
                   ],
-                ],
                 ),
               ),
             ),
           ),
         if (state.error != null)
-          JiabuStackItem.captionAfter(
-            child: formError(context, state.error),
-          ),
+          JiabuStackItem.captionAfter(child: formError(context, state.error)),
         if (voided) ...[
           JiabuStackItem.action(
             child: OutlinedButton(

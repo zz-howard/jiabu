@@ -360,38 +360,40 @@ class PendingItems extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                Text(
-                  operationTitle(snapshot, op, l),
-                  style: context.jiabu.type.listTitle,
-                ),
-                Text(
-                  op.text('state') == 'failed'
-                      ? l.ledgerFailed
-                      : op.text('state') == 'blocked'
-                      ? l.ledgerPendingBlocked
-                      : l.ledgerUpload,
-                ),
-                if (op.text('error').isNotEmpty)
-                  Text(ledgerError(l, op.text('error'))),
-                for (final entity in op.strings('entity_ids'))
-                  if (entity.startsWith('record:'))
-                    TextButton(
-                      onPressed: () => openRecordDetails(
-                        context,
-                        snapshot.spaceId,
-                        entity.substring('record:'.length),
-                      ),
-                      child: Text(l.ledgerDetails),
-                    ),
-                if (op.text('state') == 'failed')
-                  TextButton(
-                    onPressed: () => ref
-                        .read(
-                          ledgerViewModelProvider(snapshot.spaceId).notifier,
-                        )
-                        .command((repo) => repo.retry(snapshot.spaceId, op.id)),
-                    child: Text(l.ledgerRetry),
+                  Text(
+                    operationTitle(snapshot, op, l),
+                    style: context.jiabu.type.listTitle,
                   ),
+                  Text(
+                    op.text('state') == 'failed'
+                        ? l.ledgerFailed
+                        : op.text('state') == 'blocked'
+                        ? l.ledgerPendingBlocked
+                        : l.ledgerUpload,
+                  ),
+                  if (op.text('error').isNotEmpty)
+                    Text(ledgerError(l, op.text('error'))),
+                  for (final entity in op.strings('entity_ids'))
+                    if (entity.startsWith('record:'))
+                      TextButton(
+                        onPressed: () => openRecordDetails(
+                          context,
+                          snapshot.spaceId,
+                          entity.substring('record:'.length),
+                        ),
+                        child: Text(l.ledgerDetails),
+                      ),
+                  if (op.text('state') == 'failed')
+                    TextButton(
+                      onPressed: () => ref
+                          .read(
+                            ledgerViewModelProvider(snapshot.spaceId).notifier,
+                          )
+                          .command(
+                            (repo) => repo.retry(snapshot.spaceId, op.id),
+                          ),
+                      child: Text(l.ledgerRetry),
+                    ),
                 ],
               ),
             ),
@@ -776,36 +778,34 @@ class DateFilterForm extends ConsumerWidget {
             l.ledgerThroughDate,
           ),
           if (state.error != null)
-            JiabuStackItem.captionAfter(
-              child: formError(context, state.error),
-            ),
+            JiabuStackItem.captionAfter(child: formError(context, state.error)),
           JiabuStackItem.action(
             child: FilledButton(
-            onPressed: () {
-              final from = state.values['from']?.toString() ?? '';
-              final through = state.values['through']?.toString() ?? '';
-              if (!validLedgerDate(from) ||
-                  !validLedgerDate(through) ||
-                  from.compareTo(through) > 0) {
-                model.fail('validation_failed');
-                return;
-              }
-              ref
-                  .read(ledgerViewModelProvider(spaceId).notifier)
-                  .filter(
-                    HistoryFilter(
-                      text: filter.text,
-                      member: filter.member,
-                      account: filter.account,
-                      tag: filter.tag,
-                      kind: filter.kind,
-                      from: from,
-                      through: through,
-                      labels: ledgerLabels(l),
-                    ),
-                  );
-              Navigator.of(context).pop();
-            },
+              onPressed: () {
+                final from = state.values['from']?.toString() ?? '';
+                final through = state.values['through']?.toString() ?? '';
+                if (!validLedgerDate(from) ||
+                    !validLedgerDate(through) ||
+                    from.compareTo(through) > 0) {
+                  model.fail('validation_failed');
+                  return;
+                }
+                ref
+                    .read(ledgerViewModelProvider(spaceId).notifier)
+                    .filter(
+                      HistoryFilter(
+                        text: filter.text,
+                        member: filter.member,
+                        account: filter.account,
+                        tag: filter.tag,
+                        kind: filter.kind,
+                        from: from,
+                        through: through,
+                        labels: ledgerLabels(l),
+                      ),
+                    );
+                Navigator.of(context).pop();
+              },
               child: Text(l.ledgerSave),
             ),
           ),
@@ -1030,23 +1030,26 @@ Future<void> archiveGuide(
           JiabuStackItem.action(
             child: FilledButton(
               onPressed: () {
-              Navigator.of(sheetContext).pop();
-              final real = account.text('kind') == 'real';
-              unawaited(
-                openManualEntry(
-                  context,
-                  snapshot.spaceId,
-                  initial: {
-                    'kind': real ? 'transfer' : 'reallocation',
-                    balance > 0
-                            ? (real ? 'account_id' : 'purpose_id')
-                            : (real ? 'to_account_id' : 'to_purpose_id'):
-                        account.id,
-                    'amount_text': minorInput(balance.abs(), snapshot.currency),
-                  },
-                ),
-              );
-            },
+                Navigator.of(sheetContext).pop();
+                final real = account.text('kind') == 'real';
+                unawaited(
+                  openManualEntry(
+                    context,
+                    snapshot.spaceId,
+                    initial: {
+                      'kind': real ? 'transfer' : 'reallocation',
+                      balance > 0
+                              ? (real ? 'account_id' : 'purpose_id')
+                              : (real ? 'to_account_id' : 'to_purpose_id'):
+                          account.id,
+                      'amount_text': minorInput(
+                        balance.abs(),
+                        snapshot.currency,
+                      ),
+                    },
+                  ),
+                );
+              },
               child: Text(l.ledgerMoveBalance),
             ),
           )
@@ -1054,15 +1057,16 @@ Future<void> archiveGuide(
           JiabuStackItem.action(
             child: FilledButton(
               onPressed: () async {
-              final ok = await ref
-                  .read(ledgerViewModelProvider(snapshot.spaceId).notifier)
-                  .command(
-                    (repo) => repo.archiveAccount(snapshot.spaceId, account.id),
-                  );
-              if (ok && sheetContext.mounted) {
-                Navigator.of(sheetContext).pop();
-              }
-            },
+                final ok = await ref
+                    .read(ledgerViewModelProvider(snapshot.spaceId).notifier)
+                    .command(
+                      (repo) =>
+                          repo.archiveAccount(snapshot.spaceId, account.id),
+                    );
+                if (ok && sheetContext.mounted) {
+                  Navigator.of(sheetContext).pop();
+                }
+              },
               child: Text(l.ledgerArchive),
             ),
           ),

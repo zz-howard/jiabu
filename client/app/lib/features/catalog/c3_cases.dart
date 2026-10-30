@@ -534,9 +534,7 @@ class C3Preview extends StatelessWidget {
           children: [
             JiabuStackItem.content(child: Text(l.ledgerArchiveGuide)),
             JiabuStackItem.content(
-              child: Text(
-                state == 'archive_negative' ? '−¥12.00' : '¥12.00',
-              ),
+              child: Text(state == 'archive_negative' ? '−¥12.00' : '¥12.00'),
             ),
             JiabuStackItem.action(
               child: FilledButton(
