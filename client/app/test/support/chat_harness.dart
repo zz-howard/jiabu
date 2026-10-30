@@ -135,7 +135,10 @@ class FakeChatApi implements ChatApi {
 
 class _Picker implements ImagePickerPort {
   @override
-  Future<List<Uint8List>> pick({required bool camera}) async => [];
+  Future<List<Uint8List>> pick({
+    required bool camera,
+    bool files = false,
+  }) async => [];
 }
 
 class _Codec implements ImageCompressorPort {

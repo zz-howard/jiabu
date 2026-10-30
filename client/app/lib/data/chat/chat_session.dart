@@ -583,8 +583,17 @@ final class LocalChatSession implements ChatConversation {
     throw const ApiError('image_unavailable');
   });
   @override
-  Future<Result<List<String>>> photos({required bool camera, int limit = 8}) =>
-      media.pick(spaceId, 'chat', camera: camera, limit: limit.clamp(0, 8));
+  Future<Result<List<String>>> photos({
+    required bool camera,
+    bool files = false,
+    int limit = 8,
+  }) => media.pick(
+    spaceId,
+    'chat',
+    camera: camera,
+    files: files,
+    limit: limit.clamp(0, 8),
+  );
   @override
   Future<Result<void>> retry(String messageId) => _guard(() async {
     if ((await dao.runtime())['write_allowed'] != 1) {

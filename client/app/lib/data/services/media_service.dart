@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:jiabu/data/db/daos/local_store.dart';
@@ -14,7 +14,9 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 abstract interface class ImagePickerPort {
-  Future<List<Uint8List>> pick({required bool camera});
+  /// [files]: image files from the system file picker (the 文件 tab of the
+  /// chat attachment sheet) instead of the photo picker. Same JPEG pipeline.
+  Future<List<Uint8List>> pick({required bool camera, bool files = false});
 }
 
 abstract interface class ImageCompressorPort {
@@ -28,15 +30,33 @@ abstract interface class ImageCompressorPort {
 }
 
 final class PlatformImagePicker implements ImagePickerPort {
+  PlatformImagePicker({MethodChannel? files})
+    : _files = files ?? const MethodChannel('jiabu/image_files');
   final ImagePicker _picker = ImagePicker();
+  final MethodChannel _files;
   @override
-  Future<List<Uint8List>> pick({required bool camera}) async {
+  Future<List<Uint8List>> pick({
+    required bool camera,
+    bool files = false,
+  }) async {
+    if (files) {
+      // Android's document picker (no storage permission), image/* only:
+      // the server and AI accept JPEG today, so other files wait.
+      try {
+        final picked = await _files.invokeListMethod<Uint8List>('pick', {
+          'limit': 9,
+        });
+        return (picked ?? const <Uint8List>[]).take(9).toList();
+      } on MissingPluginException {
+        // No platform side (desktop/tests): fall back to the photo picker.
+      }
+    }
     if (camera) {
       final file = await _picker.pickImage(source: ImageSource.camera);
       return file == null ? [] : [await file.readAsBytes()];
     }
-    final files = await _picker.pickMultiImage(limit: 9);
-    return await Future.wait(files.take(9).map((file) => file.readAsBytes()));
+    final chosen = await _picker.pickMultiImage(limit: 9);
+    return await Future.wait(chosen.take(9).map((file) => file.readAsBytes()));
   }
 }
 
@@ -80,6 +100,7 @@ final class MediaService {
     String spaceId,
     String module, {
     bool camera = false,
+    bool files = false,
     int limit = 9,
   }) async {
     final fence = await store.fence(spaceId);
@@ -88,7 +109,7 @@ final class MediaService {
     }
     final List<Uint8List> selected;
     try {
-      selected = await picker.pick(camera: camera);
+      selected = await picker.pick(camera: camera, files: files);
     } on Object {
       return const Failure('image_selection_failed');
     }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:jiabu/domain/chat.dart';
 import 'package:jiabu/features/catalog/c3_cases.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
+import 'package:jiabu/shared/chatweave/chat_attachment_sheet.dart';
 import 'package:jiabu/shared/chatweave/chat_composer.dart';
 import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chat_registry.dart';
@@ -58,6 +59,8 @@ const c5States = [
   'process_stopped',
   'process_collapsed',
   'conversation',
+  'attach_gallery',
+  'attach_files',
 ];
 
 /// The catalog's fixed "now" for date tapes: 2026-10-29 (the fixtures' day).
@@ -74,6 +77,8 @@ const _conversationStates = {
   'recovering',
   'ai_unavailable',
   'conversation',
+  'attach_gallery',
+  'attach_files',
 };
 
 /// Fictional protocol content. UI labels themselves always come from ARB.
@@ -563,8 +568,7 @@ class _C5PreviewState extends State<C5Preview> {
         draft: '',
         onDraft: (_) {},
         onSend: (_) async => true,
-        onPhoto: () {},
-        onGallery: () {},
+        onAttach: () {},
       );
     } else {
       body = JiabuMessageView(
@@ -584,82 +588,98 @@ class _C5PreviewState extends State<C5Preview> {
         state == 'setup_entry' ||
         _conversationStates.contains(state)) {
       final empty = state == 'empty' || state == 'setup_entry';
-      return JiabuChatWeaveTheme(
-        child: MainFrame(
-          title: l.ledgerChatTitle,
-          handEnglish: l.handChatEnglish,
-          subtitle: l.handChatSubtitleShared,
-          showMark: true,
-          spaceName: '虚构空间A',
-          accent:
-              context.jiabu.colors.spaceAccents[widget.accent] ??
-              context.jiabu.colors.primaryText,
-          labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory, l.ledgerMe],
-          selected: 0,
-          onSelect: (_) {},
-          child: Column(
-            children: [
-              if (state == 'ai_unavailable')
-                Padding(
-                  padding: const EdgeInsets.all(JiabuChatMetrics.gap),
-                  child: body,
-                ),
-              Expanded(
-                child: empty
-                    ? Center(child: body)
-                    : ChatWeaveList(
-                        store: _store,
-                        registry: registry,
-                        conversationId: 'conversation',
-                        interactions: _actions,
-                        composer: _composer,
-                        stopRequested: state == 'stopping'
-                            ? {'reply'}
-                            : const {},
-                        onStop: (_) {},
-                        userMessageBuilder: (_, message) => UserMessageNote(
-                          message: message,
-                          delivery: state == 'conversation'
-                              ? ChatDelivery.complete
-                              : ChatDelivery.waitingAi,
-                        ),
-                        messageFrameBuilder: (_, message, child) =>
-                            ChatDayFrame(
-                              day: _days.dayStartedBy(
-                                _store.snapshot.messages,
-                                message.id,
-                              ),
-                              now: c5Now,
-                              child: child is MessageView
-                                  ? JiabuMessageView(
-                                      source: child,
-                                      onRetry: () {},
-                                    )
-                                  : child,
-                            ),
+      final page = MainFrame(
+        title: l.ledgerChatTitle,
+        handEnglish: l.handChatEnglish,
+        subtitle: l.handChatSubtitleShared,
+        showMark: true,
+        spaceName: '虚构空间A',
+        accent:
+            context.jiabu.colors.spaceAccents[widget.accent] ??
+            context.jiabu.colors.primaryText,
+        labels: [l.ledgerChat, l.ledgerOverview, l.ledgerHistory, l.ledgerMe],
+        selected: 0,
+        onSelect: (_) {},
+        child: Column(
+          children: [
+            if (state == 'ai_unavailable')
+              Padding(
+                padding: const EdgeInsets.all(JiabuChatMetrics.gap),
+                child: body,
+              ),
+            Expanded(
+              child: empty
+                  ? Center(child: body)
+                  : ChatWeaveList(
+                      store: _store,
+                      registry: registry,
+                      conversationId: 'conversation',
+                      interactions: _actions,
+                      composer: _composer,
+                      stopRequested: state == 'stopping' ? {'reply'} : const {},
+                      onStop: (_) {},
+                      userMessageBuilder: (_, message) => UserMessageNote(
+                        message: message,
+                        delivery:
+                            state == 'conversation' ||
+                                state.startsWith('attach_')
+                            ? ChatDelivery.complete
+                            : ChatDelivery.waitingAi,
                       ),
-              ),
-              JiabuChatComposer(
-                composer: _composer,
-                draft: '',
-                onDraft: (_) {},
-                onSend: (_) async => true,
-                onPhoto: () {},
-                onGallery: () {},
-                stopActive: const {
-                  'streaming',
-                  'thinking',
-                  'thinking_tools',
-                  'streaming_text',
-                  'paused',
-                  'stopping',
-                }.contains(state),
-                stopRequested: state == 'stopping',
-                onStop: () {},
-              ),
-            ],
-          ),
+                      messageFrameBuilder: (_, message, child) => ChatDayFrame(
+                        day: _days.dayStartedBy(
+                          _store.snapshot.messages,
+                          message.id,
+                        ),
+                        now: c5Now,
+                        child: child is MessageView
+                            ? JiabuMessageView(source: child, onRetry: () {})
+                            : child,
+                      ),
+                    ),
+            ),
+            JiabuChatComposer(
+              composer: _composer,
+              draft: '',
+              onDraft: (_) {},
+              onSend: (_) async => true,
+              onAttach: () {},
+              stopActive: const {
+                'streaming',
+                'thinking',
+                'thinking_tools',
+                'streaming_text',
+                'paused',
+                'stopping',
+              }.contains(state),
+              stopRequested: state == 'stopping',
+              onStop: () {},
+            ),
+          ],
         ),
+      );
+      // V5b: the paperclip's attachment sheet open over the chat page.
+      final sheet = state.startsWith('attach_');
+      return JiabuChatWeaveTheme(
+        child: !sheet
+            ? page
+            : Stack(
+                children: [
+                  page,
+                  Positioned.fill(
+                    child: ColoredBox(color: context.jiabu.colors.scrim),
+                  ),
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: JiabuSheet(
+                      child: ChatAttachmentSheet(
+                        initialTab: state == 'attach_files' ? 1 : 0,
+                        onPick: (_) {},
+                      ),
+                    ),
+                  ),
+                ],
+              ),
       );
     }
     return JiabuChatWeaveTheme(

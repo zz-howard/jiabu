@@ -1,12 +1,15 @@
 import 'package:chatweave_flutter/chatweave_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:jiabu/data/services/media_service.dart';
 import 'package:jiabu/domain/chat.dart';
 import 'package:jiabu/features/catalog/c5_cases.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/l10n/generated/app_localizations_en.dart';
 import 'package:jiabu/l10n/generated/app_localizations_zh.dart';
+import 'package:jiabu/shared/chatweave/chat_attachment_sheet.dart';
 import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
 import 'package:jiabu/shared/chatweave/cjk_emphasis.dart';
 import 'package:jiabu/shared/chatweave/user_message_note.dart';
@@ -307,38 +310,41 @@ void main() {
   });
 
   group('floating composer', () {
-    testWidgets('round camera, pencil in a paper field, round send', (
+    testWidgets('no camera button; paperclip in a paper field; round send', (
       tester,
     ) async {
       await pumpC3(tester, child: const C5Preview(state: 'composer_idle'));
-      final camera = find.byKey(const ValueKey('chat-camera'));
-      expect(
-        tester.getSize(camera),
-        const Size.square(JiabuChatMetrics.action),
-      );
-      expect(
-        (tester
-                    .widget<DecoratedBox>(
-                      find
-                          .descendant(
-                            of: camera,
-                            matching: find.byType(DecoratedBox),
-                          )
-                          .first,
-                    )
-                    .decoration
-                as BoxDecoration)
-            .shape,
-        BoxShape.circle,
-      );
+      expect(find.byKey(const ValueKey('chat-camera')), findsNothing);
+      expect(find.byType(PaperRoundButton), findsNothing);
       final field = find.byKey(const Key('paper-composer-field'));
       expect(_icon(JiabuIcons.doodlePencil, within: field), findsOneWidget);
+      final attach = find.descendant(
+        of: field,
+        matching: find.byKey(const ValueKey('chat-attach')),
+      );
+      expect(attach, findsOneWidget);
+      final clip = _icon(JiabuIcons.uiAttach, within: attach);
+      expect(clip, findsOneWidget);
+      final pencil = tester.widget<JiabuIcon>(
+        _icon(JiabuIcons.doodlePencil, within: field),
+      );
+      final glyph = tester.widget<JiabuIcon>(clip);
+      // Same line family as camera / image / nav icons, pencil's ink and
+      // roughly its optical size.
+      expect(glyph.icon.strokeWidth, JiabuIcons.uiCamera.strokeWidth);
+      expect(glyph.icon.category, JiabuIcons.uiCamera.category);
+      expect(glyph.color, pencil.color);
+      expect(glyph.size, inInclusiveRange(20, 22));
       expect(
-        find.descendant(
-          of: field,
-          matching: find.byKey(const ValueKey('chat-gallery')),
-        ),
-        findsOneWidget,
+        tester.getSize(attach).height,
+        greaterThanOrEqualTo(JiabuChatMetrics.fieldButton),
+      );
+      expect(tester.widget<IconButton>(attach).tooltip, '附件');
+      // The field now starts at the composer's left inset.
+      expect(
+        tester.getRect(field).left -
+            tester.getRect(find.byKey(const Key('chat-composer'))).left,
+        closeTo(JiabuSpacing.md, .5),
       );
       expect(
         tester.getSize(field).height,
@@ -373,6 +379,107 @@ void main() {
         ),
         JiabuChatMetrics.sendTilt,
       );
+    });
+  });
+
+  group('attachment sheet', () {
+    testWidgets('gallery tab: camera tile first in a three-column grid', (
+      tester,
+    ) async {
+      await pumpC3(tester, child: const C5Preview(state: 'attach_gallery'));
+      final sheet = find.byKey(const Key('jiabu-sheet'));
+      expect(sheet, findsOneWidget);
+      final camera = tester.getRect(
+        find.byKey(const ValueKey('chat-attach-camera')),
+      );
+      final gallery = tester.getRect(
+        find.byKey(const ValueKey('chat-attach-gallery')),
+      );
+      final grid = tester.getRect(find.byKey(const Key('chat-attach-grid')));
+      expect(camera.left, closeTo(grid.left, .5));
+      expect(gallery.left, greaterThan(camera.right));
+      expect(camera.top, closeTo(gallery.top, .5));
+      expect(camera.width, closeTo((grid.width - JiabuSpacing.sm * 2) / 3, .5));
+      expect(camera.height, greaterThanOrEqualTo(camera.width - .5));
+      expect(find.text('拍照'), findsOneWidget);
+      expect(find.text('从相册选择'), findsOneWidget);
+      expect(find.byKey(const Key('chat-attach-files-note')), findsNothing);
+      // Tabs sit at the bottom; 相册 is selected and tilted like the badge.
+      final tabs = find.byKey(const Key('chat-attach-tabs'));
+      expect(tester.getRect(tabs).top, greaterThan(camera.bottom));
+      final tab = tester.widget<PaperSegmentedTabs>(tabs);
+      expect(tab.selected, 0);
+      expect(tab.labels, ['相册', '文件']);
+      for (final key in ['paper-tab-0', 'paper-tab-1']) {
+        expect(
+          tester.getSize(find.byKey(ValueKey(key))).height,
+          greaterThanOrEqualTo(44),
+        );
+      }
+    });
+
+    testWidgets('files tab: image files only, with the note', (tester) async {
+      await pumpC3(tester, child: const C5Preview(state: 'attach_gallery'));
+      await tester.tap(find.byKey(const ValueKey('paper-tab-1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('chat-attach-files')), findsOneWidget);
+      expect(find.byKey(const ValueKey('chat-attach-camera')), findsNothing);
+      expect(find.text('选择图片文件'), findsOneWidget);
+      expect(find.text('目前只支持图片文件，PDF 等文件稍后支持'), findsOneWidget);
+    });
+
+    for (final (tab, key, source) in [
+      (0, 'chat-attach-camera', ChatAttachSource.camera),
+      (0, 'chat-attach-gallery', ChatAttachSource.gallery),
+      (1, 'chat-attach-files', ChatAttachSource.files),
+    ]) {
+      testWidgets('tile_${key}_resolves_the_sheet_to_$source', (tester) async {
+        ChatAttachSource? picked;
+        await pumpC3(
+          tester,
+          child: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async =>
+                  picked = await showChatAttachmentSheet(context),
+              child: const Text('open'),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        if (tab == 1) {
+          await tester.tap(find.byKey(const ValueKey('paper-tab-1')));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.byKey(ValueKey(key)));
+        await tester.pumpAndSettle();
+        expect(picked, source);
+        expect(find.byKey(const Key('chat-attachment-sheet')), findsNothing);
+      });
+    }
+
+    test('the 文件 tab asks Android for image files, at most nine', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const channel = MethodChannel('jiabu/image_files');
+      MethodCall? call;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (request) async {
+            call = request;
+            return [
+              for (var i = 0; i < 12; i++) Uint8List.fromList([i]),
+            ];
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      final picked = await PlatformImagePicker().pick(
+        camera: false,
+        files: true,
+      );
+      expect(call?.method, 'pick');
+      expect(call?.arguments, {'limit': 9});
+      expect(picked, hasLength(9));
     });
   });
 

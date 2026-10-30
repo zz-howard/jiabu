@@ -1,0 +1,89 @@
+{
+  "instructions": "Build host only; apply ONE control, require the named assertion to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly. Commands run from client/app.",
+  "controls": [
+    {
+      "id": "attach_button_not_a_paperclip",
+      "file": "client/app/lib/shared/chatweave/chat_composer.dart",
+      "find": "JiabuIcons.uiAttach,",
+      "replace": "JiabuIcons.doodleClip,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": [
+        "floating composer no camera button; paperclip in a paper field; round send"
+      ],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "camera_tile_opens_gallery",
+      "file": "client/app/lib/shared/chatweave/chat_attachment_sheet.dart",
+      "find": "source: ChatAttachSource.camera,",
+      "replace": "source: ChatAttachSource.gallery,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": [
+        "attachment sheet tile_chat-attach-camera_resolves_the_sheet_to_ChatAttachSource.camera"
+      ],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "files_tab_shows_gallery_tiles",
+      "file": "client/app/lib/shared/chatweave/chat_attachment_sheet.dart",
+      "find": "final tiles = _tab == 0",
+      "replace": "final tiles = _tab >= 0",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": [
+        "attachment sheet files tab: image files only, with the note"
+      ],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "files_note_missing",
+      "file": "client/app/lib/shared/chatweave/chat_attachment_sheet.dart",
+      "find": "if (_tab == 1)",
+      "replace": "if (_tab == 2)",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": [
+        "attachment sheet files tab: image files only, with the note"
+      ],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "gallery_grid_two_columns",
+      "file": "client/app/lib/shared/chatweave/chat_attachment_sheet.dart",
+      "find": "static const columns = 3;",
+      "replace": "static const columns = 2;",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": [
+        "attachment sheet gallery tab: camera tile first in a three-column grid"
+      ],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "files_skip_document_picker",
+      "file": "client/app/lib/data/services/media_service.dart",
+      "find": "    if (files) {",
+      "replace": "    if (files && camera) {",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/v5_chat_restore_test.dart",
+      "test_names": [
+        "attachment sheet the 文件 tab asks Android for image files, at most nine"
+      ],
+      "command": "flutter test test/features/v5_chat_restore_test.dart"
+    },
+    {
+      "id": "media_drops_files_flag",
+      "file": "client/app/lib/data/services/media_service.dart",
+      "find": "selected = await picker.pick(camera: camera, files: files);",
+      "replace": "selected = await picker.pick(camera: camera, files: false);",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/data/media_and_logs_test.dart",
+      "test_names": [
+        "image_files_go_through_the_same_jpeg_pipeline"
+      ],
+      "command": "flutter test test/data/media_and_logs_test.dart"
+    }
+  ]
+}

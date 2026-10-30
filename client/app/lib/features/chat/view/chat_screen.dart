@@ -10,6 +10,7 @@ import 'package:jiabu/features/chat/view_model/chat_view_model.dart';
 import 'package:jiabu/features/chat/widgets/chat_composer.dart';
 import 'package:jiabu/features/chat/widgets/user_message_note.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
+import 'package:jiabu/shared/chatweave/chat_attachment_sheet.dart';
 import 'package:jiabu/shared/chatweave/chat_block_revealer.dart';
 import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chatweave_theme.dart';
@@ -112,6 +113,18 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
 
     final days = _dayBreaks(session.conversationId);
     final now = ref.watch(ledgerClockProvider)();
+    // The paperclip's sheet: camera, system photo picker, or image files;
+    // all three go through the same JPEG pipeline.
+    Future<void> attach() async {
+      final source = await showChatAttachmentSheet(context);
+      if (source != null) {
+        await vm.photos(
+          camera: source == ChatAttachSource.camera,
+          files: source == ChatAttachSource.files,
+        );
+      }
+    }
+
     Future<void> manual(String id) async {
       final initial = await vm.takeOver(id);
       if (context.mounted && initial != null) {
@@ -220,8 +233,7 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
             draft: state.draft,
             onDraft: vm.draft,
             onSend: vm.send,
-            onPhoto: () => unawaited(vm.photos(camera: true)),
-            onGallery: () => unawaited(vm.photos(camera: false)),
+            onAttach: () => unawaited(attach()),
             busy: state.busy,
             photoCount: state.images.length,
             stopActive: activeId != null && session.online,

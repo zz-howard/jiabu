@@ -35,7 +35,11 @@ abstract interface class ChatConversation {
   Future<void> saveDraft(String text, List<String> images);
   Future<Result<void>> send(String text, List<String> images);
   Future<Result<List<int>>> image(String hash);
-  Future<Result<List<String>>> photos({required bool camera, int limit = 8});
+  Future<Result<List<String>>> photos({
+    required bool camera,
+    bool files = false,
+    int limit = 8,
+  });
   Future<Result<void>> retry(String messageId);
   Future<Result<void>> retryUpload(String userMessageId);
   Future<Result<void>> stop(String messageId);

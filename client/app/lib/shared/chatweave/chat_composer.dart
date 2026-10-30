@@ -11,8 +11,7 @@ class JiabuChatComposer extends StatefulWidget {
     required this.draft,
     required this.onDraft,
     required this.onSend,
-    required this.onPhoto,
-    required this.onGallery,
+    required this.onAttach,
     this.busy = false,
     this.photoCount = 0,
     this.stopActive = false,
@@ -24,8 +23,10 @@ class JiabuChatComposer extends StatefulWidget {
   final String draft;
   final ValueChanged<String> onDraft;
   final Future<bool> Function(String) onSend;
-  final VoidCallback onPhoto;
-  final VoidCallback onGallery;
+
+  /// The paperclip in the field: opens the attachment sheet (camera,
+  /// gallery, image files).
+  final VoidCallback onAttach;
   final bool busy;
   final int photoCount;
 
@@ -76,10 +77,9 @@ class _JiabuChatComposerState extends State<JiabuChatComposer> {
       final answering = state.mode == ComposerMode.answering;
       final question =
           state.block?.data['prompt'] ?? state.block?.data['title'] ?? '';
-      // Design-spec 4.17b (V5): no full-width bar. A round paper camera
-      // button, the field as a small floating paper card (pencil inside,
-      // gallery at its end) and the round send / stop button float on the
-      // page's paper.
+      // Design-spec 4.17b (V5b, Telegram-like): no full-width bar. The field
+      // is a small floating paper card (pencil inside, paperclip at its end
+      // opening the attachment sheet) next to the round send / stop button.
       return DecoratedBox(
         key: const Key('chat-composer'),
         decoration: const BoxDecoration(),
@@ -141,38 +141,36 @@ class _JiabuChatComposerState extends State<JiabuChatComposer> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(
-                      bottom: JiabuChatMetrics.roundLift,
-                    ),
-                    child: PaperRoundButton(
-                      key: const ValueKey('chat-camera'),
-                      icon: JiabuIcons.uiCamera,
-                      label: l.chatPhoto,
-                      onPressed: !locked && !answering && !widget.busy
-                          ? widget.onPhoto
-                          : null,
-                    ),
-                  ),
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: JiabuSpacing.sm,
-                      ),
+                      padding: const EdgeInsets.only(right: JiabuSpacing.sm),
                       child: PaperComposerField(
                         locked: locked,
-                        trailing: IconButton(
-                          key: const ValueKey('chat-gallery'),
-                          tooltip: l.chatGallery,
-                          constraints: const BoxConstraints.tightFor(
-                            width: JiabuChatMetrics.fieldButton,
-                            height: JiabuChatMetrics.fieldButton,
-                          ),
-                          padding: EdgeInsets.zero,
-                          onPressed: !locked && !answering && !widget.busy
-                              ? widget.onGallery
-                              : null,
-                          icon: const JiabuIcon(JiabuIcons.uiImage),
+                        trailing: Builder(
+                          builder: (context) {
+                            final enabled =
+                                !locked && !answering && !widget.busy;
+                            return IconButton(
+                              key: const ValueKey('chat-attach'),
+                              tooltip: l.chatAttach,
+                              constraints: const BoxConstraints.tightFor(
+                                width: JiabuChatMetrics.fieldButton,
+                                height: JiabuChatMetrics.fieldButton,
+                              ),
+                              padding: EdgeInsets.zero,
+                              onPressed: enabled ? widget.onAttach : null,
+                              // Lucide paperclip, same line family as the
+                              // camera / image / nav icons; pencil's ink
+                              // and optical size.
+                              icon: JiabuIcon(
+                                JiabuIcons.uiAttach,
+                                size: JiabuChatMetrics.attachIcon,
+                                color: enabled
+                                    ? context.jiabu.colors.ink3
+                                    : context.jiabu.colors.lineStrong,
+                              ),
+                            );
+                          },
                         ),
                         child: TextField(
                           key: const ValueKey('chat-input'),
