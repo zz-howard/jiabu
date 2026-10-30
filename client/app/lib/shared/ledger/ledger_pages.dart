@@ -350,16 +350,16 @@ class PendingItems extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return JiabuStack(
       children: [
         if (snapshot.pending.isEmpty && snapshot.conflicts.isEmpty)
-          Text(l.ledgerNoPending),
+          JiabuStackItem.content(child: Text(l.ledgerNoPending)),
         for (final op in snapshot.pending)
-          PaperCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+          JiabuStackItem.content(
+            child: PaperCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                 Text(
                   operationTitle(snapshot, op, l),
                   style: context.jiabu.type.listTitle,
@@ -392,18 +392,21 @@ class PendingItems extends ConsumerWidget {
                         .command((repo) => repo.retry(snapshot.spaceId, op.id)),
                     child: Text(l.ledgerRetry),
                   ),
-              ],
+                ],
+              ),
             ),
           ),
         for (final conflict in snapshot.conflicts)
-          TextButton(
-            onPressed: () => openConflict(
-              context,
-              snapshot.spaceId,
-              conflict.text('entity_kind'),
-              conflict.text('entity_id'),
+          JiabuStackItem.content(
+            child: TextButton(
+              onPressed: () => openConflict(
+                context,
+                snapshot.spaceId,
+                conflict.text('entity_kind'),
+                conflict.text('entity_id'),
+              ),
+              child: Text(l.ledgerConflict),
             ),
-            child: Text(l.ledgerConflict),
           ),
       ],
     );
@@ -458,33 +461,38 @@ class HistoryPage extends ConsumerWidget {
       await LedgerSheet.show<void>(
         context: context,
         spaceId: snapshot.spaceId,
-        builder: (sheetContext) => Column(
-          mainAxisSize: MainAxisSize.min,
+        builder: (sheetContext) => JiabuStack(
           children: [
-            Text(label, style: context.jiabu.type.cardTitle),
-            PaperRow(
-              child: ListTile(
-                title: Text(l.ledgerAll),
-                selected: selected == null,
-                onTap: () {
-                  choose(null);
-                  Navigator.of(sheetContext).pop();
-                },
+            JiabuStackItem.content(
+              child: Text(label, style: context.jiabu.type.cardTitle),
+            ),
+            JiabuStackItem.content(
+              child: PaperRow(
+                child: ListTile(
+                  title: Text(l.ledgerAll),
+                  selected: selected == null,
+                  onTap: () {
+                    choose(null);
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
               ),
             ),
             for (final item in options)
-              PaperRow(
-                child: ListTile(
-                  title: Text(item.$2),
-                  selected: item.$1 == selected,
-                  selectedTileColor: context.jiabu.colors.primarySoft,
-                  trailing: item.$1 == selected
-                      ? const JiabuIcon(JiabuIcons.uiCheck)
-                      : null,
-                  onTap: () {
-                    choose(item.$1);
-                    Navigator.of(sheetContext).pop();
-                  },
+              JiabuStackItem.content(
+                child: PaperRow(
+                  child: ListTile(
+                    title: Text(item.$2),
+                    selected: item.$1 == selected,
+                    selectedTileColor: context.jiabu.colors.primarySoft,
+                    trailing: item.$1 == selected
+                        ? const JiabuIcon(JiabuIcons.uiCheck)
+                        : null,
+                    onTap: () {
+                      choose(item.$1);
+                      Navigator.of(sheetContext).pop();
+                    },
+                  ),
                 ),
               ),
           ],
@@ -757,13 +765,22 @@ class DateFilterForm extends ConsumerWidget {
       spaceId: spaceId,
       formId: 'date-filter',
       initial: {'from': filter.from ?? '', 'through': filter.through ?? ''},
-      builder: (context, ref, state, model) => Column(
-        mainAxisSize: MainAxisSize.min,
+      builder: (context, ref, state, model) => JiabuStack(
         children: [
-          formField(context, state, model, 'from', l.ledgerFromDate),
-          formField(context, state, model, 'through', l.ledgerThroughDate),
-          formError(context, state.error),
-          FilledButton(
+          ...formFieldItems(context, state, model, 'from', l.ledgerFromDate),
+          ...formFieldItems(
+            context,
+            state,
+            model,
+            'through',
+            l.ledgerThroughDate,
+          ),
+          if (state.error != null)
+            JiabuStackItem.captionAfter(
+              child: formError(context, state.error),
+            ),
+          JiabuStackItem.action(
+            child: FilledButton(
             onPressed: () {
               final from = state.values['from']?.toString() ?? '';
               final through = state.values['through']?.toString() ?? '';
@@ -789,7 +806,8 @@ class DateFilterForm extends ConsumerWidget {
                   );
               Navigator.of(context).pop();
             },
-            child: Text(l.ledgerSave),
+              child: Text(l.ledgerSave),
+            ),
           ),
         ],
       ),
@@ -824,7 +842,10 @@ class AccountsPage extends ConsumerWidget {
       children: [
         JiabuStack(
           children: [
-            JiabuStackItem.content(child: formError(context, state.error)),
+            if (state.error != null)
+              JiabuStackItem.captionAfter(
+                child: formError(context, state.error),
+              ),
             if (result is Failure<Map<String, int>>)
               JiabuStackItem.captionAfter(
                 child: Text(ledgerError(l, result.code)),
@@ -998,14 +1019,17 @@ Future<void> archiveGuide(
   await LedgerSheet.show<void>(
     context: context,
     spaceId: snapshot.spaceId,
-    builder: (sheetContext) => Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    builder: (sheetContext) => JiabuStack(
       children: [
-        Text(balance == 0 ? l.ledgerArchiveConfirm : l.ledgerArchiveGuide),
+        JiabuStackItem.content(
+          child: Text(
+            balance == 0 ? l.ledgerArchiveConfirm : l.ledgerArchiveGuide,
+          ),
+        ),
         if (balance != 0)
-          FilledButton(
-            onPressed: () {
+          JiabuStackItem.action(
+            child: FilledButton(
+              onPressed: () {
               Navigator.of(sheetContext).pop();
               final real = account.text('kind') == 'real';
               unawaited(
@@ -1023,11 +1047,13 @@ Future<void> archiveGuide(
                 ),
               );
             },
-            child: Text(l.ledgerMoveBalance),
+              child: Text(l.ledgerMoveBalance),
+            ),
           )
         else
-          FilledButton(
-            onPressed: () async {
+          JiabuStackItem.action(
+            child: FilledButton(
+              onPressed: () async {
               final ok = await ref
                   .read(ledgerViewModelProvider(snapshot.spaceId).notifier)
                   .command(
@@ -1037,7 +1063,8 @@ Future<void> archiveGuide(
                 Navigator.of(sheetContext).pop();
               }
             },
-            child: Text(l.ledgerArchive),
+              child: Text(l.ledgerArchive),
+            ),
           ),
       ],
     ),

@@ -2,6 +2,18 @@
   "instructions": "Build host only; apply ONE control, require the named assertion or rules command to fail, then restore. Compiler failure is not success. Files are repository-relative and each find must match expected_occurrences exactly.",
   "controls": [
     {
+      "id": "manual_account_label_is_not_caption",
+      "file": "client/app/lib/shared/ledger/ledger_forms.dart",
+      "find": "return [\n    JiabuStackItem.captionBefore(\n      child: Text(\n        label,",
+      "replace": "return [\n    JiabuStackItem.content(\n      child: Text(\n        label,",
+      "expected_occurrences": 1,
+      "test_file": "client/app/test/features/c3_layout_test.dart",
+      "test_names": [
+        "manual account label captions its chip group"
+      ],
+      "command": "flutter test test/features/c3_layout_test.dart"
+    },
+    {
       "id": "stack_omits_default_gap",
       "file": "client/packages/jiabu_design/lib/src/components/stack.dart",
       "find": "return JiabuSpacing.cardGap;",

@@ -135,7 +135,7 @@ class _FormScopeState extends ConsumerState<FormScope> {
   }
 }
 
-Widget formField(
+List<JiabuStackItem> formFieldItems(
   BuildContext context,
   LedgerFormState state,
   LedgerFormViewModel model,
@@ -143,21 +143,29 @@ Widget formField(
   String label, {
   bool numeric = false,
   int? maxLength,
-}) => Padding(
-  padding: const EdgeInsets.only(bottom: JiabuSpacing.cardGap),
-  child: const ['occurred_on', 'opening_on', 'from', 'through'].contains(key)
+}) {
+  final value = state.values[key]?.toString() ?? '';
+  final field = const [
+    'occurred_on',
+    'opening_on',
+    'from',
+    'through',
+  ].contains(key)
       ? LedgerDateField(
-          value: state.values[key]?.toString() ?? '',
+          value: value,
           label: label,
-          onChanged: (value) => model.patch(key, value),
+          onChanged: (next) => model.patch(key, next),
         )
       : TextFormField(
           key: ValueKey(
             '${state.values['kind'] ?? ''}-$key-'
             '${state.values['_refresh'] ?? 0}',
           ),
-          initialValue: state.values[key]?.toString() ?? '',
-          decoration: InputDecoration(labelText: label),
+          initialValue: value,
+          decoration: InputDecoration(
+            labelText: label,
+            counterText: maxLength == null ? null : '',
+          ),
           maxLength: maxLength,
           keyboardType: numeric
               ? const TextInputType.numberWithOptions(
@@ -166,24 +174,33 @@ Widget formField(
                 )
               : TextInputType.text,
           onChanged: (text) => model.patch(key, text),
+        );
+  return [
+    JiabuStackItem.content(child: field),
+    if (maxLength != null)
+      JiabuStackItem.captionAfter(
+        child: Text(
+          '${value.length}/$maxLength',
+          textAlign: TextAlign.end,
+          style: context.jiabu.type.caption,
         ),
-);
+      ),
+  ];
+}
+
 Widget formError(BuildContext context, String? code) => code == null
     ? const SizedBox.shrink()
     : Semantics(
         liveRegion: true,
-        child: Padding(
-          padding: const EdgeInsets.all(JiabuSpacing.cardGap),
-          child: Text(
-            ledgerError(AppLocalizations.of(context), code),
-            style: context.jiabu.type.secondary.copyWith(
-              color: context.jiabu.colors.neg,
-            ),
+        child: Text(
+          ledgerError(AppLocalizations.of(context), code),
+          style: context.jiabu.type.secondary.copyWith(
+            color: context.jiabu.colors.neg,
           ),
         ),
       );
 
-Widget accountChoices(
+List<JiabuStackItem> accountChoiceItems(
   BuildContext context,
   LedgerSnapshot snapshot,
   LedgerFormState state,
@@ -207,13 +224,17 @@ Widget accountChoices(
             (!a.archived || original?.text(field) == a.id),
       )
       .toList();
-  return Column(
-    key: ValueKey('account-choices-$field'),
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Text(label, style: context.jiabu.type.listTitle),
-      if (rows.isEmpty) Text(l.ledgerSelectAccount),
-      JiabuChipGroup(
+  return [
+    JiabuStackItem.captionBefore(
+      child: Text(
+        label,
+        key: ValueKey('account-choices-$field'),
+        style: context.jiabu.type.listTitle,
+      ),
+    ),
+    JiabuStackItem.content(
+      child: JiabuChipGroup(
+        key: ValueKey('account-chip-group-$field'),
         children: [
           for (final a in rows)
             ChoiceChip(
@@ -226,8 +247,10 @@ Widget accountChoices(
             ),
         ],
       ),
-    ],
-  );
+    ),
+    if (rows.isEmpty)
+      JiabuStackItem.captionAfter(child: Text(l.ledgerSelectAccount)),
+  ];
 }
 
 class RecordForm extends ConsumerWidget {
@@ -283,50 +306,54 @@ class RecordForm extends ConsumerWidget {
           snapshot.records,
           state.values['refund_of_id']?.toString() ?? '',
         );
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
+        return JiabuStack(
           children: [
-            Text(
-              original != null
-                  ? l.ledgerEdit
-                  : isRefund
-                  ? l.ledgerRefund
-                  : l.ledgerManual,
-              style: context.jiabu.type.cardTitle,
+            JiabuStackItem.content(
+              child: Text(
+                original != null
+                    ? l.ledgerEdit
+                    : isRefund
+                    ? l.ledgerRefund
+                    : l.ledgerManual,
+                style: context.jiabu.type.cardTitle,
+              ),
             ),
             if (original == null && !isRefund)
-              JiabuChipGroup(
-                children: [
-                  for (final type in [
-                    'expense',
-                    'income',
-                    'transfer',
-                    'reallocation',
-                  ])
-                    ChoiceChip(
-                      key: ValueKey('kind-$type'),
-                      label: Text(labels[type] ?? ''),
-                      selected: type == kind,
-                      onSelected: (_) => model.kind(type),
-                    ),
-                ],
-              ),
-            if (isRefund && parent != null)
-              DottedFieldRow(
-                label: l.ledgerRefundRemaining,
-                value: formatMinor(
-                  parent.number('amount_minor') -
-                      refundedMinor(
-                        snapshot,
-                        parent.id,
-                        excluding: original?.id,
+              JiabuStackItem.content(
+                child: JiabuChipGroup(
+                  children: [
+                    for (final type in [
+                      'expense',
+                      'income',
+                      'transfer',
+                      'reallocation',
+                    ])
+                      ChoiceChip(
+                        key: ValueKey('kind-$type'),
+                        label: Text(labels[type] ?? ''),
+                        selected: type == kind,
+                        onSelected: (_) => model.kind(type),
                       ),
-                  snapshot.currency,
-                  l.localeName,
+                  ],
                 ),
               ),
-            formField(
+            if (isRefund && parent != null)
+              JiabuStackItem.content(
+                child: DottedFieldRow(
+                  label: l.ledgerRefundRemaining,
+                  value: formatMinor(
+                    parent.number('amount_minor') -
+                        refundedMinor(
+                          snapshot,
+                          parent.id,
+                          excluding: original?.id,
+                        ),
+                    snapshot.currency,
+                    l.localeName,
+                  ),
+                ),
+              ),
+            ...formFieldItems(
               context,
               state,
               model,
@@ -340,7 +367,7 @@ class RecordForm extends ConsumerWidget {
               'refund',
               'transfer',
             ].contains(kind))
-              accountChoices(
+              ...accountChoiceItems(
                 context,
                 snapshot,
                 state,
@@ -355,7 +382,7 @@ class RecordForm extends ConsumerWidget {
                 original: original,
               ),
             if (kind == 'transfer')
-              accountChoices(
+              ...accountChoiceItems(
                 context,
                 snapshot,
                 state,
@@ -371,7 +398,7 @@ class RecordForm extends ConsumerWidget {
               'allocation',
               'reallocation',
             ].contains(kind))
-              accountChoices(
+              ...accountChoiceItems(
                 context,
                 snapshot,
                 state,
@@ -382,7 +409,7 @@ class RecordForm extends ConsumerWidget {
                 original: original,
               ),
             if (kind == 'reallocation')
-              accountChoices(
+              ...accountChoiceItems(
                 context,
                 snapshot,
                 state,
@@ -393,9 +420,15 @@ class RecordForm extends ConsumerWidget {
                 original: original,
               ),
             if (hasTags) ...[
-              Text(l.ledgerTags, style: context.jiabu.type.listTitle),
-              JiabuChipGroup(
-                children: [
+              JiabuStackItem.captionBefore(
+                child: Text(
+                  l.ledgerTags,
+                  style: context.jiabu.type.listTitle,
+                ),
+              ),
+              JiabuStackItem.content(
+                child: JiabuChipGroup(
+                  children: [
                   for (final tag in snapshot.tags.where(
                     (tag) =>
                         tag.data['deleted_at'] == null ||
@@ -429,10 +462,11 @@ class RecordForm extends ConsumerWidget {
                         ? null
                         : () => model.patch('show_new_tag', true),
                   ),
-                ],
+                  ],
+                ),
               ),
               if (state.values['show_new_tag'] == true) ...[
-                formField(
+                ...formFieldItems(
                   context,
                   state,
                   model,
@@ -440,27 +474,35 @@ class RecordForm extends ConsumerWidget {
                   l.ledgerNewTag,
                   maxLength: 30,
                 ),
-                OutlinedButton(
-                  onPressed: state.busy
-                      ? null
-                      : () async {
-                          final name =
-                              state.values['new_tag']?.toString() ?? '';
-                          final ok = await model.submit(
-                            (repo, _) => repo.createTag(spaceId, name),
-                          );
-                          if (ok && context.mounted) {
-                            model
-                              ..patch('new_tag', '')
-                              ..patch('show_new_tag', false);
-                          }
-                        },
-                  child: Text(l.ledgerSave),
+                JiabuStackItem.action(
+                  child: OutlinedButton(
+                    onPressed: state.busy
+                        ? null
+                        : () async {
+                            final name =
+                                state.values['new_tag']?.toString() ?? '';
+                            final ok = await model.submit(
+                              (repo, _) => repo.createTag(spaceId, name),
+                            );
+                            if (ok && context.mounted) {
+                              model
+                                ..patch('new_tag', '')
+                                ..patch('show_new_tag', false);
+                            }
+                          },
+                    child: Text(l.ledgerSave),
+                  ),
                 ),
               ],
             ],
-            formField(context, state, model, 'occurred_on', l.ledgerDate),
-            formField(
+            ...formFieldItems(
+              context,
+              state,
+              model,
+              'occurred_on',
+              l.ledgerDate,
+            ),
+            ...formFieldItems(
               context,
               state,
               model,
@@ -468,8 +510,12 @@ class RecordForm extends ConsumerWidget {
               l.ledgerNote,
               maxLength: 500,
             ),
-            formError(context, state.error),
-            FilledButton(
+            if (state.error != null)
+              JiabuStackItem.captionAfter(
+                child: formError(context, state.error),
+              ),
+            JiabuStackItem.action(
+              child: FilledButton(
               onPressed: state.busy || !snapshot.writable
                   ? null
                   : () async {
@@ -539,7 +585,8 @@ class RecordForm extends ConsumerWidget {
                         Navigator.of(context).pop();
                       }
                     },
-              child: Text(l.ledgerSave),
+                child: Text(l.ledgerSave),
+              ),
             ),
           ],
         );
@@ -577,36 +624,50 @@ class AccountForm extends ConsumerWidget {
         'is_reserve': false,
         ...?account?.data,
       },
-      builder: (context, ref, state, model) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
+      builder: (context, ref, state, model) => JiabuStack(
         children: [
-          Text(
-            account == null ? l.ledgerNewAccount : l.ledgerRename,
-            style: context.jiabu.type.cardTitle,
+          JiabuStackItem.content(
+            child: Text(
+              account == null ? l.ledgerNewAccount : l.ledgerRename,
+              style: context.jiabu.type.cardTitle,
+            ),
           ),
           if (account == null)
-            JiabuChipGroup(
-              children: [
-                for (final kind in ['real', 'purpose'])
-                  ChoiceChip(
-                    label: Text(
-                      kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
+            JiabuStackItem.content(
+              child: JiabuChipGroup(
+                children: [
+                  for (final kind in ['real', 'purpose'])
+                    ChoiceChip(
+                      label: Text(
+                        kind == 'real' ? l.ledgerReal : l.ledgerPurpose,
+                      ),
+                      selected: state.values['kind'] == kind,
+                      onSelected: (_) {
+                        model.patch('kind', kind);
+                        if (kind == 'real') {
+                          model.patch('is_reserve', false);
+                        }
+                      },
                     ),
-                    selected: state.values['kind'] == kind,
-                    onSelected: (_) {
-                      model.patch('kind', kind);
-                      if (kind == 'real') {
-                        model.patch('is_reserve', false);
-                      }
-                    },
-                  ),
-              ],
+                ],
+              ),
             ),
-          formField(context, state, model, 'name', l.ledgerName, maxLength: 30),
+          ...formFieldItems(
+            context,
+            state,
+            model,
+            'name',
+            l.ledgerName,
+            maxLength: 30,
+          ),
           if (account == null) ...[
-            DottedFieldRow(label: l.ledgerCurrency, value: snapshot.currency),
-            formField(
+            JiabuStackItem.content(
+              child: DottedFieldRow(
+                label: l.ledgerCurrency,
+                value: snapshot.currency,
+              ),
+            ),
+            ...formFieldItems(
               context,
               state,
               model,
@@ -614,19 +675,31 @@ class AccountForm extends ConsumerWidget {
               l.ledgerOpening,
               numeric: true,
             ),
-            formField(context, state, model, 'opening_on', l.ledgerOpeningOn),
+            ...formFieldItems(
+              context,
+              state,
+              model,
+              'opening_on',
+              l.ledgerOpeningOn,
+            ),
             if (state.values['kind'] == 'purpose')
-              PaperRow(
-                child: SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(l.ledgerReserve),
-                  value: state.values['is_reserve'] == true,
-                  onChanged: (value) => model.patch('is_reserve', value),
+              JiabuStackItem.content(
+                child: PaperRow(
+                  child: SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(l.ledgerReserve),
+                    value: state.values['is_reserve'] == true,
+                    onChanged: (value) => model.patch('is_reserve', value),
+                  ),
                 ),
               ),
           ],
-          formError(context, state.error),
-          FilledButton(
+          if (state.error != null)
+            JiabuStackItem.captionAfter(
+              child: formError(context, state.error),
+            ),
+          JiabuStackItem.action(
+            child: FilledButton(
             onPressed: state.busy || !snapshot.writable
                 ? null
                 : () async {
@@ -662,7 +735,8 @@ class AccountForm extends ConsumerWidget {
                       Navigator.of(context).pop();
                     }
                   },
-            child: Text(l.ledgerSave),
+              child: Text(l.ledgerSave),
+            ),
           ),
         ],
       ),
@@ -697,13 +771,15 @@ class AllocationPlanForm extends ConsumerWidget {
         'day_text': plan?.text('day_of_month') ?? '1',
         'enabled': plan?.flag('enabled') ?? true,
       },
-      builder: (context, ref, state, model) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
+      builder: (context, ref, state, model) => JiabuStack(
         children: [
-          Text(l.ledgerPlan, style: context.jiabu.type.cardTitle),
-          Text(account?.text('name') ?? ''),
-          formField(
+          JiabuStackItem.content(
+            child: Text(l.ledgerPlan, style: context.jiabu.type.cardTitle),
+          ),
+          JiabuStackItem.captionAfter(
+            child: Text(account?.text('name') ?? ''),
+          ),
+          ...formFieldItems(
             context,
             state,
             model,
@@ -711,7 +787,7 @@ class AllocationPlanForm extends ConsumerWidget {
             l.ledgerAmount,
             numeric: true,
           ),
-          formField(
+          ...formFieldItems(
             context,
             state,
             model,
@@ -719,32 +795,46 @@ class AllocationPlanForm extends ConsumerWidget {
             l.ledgerDay,
             numeric: true,
           ),
-          PaperRow(
-            child: SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(l.ledgerEnabled),
-              value: state.values['enabled'] == true,
-              onChanged: (value) => model.patch('enabled', value),
+          JiabuStackItem.content(
+            child: PaperRow(
+              child: SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(l.ledgerEnabled),
+                value: state.values['enabled'] == true,
+                onChanged: (value) => model.patch('enabled', value),
+              ),
             ),
           ),
-          Text(
-            l.ledgerPlanSchedule(state.values['day_text']?.toString() ?? '1'),
+          JiabuStackItem.content(
+            child: Text(
+              l.ledgerPlanSchedule(
+                state.values['day_text']?.toString() ?? '1',
+              ),
+            ),
           ),
-          Text(
-            l.ledgerPlanStartHint,
-            style: context.jiabu.type.caption.copyWith(
-              color: context.jiabu.colors.ink3,
+          JiabuStackItem.captionAfter(
+            child: Text(
+              l.ledgerPlanStartHint,
+              style: context.jiabu.type.caption.copyWith(
+                color: context.jiabu.colors.ink3,
+              ),
             ),
           ),
           if (plan == null || plan.syncState == 'pending')
-            Text(l.ledgerPlanPending),
+            JiabuStackItem.captionAfter(child: Text(l.ledgerPlanPending)),
           if (plan != null && plan.text('next_run_on').isNotEmpty)
-            DottedFieldRow(
-              label: l.ledgerPlanNext,
-              value: ledgerDate(plan.text('next_run_on'), l),
+            JiabuStackItem.content(
+              child: DottedFieldRow(
+                label: l.ledgerPlanNext,
+                value: ledgerDate(plan.text('next_run_on'), l),
+              ),
             ),
-          formError(context, state.error),
-          FilledButton(
+          if (state.error != null)
+            JiabuStackItem.captionAfter(
+              child: formError(context, state.error),
+            ),
+          JiabuStackItem.action(
+            child: FilledButton(
             onPressed:
                 state.busy ||
                     !snapshot.writable ||
@@ -781,7 +871,8 @@ class AllocationPlanForm extends ConsumerWidget {
                       Navigator.of(context).pop();
                     }
                   },
-            child: Text(l.ledgerSave),
+              child: Text(l.ledgerSave),
+            ),
           ),
         ],
       ),

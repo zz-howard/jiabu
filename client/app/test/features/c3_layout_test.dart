@@ -8,6 +8,8 @@ import '../support/c3_harness.dart';
 import '../support/vertical_spacing.dart';
 
 const _minimumStackPairs = <String, int>{
+  // The chat placeholder is one top-level component; chat is outside UI2.
+  'shell_chat': 0,
   'settings': 1,
   'shell_overview': 4,
   'shell_history': 2,
@@ -22,9 +24,46 @@ const _minimumStackPairs = <String, int>{
   'history_24': 2,
   'history_search': 2,
   'history_filters': 3,
-  'accounts_empty': 1,
+  // The empty account page contains one section marker and no block pair.
+  'accounts_empty': 0,
   'accounts': 4,
   'accounts_long_6': 6,
+  // LedgerRecordCard is one encapsulated component; its internal layout is
+  // deliberately not treated as page-level stacking.
+  'card_denied': 0,
+  'card_loading': 0,
+  'card_recorded': 0,
+  'card_pending': 0,
+  'card_failed': 0,
+  'card_voided': 0,
+  'card_conflict': 0,
+  'card_changed': 0,
+  'card_api_key': 0,
+  'card_left': 0,
+  'details': 11,
+  'details_image': 12,
+  'details_audit': 12,
+  'edit': 11,
+  'conflict': 4,
+  'conflict_voided': 5,
+  'manual_expense': 12,
+  'manual_income': 10,
+  'manual_transfer': 10,
+  'manual_reallocation': 10,
+  'manual_invalid': 13,
+  'refund': 10,
+  'refund_limit': 11,
+  // This state is a single explanatory notice.
+  'void_refunds': 0,
+  'account_real': 7,
+  'account_purpose': 8,
+  'account_rename': 3,
+  'archive_positive': 2,
+  'archive_negative': 2,
+  'plan_new': 8,
+  'plan_enabled': 8,
+  'plan_disabled': 8,
+  'plan_pending': 9,
 };
 
 const _minimumChipPairs = <String, int>{
@@ -46,19 +85,31 @@ const _minimumChipPairs = <String, int>{
   'account_purpose': 1,
 };
 
-bool _requiresStack(String state) =>
-    state == 'settings' ||
-    state == 'shell_overview' ||
-    state == 'shell_history' ||
-    state.startsWith('overview_') ||
-    state.startsWith('history_') ||
-    state.startsWith('accounts');
-
 void main() {
-  test('stack pair table covers every migrated C3 state', () {
+  test('stack pair table covers every C3 state', () {
+    expect(_minimumStackPairs.keys.toSet(), c3States.toSet());
+  });
+
+  testWidgets('manual account label captions its chip group', (tester) async {
+    await pumpC3(tester, state: 'manual_expense');
+    final label = find.byKey(const ValueKey('account-choices-account_id'));
+    final chips = find.byKey(const ValueKey('account-chip-group-account_id'));
     expect(
-      _minimumStackPairs.keys.toSet(),
-      c3States.where(_requiresStack).toSet(),
+      tester.getRect(chips).top - tester.getRect(label).bottom,
+      closeTo(JiabuSpacing.captionGap, geometryTolerance),
+    );
+  });
+
+  testWidgets('manual note counter follows its field as a caption', (
+    tester,
+  ) async {
+    await pumpC3(tester, state: 'manual_expense');
+    final field = find.byKey(const ValueKey('expense-note-0'));
+    final counter = find.text('0/500');
+    expect(counter, findsOneWidget);
+    expect(
+      tester.getRect(counter).top - tester.getRect(field).bottom,
+      closeTo(JiabuSpacing.captionGap, geometryTolerance),
     );
   });
 
@@ -82,11 +133,11 @@ void main() {
                 final stackPairs = expectJiabuVerticalRhythm(
                   tester,
                   reason: '$state $locale $accent $width $scale',
-                  requireStack: _requiresStack(state),
+                  requireStack: _minimumStackPairs[state]! > 0,
                 );
                 expect(
                   stackPairs,
-                  greaterThanOrEqualTo(_minimumStackPairs[state] ?? 0),
+                  greaterThanOrEqualTo(_minimumStackPairs[state]!),
                   reason: '$state minimum stack pair table',
                 );
                 final chipPairs = expectJiabuChipSpacing(

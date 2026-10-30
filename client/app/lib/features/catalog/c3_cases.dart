@@ -530,12 +530,20 @@ class C3Preview extends StatelessWidget {
     }
     if (state.startsWith('archive_')) {
       return JiabuSheet(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: JiabuStack(
           children: [
-            Text(l.ledgerArchiveGuide),
-            Text(state == 'archive_negative' ? '−¥12.00' : '¥12.00'),
-            FilledButton(onPressed: () {}, child: Text(l.ledgerMoveBalance)),
+            JiabuStackItem.content(child: Text(l.ledgerArchiveGuide)),
+            JiabuStackItem.content(
+              child: Text(
+                state == 'archive_negative' ? '−¥12.00' : '¥12.00',
+              ),
+            ),
+            JiabuStackItem.action(
+              child: FilledButton(
+                onPressed: () {},
+                child: Text(l.ledgerMoveBalance),
+              ),
+            ),
           ],
         ),
       );
