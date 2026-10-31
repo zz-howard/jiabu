@@ -79,15 +79,14 @@ class AccountCardBlock extends ConsumerWidget {
         ],
       );
     }
-    final balances = ledgerBalances(snapshot);
+    final balance = ledgerAccountBalance(snapshot, account);
     final month = DateFormat('yyyy-MM')
         .format(ref.watch(ledgerClockProvider)());
     final flows = accountMonthFlows(snapshot, account, month);
-    if (balances is Failure<Map<String, int>> ||
-        flows is Failure<AccountMonthFlows>) {
+    if (balance is Failure<int> || flows is Failure<AccountMonthFlows>) {
       return PaperCard(child: Text(l.ledgerAggregateRange));
     }
-    final balance = (balances as Ok<Map<String, int>>).value[accountId] ?? 0;
+    final currentBalance = (balance as Ok<int>).value;
     final monthFlows = (flows as Ok<AccountMonthFlows>).value;
     final recent = accountRecentRecords(snapshot, accountId);
     final name = account.text('name').isEmpty
@@ -126,7 +125,7 @@ class AccountCardBlock extends ConsumerWidget {
             Text(l.chatAccountBalance, style: context.jiabu.type.caption),
             ledgerAmount(
               context,
-              balance,
+              currentBalance,
               snapshot.currency,
               role: AmountRole.balance,
             ),

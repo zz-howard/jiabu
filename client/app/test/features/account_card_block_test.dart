@@ -270,6 +270,20 @@ void main() {
       _copySnapshot(
         base,
         records: [
+          ...base.records,
+          _record('other-huge-a', 9007199254740991, accountId: 'real-b'),
+          _record('other-huge-b', 9007199254740991, accountId: 'real-b'),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('当前余额'), findsOneWidget);
+    expect(find.byKey(const Key('account-card-history')), findsOneWidget);
+
+    repo.emit(
+      _copySnapshot(
+        base,
+        records: [
           _record('huge-a', 9007199254740991),
           _record('huge-b', 9007199254740991),
         ],
@@ -529,13 +543,14 @@ LedgerSnapshot _copySnapshot(
   conflicts: source.conflicts,
 );
 
-LedgerRow _record(String id, int amount) => LedgerRow({
-  'id': id,
-  'space_id': 'fictional-space',
-  'kind': 'income',
-  'status': 'active',
-  'amount_minor': amount,
-  'account_id': 'real-a',
-  'occurred_on': '2026-10-10',
-  'created_at': '2026-10-10T10:00:00Z',
-});
+LedgerRow _record(String id, int amount, {String accountId = 'real-a'}) =>
+    LedgerRow({
+      'id': id,
+      'space_id': 'fictional-space',
+      'kind': 'income',
+      'status': 'active',
+      'amount_minor': amount,
+      'account_id': accountId,
+      'occurred_on': '2026-10-10',
+      'created_at': '2026-10-10T10:00:00Z',
+    });
