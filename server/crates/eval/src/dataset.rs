@@ -22,6 +22,7 @@ pub const CATEGORIES: &[&str] = &[
     "chat",
     "english",
     "ambiguous_date",
+    "display",
 ];
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -36,6 +37,13 @@ pub struct Entry {
     pub setup: Setup,
     pub expect: Expect,
     pub ambiguity_reason: Option<String>,
+    #[serde(default)]
+    pub client_capabilities: Option<ClientCapabilitiesSpec>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientCapabilitiesSpec {
+    pub blocks: BTreeMap<String, u16>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +98,58 @@ pub struct Expect {
     pub behavior: Behavior,
     pub hard: bool,
     pub records: Vec<RecordSpec>,
+    #[serde(default)]
+    pub display: Option<DisplayExpect>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DisplayExpect {
+    pub hard: bool,
+    #[serde(default)]
+    pub expected_invalid_calls: usize,
+    #[serde(default)]
+    pub expected_business_errors: usize,
+    #[serde(default)]
+    pub source_calls: Vec<DisplayCall>,
+    #[serde(default)]
+    pub calls: Vec<DisplayCall>,
+    #[serde(default)]
+    pub blocks: Vec<BlockExpect>,
+    #[serde(default)]
+    pub fallback_contains: Vec<String>,
+    #[serde(default)]
+    pub server_fallback_contains: Vec<String>,
+    #[serde(default)]
+    pub prose: ProseExpect,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DisplayCall {
+    pub tool: String,
+    pub args: Value,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlockExpect {
+    pub kind: String,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub values_minor: Vec<i64>,
+    pub account: Option<String>,
+    pub demo: Option<bool>,
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProseExpect {
+    pub max_sentences: Option<usize>,
+    #[serde(default)]
+    pub forbid_mermaid: bool,
+    #[serde(default)]
+    pub forbid_ascii_chart: bool,
+    pub max_table_rows: Option<usize>,
+    #[serde(default)]
+    pub forbid_numeric_restatement: bool,
 }
 /// Optional fields are assertions only when present. operation is always required.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -102,6 +162,8 @@ pub struct RecordSpec {
     pub currency: Option<String>,
     pub occurred_on: Option<NaiveDate>,
     pub preset_key: Option<String>,
+    #[serde(default)]
+    pub preset_keys: Vec<String>,
     pub account: Option<String>,
     pub purpose: Option<String>,
     pub to_account: Option<String>,
@@ -249,7 +311,7 @@ pub fn validate(entries: &[Entry], root: &Path) -> Result<()> {
     let mut ambiguous = BTreeMap::<&str, usize>::new();
     for e in entries {
         ensure!(
-            e.schema_version == 1
+            matches!(e.schema_version, 1 | 2)
                 && !e.id.is_empty()
                 && e.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'),
             "invalid entry identity"
@@ -271,6 +333,49 @@ pub fn validate(entries: &[Entry], root: &Path) -> Result<()> {
             "unknown category"
         );
         categories.insert(e.category.as_str());
+        if e.schema_version == 1 {
+            ensure!(
+                e.category != "display"
+                    && e.client_capabilities.is_none()
+                    && e.expect.display.is_none()
+                    && e.setup
+                        .records
+                        .iter()
+                        .all(|record| record.record.preset_keys.is_empty())
+                    && e.expect
+                        .records
+                        .iter()
+                        .all(|record| record.preset_keys.is_empty()),
+                "v1 cannot contain v2 fields"
+            );
+        } else {
+            ensure!(
+                e.category == "display" && e.expect.display.is_some(),
+                "v2 is reserved for display entries"
+            );
+        }
+        if let Some(capabilities) = &e.client_capabilities {
+            ensure!(
+                capabilities.blocks.len() <= 32
+                    && capabilities.blocks.iter().all(|(kind, version)| {
+                        !kind.is_empty()
+                            && kind.len() <= 64
+                            && *version == 1
+                            && matches!(
+                                kind.as_str(),
+                                "markdown"
+                                    | "metric"
+                                    | "metric_group"
+                                    | "dataset"
+                                    | "time_series"
+                                    | "breakdown"
+                                    | "category_series"
+                                    | "x-jiabu.account_card"
+                            )
+                    }),
+                "invalid client capabilities"
+            );
+        }
         ensure!(
             !e.input.text.trim().is_empty()
                 && e.input.text.len() <= 32000
@@ -345,6 +450,172 @@ pub fn validate(entries: &[Entry], root: &Path) -> Result<()> {
             ensure!(
                 accounts.insert(a.key.as_str(), a.kind.as_str()).is_none(),
                 "duplicate account alias"
+            );
+        }
+        if let Some(display) = &e.expect.display {
+            ensure!(
+                e.expect.behavior == Behavior::NoWrite && e.expect.records.is_empty(),
+                "display entries cannot mutate the ledger"
+            );
+            ensure!(
+                display.calls.len() <= 8
+                    && display.calls.iter().all(|call| call.args.is_object()
+                        && matches!(
+                            call.tool.as_str(),
+                            "show_metrics"
+                                | "show_records"
+                                | "show_trend"
+                                | "show_breakdown"
+                                | "show_bar_chart"
+                                | "show_account_card"
+                        )),
+                "invalid display tools"
+            );
+            ensure!(
+                display.source_calls.len() <= 4
+                    && display.source_calls.iter().all(|call| {
+                        call.args.is_object()
+                            && matches!(call.tool.as_str(), "query_stats" | "search_records")
+                    }),
+                "invalid display source tools"
+            );
+            ensure!(display.blocks.len() <= 8, "too many expected blocks");
+            ensure!(
+                display.expected_invalid_calls <= display.calls.len() + display.source_calls.len()
+                    && display.expected_business_errors
+                        <= display.calls.len() + display.source_calls.len(),
+                "invalid expected display error counts"
+            );
+            ensure!(
+                display.fallback_contains.len() <= 16
+                    && display
+                        .fallback_contains
+                        .iter()
+                        .all(|text| !text.is_empty() && text.chars().count() <= 100),
+                "invalid fallback assertions"
+            );
+            ensure!(
+                display.server_fallback_contains.len() <= 16
+                    && display
+                        .server_fallback_contains
+                        .iter()
+                        .all(|text| !text.is_empty() && text.chars().count() <= 100),
+                "invalid server fallback assertions"
+            );
+            for block in &display.blocks {
+                ensure!(
+                    matches!(
+                        block.kind.as_str(),
+                        "metric"
+                            | "metric_group"
+                            | "dataset"
+                            | "time_series"
+                            | "breakdown"
+                            | "category_series"
+                            | "x-jiabu.account_card"
+                    ),
+                    "invalid expected block"
+                );
+                ensure!(
+                    block.labels.len() <= 50
+                        && block.values_minor.len() <= 50
+                        && block
+                            .values_minor
+                            .iter()
+                            .all(|value| value.unsigned_abs() <= 1_000_000_000_000),
+                    "invalid display values"
+                );
+                if let Some(account) = &block.account {
+                    ensure!(
+                        accounts.get(account.as_str()) == Some(&"real"),
+                        "invalid account-card alias"
+                    );
+                }
+                ensure!(
+                    block.kind == "x-jiabu.account_card" || block.account.is_none(),
+                    "account alias only applies to account cards"
+                );
+            }
+            fn display_aliases_resolve(value: &Value, accounts: &BTreeMap<&str, &str>) -> bool {
+                match value {
+                    Value::String(value) if value.starts_with("$account:") => {
+                        accounts.contains_key(value.trim_start_matches("$account:"))
+                    }
+                    Value::Array(values) => values
+                        .iter()
+                        .all(|value| display_aliases_resolve(value, accounts)),
+                    Value::Object(values) => values
+                        .values()
+                        .all(|value| display_aliases_resolve(value, accounts)),
+                    _ => true,
+                }
+            }
+            ensure!(
+                display
+                    .source_calls
+                    .iter()
+                    .chain(&display.calls)
+                    .all(|call| display_aliases_resolve(&call.args, &accounts)),
+                "unknown display account alias"
+            );
+            let source_aliases: BTreeSet<_> = (0..display.source_calls.len())
+                .map(|index| format!("$call:source-{index}"))
+                .collect();
+            fn call_aliases_resolve(value: &Value, aliases: &BTreeSet<String>) -> bool {
+                match value {
+                    Value::String(value) if value.starts_with("$call:") => aliases.contains(value),
+                    Value::Array(values) => values
+                        .iter()
+                        .all(|value| call_aliases_resolve(value, aliases)),
+                    Value::Object(values) => values
+                        .values()
+                        .all(|value| call_aliases_resolve(value, aliases)),
+                    _ => true,
+                }
+            }
+            ensure!(
+                display
+                    .source_calls
+                    .iter()
+                    .all(|call| call_aliases_resolve(&call.args, &BTreeSet::new())),
+                "source calls cannot reference display call aliases"
+            );
+            ensure!(
+                display
+                    .calls
+                    .iter()
+                    .all(|call| call_aliases_resolve(&call.args, &source_aliases)),
+                "unknown display source-call alias"
+            );
+            let has_demo_call = display.calls.iter().any(|call| {
+                call.args
+                    .pointer("/source/demo")
+                    .is_some_and(|value| !value.is_null())
+            });
+            ensure!(
+                !display.blocks.iter().any(|block| block.demo == Some(true)) || has_demo_call,
+                "demo block requires explicit demo source"
+            );
+            if let Some(capabilities) = &e.client_capabilities {
+                ensure!(
+                    display.blocks.iter().all(|block| capabilities
+                        .blocks
+                        .get(&block.kind)
+                        .is_some_and(|version| *version == 1)),
+                    "expected block is unsupported by client capabilities"
+                );
+            }
+            ensure!(
+                !display.blocks.is_empty()
+                    || display.calls.is_empty()
+                    || !display.fallback_contains.is_empty()
+                    || !display.server_fallback_contains.is_empty(),
+                "component-free display call requires fallback assertion"
+            );
+            ensure!(
+                display.prose.max_sentences.is_none_or(|value| value <= 20)
+                    && display.prose.max_table_rows.is_none_or(|value| value <= 50),
+                "invalid prose limits"
             );
         }
         let mut records = BTreeSet::new();
@@ -483,6 +754,20 @@ fn validate_record(
             "unknown preset"
         );
     }
+    ensure!(
+        r.preset_key.is_none() || r.preset_keys.is_empty(),
+        "use preset_key or preset_keys, not both"
+    );
+    ensure!(
+        r.preset_keys.len() <= jiabu_domain::presets::PRESETS.len()
+            && r.preset_keys.iter().all(|key| {
+                jiabu_domain::presets::PRESETS
+                    .iter()
+                    .any(|preset| preset.preset_key == key)
+            })
+            && r.preset_keys.iter().collect::<BTreeSet<_>>().len() == r.preset_keys.len(),
+        "invalid preset keys"
+    );
     for (a, kind) in [
         (&r.account, "real"),
         (&r.to_account, "real"),

@@ -1,0 +1,34 @@
+schema_version: 2
+id: "display-002"
+locale: "zh-Hans"
+category: "display"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input: {text: "本月各用途分别花了多少？请用指标卡展示。"}
+setup:
+  currency: "CNY"
+  accounts:
+    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
+    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+    - {key: "saving", kind: "purpose", name: "虚构储备", opening_on: "2026-01-01"}
+  records:
+    - key: "daily-record"
+      record: {operation: "create", kind: "expense", amount_minor: 6800, currency: "CNY", occurred_on: "2026-10-01", account: "bank", purpose: "daily", preset_key: "dining"}
+    - key: "saving-record"
+      record: {operation: "create", kind: "expense", amount_minor: 3200, currency: "CNY", occurred_on: "2026-10-02", account: "bank", purpose: "saving", preset_key: "shopping"}
+expect:
+  behavior: "no_write"
+  hard: false
+  records: []
+  display:
+    hard: true
+    source_calls:
+      - tool: "query_stats"
+        args: {measure: "sum", kinds: ["expense"], period: {from: "2026-10-01", through: "2026-10-31"}, group_by: "purpose", filters: {account_id: null, purpose_id: null, tag_id: null, member_id: null}}
+    calls:
+      - tool: "show_metrics"
+        args: {source: {query: null, from_call: "$call:source-0", demo: null}}
+    blocks:
+      - {kind: "metric_group", labels: ["虚构日常", "虚构储备"], values_minor: [6800, 3200], account: null, demo: false}
+    fallback_contains: []
+    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}

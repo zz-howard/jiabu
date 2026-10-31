@@ -1,0 +1,25 @@
+schema_version: 2
+id: "display-009"
+locale: "zh-Hans"
+category: "display"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input: {text: "演示一下你能画哪些图，用固定示例数据展示三种组件。"}
+setup: {currency: "CNY", accounts: [], records: []}
+expect:
+  behavior: "no_write"
+  hard: false
+  records: []
+  display:
+    hard: true
+    calls:
+      - {tool: "show_metrics", args: {source: {query: null, from_call: null, demo: "monthly_spending"}}}
+      - {tool: "show_breakdown", args: {source: {query: null, from_call: null, demo: "monthly_spending"}}}
+      - {tool: "show_bar_chart", args: {source: {query: null, from_call: null, demo: "half_year_trend"}}}
+    blocks:
+      - {kind: "metric_group", labels: ["餐饮", "居家", "购物", "交通", "其他"], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
+      - {kind: "breakdown", labels: ["餐饮", "居家", "购物", "交通", "其他（2 项）"], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
+      - {kind: "category_series", labels: ["第 1 月", "第 2 月", "第 3 月", "第 4 月", "第 5 月", "第 6 月"], values_minor: [382000, 405500, 361200, 452800, 418900, 428600], account: null, demo: true}
+    fallback_contains: []
+    server_fallback_contains: ["【演示数据】"]
+    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}

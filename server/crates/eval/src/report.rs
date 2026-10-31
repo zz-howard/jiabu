@@ -1,10 +1,49 @@
 use crate::scoring::{Count, Questions, ResultRow, percentile};
 use anyhow::Result;
 use std::{io::Write, path::Path};
+pub const RESULTS_HEADER: &[&str] = &[
+    "id",
+    "category",
+    "locale",
+    "expected_behavior",
+    "actual_behavior",
+    "hard",
+    "hard_pass",
+    "status",
+    "behavior_pass",
+    "records_pass",
+    "before_confirm_no_write",
+    "amount_correct",
+    "amount_total",
+    "amount_accuracy",
+    "date_correct",
+    "date_total",
+    "date_accuracy",
+    "category_correct",
+    "category_total",
+    "category_accuracy",
+    "tool_valid",
+    "tool_total",
+    "tool_validity",
+    "business_errors",
+    "latency_ms",
+    "calls_json",
+    "cost_usd",
+    "failure_reasons",
+    "display_hard",
+    "display_pass",
+    "display_tool_correct",
+    "display_tool_total",
+    "display_block_correct",
+    "display_block_total",
+    "display_value_correct",
+    "display_value_total",
+    "display_prose_pass",
+];
 /// RFC 4180; always quote cells to preserve empty fields and embedded JSON.
 pub fn csv_row(cells: &[String]) -> String {
     format!(
-        "{}\r\n",
+        "{}\n",
         cells
             .iter()
             .map(|s| format!("\"{}\"", s.replace('"', "\"\"")))
@@ -20,37 +59,10 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
     let mut file = std::fs::File::create(out.join("results.csv"))?;
     file.write_all(
         csv_row(
-            &[
-                "id",
-                "category",
-                "locale",
-                "expected_behavior",
-                "actual_behavior",
-                "hard",
-                "hard_pass",
-                "status",
-                "behavior_pass",
-                "records_pass",
-                "before_confirm_no_write",
-                "amount_correct",
-                "amount_total",
-                "amount_accuracy",
-                "date_correct",
-                "date_total",
-                "date_accuracy",
-                "category_correct",
-                "category_total",
-                "category_accuracy",
-                "tool_valid",
-                "tool_total",
-                "tool_validity",
-                "business_errors",
-                "latency_ms",
-                "calls_json",
-                "cost_usd",
-                "failure_reasons",
-            ]
-            .map(str::to_owned),
+            &RESULTS_HEADER
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>(),
         )
         .as_bytes(),
     )?;
@@ -85,6 +97,15 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
                 serde_json::to_string(&r.calls)?,
                 opt(r.cost_usd),
                 r.reasons.join(";"),
+                r.display_hard.to_string(),
+                r.display_pass.to_string(),
+                r.display_tools.correct.to_string(),
+                r.display_tools.total.to_string(),
+                r.display_blocks.correct.to_string(),
+                r.display_blocks.total.to_string(),
+                r.display_values.correct.to_string(),
+                r.display_values.total.to_string(),
+                r.prose_pass.to_string(),
             ])
             .as_bytes(),
         )?;
@@ -99,12 +120,17 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
         Count::default(),
         Count::default(),
     );
+    let (mut display_tools, mut display_blocks, mut display_values) =
+        (Count::default(), Count::default(), Count::default());
     let (mut questions, mut ambiguous) = (Questions::default(), Questions::default());
     for r in rows {
         amount.add(&r.amount);
         date.add(&r.date);
         category.add(&r.category_accuracy);
         tools.add(&r.tools);
+        display_tools.add(&r.display_tools);
+        display_blocks.add(&r.display_blocks);
+        display_values.add(&r.display_values);
         questions.add(r.expected_question, r.actual_question);
         if r.category == "ambiguous_date" {
             ambiguous.add(true, r.actual_question);
@@ -118,6 +144,9 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
         ("question_precision", questions.precision()),
         ("question_recall", questions.recall()),
         ("ambiguous_date_recall", ambiguous.recall()),
+        ("display_tool_accuracy", display_tools),
+        ("display_block_accuracy", display_blocks),
+        ("display_value_accuracy", display_values),
     ] {
         file.write_all(
             csv_row(&[

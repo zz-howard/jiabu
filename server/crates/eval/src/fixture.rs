@@ -10,12 +10,13 @@ use anyhow::{Context, Result, ensure};
 use base64::Engine;
 use jiabu_agent::{ImageLoader, StartMessage};
 use jiabu_ai::*;
+use jiabu_chat::ClientCapabilities;
 use jiabu_db::{Mode, SpaceTx};
 use jiabu_domain::JoinEpoch;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::Path,
     sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
@@ -34,8 +35,20 @@ pub struct Scenario {
     pub audit: Arc<ToolAudit>,
     pub baseline: Value,
     pub images: Vec<String>,
+    pub capabilities: ClientCapabilities,
 }
 struct Images(BTreeMap<String, String>);
+fn capabilities(e: &Entry) -> ClientCapabilities {
+    if let Some(spec) = &e.client_capabilities {
+        ClientCapabilities {
+            protocol_versions: ["0.1".to_owned()].into_iter().collect(),
+            blocks: spec.blocks.clone(),
+            features: Default::default(),
+        }
+    } else {
+        ClientCapabilities::current_jiabu()
+    }
+}
 #[async_trait::async_trait]
 impl ImageLoader for Images {
     async fn original(&self, sha: &str) -> Result<String, jiabu_db::OperationError> {
@@ -205,6 +218,7 @@ impl Scenario {
             audit,
             baseline,
             images,
+            capabilities: capabilities(e),
         })
     }
     pub async fn submit(&self, e: &Entry) -> Result<Uuid> {
@@ -216,7 +230,7 @@ impl Scenario {
         Ok(self
             .f
             .runs()
-            .start_at(
+            .start_at_with_capabilities(
                 &self.f.p,
                 StartMessage {
                     id: Uuid::now_v7(),
@@ -225,6 +239,7 @@ impl Scenario {
                     files: vec![],
                 },
                 at,
+                self.capabilities.clone(),
             )
             .await?
             .message_id)
@@ -283,6 +298,7 @@ impl Scenario {
         elapsed_ms: u64,
     ) -> Result<Observation> {
         let run = self.f.run(message).await?;
+        let checkpoint = self.f.checkpoint(message).await?;
         let tx = SpaceTx::begin(
             &self.f.db,
             self.f.p.user_id,
@@ -292,6 +308,7 @@ impl Scenario {
         .await?;
         let journal = tx.journal(self.f.space, run.id).await?;
         let calls = tx.evaluation_calls(self.f.space, run.id).await?;
+        let display_events = tx.evaluation_display_events(self.f.space, run.id).await?;
         let final_state = tx.evaluation_state(self.f.space).await?;
         tx.commit().await?;
         let mut interrupts = Vec::new();
@@ -306,6 +323,34 @@ impl Scenario {
             .flat_map(|i| i.payload["calls"].as_array().into_iter().flatten())
             .cloned()
             .collect::<Vec<_>>();
+        let blocks = checkpoint.message.0["blocks"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let display_blocks = display_events
+            .iter()
+            .filter_map(|event| {
+                (event["type"] == "block.start")
+                    .then(|| event["blockId"].as_str())
+                    .flatten()
+            })
+            .collect::<BTreeSet<_>>();
+        let server_fallbacks = blocks
+            .iter()
+            .filter(|block| {
+                block["id"]
+                    .as_str()
+                    .is_some_and(|id| display_blocks.contains(id))
+            })
+            .filter_map(|block| {
+                if block["type"] == "markdown" {
+                    block["data"]["text"].as_str()
+                } else {
+                    block["fallbackText"].as_str()
+                }
+            })
+            .map(str::to_owned)
+            .collect();
         let asked = interrupts.iter().any(|i| {
             tool_calls
                 .iter()
@@ -328,6 +373,9 @@ impl Scenario {
             before_confirm,
             baseline: self.baseline.clone(),
             final_state,
+            message: checkpoint.message.0,
+            tool_calls,
+            server_fallbacks,
             calls,
             tool_total: self.audit.total.load(Ordering::Relaxed),
             tool_valid: self.audit.valid.load(Ordering::Relaxed),

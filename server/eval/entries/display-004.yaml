@@ -1,0 +1,30 @@
+schema_version: 2
+id: "display-004"
+locale: "zh-Hans"
+category: "display"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input: {text: "看看八月到十月的支出趋势。"}
+setup:
+  currency: "CNY"
+  accounts:
+    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
+    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+  records:
+    - key: "august"
+      record: {operation: "create", kind: "expense", amount_minor: 1000, currency: "CNY", occurred_on: "2026-08-03", account: "bank", purpose: "daily", preset_key: "dining"}
+    - key: "october"
+      record: {operation: "create", kind: "expense", amount_minor: 3000, currency: "CNY", occurred_on: "2026-10-03", account: "bank", purpose: "daily", preset_key: "dining"}
+expect:
+  behavior: "no_write"
+  hard: false
+  records: []
+  display:
+    hard: true
+    calls:
+      - tool: "show_trend"
+        args: {source: {query: {measure: "sum", kinds: ["expense"], period: {from: "2026-08-01", through: "2026-10-31"}, account_id: null, purpose_id: null, tag_id: null, member_id: null}, from_call: null, demo: null}}
+    blocks:
+      - {kind: "time_series", labels: ["8月", "9月", "10月"], values_minor: [1000, 0, 3000], account: null, demo: false}
+    fallback_contains: []
+    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}

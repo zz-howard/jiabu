@@ -21,6 +21,19 @@ impl SpaceTx {
             "select jsonb_build_object('call_kind',c.call_kind,'cached_input_tokens',c.cached_input_tokens,'cache_write_tokens',c.cache_write_tokens,'uncached_input_tokens',c.input_tokens-c.cached_input_tokens-c.cache_write_tokens,'cost_usd',c.cost_usd::text,'latency_ms',c.latency_ms,'outcome',c.outcome) data from ai_calls c join agent_runs r on r.id=c.run_id where r.space_id=$1 and r.member_id=$2 and r.id=$3 order by c.id",
             vec![space.0.into(),self.member(space).id().0.into(),run.into()])).await?.into_iter().map(|r| r.try_get("", "data")).collect()
     }
+    /// Stream events committed in the same transaction as a display tool result.
+    /// PostgreSQL `xmin` identifies the transaction that persisted both rows,
+    /// giving the evaluator block provenance without trusting model text or
+    /// reconstructing the mapper's output.
+    pub async fn evaluation_display_events(
+        &self,
+        space: SpaceId,
+        run: Uuid,
+    ) -> Result<Vec<Value>, DbErr> {
+        self.tx.query_all_raw(Statement::from_sql_and_values(DbBackend::Postgres,
+            "select e.event data from chat_stream_events e join agent_runs r on r.assistant_message_id=e.message_id where r.space_id=$1 and r.member_id=$2 and r.id=$3 and exists(select 1 from agent_run_items i join agent_tool_calls c on c.run_id=i.run_id and c.call_id=i.call_id where i.run_id=r.id and i.kind='tool_result' and i.xmin=e.xmin and c.tool in ('show_metrics','show_records','show_trend','show_breakdown','show_bar_chart','show_account_card')) order by e.seq",
+            vec![space.0.into(),self.member(space).id().0.into(),run.into()])).await?.into_iter().map(|r| r.try_get("", "data")).collect()
+    }
 }
 impl AppDb {
     /// Non-sensitive tariff snapshot for scratch databases. Decimal rates are

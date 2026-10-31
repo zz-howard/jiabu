@@ -61,6 +61,9 @@ pub struct Observation {
     pub before_confirm: Option<bool>,
     pub baseline: Value,
     pub final_state: Value,
+    pub message: Value,
+    pub tool_calls: Vec<Value>,
+    pub server_fallbacks: Vec<String>,
     pub calls: Vec<Value>,
     pub tool_total: usize,
     pub tool_valid: usize,
@@ -79,6 +82,12 @@ pub struct ResultRow {
     pub hard_pass: bool,
     pub behavior_pass: bool,
     pub records_pass: bool,
+    pub display_hard: bool,
+    pub display_pass: bool,
+    pub display_tools: Count,
+    pub display_blocks: Count,
+    pub display_values: Count,
+    pub prose_pass: bool,
     pub before_confirm: Option<bool>,
     pub amount: Count,
     pub date: Count,
@@ -91,6 +100,423 @@ pub struct ResultRow {
     pub calls: Vec<Value>,
     pub cost_usd: Option<f64>,
     pub reasons: Vec<String>,
+}
+#[derive(Default)]
+struct DisplayScore {
+    hard: bool,
+    pass: bool,
+    tools: Count,
+    blocks: Count,
+    values: Count,
+    prose_pass: bool,
+    reasons: Vec<String>,
+}
+fn has_block_chart(prose: &str) -> bool {
+    prose
+        .lines()
+        .scan(0_usize, |run, line| {
+            let trimmed = line.trim();
+            let unicode_bar = line.chars().any(|character| "█▇▆▅▄▃▂▁".contains(character));
+            let chars: Vec<_> = trimmed.chars().collect();
+            let mut ascii_bar = false;
+            let mut index = 0;
+            while index < chars.len() {
+                if !"#=*".contains(chars[index]) {
+                    index += 1;
+                    continue;
+                }
+                let start = index;
+                let symbol = chars[index];
+                while index < chars.len() && chars[index] == symbol {
+                    index += 1;
+                }
+                let label = chars[..start]
+                    .iter()
+                    .any(|character| character.is_alphanumeric() || *character > '\u{7f}');
+                let suffix = chars[index..]
+                    .iter()
+                    .copied()
+                    .filter(|character| !character.is_whitespace())
+                    .collect::<String>();
+                let value_suffix = suffix.chars().all(|character| {
+                    character.is_ascii_digit() || ".,%-+()/元分".contains(character)
+                });
+                let closing_emphasis =
+                    symbol == '*' && chars[..start].windows(2).any(|pair| pair == ['*', '*']);
+                if index - start >= 2 && label && value_suffix && !closing_emphasis {
+                    ascii_bar = true;
+                    break;
+                }
+            }
+            if unicode_bar || ascii_bar {
+                *run += 1;
+            } else {
+                *run = 0;
+            }
+            Some(*run)
+        })
+        .any(|run| run >= 3)
+}
+fn markdown_cells(line: &str) -> Option<Vec<&str>> {
+    let trimmed = line.trim();
+    let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
+    let inner = inner.strip_suffix('|').unwrap_or(inner);
+    inner
+        .contains('|')
+        .then(|| inner.split('|').collect::<Vec<_>>())
+}
+fn markdown_table_exceeds(prose: &str, max: usize) -> bool {
+    let separator = |line: &str| {
+        let Some(cells) = markdown_cells(line) else {
+            return false;
+        };
+        for cell in &cells {
+            let cell = cell.trim().trim_matches(':');
+            if cell.len() < 3 || !cell.chars().all(|character| character == '-') {
+                return false;
+            }
+        }
+        cells.len() >= 2
+    };
+    let lines: Vec<_> = prose.lines().collect();
+    let mut index = 0;
+    while index < lines.len() {
+        if markdown_cells(lines[index]).is_none() {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < lines.len() && markdown_cells(lines[index]).is_some() {
+            index += 1;
+        }
+        let run = &lines[start..index];
+        if run.len() >= 2 && separator(run[1]) && run.len() - 2 > max {
+            return true;
+        }
+    }
+    false
+}
+fn sentence_count(prose: &str) -> usize {
+    let chars: Vec<_> = prose.chars().collect();
+    chars
+        .iter()
+        .enumerate()
+        .filter(|(index, character)| match **character {
+            '。' | '！' | '？' => true,
+            '.' | '!' | '?' => {
+                let decimal = chars
+                    .get(index.wrapping_sub(1))
+                    .is_some_and(|value| value.is_ascii_digit())
+                    && chars
+                        .get(index + 1)
+                        .is_some_and(|value| value.is_ascii_digit());
+                !decimal
+                    && chars
+                        .get(index + 1)
+                        .is_none_or(|value| value.is_whitespace())
+            }
+            _ => false,
+        })
+        .count()
+}
+fn contains_number(prose: &str, needle: &str) -> bool {
+    prose.match_indices(needle).any(|(start, matched)| {
+        let before = prose[..start].chars().next_back();
+        let after = prose[start + matched.len()..].chars().next();
+        !before.is_some_and(|character| character.is_ascii_digit() || character == '.')
+            && !after.is_some_and(|character| character.is_ascii_digit() || character == '.')
+    })
+}
+fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
+    let Some(expect) = &e.expect.display else {
+        return DisplayScore {
+            pass: true,
+            prose_pass: true,
+            ..Default::default()
+        };
+    };
+    let actual_calls: Vec<_> = o
+        .tool_calls
+        .iter()
+        .filter(|call| {
+            call["tool"].as_str().is_some_and(|tool| {
+                tool.starts_with("show_") || matches!(tool, "query_stats" | "search_records")
+            })
+        })
+        .collect();
+    let mut call_aliases = std::collections::BTreeMap::new();
+    for (index, _) in expect.source_calls.iter().enumerate() {
+        if let Some(call_id) = actual_calls
+            .get(index)
+            .and_then(|call| call["call_id"].as_str())
+        {
+            call_aliases.insert(format!("$call:source-{index}"), call_id.to_owned());
+        }
+    }
+    let expected_calls = expect
+        .source_calls
+        .iter()
+        .chain(&expect.calls)
+        .map(|call| {
+            ids.display_args_with_calls(&call.args, &call_aliases)
+                .map(|args| json!({"tool":call.tool,"args":args}))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()
+        .unwrap_or_default();
+    let actual_calls: Vec<_> = actual_calls
+        .iter()
+        .map(|call| json!({"tool":call["tool"],"args":call["args"]}))
+        .collect();
+    let mut result = DisplayScore {
+        hard: expect.hard,
+        tools: Count {
+            correct: usize::from(actual_calls == expected_calls),
+            total: 1,
+        },
+        prose_pass: true,
+        ..Default::default()
+    };
+    let blocks = o.message["blocks"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let actual: Vec<_> = blocks
+        .iter()
+        .filter(|block| block["type"] != "markdown")
+        .collect();
+    result.blocks.total = expect.blocks.len().max(actual.len());
+    for (index, expected) in expect.blocks.iter().enumerate() {
+        let Some(block) = actual.get(index) else {
+            continue;
+        };
+        if block["type"] == expected.kind {
+            result.blocks.correct += 1;
+        }
+        let data = &block["data"];
+        let (labels, values): (Vec<String>, Vec<i64>) = match expected.kind.as_str() {
+            "metric" => (
+                data["label"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect(),
+                data["value"].as_i64().into_iter().collect(),
+            ),
+            "metric_group" => data["metrics"]
+                .as_array()
+                .map(|items| {
+                    (
+                        items
+                            .iter()
+                            .filter_map(|item| item["label"].as_str().map(str::to_owned))
+                            .collect(),
+                        items
+                            .iter()
+                            .filter_map(|item| item["value"].as_i64())
+                            .collect(),
+                    )
+                })
+                .unwrap_or_default(),
+            "breakdown" => data["parts"]
+                .as_array()
+                .map(|items| {
+                    (
+                        items
+                            .iter()
+                            .filter_map(|item| item["label"].as_str().map(str::to_owned))
+                            .collect(),
+                        items
+                            .iter()
+                            .filter_map(|item| item["value"].as_i64())
+                            .collect(),
+                    )
+                })
+                .unwrap_or_default(),
+            "category_series" => data["points"]
+                .as_array()
+                .map(|items| {
+                    (
+                        items
+                            .iter()
+                            .filter_map(|item| item["label"].as_str().map(str::to_owned))
+                            .collect(),
+                        items
+                            .iter()
+                            .filter_map(|item| item["value"].as_i64())
+                            .collect(),
+                    )
+                })
+                .unwrap_or_default(),
+            "dataset" => data["rows"]
+                .as_array()
+                .map(|items| {
+                    let category_rows = data["columns"].as_array().is_some_and(|columns| {
+                        columns.iter().any(|column| column["key"] == "label")
+                    });
+                    (
+                        items
+                            .iter()
+                            .filter_map(|item| {
+                                item[if category_rows { "label" } else { "date" }]
+                                    .as_str()
+                                    .map(str::to_owned)
+                            })
+                            .collect(),
+                        items
+                            .iter()
+                            .filter_map(|item| {
+                                item[if category_rows { "value" } else { "amount" }].as_i64()
+                            })
+                            .collect(),
+                    )
+                })
+                .unwrap_or_default(),
+            "time_series" => data["series"][0]["points"]
+                .as_array()
+                .map(|items| {
+                    let money = data["yUnit"] == "元";
+                    (
+                        items
+                            .iter()
+                            .filter_map(|item| item["x"].as_str().map(str::to_owned))
+                            .collect(),
+                        items
+                            .iter()
+                            .filter_map(|item| item["y"].as_f64())
+                            .map(|value| (value * if money { 100.0 } else { 1.0 }).round() as i64)
+                            .collect(),
+                    )
+                })
+                .unwrap_or_default(),
+            _ => (Vec::new(), Vec::new()),
+        };
+        if !expected.labels.is_empty() {
+            result.values.total += 1;
+            result.values.correct += usize::from(labels == expected.labels);
+        }
+        if !expected.values_minor.is_empty() {
+            result.values.total += 1;
+            result.values.correct += usize::from(values == expected.values_minor);
+        }
+        if let Some(account) = &expected.account {
+            result.values.total += 1;
+            let expected_name = e
+                .setup
+                .accounts
+                .iter()
+                .find(|candidate| candidate.key == *account)
+                .map(|candidate| candidate.name.as_str());
+            result.values.correct += usize::from(
+                ids.accounts
+                    .get(account)
+                    .is_some_and(|id| data["accountId"] == json!(id))
+                    && expected_name.is_some_and(|name| data["nameSnapshot"] == name),
+            );
+        }
+        if let Some(demo) = expected.demo {
+            let marked = data
+                .get("title")
+                .and_then(Value::as_str)
+                .is_some_and(|title| title.starts_with("【演示数据】"))
+                || block["fallbackText"]
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("【演示数据】"));
+            result.values.total += 1;
+            result.values.correct += usize::from(marked == demo);
+        }
+    }
+    let fallback = o.message["fallbackText"].as_str().unwrap_or_default();
+    for required in &expect.fallback_contains {
+        result.values.total += 1;
+        result.values.correct += usize::from(fallback.contains(required));
+    }
+    let server_fallback = o.server_fallbacks.join("\n");
+    for required in &expect.server_fallback_contains {
+        result.values.total += 1;
+        result.values.correct += usize::from(server_fallback.contains(required));
+    }
+    let prose = blocks
+        .iter()
+        .filter(|block| block["type"] == "markdown")
+        .filter_map(|block| block["fallbackText"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if expect.prose.forbid_mermaid && prose.to_ascii_lowercase().contains("```mermaid") {
+        result.prose_pass = false;
+    }
+    if expect.prose.forbid_ascii_chart && has_block_chart(&prose) {
+        result.prose_pass = false;
+    }
+    if let Some(max) = expect.prose.max_table_rows
+        && markdown_table_exceeds(&prose, max)
+    {
+        result.prose_pass = false;
+    }
+    let safety_pass = result.prose_pass;
+    let mut style_pass = true;
+    if let Some(max) = expect.prose.max_sentences {
+        style_pass &= sentence_count(&prose) <= max;
+    }
+    if expect.prose.forbid_numeric_restatement {
+        let repeated = expect
+            .blocks
+            .iter()
+            .flat_map(|block| &block.values_minor)
+            .any(|value| {
+                let sign = if *value < 0 { "-" } else { "" };
+                let absolute = value.unsigned_abs();
+                let yuan = absolute / 100;
+                let fen = absolute % 100;
+                let mut variants = vec![
+                    format!("{sign}{yuan}.{fen:02}"),
+                    format!("{sign}{absolute} 分"),
+                    format!("{sign}{absolute}分"),
+                ];
+                if fen == 0 {
+                    variants.extend([
+                        format!("{sign}{yuan} 元"),
+                        format!("{sign}{yuan}元"),
+                        format!("¥{sign}{yuan}"),
+                        format!("￥{sign}{yuan}"),
+                        format!("{sign}¥{yuan}"),
+                        format!("{sign}￥{yuan}"),
+                    ]);
+                }
+                variants
+                    .iter()
+                    .any(|variant| contains_number(&prose, variant))
+            });
+        style_pass &= !repeated;
+    }
+    result.prose_pass = safety_pass && style_pass;
+    if result.tools.correct != result.tools.total {
+        result.reasons.push("display_tool_mismatch".into());
+    }
+    if result.blocks.correct != result.blocks.total {
+        result.reasons.push("display_block_mismatch".into());
+    }
+    if result.values.correct != result.values.total {
+        result.reasons.push("display_value_mismatch".into());
+    }
+    if !safety_pass {
+        result.reasons.push("display_prose_violation".into());
+    }
+    if !style_pass {
+        result.reasons.push("display_style_preference".into());
+    }
+    if o.tool_total.saturating_sub(o.tool_valid) != expect.expected_invalid_calls {
+        result.reasons.push("display_invalid_call_mismatch".into());
+    }
+    if o.business_errors != expect.expected_business_errors {
+        result
+            .reasons
+            .push("display_business_error_mismatch".into());
+    }
+    result.pass = result
+        .reasons
+        .iter()
+        .all(|reason| reason == "display_style_preference");
+    result
 }
 fn expected_value(r: &RecordSpec, ids: &Identities) -> Value {
     let mut v = json!({"operation":r.operation});
@@ -122,8 +548,18 @@ fn expected_value(r: &RecordSpec, ids: &Identities) -> Value {
     if let Some(a) = &r.target {
         v["id"] = json!(ids.records.get(a));
     }
-    if let Some(a) = &r.preset_key {
-        v["tag_ids"] = json!([ids.tags.get(a)]);
+    let preset_keys = r
+        .preset_key
+        .iter()
+        .chain(&r.preset_keys)
+        .collect::<Vec<_>>();
+    if !preset_keys.is_empty() {
+        let mut tag_ids = preset_keys
+            .into_iter()
+            .map(|key| json!(ids.tags.get(key)))
+            .collect::<Vec<_>>();
+        tag_ids.sort_by_key(Value::to_string);
+        v["tag_ids"] = Value::Array(tag_ids);
     }
     v
 }
@@ -292,8 +728,10 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
                 && o.before_confirm == Some(true)
         }
     };
-    let hard_pass = !e.expect.hard
-        || (behavior_pass && (e.expect.behavior != Behavior::ConfirmThenWrite || records_pass));
+    let display = display_score(e, ids, o);
+    let hard_pass = (!e.expect.hard
+        || (behavior_pass && (e.expect.behavior != Behavior::ConfirmThenWrite || records_pass)))
+        && (!display.hard || (behavior_pass && display.pass));
     let actual_behavior = if o.confirmation {
         "confirm_then_write"
     } else if o.asked {
@@ -343,9 +781,15 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
     if !records_pass {
         reasons.push("record_mismatch".into());
     }
-    if o.tool_total != o.tool_valid {
+    if o.tool_total != o.tool_valid
+        && e.expect
+            .display
+            .as_ref()
+            .is_none_or(|display| display.expected_invalid_calls == 0)
+    {
         reasons.push("invalid_tool_arguments".into());
     }
+    reasons.extend(display.reasons.clone());
     ResultRow {
         id: e.id.clone(),
         category: e.category.clone(),
@@ -353,10 +797,16 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         expected_behavior: e.expect.behavior.as_str().into(),
         actual_behavior: actual_behavior.into(),
         status: o.status.clone(),
-        hard: e.expect.hard,
+        hard: e.expect.hard || display.hard,
         hard_pass,
         behavior_pass,
         records_pass,
+        display_hard: display.hard,
+        display_pass: display.pass,
+        display_tools: display.tools,
+        display_blocks: display.blocks,
+        display_values: display.values,
+        prose_pass: display.prose_pass,
         before_confirm: o.before_confirm,
         amount: metric(&["amount_minor", "currency"]),
         date: metric(&["occurred_on"]),
