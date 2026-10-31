@@ -25,7 +25,7 @@
 | 本机数据库 | drift + drift_dev（底层 sqlite3 3.x，构建钩子打包 SQLite） | 2.35.3 / 2.35.2 |
 | 网络 | dio | 5.11.1 |
 | 数据类 / JSON | freezed + json_serializable + build_runner | 4.0.3 / 6.15.2 / 2.17.1 |
-| 路由 | go_router（StatefulShellRoute 做底部四栏） | 18.1.1 |
+| 路由 | go_router（ShellRoute 做底部四栏） | 18.1.1 |
 | 后台同步 | 前台触发为主 + workmanager 兜底 + connectivity_plus | 0.10.10 / 7.3.2 |
 | 安全存储 | flutter_secure_storage（登录令牌、应用锁 PIN / 图案的加盐哈希，Android Keystore 加密） | 11.2.0 |
 | 本地设置 | shared_preferences（上次使用的空间 ID、引导是否完成、应用锁开关与超时） | 2.5.6 |
@@ -144,7 +144,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | HTTP | **dio**（聊天流式 SSE 也走 dio 的字节流，见 4.7）：拦截器统一注入 `Authorization: Bearer`、`Idempotency-Key`、`X-Request-Id`；把 RFC 9457 problem+json 错误解析成 `ApiError(code, requestId)`。**所有路径都写相对路径**，以便服务端部署在反向代理的子路径下（写测试守住） |
 | 序列化 | Dart 宏已于 2025-01 官方停止开发，所以用 **freezed + json_serializable + build_runner**（build_runner 2.13+ 增量构建快 2–4 倍）。DTO 字段用 snake_case 映射（`build.yaml` 全局 `field_rename: snake`）。不引入 OpenAPI 代码生成器：DTO 手写，以服务器导出的 `openapi.json` 中的示例做 JSON 往返测试 |
 | 生成代码 | **提交进仓库**：评审者和 AI 代理不跑构建也能读到完整代码；CI 重新生成后 `git diff --exit-code`，不一致即失败 |
-| 路由 | go_router：`StatefulShellRoute.indexedStack` 实现底部“聊天 / 总览 / 历史 / 我的”四栏（切换时各栏保留状态）；详情和编辑用底部弹层，不进路由栈 |
+| 路由 | go_router：`ShellRoute` 实现底部“聊天 / 总览 / 历史 / 我的”四栏；详情和编辑用底部弹层，不进路由栈 |
 | 金额 | 一律整数“分”（`int`），绝不用 `double` |
 
 ### 3.5 空间与成员
@@ -163,7 +163,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 
 | 项 | 我们怎么定 |
 |---|---|
-| 入口 | 底部第四栏“我的” → `SettingsScreen`：账号（用户名、改密码）、空间与成员、应用锁、API key、关于与开源许可；三个内容页右上角用于 `SpaceBadge` |
+| 入口 | 底部第四栏“我的” → `SettingsScreen`：账号（用户名、改密码）、应用锁、API key、关于与开源许可；三个内容页右上角用于 `SpaceBadge`，空间与成员管理仍从空间徽章弹层进入 |
 | 只在线 | API key 的列表、创建、改名、撤销都**只在线**：`ApiKeysRepository` 直接调 `/me/api-keys`，不进 outbox，不缓存进 drift（列表每次进入页面时拉取，离线时显示“需要联网”）。原因：明文只在创建响应里出现一次，排队重发拿不到；撤销必须马上生效，不能“已排队” |
 | 明文只在内存里 | 创建响应里的明文只放在“只显示一次”弹层的 ViewModel 状态里，弹层关闭即丢弃：不写 drift、不写 shared_preferences / flutter_secure_storage、不进日志和崩溃上报、不进 `Result` 的错误信息。dio 拦截器的日志对 `/me/api-keys` 的响应体一律不记 |
 | 防截屏与剪贴板 | “只显示一次”弹层打开期间设置 `FLAG_SECURE`（与应用锁共用 4.6 的平台通道，弹层关闭后恢复原状）；复制时经平台通道给剪贴板内容加 `ClipDescription.EXTRA_IS_SENSITIVE`（Android 13+ 的系统剪贴板预览不显示内容），低版本照常复制 |
