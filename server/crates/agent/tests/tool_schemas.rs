@@ -55,6 +55,94 @@ fn wire_strict_flags_are_snapshotted() {
         .collect();
     insta::assert_json_snapshot!("strict_flags", flags);
 }
+fn prompt_display_tools(instructions: &str) -> Vec<&str> {
+    instructions
+        .lines()
+        .find_map(|line| line.strip_prefix("DISPLAY_TOOLS: "))
+        .into_iter()
+        .flat_map(|line| line.split(',').map(str::trim))
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+fn description_contract(tool: &dyn jiabu_tools::AgentTool, description: &str) -> bool {
+    let headings = ["\n何时用：", "\n何时别用：", "\n例："];
+    if headings
+        .iter()
+        .any(|heading| description.matches(heading).count() != 1)
+    {
+        return false;
+    }
+    let positions: Vec<_> = headings
+        .iter()
+        .filter_map(|heading| description.find(heading))
+        .collect();
+    if !positions.windows(2).all(|pair| pair[0] < pair[1]) {
+        return false;
+    }
+    let Some(example) = description.split_once("\n例：").map(|(_, value)| value) else {
+        return false;
+    };
+    serde_json::from_str(example)
+        .ok()
+        .is_some_and(|args| tool.validate(args).is_ok())
+}
+#[test]
+fn display_prompt_descriptions_and_strict_schemas_match_the_registry() {
+    let registry = jiabu_tools::builtin_registry();
+    let display: Vec<_> = registry
+        .agent_tools()
+        .filter(|tool| jiabu_tools::is_display_tool(tool.name()))
+        .collect();
+    let instructions = jiabu_agent::render::static_instructions(b"[]");
+    assert_eq!(instructions.matches("\nDISPLAY_TOOLS: ").count(), 1);
+    let mut prompt_names = prompt_display_tools(&instructions);
+    let mut registered_names: Vec<_> = display.iter().map(|tool| tool.name()).collect();
+    prompt_names.sort_unstable();
+    registered_names.sort_unstable();
+    assert_eq!(prompt_names, registered_names);
+    // Negative control: the comparison notices a newly registered but unguided tool.
+    let mut added = registered_names.clone();
+    added.push("show_future");
+    added.sort_unstable();
+    assert_ne!(prompt_names, added);
+    for tool in display {
+        assert!(
+            description_contract(tool, tool.description()),
+            "{} description is missing guidance or a valid example",
+            tool.name()
+        );
+        assert!(
+            strict_compatible(tool.parameters()),
+            "{} display schema must remain strict-compatible",
+            tool.name()
+        );
+    }
+}
+#[test]
+fn display_description_contract_rejects_missing_sections_and_bad_examples() {
+    let registry = jiabu_tools::builtin_registry();
+    let tool = registry.get("show_metrics").expect("show_metrics");
+    let description = tool.description();
+    for heading in ["\n何时用：", "\n何时别用：", "\n例："] {
+        assert!(!description_contract(
+            tool,
+            &description.replacen(heading, "\n", 1)
+        ));
+    }
+    let prefix = description.split_once("\n例：").expect("example").0;
+    assert!(!description_contract(
+        tool,
+        &format!("{prefix}\n例：not-json")
+    ));
+    assert!(!description_contract(tool, &format!("{prefix}\n例：{{}}")));
+    assert!(!description_contract(
+        tool,
+        &description
+            .replace("\n何时用：", "\nTEMP：")
+            .replace("\n何时别用：", "\n何时用：")
+            .replace("\nTEMP：", "\n何时别用：")
+    ));
+}
 #[test]
 fn schema_violations_name_the_field_and_keyword_without_values() {
     let registry = jiabu_tools::builtin_registry();

@@ -317,6 +317,105 @@ async fn from_call_reuses_an_earlier_query_and_checks_its_tool() -> Result<()> {
     let output = tool_output(&requests[3], "m")?;
     assert_eq!(output["total"], 6_000);
     assert_eq!(output["items"][0]["label"], "虚构餐饮");
+    let rendered = blocks(&f, r.message_id).await?;
+    let metrics = rendered
+        .iter()
+        .filter(|block| block["type"] == "metric_group")
+        .collect::<Vec<_>>();
+    assert_eq!(metrics.len(), 1, "query_stats must not auto-render");
+    Ok(())
+}
+#[tokio::test]
+async fn document_metric_series_is_only_rendered_through_show_trend() -> Result<()> {
+    let mut f = Fixture::new(vec![]).await?;
+    let report = f
+        .runtime
+        .templates
+        .reload(&f.db, jiabu_tools::templates::official_files())
+        .await?;
+    assert!(report.accepted > 0);
+    let subject = write(
+        &f,
+        "create_subject",
+        json!({"kind":"family_member","name":"虚构成员"}),
+    )
+    .await?["id"]
+        .as_str()
+        .context("subject id")?
+        .to_owned();
+    for (date, value) in [("2026-01-02", 60.5), ("2026-02-03", 62.5)] {
+        write(
+            &f,
+            "create_document",
+            json!({
+                "template_id":"jiabu.checkup",
+                "subject_ids":[subject.clone()],
+                "content":{"v":1,"items":[
+                    {"key":"exam_date","type":"date","label":"检查日期","value":date},
+                    {"key":"weight","type":"number","label":"体重","value":value,"unit":"kg"}
+                ]}
+            }),
+        )
+        .await?;
+    }
+    script(
+        &mut f,
+        vec![
+            vec![
+                call(
+                    "d",
+                    "document_metric_series",
+                    json!({"subject_id":subject,"metric":"body.weight"}),
+                ),
+                done(),
+            ],
+            vec![
+                call("s", "show_trend", metrics(json!({"from_call":"d"}))),
+                done(),
+            ],
+            vec![text("体重略有上升。"), done()],
+        ],
+    );
+    let r = f.start().await?;
+    f.work().await?;
+    assert_eq!(f.run(r.message_id).await?.status, "completed");
+    let requests = f.mock.requests();
+    let queried = tool_output(&requests[1], "d")?;
+    assert_eq!(queried["unit"], "kg");
+    assert_eq!(queried["points"].as_array().context("points")?.len(), 2);
+    assert_eq!(queried["points"][0]["event_date"], "2026-01-02");
+    assert_eq!(queried["points"][0]["value"], 60.5);
+    assert_eq!(queried["points"][1]["event_date"], "2026-02-03");
+    assert_eq!(queried["points"][1]["value"], 62.5);
+    let shown = tool_output(&requests[2], "s")?;
+    assert_eq!(shown["status"], "shown");
+    assert_eq!(shown["trend"]["kind"], "measurement");
+    assert_eq!(shown["trend"]["unit"], "kg");
+    assert_eq!(shown["trend"]["points"][1]["value"], 62.5);
+    let rendered = blocks(&f, r.message_id).await?;
+    let trends = rendered
+        .iter()
+        .filter(|block| block["type"] == "time_series")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        trends.len(),
+        1,
+        "the read call must not render before explicit show_trend"
+    );
+    let trend = trends[0];
+    assert_eq!(trend["data"]["xType"], "date");
+    assert_eq!(trend["data"]["yUnit"], "kg");
+    assert_eq!(
+        trend["data"]["series"][0]["points"],
+        json!([
+            {"x":"2026-01-02","y":60.5},
+            {"x":"2026-02-03","y":62.5}
+        ])
+    );
+    assert_eq!(
+        trend["fallbackText"],
+        "body.weight：2026-01-02 60.5 kg、2026-02-03 62.5 kg"
+    );
     Ok(())
 }
 #[tokio::test]
