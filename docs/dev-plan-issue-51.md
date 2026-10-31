@@ -46,7 +46,7 @@ Out of scope:
 - [ ] Reject tag results when the query reports overlapping groups.
 - [ ] Drop zero groups, reject negative groups, return `no_data` for no non-zero groups, and reject a single non-zero group.
 - [ ] Assert that source groups and emitted parts preserve the exact query total.
-- [ ] Sort descending; merge every part below 3% plus overflow beyond the five largest named parts into one `其他（N 项）` part.
+- [ ] Sort by value descending, then label ascending, then stable key ascending. Compare the 3% boundary exactly with widened integers for positive totals (`i128(value) * 100 < i128(total) * 3`), never floating point; merge every part below that boundary plus overflow beyond the five largest named parts into one `其他（N 项）` part.
 - [ ] Emit at most six parts and set `mergedCount` only when two or more source groups were merged.
 - [ ] Preserve minor-unit money for `sum` and integer semantics for `count`; unsuitable data returns field/rule-only guidance, never a fabricated chart.
 
@@ -54,7 +54,7 @@ Out of scope:
 
 - [ ] Require grouping by month/purpose/account/member/tag.
 - [ ] For month: accept 2–12 calendar months, fill missing months with zero, and preserve chronological order.
-- [ ] For non-month: sort descending, keep the first 11 groups, and merge overflow into a final `其他（N 项）` point.
+- [ ] For non-month: sort by value descending, then label ascending, then stable key ascending; keep the first 11 groups and merge overflow into a final `其他（N 项）` point.
 - [ ] Preserve signed values and allow overlapping tag groups because the chart compares values rather than claiming a whole.
 - [ ] Return `no_data` for no usable points and reject a one-point result as better expressed by metrics/plain text.
 - [ ] Emit at most 12 points with exact currency/minor-unit or integer formatting.
@@ -75,6 +75,7 @@ Out of scope:
 - [ ] Implement breakdown as a level paper card without tape, a `CustomPainter` donut, server-derived center total, token palette, formatted legend, percentages, and table toggle.
 - [ ] Implement category series with hand-drawn bars, a visible zero axis, deterministic vertical vs overflow-safe horizontal layout, optional reference line, assessment highlight, and table toggle.
 - [ ] Use only `jiabu_design` tokens/current fonts; add no chart dependency, UI literals, or business state in `setState`.
+- [ ] Route every visible toggle/chart/table label through ChatWeave localization or Jiabu ARB/gen-l10n; add no hard-coded Chinese or English strings.
 - [ ] Add type-specific pending skeletons.
 - [ ] Expose one semantic summary based on the server fallback and exclude decorative painter nodes from accessibility.
 - [ ] Keep both renderers usable at 200% text scale and maximum protocol inputs; Jiabu remains light-only.
@@ -95,6 +96,7 @@ Out of scope:
 
 - [ ] Widget tests cover registry capabilities, parsing, exact money/count formatting, table toggles, semantics, negative values, optional reference, and assessment.
 - [ ] Geometry/overflow tests cover long labels, maximum protocol inputs, 200% text, and both supported widths.
+- [ ] Include at least one English long-label case at 200% text scale in widget/golden coverage in addition to Chinese cases.
 - [ ] Golden matrix includes both chart types at 360/100% and 430/200%, long labels, maximum input, chart/table states, and type-specific skeletons.
 - [ ] Review generated PNGs visually on the build host and attach before/after comparisons to the PR.
 
@@ -111,7 +113,7 @@ Out of scope:
 - [x] Jiabu server emits at most six breakdown parts although the protocol accepts 12; the client override must still render all 12 because it consumes general valid ChatWeave blocks.
 - [x] Jiabu server emits at most 12 category points although the protocol accepts 24; the client override must still render all 24.
 - [x] `query_stats` reports whether tag groups may overlap. Breakdown must reject overlap; category-series may display it because it makes no whole/percentage claim.
-- [x] Stats totals and values are `i64`, so exact breakdown sum checks and minor-unit money require no floating-point arithmetic.
+- [x] Stats totals and values are `i64`, so exact breakdown sum checks and minor-unit money require no floating-point arithmetic. Percentage-boundary multiplication uses `i128` to avoid overflow.
 - [x] Group-name resolution, same-run succeeded-call binding, explicit demo authorization, correction fallback, and telemetry already exist from S1/S2 and should be extended rather than duplicated.
 - [x] The long-label horizontal-layout threshold is an implementation decision chosen from measured overflow and golden evidence, not a new product decision.
 - [x] Jiabu is light-only, so S3 adds no dark-theme override goldens even though ChatWeave's neutral renderer supports dark mode.
