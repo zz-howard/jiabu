@@ -55,6 +55,8 @@ pub enum StepKind {
     ShowMetrics,
     ShowTrend,
     ShowRecords,
+    ShowBreakdown,
+    ShowBarChart,
 }
 pub struct StepLabel(pub &'static str);
 pub struct StepSummary(pub &'static str);

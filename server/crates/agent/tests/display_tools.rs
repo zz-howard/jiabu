@@ -142,8 +142,8 @@ async fn metrics_block_shows_names_and_money_from_the_server_query() -> Result<(
     assert_eq!(output["status"], "shown");
     assert_eq!(output["total"], 6_000);
     assert_eq!(output["items"][0]["label"], "虚构餐饮");
-    let blocks = blocks(&f, r.message_id).await?;
-    let block = blocks
+    let rendered = blocks(&f, r.message_id).await?;
+    let block = rendered
         .iter()
         .find(|b| b["type"] == "metric_group")
         .context("metric_group")?;
@@ -267,8 +267,8 @@ async fn demo_only_when_the_user_asked_and_always_marked() -> Result<()> {
     );
     let r = start(&f, "演示一下你能画哪些图").await?;
     f.work().await?;
-    let blocks = blocks(&f, r.message_id).await?;
-    let block = blocks
+    let rendered_metrics = blocks(&f, r.message_id).await?;
+    let block = rendered_metrics
         .iter()
         .find(|b| b["type"] == "metric_group")
         .context("metric_group")?;
@@ -281,6 +281,34 @@ async fn demo_only_when_the_user_asked_and_always_marked() -> Result<()> {
         block["fallbackText"]
             .as_str()
             .is_some_and(|t| t.starts_with("【演示数据】"))
+    );
+    script(
+        &mut f,
+        vec![
+            vec![
+                call(
+                    "b",
+                    "show_breakdown",
+                    metrics(json!({"demo":"monthly_spending"})),
+                ),
+                call(
+                    "c",
+                    "show_bar_chart",
+                    metrics(json!({"demo":"half_year_trend"})),
+                ),
+                done(),
+            ],
+            vec![text("这是图表示意。"), done()],
+        ],
+    );
+    let r = start(&f, "demo 一下占比和柱状图").await?;
+    f.work().await?;
+    let rendered = blocks(&f, r.message_id).await?;
+    assert!(rendered.iter().any(|block| block["type"] == "breakdown"));
+    assert!(
+        rendered
+            .iter()
+            .any(|block| block["type"] == "category_series")
     );
     Ok(())
 }
@@ -323,6 +351,70 @@ async fn from_call_reuses_an_earlier_query_and_checks_its_tool() -> Result<()> {
         .filter(|block| block["type"] == "metric_group")
         .collect::<Vec<_>>();
     assert_eq!(metrics.len(), 1, "query_stats must not auto-render");
+    Ok(())
+}
+#[tokio::test]
+async fn breakdown_and_bar_chart_use_server_owned_queries_and_blocks() -> Result<()> {
+    let mut f = Fixture::new(vec![]).await?;
+    ledger(&f).await?;
+    let stats = json!({"measure":"sum","period":{"from":"2026-10-01","through":"2026-10-31"},"group_by":"purpose"});
+    script(
+        &mut f,
+        vec![
+            vec![call("q", "query_stats", stats), done()],
+            vec![
+                call("b", "show_breakdown", metrics(json!({"from_call":"q"}))),
+                call(
+                    "b2",
+                    "show_breakdown",
+                    metrics(json!({"query":query(json!("purpose"))})),
+                ),
+                call(
+                    "c",
+                    "show_bar_chart",
+                    metrics(json!({"query":query(json!("purpose"))})),
+                ),
+                call("c2", "show_bar_chart", metrics(json!({"from_call":"q"}))),
+                done(),
+            ],
+            vec![text("餐饮占比更高。"), done()],
+        ],
+    );
+    let response = f.start().await?;
+    f.work().await?;
+    assert_eq!(f.run(response.message_id).await?.status, "completed");
+    let requests = f.mock.requests();
+    let breakdown = tool_output(&requests[2], "b")?;
+    assert_eq!(breakdown["breakdown"]["parts"][0]["label"], "虚构餐饮");
+    assert_eq!(breakdown["breakdown"]["parts"][0]["value"], 4_200);
+    let direct_breakdown = tool_output(&requests[2], "b2")?;
+    assert_eq!(direct_breakdown["breakdown"], breakdown["breakdown"]);
+    let category = tool_output(&requests[2], "c")?;
+    assert_eq!(
+        category["category_series"]["points"][1]["label"],
+        "虚构交通"
+    );
+    let reused_category = tool_output(&requests[2], "c2")?;
+    assert_eq!(
+        reused_category["category_series"],
+        category["category_series"]
+    );
+    let rendered = blocks(&f, response.message_id).await?;
+    assert_eq!(
+        rendered
+            .iter()
+            .filter(|block| block["type"] == "breakdown")
+            .count(),
+        2,
+        "query_stats itself must not render"
+    );
+    assert_eq!(
+        rendered
+            .iter()
+            .filter(|block| block["type"] == "category_series")
+            .count(),
+        2
+    );
     Ok(())
 }
 #[tokio::test]
@@ -447,6 +539,8 @@ async fn from_call_reapplies_the_display_period_limit() -> Result<()> {
             vec![
                 call("m", "show_metrics", metrics(json!({"from_call":"qm"}))),
                 call("t", "show_trend", metrics(json!({"from_call":"qt"}))),
+                call("b", "show_breakdown", metrics(json!({"from_call":"qm"}))),
+                call("c", "show_bar_chart", metrics(json!({"from_call":"qt"}))),
                 call(
                     "r",
                     "show_records",
@@ -461,7 +555,7 @@ async fn from_call_reapplies_the_display_period_limit() -> Result<()> {
     f.work().await?;
     assert_eq!(f.run(r.message_id).await?.status, "completed");
     let request = &f.mock.requests()[2];
-    for call_id in ["m", "t", "r"] {
+    for call_id in ["m", "t", "b", "c", "r"] {
         let output = tool_output(request, call_id)?;
         assert_eq!(output["errors"][0]["pointer"], "/source/from_call");
         assert_eq!(output["errors"][0]["rule"], "period: at most 24 months");

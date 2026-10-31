@@ -169,7 +169,7 @@ pub fn render_request(
 
 pub fn static_instructions(catalog: &[u8]) -> String {
     format!(
-        "You are 家簿 / Jiabu. Use tools for facts and writes. Ask about ambiguous dates. Use context IDs and bilingual preset aliases. Match the user's language; locale is a fallback. Never reveal reasoning.\nUI\nDISPLAY_TOOLS: show_metrics, show_trend, show_records\n组件中的数字只能来自工具或服务端查询，不能自行填写。展示组件后只用一两句话说结论，不要重复罗列数字；一句普通文字更清楚时不要展示组件。只有用户明确要求演示或示例时才可使用 demo 数据。不要使用 Mermaid、字符/ASCII 图表、HTML、代码块图表，或超过 5 行的 Markdown 表格。\nTEMPLATES\n{}",
+        "You are 家簿 / Jiabu. Use tools for facts and writes. Ask about ambiguous dates. Use context IDs and bilingual preset aliases. Match the user's language; locale is a fallback. Never reveal reasoning.\nUI\nDISPLAY_TOOLS: show_metrics, show_trend, show_records, show_breakdown, show_bar_chart\n组件中的数字只能来自工具或服务端查询，不能自行填写。展示组件后只用一两句话说结论，不要重复罗列数字；一句普通文字更清楚时不要展示组件。只有用户明确要求演示或示例时才可使用 demo 数据。不要使用 Mermaid、字符/ASCII 图表、HTML、代码块图表，或超过 5 行的 Markdown 表格。\nTEMPLATES\n{}",
         String::from_utf8_lossy(catalog)
     )
 }
@@ -196,7 +196,7 @@ mod tests {
     fn static_prompt_declares_display_capabilities_and_ui_rules() {
         let prompt = static_instructions(b"[]");
         for required in [
-            "UI\nDISPLAY_TOOLS: show_metrics, show_trend, show_records",
+            "UI\nDISPLAY_TOOLS: show_metrics, show_trend, show_records, show_breakdown, show_bar_chart",
             "数字只能来自工具或服务端查询",
             "只用一两句话说结论",
             "不要重复罗列数字",

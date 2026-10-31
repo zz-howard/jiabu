@@ -55,8 +55,8 @@ kamadak-exif = { version = "0.6.1" }
 bytes = "1.12.1"
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 # MIT; reviewed ChatWeave CW1 revision. Resolve the lockfile on the build host.
-chatweave-protocol = { git = "https://github.com/zz-howard/chatweave", rev = "f11bd4f66479d8a06160b6af5f9c8d0f980577ef" }
-chatweave-server = { git = "https://github.com/zz-howard/chatweave", rev = "f11bd4f66479d8a06160b6af5f9c8d0f980577ef", features = ["axum"] }
+chatweave-protocol = { git = "https://github.com/zz-howard/chatweave", rev = "acd253a0aec8aad5c138544dcc0c06fe77754e0f" }
+chatweave-server = { git = "https://github.com/zz-howard/chatweave", rev = "acd253a0aec8aad5c138544dcc0c06fe77754e0f", features = ["axum"] }
 # Only chat, agent, and api may depend on ChatWeave.
 
 [profile.release]
