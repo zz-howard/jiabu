@@ -99,15 +99,7 @@ impl ToolExecutor<'_> {
         };
         let (output, status) = match result {
             Ok(value) => {
-                let shows_component = tool.effect() == Effect::LocalWrite
-                    || matches!(
-                        tool.name(),
-                        "query_stats"
-                            | "query_balance"
-                            | "document_metric_series"
-                            | "search_records"
-                            | "list_accounts"
-                    );
+                let shows_component = tool.effect() == Effect::LocalWrite;
                 if shows_component
                     && let Some((kind, data, fallback)) =
                         jiabu_chat::map_tool_result(&call.tool, &call.args, &value)

@@ -67,7 +67,10 @@ mod registry;
 pub mod templates;
 pub mod tool;
 pub use context::{Invocation, ToolCtx};
-pub use display::{DisplayKind, DisplayOutput, DisplayStatus, is_display_tool};
+pub use display::{
+    DisplayKind, DisplayOutput, DisplayStatus, LedgerTrendPoint, MeasurementTrendPoint,
+    TrendPayload, is_display_tool,
+};
 pub use jiabu_db::OperationError as ToolError;
 #[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]

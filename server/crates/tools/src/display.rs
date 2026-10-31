@@ -7,7 +7,11 @@ use crate::{
 };
 use chrono::{Datelike, NaiveDate};
 use jiabu_db::{SpaceTx, ValidationIssue};
-use jiabu_domain::{SpaceId, ledger::*};
+use jiabu_domain::{
+    SpaceId,
+    documents::{MetricResult, MetricSeries},
+    ledger::*,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -26,6 +30,8 @@ const MAX_RECORDS: u32 = 50;
 const MAX_TEXT_CHARS: usize = 100;
 /// metric_group holds at most 12 metrics: 11 largest groups plus one merged rest.
 const MAX_METRICS: usize = 12;
+/// ChatWeave's time_series schema accepts at most 500 points per series.
+const MAX_TREND_POINTS: usize = 500;
 /// Words in the user's own input that allow fixed demo data.
 const DEMO_WORDS: [&str; 7] = ["演示", "示例", "样子", "样例", "demo", "example", "sample"];
 
@@ -168,6 +174,33 @@ pub struct DisplayRow {
     pub account: Option<String>,
     pub note: Option<String>,
 }
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct LedgerTrendPoint {
+    pub key: String,
+    pub label: String,
+    /// Minor units for `sum`, a count for `count`.
+    pub value: i64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct MeasurementTrendPoint {
+    pub date: NaiveDate,
+    pub value: f64,
+}
+/// Trend values are deliberately discriminated: document measurements are not
+/// ledger minor units and may be fractional or unitless.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TrendPayload {
+    Ledger {
+        currency: String,
+        measure: Measure,
+        points: Vec<LedgerTrendPoint>,
+    },
+    Measurement {
+        unit: Option<String>,
+        points: Vec<MeasurementTrendPoint>,
+    },
+}
 /// Everything shown is here, filled by the server. The model reads it to write a
 /// one- or two-sentence conclusion; crates/chat maps it to the block.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -181,6 +214,8 @@ pub struct DisplayOutput {
     pub total: Option<i64>,
     pub items: Vec<DisplayItem>,
     pub rows: Vec<DisplayRow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trend: Option<TrendPayload>,
     pub has_more: bool,
     /// Tag groups can overlap, so their sum may exceed the total.
     pub groups_may_overlap: bool,
@@ -199,6 +234,7 @@ impl DisplayOutput {
             total: None,
             items: vec![],
             rows: vec![],
+            trend: None,
             has_more: false,
             groups_may_overlap: false,
             note: None,
@@ -289,21 +325,26 @@ fn query_error(error: ToolError) -> ToolError {
         error
     }
 }
-/// Arguments and output of a succeeded call from this run, read from the journal.
-async fn referenced<A: DeserializeOwned, O: DeserializeOwned>(
+/// Raw arguments and output of a succeeded allowlisted call from this run.
+async fn referenced_raw(
     ctx: &ToolCtx,
     tx: &SpaceTx,
     call_id: &str,
-    tool: &str,
-) -> Result<(A, O), ToolError> {
-    let rule = format!("from_call: a succeeded {tool} call from an earlier turn");
+    tools: &[&str],
+) -> Result<(String, Value, Value), ToolError> {
+    let rule = format!(
+        "from_call: a succeeded {} call from an earlier turn",
+        tools.join(" or ")
+    );
     let invalid = || ToolError::invalid_at("/source/from_call", &rule);
     let run = ctx.run_id.ok_or_else(invalid)?;
     let call = tx
         .calls(ctx.space_id, run)
         .await?
         .into_iter()
-        .find(|c| c.call_id == call_id && c.tool == tool && c.status == "succeeded")
+        .find(|c| {
+            c.call_id == call_id && tools.contains(&c.tool.as_str()) && c.status == "succeeded"
+        })
         .ok_or_else(invalid)?;
     let output = tx
         .journal(ctx.space_id, run)
@@ -312,8 +353,20 @@ async fn referenced<A: DeserializeOwned, O: DeserializeOwned>(
         .find(|i| i.kind == "tool_result" && i.call_id.as_deref() == Some(call_id))
         .map(|i| i.payload["output"].clone())
         .ok_or_else(invalid)?;
+    Ok((call.tool, call.args, output))
+}
+/// Typed arguments and output of one expected succeeded call.
+async fn referenced<A: DeserializeOwned, O: DeserializeOwned>(
+    ctx: &ToolCtx,
+    tx: &SpaceTx,
+    call_id: &str,
+    tool: &str,
+) -> Result<(A, O), ToolError> {
+    let rule = format!("from_call: a succeeded {tool} call from an earlier turn");
+    let invalid = || ToolError::invalid_at("/source/from_call", &rule);
+    let (_, args, output) = referenced_raw(ctx, tx, call_id, &[tool]).await?;
     Ok((
-        serde_json::from_value(call.args).map_err(|_| invalid())?,
+        serde_json::from_value(args).map_err(|_| invalid())?,
         serde_json::from_value(output).map_err(|_| invalid())?,
     ))
 }
@@ -503,12 +556,22 @@ fn demo_output(scene: DemoScene, currency: String) -> DisplayOutput {
         DemoScene::HalfYearTrend => {
             let mut o = DisplayOutput::new(DisplayKind::Trend, "近 6 个月支出".into(), currency);
             let values = [382_000, 405_500, 361_200, 452_800, 418_900, 428_600];
-            o.items = values
+            let points = values
                 .iter()
                 .enumerate()
-                .map(|(i, v)| item(&format!("demo-{}", i + 1), &format!("第 {} 月", i + 1), *v))
+                .map(|(i, v)| LedgerTrendPoint {
+                    key: format!("demo-{}", i + 1),
+                    label: format!("第 {} 月", i + 1),
+                    value: *v,
+                })
                 .collect();
             o.measure = Some(Measure::Sum);
+            o.total = Some(values.iter().sum());
+            o.trend = Some(TrendPayload::Ledger {
+                currency: o.currency.clone(),
+                measure: Measure::Sum,
+                points,
+            });
             o
         }
         DemoScene::RecentRecords => {
@@ -532,10 +595,50 @@ fn demo_output(scene: DemoScene, currency: String) -> DisplayOutput {
             o
         }
     };
-    output.total = (!output.items.is_empty()).then(|| output.items.iter().map(|i| i.value).sum());
+    if !output.items.is_empty() {
+        output.total = Some(output.items.iter().map(|item| item.value).sum());
+    }
     output.demo = true;
     output.title = format!("【演示数据】{}", output.title);
     output
+}
+
+fn measurement_trend(result: MetricResult) -> Result<DisplayOutput, ToolError> {
+    if result.points.len() > MAX_TREND_POINTS {
+        return Err(ToolError::invalid_at(
+            "/source/from_call",
+            "from_call: document_metric_series has at most 500 points",
+        ));
+    }
+    let mut output = DisplayOutput::new(DisplayKind::Trend, result.metric, String::new());
+    if result.points.is_empty() {
+        return Ok(output.no_data());
+    }
+    output.trend = Some(TrendPayload::Measurement {
+        unit: result.unit.filter(|unit| !unit.is_empty()),
+        points: result
+            .points
+            .into_iter()
+            .map(|point| MeasurementTrendPoint {
+                date: point.event_date,
+                value: point.value,
+            })
+            .collect(),
+    });
+    Ok(output)
+}
+
+fn referenced_measurement_trend(
+    query: MetricSeries,
+    result: MetricResult,
+) -> Result<DisplayOutput, ToolError> {
+    if result.subject_id != query.subject_id || result.metric != query.metric {
+        return Err(ToolError::invalid_at(
+            "/source/from_call",
+            "from_call: result subject_id and metric match the referenced query",
+        ));
+    }
+    measurement_trend(result)
 }
 
 struct ShowMetricsTool;
@@ -660,7 +763,7 @@ impl TypedTool for ShowTrendTool {
         "show_trend"
     }
     fn description(&self) -> &'static str {
-        "在回答里展示按月变化的折线（2–24 个月，没有记录的月份补 0）。服务端查询并填入数字，你只说明查什么。\n何时用：用户问趋势、每个月花了多少、和前几个月比怎样。\n何时别用：只看一个期间的总数或构成（用 show_metrics）；不到 2 个月。\n展示后用一两句话说结论，不要把数字再列一遍。\n例：{\"source\":{\"query\":{\"measure\":\"sum\",\"kinds\":[\"expense\"],\"period\":{\"from\":\"2026-05-01\",\"through\":\"2026-10-31\"},\"account_id\":null,\"purpose_id\":null,\"tag_id\":null,\"member_id\":null},\"from_call\":null,\"demo\":null}}"
+        "在回答里展示折线：账本按月趋势（2–24 个月，没有记录的月份补 0），或复用一次成功的 document_metric_series 查询展示资料指标历次值。服务端填入日期、数字和单位，你只说明查什么。\n何时用：用户问趋势、每个月花了多少、和前几个月比怎样，或问体重等资料指标的历次变化。\n何时别用：只看一个期间的总数或构成（用 show_metrics）；账本趋势不到 2 个月；只有一个数字一句话就能说清。\n展示后用一两句话说结论，不要把数字再列一遍。\n例：{\"source\":{\"query\":{\"measure\":\"sum\",\"kinds\":[\"expense\"],\"period\":{\"from\":\"2026-05-01\",\"through\":\"2026-10-31\"},\"account_id\":null,\"purpose_id\":null,\"tag_id\":null,\"member_id\":null},\"from_call\":null,\"demo\":null}}"
     }
     fn effect(&self) -> Effect {
         Effect::Read
@@ -692,7 +795,7 @@ impl TypedTool for ShowTrendTool {
         json!({"source":{"query":{"measure":"sum","kinds":["expense"],"period":{"from":"2026-01-01","through":"2026-02-28"},"account_id":null,"purpose_id":null,"tag_id":null,"member_id":null},"from_call":null,"demo":null}})
     }
     fn example_output(&self) -> Value {
-        json!({"display":"trend","status":"shown","title":"2026年1月–2026年2月支出","demo":false,"currency":"CNY","measure":"sum","total":5000,"items":[{"key":"2026-01","label":"1月","value":5000},{"key":"2026-02","label":"2月","value":0}],"rows":[],"has_more":false,"groups_may_overlap":false})
+        json!({"display":"trend","status":"shown","title":"2026年1月–2026年2月支出","demo":false,"currency":"CNY","measure":"sum","total":5000,"items":[],"rows":[],"trend":{"kind":"ledger","currency":"CNY","measure":"sum","points":[{"key":"2026-01","label":"1月","value":5000},{"key":"2026-02","label":"2月","value":0}]},"has_more":false,"groups_may_overlap":false})
     }
     fn execute<'a>(
         &'a self,
@@ -702,20 +805,38 @@ impl TypedTool for ShowTrendTool {
     ) -> ToolFuture<'a, Result<Self::Output, ToolError>> {
         Box::pin(async move {
             let space = ctx.space_id;
-            let currency = tx.ledger_currency(space).await?;
             let (query, stats) = match args.source {
                 Source {
                     demo: Some(scene), ..
                 } => {
                     require_demo_request(ctx, tx).await?;
+                    let currency = tx.ledger_currency(space).await?;
                     return Ok(demo_output(scene, currency));
                 }
                 Source {
                     from_call: Some(id),
                     ..
                 } => {
-                    let (query, stats): (QueryStats, StatsResult) =
-                        referenced(ctx, tx, &id, "query_stats").await?;
+                    let invalid = || {
+                        ToolError::invalid_at(
+                            "/source/from_call",
+                            "from_call: valid query_stats or document_metric_series result",
+                        )
+                    };
+                    let (tool, call_args, call_output) =
+                        referenced_raw(ctx, tx, &id, &["query_stats", "document_metric_series"])
+                            .await?;
+                    if tool == "document_metric_series" {
+                        let query: MetricSeries =
+                            serde_json::from_value(call_args).map_err(|_| invalid())?;
+                        let result: MetricResult =
+                            serde_json::from_value(call_output).map_err(|_| invalid())?;
+                        return referenced_measurement_trend(query, result);
+                    }
+                    let query: QueryStats =
+                        serde_json::from_value(call_args).map_err(|_| invalid())?;
+                    let stats: StatsResult =
+                        serde_json::from_value(call_output).map_err(|_| invalid())?;
                     validate_reused_period(&query.period)?;
                     if query.group_by != Some(GroupBy::Month) || months(&query.period) < 2 {
                         return Err(ToolError::invalid_at(
@@ -757,9 +878,9 @@ impl TypedTool for ShowTrendTool {
                 return Ok(output.no_data());
             }
             output.total = Some(stats.total);
-            output.items = month_keys(&query.period)
+            let points = month_keys(&query.period)
                 .into_iter()
-                .map(|(key, label)| DisplayItem {
+                .map(|(key, label)| LedgerTrendPoint {
                     value: stats
                         .groups
                         .iter()
@@ -767,9 +888,13 @@ impl TypedTool for ShowTrendTool {
                         .map_or(0, |g| g.value),
                     key,
                     label,
-                    merged_count: None,
                 })
                 .collect();
+            output.trend = Some(TrendPayload::Ledger {
+                currency: output.currency.clone(),
+                measure: query.measure,
+                points,
+            });
             Ok(output)
         })
     }
@@ -1045,6 +1170,112 @@ mod tests {
             let output = demo_output(scene, "CNY".into());
             assert!(output.demo);
             assert!(output.title.starts_with("【演示数据】"));
+        }
+        let trend = demo_output(DemoScene::HalfYearTrend, "CNY".into());
+        assert_eq!(trend.total, Some(2_449_000));
+        assert!(matches!(trend.trend, Some(TrendPayload::Ledger { .. })));
+    }
+    #[test]
+    fn document_measurements_keep_fractional_values_units_and_limits() {
+        let point = |value| jiabu_domain::documents::MetricPoint {
+            document_id: Uuid::now_v7(),
+            event_date: NaiveDate::from_ymd_opt(2026, 1, 2).unwrap_or_default(),
+            value,
+        };
+        let output = measurement_trend(MetricResult {
+            subject_id: Uuid::now_v7(),
+            metric: "body.weight".into(),
+            unit: Some("kg".into()),
+            points: vec![point(62.5), point(0.0), point(-1.25)],
+            excluded: vec![],
+        })
+        .expect("measurement trend");
+        let value = serde_json::to_value(output).expect("serialized trend");
+        assert_eq!(value["currency"], "");
+        assert_eq!(value["trend"]["kind"], "measurement");
+        assert_eq!(value["trend"]["unit"], "kg");
+        assert_eq!(value["trend"]["points"][0]["value"], 62.5);
+        assert_eq!(value["trend"]["points"][1]["value"], 0.0);
+        assert_eq!(value["trend"]["points"][2]["value"], -1.25);
+
+        let empty_unit = measurement_trend(MetricResult {
+            subject_id: Uuid::now_v7(),
+            metric: "body.weight".into(),
+            unit: Some(String::new()),
+            points: vec![point(62.5)],
+            excluded: vec![],
+        })
+        .expect("empty unit is unitless");
+        let value = serde_json::to_value(empty_unit).expect("serialized unitless trend");
+        assert!(value["trend"]["unit"].is_null());
+
+        let empty = measurement_trend(MetricResult {
+            subject_id: Uuid::now_v7(),
+            metric: "unitless".into(),
+            unit: None,
+            points: vec![],
+            excluded: vec![],
+        })
+        .expect("empty measurement");
+        assert_eq!(empty.status, DisplayStatus::NoData);
+        assert!(empty.trend.is_none());
+
+        let too_many = measurement_trend(MetricResult {
+            subject_id: Uuid::now_v7(),
+            metric: "body.weight".into(),
+            unit: Some("kg".into()),
+            points: (0..=MAX_TREND_POINTS).map(|_| point(1.0)).collect(),
+            excluded: vec![],
+        })
+        .expect_err("more than 500 points");
+        assert_eq!(
+            too_many
+                .errors
+                .and_then(|errors| errors.into_iter().next())
+                .map(|e| (e.pointer, e.rule)),
+            Some((
+                "/source/from_call".into(),
+                "from_call: document_metric_series has at most 500 points".into()
+            ))
+        );
+    }
+    #[test]
+    fn document_measurement_result_must_match_the_referenced_query() {
+        let subject = Uuid::now_v7();
+        let query = || MetricSeries {
+            subject_id: subject,
+            metric: "body.weight".into(),
+            from: None,
+            to: None,
+        };
+        let result = |subject_id, metric: &str| MetricResult {
+            subject_id,
+            metric: metric.into(),
+            unit: Some("kg".into()),
+            points: vec![jiabu_domain::documents::MetricPoint {
+                document_id: Uuid::now_v7(),
+                event_date: NaiveDate::from_ymd_opt(2026, 1, 2).unwrap_or_default(),
+                value: 62.5,
+            }],
+            excluded: vec![],
+        };
+        assert!(referenced_measurement_trend(query(), result(subject, "body.weight")).is_ok());
+        for mismatch in [
+            result(Uuid::now_v7(), "body.weight"),
+            result(subject, "body.height"),
+        ] {
+            let error = referenced_measurement_trend(query(), mismatch)
+                .expect_err("mismatched result must be rejected");
+            assert_eq!(
+                error
+                    .errors
+                    .and_then(|errors| errors.into_iter().next())
+                    .map(|issue| (issue.pointer, issue.rule)),
+                Some((
+                    "/source/from_call".into(),
+                    "from_call: result subject_id and metric match the referenced query".into()
+                ))
+            );
         }
     }
 }

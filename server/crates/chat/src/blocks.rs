@@ -115,6 +115,9 @@ fn map_display(result: &Value) -> Result<Mapped> {
     };
     match result["display"].as_str() {
         Some("metrics") => {
+            if !result["trend"].is_null() || !rows.is_empty() {
+                return Err(Error::Conflict);
+            }
             let total = result["total"].as_i64().unwrap_or_default();
             let total_text = if result["groups_may_overlap"] == true {
                 format!(
@@ -158,25 +161,142 @@ fn map_display(result: &Value) -> Result<Mapped> {
             )))
         }
         Some("trend") => {
-            let points: Vec<_> = items
-                .iter()
-                .map(|i| {
-                    let v = i["value"].as_i64().unwrap_or_default();
-                    json!({"x":i["label"],"y":if money { json!(major(v, currency)) } else { json!(v) }})
-                })
-                .collect();
-            let unit = if money {
-                if currency == "CNY" { "元" } else { currency }
-            } else {
-                "笔"
-            };
-            Ok(Some((
-                "time_series",
-                json!({"title":title,"xType":"category","yUnit":unit,"series":[{"key":"value","label":title,"unit":unit,"points":points}]}),
-                format!("{title}：{}", listed(items)),
-            )))
+            if !items.is_empty() || !rows.is_empty() {
+                return Err(Error::Conflict);
+            }
+            let trend = result["trend"].as_object().ok_or(Error::Conflict)?;
+            let source_points = trend
+                .get("points")
+                .and_then(Value::as_array)
+                .ok_or(Error::Conflict)?;
+            if source_points.is_empty() || source_points.len() > 500 {
+                return Err(Error::Conflict);
+            }
+            match trend.get("kind").and_then(Value::as_str) {
+                Some("ledger") => {
+                    if trend.get("currency") != Some(&result["currency"])
+                        || trend.get("measure") != Some(&result["measure"])
+                    {
+                        return Err(Error::Conflict);
+                    }
+                    let points: Result<Vec<_>> = source_points
+                        .iter()
+                        .map(|point| {
+                            let label = point["label"].as_str().ok_or(Error::Conflict)?;
+                            let value = point["value"].as_i64().ok_or(Error::Conflict)?;
+                            Ok(json!({"x":label,"y":if money { json!(major(value, currency)) } else { json!(value) }}))
+                        })
+                        .collect();
+                    let unit = if money {
+                        if currency == "CNY" { "元" } else { currency }
+                    } else {
+                        "笔"
+                    };
+                    let fallback = source_points
+                        .iter()
+                        .map(|point| {
+                            let label = point["label"].as_str().ok_or(Error::Conflict)?;
+                            let value = point["value"].as_i64().ok_or(Error::Conflict)?;
+                            Ok(format!("{label} {}", value_text(value)))
+                        })
+                        .collect::<Result<Vec<_>>>()?
+                        .join("、");
+                    let points = points?;
+                    Ok(Some((
+                        "time_series",
+                        json!({"title":title,"xType":"category","yUnit":unit,"series":[{"key":"value","label":title,"unit":unit,"points":points}]}),
+                        format!("{title}：{fallback}"),
+                    )))
+                }
+                Some("measurement") => {
+                    if result["currency"] != ""
+                        || !result["measure"].is_null()
+                        || !result["total"].is_null()
+                    {
+                        return Err(Error::Conflict);
+                    }
+                    let unit = trend
+                        .get("unit")
+                        .filter(|value| value.as_str().is_some_and(|unit| !unit.is_empty()));
+                    if trend
+                        .get("unit")
+                        .is_some_and(|value| !value.is_null() && !value.is_string())
+                    {
+                        return Err(Error::Conflict);
+                    }
+                    let points: Result<Vec<_>> = source_points
+                        .iter()
+                        .map(|point| {
+                            let date = point["date"].as_str().ok_or(Error::Conflict)?;
+                            let value = point
+                                .get("value")
+                                .and_then(Value::as_f64)
+                                .ok_or(Error::Conflict)?;
+                            if !value.is_finite() {
+                                return Err(Error::Conflict);
+                            }
+                            Ok(json!({"x":date,"y":point["value"]}))
+                        })
+                        .collect();
+                    let suffix = unit
+                        .and_then(Value::as_str)
+                        .map(|u| format!(" {u}"))
+                        .unwrap_or_default();
+                    // A time series may contain 500 points, but ChatWeave caps a
+                    // block fallback at 2,000 characters. Keep all values for
+                    // short series and an explicit head/tail sample for long ones.
+                    let format_fallback_point = |point: &Value| {
+                        let date = point["date"].as_str().ok_or(Error::Conflict)?;
+                        let value = point
+                            .get("value")
+                            .and_then(Value::as_f64)
+                            .ok_or(Error::Conflict)?;
+                        if !value.is_finite() {
+                            return Err(Error::Conflict);
+                        }
+                        Ok(format!("{date} {}{suffix}", point["value"]))
+                    };
+                    let fallback = if source_points.len() <= 20 {
+                        source_points
+                            .iter()
+                            .map(format_fallback_point)
+                            .collect::<Result<Vec<_>>>()?
+                            .join("、")
+                    } else {
+                        let head = source_points
+                            .iter()
+                            .take(10)
+                            .map(format_fallback_point)
+                            .collect::<Result<Vec<_>>>()?
+                            .join("、");
+                        let tail = source_points
+                            .iter()
+                            .skip(source_points.len() - 10)
+                            .map(format_fallback_point)
+                            .collect::<Result<Vec<_>>>()?
+                            .join("、");
+                        format!(
+                            "{head}、…（中间省略 {} 个点）…、{tail}",
+                            source_points.len() - 20
+                        )
+                    };
+                    let points = points?;
+                    let mut series = json!({"key":"value","label":title,"points":points});
+                    let mut data = json!({"title":title,"xType":"date","series":[series.clone()]});
+                    if let Some(unit) = unit {
+                        series["unit"] = unit.clone();
+                        data["yUnit"] = unit.clone();
+                        data["series"][0] = series;
+                    }
+                    Ok(Some(("time_series", data, format!("{title}：{fallback}"))))
+                }
+                _ => Err(Error::Conflict),
+            }
         }
         Some("records") => {
+            if !result["trend"].is_null() || !items.is_empty() {
+                return Err(Error::Conflict);
+            }
             let data_rows: Vec<_> = rows
                 .iter()
                 .map(|r| {
@@ -218,7 +338,7 @@ fn map_display(result: &Value) -> Result<Mapped> {
 }
 /// Only structured tool results enter this mapping. Model text never does; the
 /// arguments only say how a result was asked for (e.g. sum or count).
-pub fn map_tool_result(tool: &str, args: &Value, result: &Value) -> Result<Mapped> {
+pub fn map_tool_result(tool: &str, _args: &Value, result: &Value) -> Result<Mapped> {
     if tool.starts_with("show_") {
         return map_display(result);
     }
@@ -239,91 +359,8 @@ pub fn map_tool_result(tool: &str, args: &Value, result: &Value) -> Result<Mappe
         data[key] = json!(id);
         return Ok(Some((kind, data, "已保存".into())));
     }
-    let currency = result["currency"].as_str().unwrap_or("CNY");
-    let money_metric = |label: &Value, value: &Value| json!({"label":label,"value":value,"format":money_format(currency)});
     match tool {
-        "query_stats" => {
-            let groups = result["groups"].as_array().ok_or(Error::Conflict)?;
-            let metric = |label: &Value, value: &Value| {
-                if args["measure"] == "count" {
-                    json!({"label":label,"value":value,"unit":"笔"})
-                } else {
-                    money_metric(label, value)
-                }
-            };
-            if groups.is_empty() {
-                return Ok(Some((
-                    "metric",
-                    metric(&json!("合计"), &result["total"]),
-                    "统计结果".into(),
-                )));
-            }
-            let metrics: Vec<_> = groups
-                .iter()
-                .map(|g| metric(&json!(g["key"].as_str().unwrap_or("未分类")), &g["value"]))
-                .collect();
-            Ok(Some((
-                "metric_group",
-                json!({"metrics":metrics}),
-                "统计结果".into(),
-            )))
-        }
-        "query_balance" => {
-            let balances = result["balances"].as_array().ok_or(Error::Conflict)?;
-            let metrics: Vec<_> = balances
-                .iter()
-                .map(|b| {
-                    money_metric(
-                        &json!(b["account_id"].as_str().unwrap_or("账户")),
-                        &b["balance_minor"],
-                    )
-                })
-                .collect();
-            if metrics.len() == 1 {
-                Ok(Some(("metric", metrics[0].clone(), "余额".into())))
-            } else if metrics.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some((
-                    "metric_group",
-                    json!({"metrics":metrics}),
-                    "余额".into(),
-                )))
-            }
-        }
-        "document_metric_series" => {
-            let points: Vec<_> = result["points"]
-                .as_array()
-                .ok_or(Error::Conflict)?
-                .iter()
-                .map(|p| json!({"x":p["event_date"],"y":p["value"]}))
-                .collect();
-            if points.is_empty() {
-                return Ok(None);
-            }
-            Ok(Some((
-                "time_series",
-                json!({"xType":"date","series":[{"key":"value","label":result["metric"],"points":points}]}),
-                "历次数据".into(),
-            )))
-        }
-        "search_records" => {
-            let rows: Vec<_> = result["records"]
-                .as_array()
-                .ok_or(Error::Conflict)?
-                .iter()
-                .map(|r| json!({"date":r["occurred_on"],"kind":kind_label(r["kind"].as_str().unwrap_or_default()),"amount":r["amount_minor"],"note":r["note"]}))
-                .collect();
-            if rows.is_empty() {
-                return Ok(None);
-            }
-            Ok(Some((
-                "dataset",
-                json!({"columns":[{"key":"date","label":"日期","type":"date"},{"key":"kind","label":"类型","type":"string"},{"key":"amount","label":"金额","type":"currency","format":money_format(currency)},{"key":"note","label":"备注","type":"string"}],"rows":rows}),
-                "记录".into(),
-            )))
-        }
-        "create_account" | "update_account" | "list_accounts" => {
+        "create_account" | "update_account" => {
             let accounts = match result["accounts"].as_array() {
                 Some(accounts) => accounts.clone(),
                 None => vec![result.clone()],
@@ -338,12 +375,7 @@ pub fn map_tool_result(tool: &str, args: &Value, result: &Value) -> Result<Mappe
             Ok(Some((
                 "dataset",
                 json!({"columns":[{"key":"name","label":"名称","type":"string"},{"key":"kind","label":"种类","type":"string"}],"rows":rows}),
-                if tool == "list_accounts" {
-                    "账户列表"
-                } else {
-                    "账户"
-                }
-                .into(),
+                "账户".into(),
             )))
         }
         _ => Ok(None),
@@ -374,6 +406,60 @@ mod tests {
         ));
     }
     #[test]
+    fn reads_never_auto_render_and_all_existing_write_mappings_remain() -> Result<()> {
+        let populated_reads = [
+            (
+                "query_stats",
+                json!({"total":10,"groups":[{"key":"x","value":10}],"currency":"CNY"}),
+            ),
+            (
+                "query_balance",
+                json!({"balances":[{"account_id":"a","balance_minor":10}],"currency":"CNY"}),
+            ),
+            (
+                "search_records",
+                json!({"records":[{"occurred_on":"2026-01-01","kind":"expense","amount_minor":10}]}),
+            ),
+            (
+                "document_metric_series",
+                json!({"metric":"body.weight","points":[{"event_date":"2026-01-01","value":62.5}]}),
+            ),
+            (
+                "list_accounts",
+                json!({"accounts":[{"name":"钱包","kind":"real"}]}),
+            ),
+        ];
+        for (tool, output) in populated_reads {
+            assert!(
+                map_tool_result(tool, &json!({}), &output)?.is_none(),
+                "{tool}"
+            );
+        }
+        let entity = json!({"id":"00000000-0000-7000-8000-000000000004","version":2});
+        for tool in [
+            "create_record",
+            "update_record",
+            "void_record",
+            "restore_record",
+            "create_document",
+            "update_document",
+            "void_document",
+            "restore_document",
+        ] {
+            assert!(
+                map_tool_result(tool, &json!({}), &entity)?.is_some(),
+                "{tool}"
+            );
+        }
+        for tool in ["create_account", "update_account"] {
+            assert!(
+                map_tool_result(tool, &json!({}), &json!({"name":"钱包","kind":"real"}))?.is_some(),
+                "{tool}"
+            );
+        }
+        Ok(())
+    }
+    #[test]
     fn money_text_groups_digits_and_keeps_the_sign() {
         assert_eq!(money_text(428_600, "CNY"), "¥4,286.00");
         assert_eq!(money_text(-5, "CNY"), "-¥0.05");
@@ -402,12 +488,60 @@ mod tests {
             "2026年10月支出 · 按用途：餐饮 ¥1,420.00、居家 ¥980.00；合计 ¥2,400.00"
         );
         assert!(check(kind, &data).await?, "{data}");
-        let trend = json!({"display":"trend","status":"shown","title":"近两月支出","demo":false,"currency":"CNY","measure":"sum","total":5000,"items":[{"key":"2026-01","label":"1月","value":5000},{"key":"2026-02","label":"2月","value":0}],"rows":[],"has_more":false,"groups_may_overlap":false});
+        let trend = json!({"display":"trend","status":"shown","title":"近两月支出","demo":false,"currency":"CNY","measure":"sum","total":5000,"items":[],"rows":[],"trend":{"kind":"ledger","currency":"CNY","measure":"sum","points":[{"key":"2026-01","label":"1月","value":5000},{"key":"2026-02","label":"2月","value":0}]},"has_more":false,"groups_may_overlap":false});
         let Some((kind, data, _)) = map_tool_result("show_trend", &json!({}), &trend)? else {
             panic!("missing block");
         };
         assert_eq!(data["series"][0]["points"][0]["y"], 50.0);
         assert!(check(kind, &data).await?, "{data}");
+        let measurement = json!({"display":"trend","status":"shown","title":"body.weight","demo":false,"currency":"","measure":null,"total":null,"items":[],"rows":[],"trend":{"kind":"measurement","unit":"kg","points":[{"date":"2026-01-01","value":62.5},{"date":"2026-02-01","value":0.0},{"date":"2026-03-01","value":-1.25}]},"has_more":false,"groups_may_overlap":false});
+        let Some((kind, data, fallback)) = map_tool_result("show_trend", &json!({}), &measurement)?
+        else {
+            panic!("missing measurement trend");
+        };
+        assert_eq!(data["yUnit"], "kg");
+        assert_eq!(data["series"][0]["points"][0]["y"], 62.5);
+        assert_eq!(data["series"][0]["points"][2]["y"], -1.25);
+        assert_eq!(
+            fallback,
+            "body.weight：2026-01-01 62.5 kg、2026-02-01 0.0 kg、2026-03-01 -1.25 kg"
+        );
+        assert!(check(kind, &data).await?, "{data}");
+        let mut unitless = measurement.clone();
+        unitless["trend"]["unit"] = Value::Null;
+        let Some((_, data, _)) = map_tool_result("show_trend", &json!({}), &unitless)? else {
+            panic!("missing unitless trend");
+        };
+        assert!(data.get("yUnit").is_none());
+        unitless["trend"]["unit"] = json!("");
+        let Some((kind, data, _)) = map_tool_result("show_trend", &json!({}), &unitless)? else {
+            panic!("missing empty-unit trend");
+        };
+        assert!(data.get("yUnit").is_none());
+        assert!(check(kind, &data).await?, "{data}");
+        let mut too_many = unitless.clone();
+        too_many["trend"]["points"] = json!(
+            (0..501)
+                .map(|i| json!({"date":"2026-01-01","value":i}))
+                .collect::<Vec<_>>()
+        );
+        assert!(map_tool_result("show_trend", &json!({}), &too_many).is_err());
+        let mut at_limit = unitless.clone();
+        at_limit["trend"]["points"] = json!(
+            (0..500)
+                .map(|i| json!({"date":"2026-01-01","value":i}))
+                .collect::<Vec<_>>()
+        );
+        let Some((kind, data, fallback)) = map_tool_result("show_trend", &json!({}), &at_limit)?
+        else {
+            panic!("missing 500-point trend");
+        };
+        assert!(fallback.contains("中间省略 480 个点"));
+        assert!(fallback.chars().count() <= 2_000);
+        assert!(check(kind, &data).await?, "{data}");
+        let mut inconsistent = measurement.clone();
+        inconsistent["currency"] = json!("CNY");
+        assert!(map_tool_result("show_trend", &json!({}), &inconsistent).is_err());
         let records = json!({"display":"records","status":"shown","title":"【演示数据】最近记录","demo":true,"currency":"CNY","measure":null,"total":null,"items":[],"rows":[{"date":"2026-01-12","kind":"支出","amount_minor":6800,"purpose":"餐饮","account":"示例银行卡","note":null}],"has_more":true,"groups_may_overlap":false});
         let Some((kind, data, fallback)) = map_tool_result("show_records", &json!({}), &records)?
         else {
