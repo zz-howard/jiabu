@@ -317,6 +317,98 @@ async fn from_call_reuses_an_earlier_query_and_checks_its_tool() -> Result<()> {
     Ok(())
 }
 #[tokio::test]
+async fn from_call_reapplies_the_display_period_limit() -> Result<()> {
+    let mut f = Fixture::new(vec![]).await?;
+    ledger(&f).await?;
+    let period = json!({"from":"2024-01-01","through":"2026-01-31"});
+    script(
+        &mut f,
+        vec![
+            vec![
+                call(
+                    "qm",
+                    "query_stats",
+                    json!({"measure":"sum","period":period,"group_by":"purpose"}),
+                ),
+                call(
+                    "qt",
+                    "query_stats",
+                    json!({"measure":"sum","period":period,"group_by":"month"}),
+                ),
+                call(
+                    "sr",
+                    "search_records",
+                    json!({"filters":{"from":"2024-01-01","through":"2026-01-31"},"page":{"limit":10,"offset":0}}),
+                ),
+                done(),
+            ],
+            vec![
+                call("m", "show_metrics", metrics(json!({"from_call":"qm"}))),
+                call("t", "show_trend", metrics(json!({"from_call":"qt"}))),
+                call(
+                    "r",
+                    "show_records",
+                    json!({"source":{"query":null,"from_call":"sr","demo":null}}),
+                ),
+                done(),
+            ],
+            vec![text("时间范围太长，请缩短。"), done()],
+        ],
+    );
+    let r = f.start().await?;
+    f.work().await?;
+    assert_eq!(f.run(r.message_id).await?.status, "completed");
+    let request = &f.mock.requests()[2];
+    for call_id in ["m", "t", "r"] {
+        let output = tool_output(request, call_id)?;
+        assert_eq!(output["errors"][0]["pointer"], "/source/from_call");
+        assert_eq!(output["errors"][0]["rule"], "period: at most 24 months");
+    }
+    Ok(())
+}
+#[tokio::test]
+async fn protocol_invalid_display_block_is_replaced_with_its_full_text_fallback() -> Result<()> {
+    let mut f = Fixture::new(vec![]).await?;
+    ledger(&f).await?;
+    // Historical data can predate today's note limit. Its oversized dataset
+    // cell makes ChatWeave reject the structured block, while the display
+    // fallback remains small and readable because it summarizes each row.
+    sqlx::query("alter table records drop constraint records_note_check")
+        .execute(&f.owner)
+        .await?;
+    sqlx::query("update records set note=$2 where space_id=$1")
+        .bind(f.space.0)
+        .bind("x".repeat(70 * 1024))
+        .execute(&f.owner)
+        .await?;
+    let records = json!({"source":{"query":{"kinds":[],"period":{"from":"2026-10-01","through":"2026-10-31"},"account_id":null,"purpose_id":null,"tag_id":null,"member_id":null,"text":null,"limit":10},"from_call":null,"demo":null}});
+    script(
+        &mut f,
+        vec![
+            vec![call("r", "show_records", records), done()],
+            vec![text("以上是本月记录。"), done()],
+        ],
+    );
+    let r = f.start().await?;
+    f.work().await?;
+    assert_eq!(f.run(r.message_id).await?.status, "completed");
+    let blocks = blocks(&f, r.message_id).await?;
+    assert!(blocks.iter().all(|block| block["type"] != "dataset"));
+    let fallback = blocks
+        .iter()
+        .find(|block| {
+            block["type"] == "markdown"
+                && block["data"]["text"]
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("2026年10月记录："))
+        })
+        .context("display text fallback")?;
+    let text = fallback["data"]["text"].as_str().context("fallback text")?;
+    assert!(text.contains("¥42.00 虚构餐饮"), "{text}");
+    assert!(text.contains("¥18.00 虚构交通"), "{text}");
+    Ok(())
+}
+#[tokio::test]
 async fn a_display_tool_that_keeps_failing_falls_back_to_text() -> Result<()> {
     let mut f = Fixture::new(vec![]).await?;
     let bad = || metrics(json!({"query":query(json!("month"))}));

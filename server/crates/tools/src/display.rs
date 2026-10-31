@@ -254,6 +254,19 @@ fn period_issues(period: &Period, pointer: &str, issues: &mut Vec<ValidationIssu
     }
 }
 
+/// Reused query arguments bypass `check`, so apply the same period rules after
+/// reconstructing them from the journal. The model supplied `from_call`, not
+/// the original query, therefore feedback must point at that field.
+fn validate_reused_period(period: &Period) -> Result<(), ToolError> {
+    let mut issues = Vec::new();
+    period_issues(period, "/source/from_call", &mut issues);
+    if let Some(problem) = issues.into_iter().next() {
+        Err(ToolError::invalid_at("/source/from_call", &problem.rule))
+    } else {
+        Ok(())
+    }
+}
+
 fn filters(
     account_id: Option<Uuid>,
     purpose_id: Option<Uuid>,
@@ -589,6 +602,7 @@ impl TypedTool for ShowMetricsTool {
                 } => {
                     let (query, stats): (QueryStats, StatsResult) =
                         referenced(ctx, tx, &id, "query_stats").await?;
+                    validate_reused_period(&query.period)?;
                     if query.group_by == Some(GroupBy::Month) {
                         return Err(ToolError::invalid_at(
                             "/source/from_call",
@@ -702,6 +716,7 @@ impl TypedTool for ShowTrendTool {
                 } => {
                     let (query, stats): (QueryStats, StatsResult) =
                         referenced(ctx, tx, &id, "query_stats").await?;
+                    validate_reused_period(&query.period)?;
                     if query.group_by != Some(GroupBy::Month) || months(&query.period) < 2 {
                         return Err(ToolError::invalid_at(
                             "/source/from_call",
@@ -837,6 +852,9 @@ impl TypedTool for ShowRecordsTool {
                         .from
                         .zip(search.filters.through)
                         .map(|(from, through)| Period { from, through });
+                    if let Some(period) = &period {
+                        validate_reused_period(period)?;
+                    }
                     (period, result)
                 }
                 Source { query: Some(q), .. } => {
