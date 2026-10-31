@@ -24,15 +24,15 @@ Out of scope:
 
 - [ ] Add a v2 dataset form while continuing to accept all existing v1 entries unchanged.
 - [ ] Add typed client capability fixtures; default to the current Jiabu capability set and allow an explicit restricted set for downgrade cases.
-- [ ] Add typed display expectations covering expected/forbidden tool names, expected persisted block types, explicit canonical labels and integer/decimal values, demo marker, fallback requirement, prose sentence limit, and forbidden Markdown/ASCII patterns.
+- [ ] Add typed display expectations covering the exact ordered display-tool and persisted-block sequences, explicit canonical labels and integer/decimal values, account aliases, demo marker, fallback requirement, prose sentence limit, and forbidden Markdown/ASCII patterns. Extra display calls or blocks must fail rather than being ignored.
 - [ ] Validate v2 cross-field rules: display expectations require `no_write`, aliases must resolve, demo blocks require explicit demo source, unsupported blocks require a fallback expectation, and safety/numeric assertions declare their hard/soft classification before live execution.
 - [ ] Seed every scenario only through the existing `ToolRegistry`; do not add direct database fixtures for ledger facts.
 - [ ] Extend mock script generation to issue the expected query/display calls, including `from_call`, validation retry, and fallback sequences.
 - [ ] Submit scenarios with `start_at_with_capabilities` so the frozen run snapshot uses the dataset's declared capabilities.
 - [ ] Extend observations with the final persisted ChatWeave checkpoint, display tool calls/results, and fallback Markdown. Do not retain raw model prose in committed live artifacts.
-- [ ] Normalize each supported block into a small semantic view (type, labels, values, demo flag) and compare it to explicit dataset ground truth; avoid deriving expected values through the production block mapper.
+- [ ] Normalize each supported block into a small semantic view and compare it to explicit dataset ground truth; avoid deriving expected values through the production block mapper. For `x-jiabu.account_card`, verify the resolved account identity/name in the block and the balance snapshot in server-owned fallback text because the block intentionally carries no balance.
 - [ ] Add prose guards for Mermaid fences, three or more consecutive block-chart lines, and Markdown tables over five rows.
-- [ ] Add display metrics/reasons to `results.csv` and aggregate counts/rates to `summary.csv` without changing the meaning of existing record metrics.
+- [ ] Add display metrics/reasons to `results.csv` and aggregate counts/rates to `summary.csv` without changing the meaning of existing record metrics. A predeclared per-case `display.hard` flag participates in process exit status; component/style preferences remain soft.
 - [ ] Add about 20 cases covering the eight approved examples plus records, trend, account-card routing data, English prompts, capability downgrade, duplicate-display avoidance, invalid-display retry, and server-owned Markdown fallback.
 - [ ] Update the evaluator README with v2 format, hard/soft classification, corpus counts, live command, and report boundaries.
 - [ ] After offline acceptance, run the full live SIWC corpus once and commit a concise assessment alongside CSV output.
@@ -46,7 +46,7 @@ Out of scope:
 - [ ] Negative controls independently mutate expected block type, one numeric value, demo marker, capability set/fallback, and each prose guard; every mutation must fail the intended assertion.
 - [ ] A duplicate display or extra chart is not ignored by matching.
 - [ ] No-data never passes by substituting demo content.
-- [ ] Restricted capabilities produce only server-owned Markdown or the declared lower block type; unsupported blocks never persist.
+- [ ] Restricted capabilities produce only server-owned Markdown or the exact declared lower block type (`breakdown` to `metric_group`, `category_series` to `dataset`, account card to `metric` where applicable); unsupported blocks never persist.
 - [ ] Live feature compiles and live library tests remain network-free.
 - [ ] Full server gate passes on `jiabu-build`: format, workspace check, live compile/check, clippy with warnings denied, PostgreSQL 18 nextest, deny, audit, management dependency boundary, transaction rules, generated entities, and OpenAPI snapshot checks.
 - [ ] Live output contains no credential, connection URL, raw upstream error, raw request, or model prose.
