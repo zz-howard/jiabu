@@ -23,8 +23,7 @@ final class AccountMonthFlows {
 /// Returns this record's signed movement relative to [account], or null when
 /// the record does not affect it. The matrix mirrors ledgerBalances.
 AccountMovement? accountMovement(LedgerRow account, LedgerRow record) {
-  if (!record.active ||
-      record.text('space_id') != account.text('space_id')) {
+  if (!record.active || record.text('space_id') != account.text('space_id')) {
     return null;
   }
   final amount = record.number('amount_minor').abs();
@@ -79,10 +78,7 @@ Result<AccountMonthFlows> accountMonthFlows(
     return const Failure('aggregate_out_of_range');
   }
   return Ok(
-    AccountMonthFlows(
-      incoming: incoming.toInt(),
-      outgoing: outgoing.toInt(),
-    ),
+    AccountMonthFlows(incoming: incoming.toInt(), outgoing: outgoing.toInt()),
   );
 }
 

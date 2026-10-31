@@ -53,10 +53,8 @@ String recordTitle(LedgerSnapshot snapshot, LedgerRow row, AppLocalizations l) {
   if (kind == 'transfer' || kind == 'reallocation') {
     final from = kind == 'transfer' ? 'account_id' : 'purpose_id';
     final to = kind == 'transfer' ? 'to_account_id' : 'to_purpose_id';
-    final fromName =
-        snapshot.find(snapshot.accounts, row.text(from))?.text('name') ?? '';
-    final toName =
-        snapshot.find(snapshot.accounts, row.text(to))?.text('name') ?? '';
+    final fromName = snapshot.account(row.text(from))?.text('name') ?? '';
+    final toName = snapshot.account(row.text(to))?.text('name') ?? '';
     return '$fromName → $toName';
   }
   return recordSearchTitle(snapshot, row, ledgerLabels(l));
@@ -215,9 +213,7 @@ String operationTitle(LedgerSnapshot data, LedgerRow op, AppLocalizations l) {
         labels.add(recordTitle(data, record, l));
       }
     } else if (kind == 'account' || kind == 'allocation_plan') {
-      labels.add(
-        data.find(data.accounts, id)?.text('name') ?? l.ledgerAccounts,
-      );
+      labels.add(data.account(id)?.text('name') ?? l.ledgerAccounts);
     } else if (kind == 'tag') {
       labels.add(tagName(data.find(data.tags, id), ledgerLabels(l)));
     }
@@ -275,7 +271,7 @@ String recordAccountLine(
     return labels[kind] ?? '';
   }
   String name(String field) =>
-      snapshot.find(snapshot.accounts, row.text(field))?.text('name') ?? '';
+      snapshot.account(row.text(field))?.text('name') ?? '';
   final account = name('account_id');
   var category = name('purpose_id');
   if (category.isEmpty) {

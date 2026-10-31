@@ -1,13 +1,14 @@
 import 'package:chatweave_flutter/chatweave_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart' hide Block;
 import 'package:jiabu/app/ledger_providers.dart';
 import 'package:jiabu/domain/history_filter.dart';
 import 'package:jiabu/domain/ledger.dart';
-import 'package:jiabu/features/chat/blocks/account_card_block.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
+import 'package:jiabu/shared/chatweave/account_card_block.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chat_registry.dart';
 import 'package:jiabu/shared/ledger/ledger_pages.dart';
 import 'package:jiabu/shared/ledger/ledger_view_model.dart';
@@ -95,6 +96,9 @@ void main() {
     final invalid = <Map<String, Object?>>[
       {'versionAtReply': 1, 'nameSnapshot': 'name'},
       {'accountId': 'not-a-uuid', 'versionAtReply': 1, 'nameSnapshot': 'name'},
+      {'accountId': 7, 'versionAtReply': 1, 'nameSnapshot': 'name'},
+      {'accountId': uuid, 'versionAtReply': '1', 'nameSnapshot': 'name'},
+      {'accountId': uuid, 'versionAtReply': 1, 'nameSnapshot': 7},
       {'accountId': uuid, 'versionAtReply': 0, 'nameSnapshot': 'name'},
       {'accountId': uuid, 'versionAtReply': 1, 'nameSnapshot': ''},
       {
@@ -234,6 +238,228 @@ void main() {
     expect(find.text('历史账户'), findsOneWidget);
     expect(find.text('这个账户暂未同步到本机'), findsOneWidget);
     expect(find.byKey(const Key('account-card-history')), findsOneWidget);
+  });
+
+  testWidgets('foreign-space account row is treated as unresolved', (
+    tester,
+  ) async {
+    final base = _withAccountVersions(ledgerFixture());
+    final snapshot = _copySnapshot(
+      base,
+      accounts: [
+        ...base.accounts,
+        LedgerRow({
+          'id': 'foreign-account',
+          'space_id': 'other-space',
+          'kind': 'real',
+          'name': '不得显示的账户',
+          'version': 1,
+          'opening_balance_minor': 12345,
+        }),
+      ],
+      records: [
+        ...base.records,
+        _record('foreign-local-record', 100, accountId: 'foreign-account'),
+      ],
+    );
+    final repo = FakeLedgerRepository(snapshot);
+    addTearDown(repo.changes.close);
+    final container = ProviderContainer(
+      overrides: [ledgerRepositoryProvider.overrideWithValue(repo)],
+    );
+    addTearDown(container.dispose);
+    final router = GoRouter(
+      initialLocation: '/chat',
+      routes: [
+        GoRoute(
+          path: '/chat',
+          builder: (_, _) => const Scaffold(
+            body: AccountCardBlock(
+              spaceId: 'fictional-space',
+              accountId: 'foreign-account',
+              versionAtReply: 1,
+              nameSnapshot: '历史账户',
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/history',
+          builder: (_, _) => Scaffold(body: HistoryPage(snapshot: snapshot)),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          theme: JiabuTheme.light(),
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('历史账户'), findsOneWidget);
+    expect(find.text('这个账户暂未同步到本机'), findsOneWidget);
+    expect(find.text('不得显示的账户'), findsNothing);
+    expect(find.text('当前余额'), findsNothing);
+    await tester.tap(find.byKey(const Key('account-card-history')));
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/history');
+    expect(find.text('只看 历史账户 ×'), findsOneWidget);
+    expect(find.textContaining('不得显示的账户'), findsNothing);
+  });
+
+  testWidgets('local account wins when a foreign row has the same ID', (
+    tester,
+  ) async {
+    final base = _withAccountVersions(ledgerFixture());
+    final snapshot = _copySnapshot(
+      base,
+      accounts: [
+        LedgerRow({
+          'id': 'real-a',
+          'space_id': 'other-space',
+          'kind': 'real',
+          'name': '不得显示的同 ID 账户',
+          'version': 99,
+          'opening_balance_minor': 999999,
+        }),
+        ...base.accounts,
+      ],
+    );
+    final repo = FakeLedgerRepository(snapshot);
+    addTearDown(repo.changes.close);
+    await pumpC3(
+      tester,
+      repository: repo,
+      child: const AccountCardBlock(
+        spaceId: 'fictional-space',
+        accountId: 'real-a',
+        versionAtReply: 1,
+        nameSnapshot: '历史账户',
+      ),
+    );
+    expect(find.text('账户A'), findsOneWidget);
+    expect(find.text('当前余额'), findsOneWidget);
+    expect(find.textContaining('不得显示'), findsNothing);
+  });
+
+  testWidgets('monthly flow amount stays on one line at 430px and 200%', (
+    tester,
+  ) async {
+    final base = _withAccountVersions(ledgerFixture());
+    final snapshot = _copySnapshot(
+      base,
+      records: [
+        LedgerRow({
+          'id': 'large-expense',
+          'space_id': 'fictional-space',
+          'kind': 'expense',
+          'status': 'active',
+          'amount_minor': 18800,
+          'account_id': 'real-a',
+          'purpose_id': 'purpose-a',
+          'occurred_on': '2026-10-10',
+          'created_at': '2026-10-10T10:00:00Z',
+          'tag_ids': <String>[],
+        }),
+      ],
+    );
+    final repo = FakeLedgerRepository(snapshot);
+    addTearDown(repo.changes.close);
+    await pumpC3(
+      tester,
+      width: 430,
+      scale: 2,
+      repository: repo,
+      child: const SizedBox(
+        width: 332,
+        child: AccountCardBlock(
+          spaceId: 'fictional-space',
+          accountId: 'real-a',
+          versionAtReply: 1,
+          nameSnapshot: '账户A',
+        ),
+      ),
+    );
+    final amount = find.byWidgetPredicate(
+      (widget) =>
+          widget is AmountText &&
+          widget.minorUnits == -18800 &&
+          widget.role == AmountRole.detail,
+    );
+    expect(
+      find.ancestor(of: amount, matching: find.byType(FittedBox)),
+      findsOneWidget,
+    );
+    final paragraph = find.descendant(
+      of: amount,
+      matching: find.byType(RichText),
+    );
+    final render = tester.renderObject<RenderParagraph>(paragraph);
+    final boxes = render.getBoxesForSelection(
+      TextSelection(
+        baseOffset: 0,
+        extentOffset: render.text.toPlainText().length,
+      ),
+    );
+    final line = boxes.reduce(
+      (tallest, box) =>
+          box.bottom - box.top > tallest.bottom - tallest.top ? box : tallest,
+    );
+    expect(
+      boxes.every((box) => box.top < line.bottom && box.bottom > line.top),
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('recent max-safe amount stays bounded at 332px and 200%', (
+    tester,
+  ) async {
+    final base = _withAccountVersions(ledgerFixture());
+    final snapshot = _copySnapshot(
+      base,
+      accounts: [
+        for (final account in base.accounts)
+          LedgerRow({
+            ...account.data,
+            if (account.id == 'real-a') 'opening_balance_minor': 0,
+          }),
+      ],
+      records: [_record('max-safe-income', 9007199254740991)],
+    );
+    final repo = FakeLedgerRepository(snapshot);
+    addTearDown(repo.changes.close);
+    await pumpC3(
+      tester,
+      width: 430,
+      scale: 2,
+      repository: repo,
+      child: const SizedBox(
+        width: 332,
+        child: AccountCardBlock(
+          spaceId: 'fictional-space',
+          accountId: 'real-a',
+          versionAtReply: 1,
+          nameSnapshot: '账户A',
+        ),
+      ),
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is AmountText &&
+            widget.minorUnits == 9007199254740991 &&
+            widget.role == AmountRole.list,
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('archived empty account and aggregate overflow stay bounded', (

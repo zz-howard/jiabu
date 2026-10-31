@@ -755,7 +755,7 @@ class AllocationPlanForm extends ConsumerWidget {
       return Text(l.ledgerLoading);
     }
     final plan = snapshot.find(snapshot.plans, accountId);
-    final account = snapshot.find(snapshot.accounts, accountId);
+    final account = snapshot.account(accountId);
     return FormScope(
       spaceId: spaceId,
       formId: 'plan:$accountId',

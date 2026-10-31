@@ -50,7 +50,7 @@ class AccountCardBlock extends ConsumerWidget {
     if (!allowed) {
       return PaperCard(child: Text(l.ledgerDenied));
     }
-    final account = snapshot.find(snapshot.accounts, accountId);
+    final account = snapshot.account(accountId);
     if (account == null) {
       return PaperCard(
         child: Column(
@@ -173,14 +173,20 @@ class AccountCardBlock extends ConsumerWidget {
                             ),
                           ),
                           const SizedBox(width: JiabuSpacing.sm),
-                          ledgerAmount(
-                            context,
-                            signed,
-                            snapshot.currency,
-                            tone: signed > 0
-                                ? AmountTone.positive
-                                : AmountTone.plain,
-                            showPlus: signed > 0,
+                          Flexible(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: AlignmentDirectional.centerEnd,
+                              child: ledgerAmount(
+                                context,
+                                signed,
+                                snapshot.currency,
+                                tone: signed > 0
+                                    ? AmountTone.positive
+                                    : AmountTone.plain,
+                                showPlus: signed > 0,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -218,13 +224,17 @@ class _FlowAmount extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(label, style: context.jiabu.type.caption),
-      ledgerAmount(
-        context,
-        incoming ? value : -value,
-        currency,
-        role: AmountRole.detail,
-        tone: incoming ? AmountTone.positive : AmountTone.plain,
-        showPlus: incoming,
+      FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: AlignmentDirectional.centerStart,
+        child: ledgerAmount(
+          context,
+          incoming ? value : -value,
+          currency,
+          role: AmountRole.detail,
+          tone: incoming ? AmountTone.positive : AmountTone.plain,
+          showPlus: incoming,
+        ),
       ),
     ],
   );

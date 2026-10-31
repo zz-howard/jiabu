@@ -21,6 +21,9 @@ Result<Map<String, int>> ledgerBalances(LedgerSnapshot snapshot) {
 /// Calculates one account without allowing an unrelated account's overflow to
 /// suppress a detail view for this account.
 Result<int> ledgerAccountBalance(LedgerSnapshot snapshot, LedgerRow account) {
+  if (account.text('space_id') != snapshot.spaceId) {
+    return const Failure('account_space_mismatch');
+  }
   var amount = BigInt.from(account.number('opening_balance_minor'));
   for (final record in snapshot.records) {
     if (record.text('space_id') != snapshot.spaceId || !record.active) {

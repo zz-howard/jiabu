@@ -6,12 +6,12 @@ import 'package:jiabu/domain/result.dart';
 void main() {
   const spaceId = 'space-a';
 
-  LedgerRow account(String id, String kind) => LedgerRow({
+  LedgerRow account(String id, String kind, {int opening = 0}) => LedgerRow({
     'id': id,
     'space_id': spaceId,
     'kind': kind,
     'name': id,
-    'opening_balance_minor': 0,
+    'opening_balance_minor': opening,
     'version': 1,
   });
 
@@ -155,35 +155,45 @@ void main() {
     });
   });
 
-  test('month flows exclude adjacent months and safe-range overflow', () {
-    final selected = account('real-a', 'real');
-    final normal = accountMonthFlows(
-      snapshot([
-        record('in', 'income', 100, real: 'real-a'),
-        record('out', 'expense', 25, real: 'real-a'),
-        record('adjacent', 'income', 999, real: 'real-a', date: '2026-09-30'),
-      ]),
-      selected,
-      '2026-10',
-    );
-    expect(normal, isA<Ok<AccountMonthFlows>>());
-    final flows = (normal as Ok<AccountMonthFlows>).value;
-    expect((flows.incoming, flows.outgoing), (100, 25));
+  test(
+    'month flows include boundaries but exclude adjacent months and opening',
+    () {
+      final selected = account('real-a', 'real', opening: 5000);
+      final normal = accountMonthFlows(
+        snapshot([
+          record(
+            'first-day',
+            'income',
+            100,
+            real: 'real-a',
+            date: '2026-10-01',
+          ),
+          record('last-day', 'expense', 25, real: 'real-a', date: '2026-10-31'),
+          record('before', 'income', 999, real: 'real-a', date: '2026-09-30'),
+          record('after', 'expense', 888, real: 'real-a', date: '2026-11-01'),
+        ]),
+        selected,
+        '2026-10',
+      );
+      expect(normal, isA<Ok<AccountMonthFlows>>());
+      final flows = (normal as Ok<AccountMonthFlows>).value;
+      expect((flows.incoming, flows.outgoing), (100, 25));
 
-    final overflow = accountMonthFlows(
-      snapshot([
-        record('max', 'income', 9007199254740991, real: 'real-a'),
-        record('one', 'income', 1, real: 'real-a'),
-      ]),
-      selected,
-      '2026-10',
-    );
-    expect(overflow, isA<Failure<AccountMonthFlows>>());
-    expect(
-      (overflow as Failure<AccountMonthFlows>).code,
-      'aggregate_out_of_range',
-    );
-  });
+      final overflow = accountMonthFlows(
+        snapshot([
+          record('max', 'income', 9007199254740991, real: 'real-a'),
+          record('one', 'income', 1, real: 'real-a'),
+        ]),
+        selected,
+        '2026-10',
+      );
+      expect(overflow, isA<Failure<AccountMonthFlows>>());
+      expect(
+        (overflow as Failure<AccountMonthFlows>).code,
+        'aggregate_out_of_range',
+      );
+    },
+  );
 
   test('recent records include destinations and cap after sorting', () {
     final rows = [
