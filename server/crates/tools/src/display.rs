@@ -1716,6 +1716,31 @@ mod tests {
         let mut thirteen = bars.example_args();
         thirteen["source"]["query"]["period"] = json!({"from":"2025-12-01","through":"2026-12-31"});
         assert_eq!(rules(bars, thirteen)[0].0, "/source/query/period");
+        let account = registry.get("show_account_card")?;
+        assert!(rules(account, account.example_args()).is_empty());
+        assert_eq!(account.effect(), Effect::Read);
+        assert_eq!(account.exposure(), Exposure::AgentOnly);
+        let call = account.validate(account.example_args())?;
+        assert!(!account.requires_confirmation(call.as_ref()));
+        assert_eq!(
+            rules(account, json!({})),
+            vec![("/account_id".to_owned(), "required".to_owned())]
+        );
+        assert!(
+            account
+                .validate(json!({"account_id":"not-a-uuid"}))
+                .is_err()
+        );
+        assert_eq!(
+            rules(
+                account,
+                json!({
+                    "account_id":"00000000-0000-7000-8000-000000000001",
+                    "amount_minor":5000
+                })
+            ),
+            vec![("/amount_minor".to_owned(), "unknown_property".to_owned())]
+        );
         Ok(())
     }
     #[test]

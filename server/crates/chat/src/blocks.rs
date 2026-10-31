@@ -155,9 +155,7 @@ fn map_display(tool: &str, result: &Value) -> Result<Mapped> {
             {
                 return Err(Error::Conflict);
             }
-            let account = result["account_card"]
-                .as_object()
-                .ok_or(Error::Conflict)?;
+            let account = result["account_card"].as_object().ok_or(Error::Conflict)?;
             let id = account
                 .get("account_id")
                 .and_then(Value::as_str)
@@ -712,6 +710,41 @@ mod tests {
     }
     #[tokio::test]
     async fn display_output_maps_to_validated_blocks_with_names_and_money_format() -> Result<()> {
+        for (currency, balance, expected_fallback) in [
+            ("CNY", -123_456, "日常钱包：-¥1,234.56"),
+            ("USD", 123_456, "日常钱包：USD 1,234.56"),
+        ] {
+            let account = json!({"display":"account_card","status":"shown","title":"日常钱包","demo":false,"currency":currency,"measure":"sum","total":balance,"items":[],"rows":[],"account_card":{"account_id":"00000000-0000-7000-8000-000000000001","version_at_reply":2,"name_snapshot":"日常钱包","balance_minor":balance,"archived":false},"has_more":false,"groups_may_overlap":false});
+            let Some((kind, data, fallback)) =
+                map_tool_result("show_account_card", &json!({"amount_minor":999}), &account)?
+            else {
+                panic!("missing account card");
+            };
+            assert_eq!(kind, "x-jiabu.account_card");
+            assert_eq!(data.as_object().map(|fields| fields.len()), Some(3));
+            assert_eq!(
+                data,
+                json!({
+                    "accountId":"00000000-0000-7000-8000-000000000001",
+                    "versionAtReply":2,
+                    "nameSnapshot":"日常钱包"
+                })
+            );
+            assert_eq!(fallback, expected_fallback);
+            assert!(check(kind, &data).await?, "{data}");
+            for invalid in [
+                json!({"accountId":"00000000-0000-7000-8000-000000000001","versionAtReply":2}),
+                json!({"accountId":"not-a-uuid","versionAtReply":2,"nameSnapshot":"日常钱包"}),
+                json!({"accountId":"00000000-0000-7000-8000-000000000001","versionAtReply":0,"nameSnapshot":"日常钱包"}),
+                json!({"accountId":"00000000-0000-7000-8000-000000000001","versionAtReply":2,"nameSnapshot":""}),
+                json!({"accountId":"00000000-0000-7000-8000-000000000001","versionAtReply":2,"nameSnapshot":"日常钱包","balanceMinor":balance}),
+            ] {
+                assert!(!check(kind, &invalid).await?, "{invalid}");
+            }
+            let mut inconsistent = account.clone();
+            inconsistent["total"] = json!(balance + 1);
+            assert!(map_tool_result("show_account_card", &json!({}), &inconsistent).is_err());
+        }
         let metrics = json!({"display":"metrics","status":"shown","title":"2026年10月支出 · 按用途","demo":false,"currency":"CNY","measure":"sum","total":240000,"items":[{"key":"a","label":"餐饮","value":142000},{"key":"b","label":"居家","value":98000}],"rows":[],"has_more":false,"groups_may_overlap":false});
         let Some((kind, data, fallback)) = map_tool_result("show_metrics", &json!({}), &metrics)?
         else {

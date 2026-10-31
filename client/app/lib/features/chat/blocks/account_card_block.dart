@@ -33,6 +33,9 @@ class AccountCardBlock extends ConsumerWidget {
     final state = ref.watch(ledgerViewModelProvider(spaceId));
     final snapshot = state.snapshot;
     if (snapshot == null) {
+      if (state.error != null) {
+        return PaperCard(child: Text(ledgerError(l, state.error!)));
+      }
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -66,10 +69,19 @@ class AccountCardBlock extends ConsumerWidget {
         ),
       );
     }
+    final localVersion = account.number('version');
+    if (localVersion < versionAtReply) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(l.chatAccountSyncing),
+          const JiabuBlockSkeleton(type: 'x-jiabu.account_card'),
+        ],
+      );
+    }
     final balances = ledgerBalances(snapshot);
-    final month = DateFormat(
-      'yyyy-MM',
-    ).format(ref.watch(ledgerClockProvider)());
+    final month = DateFormat('yyyy-MM')
+        .format(ref.watch(ledgerClockProvider)());
     final flows = accountMonthFlows(snapshot, account, month);
     if (balances is Failure<Map<String, int>> ||
         flows is Failure<AccountMonthFlows>) {
@@ -81,17 +93,13 @@ class AccountCardBlock extends ConsumerWidget {
     final name = account.text('name').isEmpty
         ? nameSnapshot
         : account.text('name');
-    final changed = account.number('version') != versionAtReply;
+    final changed = localVersion > versionAtReply;
     final status = [
       if (account.archived) l.chatAccountArchived,
       if (changed) l.chatAccountChanged,
     ].join(' · ');
     return Semantics(
       container: true,
-      label: l.ledgerBalanceLabel(
-        name,
-        formatMinor(balance, snapshot.currency, l.localeName),
-      ),
       child: PaperCard(
         revoked: account.archived,
         child: Column(
@@ -150,32 +158,35 @@ class AccountCardBlock extends ConsumerWidget {
               )
             else
               for (final row in recent)
-                Padding(
-                  padding: const EdgeInsets.only(top: JiabuSpacing.sm),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          recordTitle(snapshot, row, l),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                Builder(
+                  builder: (context) {
+                    final signed =
+                        accountMovement(account, row)?.signedMinor ?? 0;
+                    return Padding(
+                      padding: const EdgeInsets.only(top: JiabuSpacing.sm),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              recordTitle(snapshot, row, l),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: JiabuSpacing.sm),
+                          ledgerAmount(
+                            context,
+                            signed,
+                            snapshot.currency,
+                            tone: signed > 0
+                                ? AmountTone.positive
+                                : AmountTone.plain,
+                            showPlus: signed > 0,
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: JiabuSpacing.sm),
-                      ledgerAmount(
-                        context,
-                        accountMovement(account, row)?.signedMinor ?? 0,
-                        snapshot.currency,
-                        role: AmountRole.list,
-                        tone:
-                            (accountMovement(account, row)?.signedMinor ?? 0) > 0
-                            ? AmountTone.positive
-                            : AmountTone.plain,
-                        showPlus:
-                            (accountMovement(account, row)?.signedMinor ?? 0) > 0,
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
             const SizedBox(height: JiabuSpacing.lg),
             _HistoryButton(

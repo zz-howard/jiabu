@@ -158,6 +158,136 @@ async fn metrics_block_shows_names_and_money_from_the_server_query() -> Result<(
     Ok(())
 }
 #[tokio::test]
+async fn account_card_resolves_live_accounts_and_bounds_missing_or_foreign_feedback() -> Result<()>
+{
+    let mut f = Fixture::new(vec![]).await?;
+    let id = |value: &Value| -> Result<Uuid> {
+        Ok(Uuid::parse_str(
+            value["id"].as_str().context("account id")?,
+        )?)
+    };
+    let real = id(
+        &write(
+            &f,
+            "create_account",
+            json!({"kind":"real","name":"虚构钱包","opening_on":"2026-01-01","opening_balance_minor":5000}),
+        )
+        .await?,
+    )?;
+    let purpose = id(&write(
+        &f,
+        "create_account",
+        json!({"kind":"purpose","name":"虚构餐饮","opening_on":"2026-01-01"}),
+    )
+    .await?)?;
+    write(
+        &f,
+        "create_record",
+        json!({"kind":"expense","amount_minor":1800,"occurred_on":"2026-10-03","account_id":real,"purpose_id":purpose}),
+    )
+    .await?;
+    let archived = id(&write(
+        &f,
+        "create_account",
+        json!({"kind":"purpose","name":"虚构归档用途","opening_on":"2026-01-01"}),
+    )
+    .await?)?;
+    write(
+        &f,
+        "archive_account",
+        json!({"id":archived,"expected_version":1}),
+    )
+    .await?;
+
+    let other = f.test.seed("foreign-card", "unused").await?;
+    let other_member: Uuid = sqlx::query_scalar("select id from space_members where space_id=$1")
+        .bind(other.space_id.0)
+        .fetch_one(&f.owner)
+        .await?;
+    let foreign = Uuid::now_v7();
+    sqlx::query("insert into accounts(id,space_id,kind,name,opening_on,created_by_member_id,change_seq,created_at,updated_at) values($1,$2,'real','不应泄漏的外空间账户','2026-01-01',$3,nextval('change_seq'),now(),now())")
+        .bind(foreign)
+        .bind(other.space_id.0)
+        .bind(other_member)
+        .execute(&f.owner)
+        .await?;
+    let missing = Uuid::now_v7();
+    script(
+        &mut f,
+        vec![
+            vec![
+                call("real", "show_account_card", json!({"account_id":real})),
+                call(
+                    "purpose",
+                    "show_account_card",
+                    json!({"account_id":purpose}),
+                ),
+                call(
+                    "archived",
+                    "show_account_card",
+                    json!({"account_id":archived}),
+                ),
+                call(
+                    "missing",
+                    "show_account_card",
+                    json!({"account_id":missing}),
+                ),
+                call(
+                    "foreign",
+                    "show_account_card",
+                    json!({"account_id":foreign}),
+                ),
+                done(),
+            ],
+            vec![text("见账户卡。"), done()],
+        ],
+    );
+    let response = f.start().await?;
+    f.work().await?;
+    assert_eq!(f.run(response.message_id).await?.status, "completed");
+    let request = &f.mock.requests()[1];
+    for (call_id, account_id, name, balance, archived_state, version) in [
+        ("real", real, "虚构钱包", 3200, false, 1),
+        ("purpose", purpose, "虚构餐饮", -1800, false, 1),
+        ("archived", archived, "虚构归档用途", 0, true, 2),
+    ] {
+        let output = tool_output(request, call_id)?;
+        assert_eq!(output["display"], "account_card");
+        assert_eq!(output["currency"], "CNY");
+        assert_eq!(output["total"], balance);
+        assert_eq!(output["account_card"]["account_id"], account_id.to_string());
+        assert_eq!(output["account_card"]["version_at_reply"], version);
+        assert_eq!(output["account_card"]["name_snapshot"], name);
+        assert_eq!(output["account_card"]["balance_minor"], balance);
+        assert_eq!(output["account_card"]["archived"], archived_state);
+    }
+    let missing_feedback = tool_output(request, "missing")?;
+    let foreign_feedback = tool_output(request, "foreign")?;
+    assert_eq!(missing_feedback, foreign_feedback);
+    assert_eq!(missing_feedback["error"], "validation_failed");
+    assert_eq!(
+        missing_feedback["errors"],
+        json!([{"pointer":"/account_id","rule":"account_id: from SPACE_CONTEXT"}])
+    );
+    let feedback = missing_feedback.to_string();
+    assert!(!feedback.contains(&foreign.to_string()));
+    assert!(!feedback.contains("不应泄漏"));
+
+    let rendered = blocks(&f, response.message_id).await?;
+    let cards: Vec<_> = rendered
+        .iter()
+        .filter(|block| block["type"] == "x-jiabu.account_card")
+        .collect();
+    assert_eq!(cards.len(), 3);
+    for card in cards {
+        assert_eq!(card["data"].as_object().map(|fields| fields.len()), Some(3));
+        assert!(card["data"].get("accountId").is_some());
+        assert!(card["data"].get("versionAtReply").is_some());
+        assert!(card["data"].get("nameSnapshot").is_some());
+    }
+    Ok(())
+}
+#[tokio::test]
 async fn trend_fills_empty_months_and_records_list_names() -> Result<()> {
     let mut f = Fixture::new(vec![]).await?;
     ledger(&f).await?;
