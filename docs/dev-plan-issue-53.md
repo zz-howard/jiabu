@@ -47,6 +47,9 @@ slice.
   active entries calculated relative to the referenced real or purpose account.
 - A full-width action that resets stale History filters, applies only the
   account filter, and opens the existing `/history` route.
+- The approved named removable History filter, `只看 <账户名> ×` (localized),
+  for both real and purpose accounts. The current generic `账户` chip and
+  clear-all action do not satisfy this contract by themselves.
 - Localized loading, unavailable/permission, archived, changed, and empty
   states; narrow/large-text layout; semantics; reviewed goldens.
 
@@ -72,8 +75,10 @@ slice.
 4. The client resolves current data from the active local snapshot. It prefers
    the live account name and uses `nameSnapshot` only if the reference can no
    longer be resolved locally.
-5. Current-month totals use the space ledger dates already synchronized to the
-   client. Opening balance contributes to the balance but is not a monthly flow.
+5. Current-month totals deliberately reuse Overview's existing device-local
+   `ledgerClockProvider` month semantics in this slice. Adding true IANA
+   space-timezone conversion is broader work and is not introduced implicitly
+   here. Opening balance contributes to the balance but is not a monthly flow.
 6. Account-relative movement is one shared domain helper. Destination-side
    transfer/reallocation entries must reverse the sign/direction relative to
    the selected account. Void entries do not contribute; refunds follow the
@@ -146,15 +151,18 @@ slice.
       local account is absent.
 - [ ] Add a full-width localized action that replaces stale filters with an
       account-only `HistoryFilter` and then calls `context.go('/history')`.
-- [ ] Confirm the existing History selector/chip can show and clear both real
-      and purpose account filters after navigation.
+- [ ] Add the approved named removable History filter (`只看 <账户名> ×`, with
+      localized equivalent) for both real and purpose accounts; one tap on its
+      remove action clears only the account filter. Keep the generic selector
+      available for changing the selected account.
 - [ ] Use Jiabu design tokens and existing amount/record primitives; keep
       decorative marks out of semantics and the CTA reachable at 200% text.
 
 ### Generated and localized artifacts
 
 - [ ] Add Chinese and English ARB entries for labels, states, summaries, and
-      action text; regenerate localization outputs on `jiabu-build`.
+      action text, including the named removable History filter; regenerate
+      localization outputs on `jiabu-build`.
 - [ ] Regenerate Riverpod/codegen only if source annotations change and verify
       the repository's generated checksum/parity guard.
 - [ ] Add no dependency unless the implementation proves one is necessary;
@@ -204,7 +212,13 @@ slice.
 - [ ] CTA navigation sets an account-only filter, clears every stale filter,
       opens `/history`, and returns records matching source and destination real/
       purpose fields.
-- [ ] The existing clear action returns History to all records.
+- [ ] The route-transition test uses the real `context.go('/history')` handoff
+      and proves the account filter survives the source widget unmount; if the
+      current auto-dispose provider loses it, add the narrowest explicit handoff
+      state rather than making every space ledger provider permanent.
+- [ ] The named `只看 <账户名> ×` filter renders the resolved account name; its
+      remove action clears only the account constraint, while the existing
+      clear-all action still returns History to all records.
 - [ ] Semantics expose account name, balance/month summary, recent entries, and
       the navigation action once, without reading decorative elements.
 
@@ -212,7 +226,8 @@ slice.
 
 - [ ] Capture real Jiabu chat-page goldens at 360px/100% and 430px/200%.
 - [ ] Cover populated real account, populated purpose account, archived/changed,
-      empty recent, and loading/skeleton states.
+      empty recent, loading/skeleton, and the named removable History filter
+      states.
 - [ ] Inspect PNGs directly for clipping, overflow, hierarchy, CTA reachability,
       deterministic decoration geometry, and accurate amount signs.
 - [ ] Attach reviewed before/after screenshots to the PR and apply the
@@ -292,12 +307,14 @@ Before implementation, review this plan against issue #53 and `origin/master`:
 - [x] Balance semantics are already shared conceptually between server SQL and
       client `ledgerBalances`. Reuse them and test the card's flow helper against
       the same record-kind matrix.
-- [x] Navigation can set a per-space provider filter before `/history` without a
-      query parameter. Guaranteed by provider family lifetime inside the app;
-      prove it with a router/widget test.
-- [ ] The current-month boundary uses the active space's calendar date exposed
-      by the existing ledger clock/date model. Verify the exact clock/timezone
-      seam before implementation and test the last/first day boundary.
+- [ ] Navigation can set a per-space provider filter before `/history` without a
+      query parameter. This is unverified because `LedgerViewModel` is
+      auto-dispose; prove the real route transition first and introduce only a
+      narrow handoff mechanism if the provider loses state.
+- [x] Current-month selection reuses Overview's existing device-local
+      `ledgerClockProvider` semantics. Test both surfaces against the same clock
+      override and the last/first day boundary; do not add space-timezone
+      conversion in S4.
 - [ ] The best localized presentation for an unresolved reference versus a
       transient loading snapshot can be expressed without new product behavior.
       Validate against existing record-card states and keep both states bounded.
@@ -311,7 +328,8 @@ Before implementation, review this plan against issue #53 and `origin/master`:
 - [ ] The client renders correct live local balance, month flows, and newest
       three entries for real, purpose, and archived accounts.
 - [ ] Card navigation opens existing History with only the intended account
-      filter and includes source/destination ledger entries.
+      filter, includes source/destination ledger entries, and shows the approved
+      named one-tap-removable filter.
 - [ ] Permission, loading, missing/changed, empty, overflow, localization,
       accessibility, narrow-width, and 200% text states are covered.
 - [ ] Focused negative controls fail for the intended reasons.
