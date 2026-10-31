@@ -65,11 +65,14 @@ inline Responses `input_file` containing a valid fake PDF completed on
   preflight must evaluate the actual request requirements, not merely the task
   name, so it cannot optimistically report a file route as usable when every
   candidate is eliminated by the images.
-- Distinguish route states before waiting: if no configured, enabled, paid-policy
-  eligible, credentialed, file-capable candidate satisfies the request, fail the
-  run immediately with stable reason `no_available_route`; only candidates that
-  exist but are temporarily excluded by an open circuit breaker enter the
-  existing `waiting_ai` retry window.
+- Apply new fail-fast semantics only to `chat_file`: if no `chat_file` route is
+  configured, or its enabled routes are all removed by static request filters
+  (file capability, vision, `max_images`, or paid-fallback policy), fail the run
+  immediately with stable reason `no_available_route`. A candidate blocked by
+  unavailable credentials or an open circuit breaker remains a temporary state
+  and enters the existing `waiting_ai` retry window. Existing `chat` and
+  `chat_vision` no-route waiting behavior is unchanged, including hot route
+  reload, manual-entry fallback, the ten-minute budget, and degraded activity.
 
 ### 2. Storage and database
 
@@ -170,8 +173,9 @@ inline Responses `input_file` containing a valid fake PDF completed on
       retry/render logic with resolved ordered files.
 - [ ] Add `chat_file` task routing and explicit file capabilities across domain,
       configuration, admin, router, mocks, eval fixtures, and status reporting.
-- [ ] Make request-aware route preflight distinguish permanent no-candidate from
-      temporary breaker exclusion, including combined image+PDF requirements.
+- [ ] Make `chat_file` request-aware route preflight distinguish static
+      no-candidate from temporary credential/breaker exclusion, including
+      combined image+PDF requirements, without changing `chat`/`chat_vision`.
 - [ ] Add runtime file loading and SIWC `input_file` request construction with
       redacted debug behavior.
 - [ ] Regenerate both OpenAPI documents and update delivery/engineering docs
@@ -225,11 +229,15 @@ inline Responses `input_file` containing a valid fake PDF completed on
 - [ ] Frozen input and retry preserve resolved metadata, not bytes/base64.
 - [ ] Router requires file capability and the `chat_file` route, enforces count,
       and never falls through to a paid provider while paid fallback is off.
-- [ ] No configured request-capable candidate fails immediately with
-      `no_available_route`; a request-capable candidate excluded only by its
-      circuit breaker enters the existing wait/retry path.
+- [ ] A `chat_file` request with no configured route, or no candidate after
+      static request filtering, fails immediately with `no_available_route`; a
+      candidate excluded only by credentials or its circuit breaker enters the
+      existing wait/retry path.
 - [ ] A combined image+PDF request selects `chat_file`, applies vision and image
       count filters, and fails immediately when those filters remove all routes.
+- [ ] Existing empty-config `chat`/`chat_vision` tests remain unchanged: manual
+      entry is possible while waiting, the ten-minute budget still applies, and
+      degraded activity is emitted while an administrator may hot-add a route.
 - [ ] SIWC wire fixture contains ordered `input_file` parts with filename and
       PDF data URL; unsupported/assistant files fail before network IO.
 - [ ] A runtime test proves bytes are loaded only immediately before a provider
@@ -239,10 +247,11 @@ inline Responses `input_file` containing a valid fake PDF completed on
 - [ ] Sentinel filename/content/base64 strings are absent from captured logs,
       journal/history/chat rows, prompt snapshots, metering rows, and errors.
 - [ ] Synthetic online SIWC smoke reads a fake PDF and returns its probe value.
-- [ ] Before release, an online synthetic PDF near the 10 MiB per-file limit
-      confirms the provider/request-body limit and records peak request memory;
-      four files/20 MiB raw expands to roughly 27 MiB of base64 before JSON and
-      is reconstructed on each model attempt.
+- [ ] Before release, one online synthetic request with four fake PDFs totaling
+      just under the 20 MiB message limit (about 5 MiB each) confirms the real
+      combined provider/request-body limit and records peak request memory;
+      20 MiB raw expands to roughly 27 MiB of base64 before JSON and is
+      reconstructed on each model attempt.
 
 ### Full verification
 
