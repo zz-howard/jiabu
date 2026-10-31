@@ -33,7 +33,7 @@ async fn seed_content(
     sqlx::query("insert into entity_events(space_id,entity_kind,entity_id,kind,after,actor_member_id,change_seq) values($1,'record',$2,'create','{}',$3,nextval('change_seq'))").bind(space).bind(expense).bind(member).execute(owner).await?;
     sqlx::query("insert into subjects(id,space_id,kind,name,created_by_member_id,change_seq,created_at,updated_at) values(uuidv7(),$1,'other','示例对象',$2,nextval('change_seq'),now(),now())").bind(space).bind(member).execute(owner).await?;
     sqlx::query("insert into documents(id,space_id,title,event_date,content,origin,created_by_member_id,updated_by_member_id,change_seq,created_at,updated_at) values(uuidv7(),$1,'示例资料',current_date,'{}','manual',$2,$2,nextval('change_seq'),now(),now())").bind(space).bind(member).execute(owner).await?;
-    sqlx::query("insert into blobs(sha256,mime,bytes) values(decode(repeat('00',32),'hex'),'image/jpeg',100)").execute(owner).await?;
+    sqlx::query("insert into blobs(sha256,mime,bytes,width,height) values(decode(repeat('00',32),'hex'),'image/jpeg',100,1,1)").execute(owner).await?;
     sqlx::query("insert into blob_refs(space_id,module,sha256,uploaded_by_member_id) values($1,'ledger',decode(repeat('00',32),'hex'),$2)").bind(space).bind(member).execute(owner).await?;
     let conversation = Uuid::now_v7();
     let message = Uuid::now_v7();

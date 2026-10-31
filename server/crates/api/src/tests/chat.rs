@@ -88,6 +88,8 @@ fn mock_runtime(
             structured: StructuredMode::ToolCall,
             vision: true,
             max_images: 8,
+            files: false,
+            max_files: 0,
             context_tokens: 8192,
         },
         scripts,
@@ -110,6 +112,196 @@ fn mock_runtime(
         ),
         mock,
     )
+}
+
+#[tokio::test]
+async fn chat_file_input_resolves_canonical_metadata_and_replay_is_exact() -> Result<()> {
+    let app = TestApp::new(false).await?;
+    let token = app.token().await?;
+    let space = app.plan.space_id.0;
+    let bytes = b"%PDF-1.7\nsynthetic chat file\n%%EOF\n".to_vec();
+    let sha = super::s4::hash(&bytes).to_string();
+    let uploaded = app
+        .raw_request(
+            "PUT",
+            &format!("/v1/spaces/{space}/files/{sha}"),
+            bytes.clone(),
+            "application/pdf",
+            Some(&token),
+            &[("x-jiabu-join-epoch", "1".into())],
+        )
+        .await?;
+    assert_eq!(uploaded.status, StatusCode::NO_CONTENT);
+
+    let id = Uuid::now_v7();
+    let body = json!({"id":id,"text":null,"files":[{"sha256":sha.clone(),"name":"账单.pdf"}]});
+    let first = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            body.clone(),
+            Some(&token),
+            &headers(&id.to_string(), 1),
+        )
+        .await?;
+    assert_eq!(first.status, StatusCode::OK);
+    let replay = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            body,
+            Some(&token),
+            &headers(&id.to_string(), 1),
+        )
+        .await?;
+    assert_eq!(first.json(), replay.json());
+
+    let owner = app.fixture.owner().await?;
+    let stored: Value = sqlx::query_scalar("select message from chat_entries where id=$1")
+        .bind(id)
+        .fetch_one(&owner)
+        .await?;
+    let metadata = &stored["metadata"]["input"]["files"][0];
+    assert_eq!(metadata["sha256"], sha);
+    assert_eq!(metadata["name"], "账单.pdf");
+    assert_eq!(metadata["mime"], "application/pdf");
+    assert_eq!(metadata["bytes"], i64::try_from(bytes.len())?);
+    assert!(!stored.to_string().contains("JVBER"));
+    let member: Uuid =
+        sqlx::query_scalar("select id from space_members where space_id=$1 and user_id=$2")
+            .bind(space)
+            .bind(app.plan.user_id.0)
+            .fetch_one(&owner)
+            .await?;
+    let mut oversized_files = Vec::new();
+    for index in 1..=4 {
+        let sha = format!("{index:064x}");
+        sqlx::query(
+            "insert into blobs(sha256,mime,bytes) values(decode($1,'hex'),'application/pdf',$2)",
+        )
+        .bind(&sha)
+        .bind(5 * 1024 * 1024 + 1_i64)
+        .execute(&owner)
+        .await?;
+        sqlx::query("insert into blob_refs(space_id,module,sha256,uploaded_by_member_id) values($1,'chat_file',decode($2,'hex'),$3)")
+            .bind(space)
+            .bind(&sha)
+            .bind(member)
+            .execute(&owner)
+            .await?;
+        oversized_files.push(json!({"sha256":sha,"name":format!("part-{index}.pdf")}));
+    }
+    owner.close().await;
+
+    let oversized_id = Uuid::now_v7();
+    let oversized = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            json!({"id":oversized_id,"text":null,"files":oversized_files}),
+            Some(&token),
+            &headers(&oversized_id.to_string(), 1),
+        )
+        .await?;
+    assert_eq!(oversized.status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    let owner = app.fixture.owner().await?;
+    sqlx::query("update blobs set bytes=5 * 1024 * 1024 where mime='application/pdf' and sha256 in (select sha256 from blob_refs where space_id=$1 and module='chat_file')")
+        .bind(space)
+        .execute(&owner)
+        .await?;
+    owner.close().await;
+    let boundary_id = Uuid::now_v7();
+    let boundary = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            json!({"id":boundary_id,"text":null,"files":oversized_files.clone()}),
+            Some(&token),
+            &headers(&boundary_id.to_string(), 1),
+        )
+        .await?;
+    assert_eq!(boundary.status, StatusCode::OK);
+
+    let mut reversed_files = oversized_files.clone();
+    reversed_files.reverse();
+    let reordered = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            json!({"id":boundary_id,"text":null,"files":reversed_files}),
+            Some(&token),
+            &headers(&boundary_id.to_string(), 1),
+        )
+        .await?;
+    assert_eq!(reordered.json()["code"], "idempotency_conflict");
+
+    let changed_hash = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            json!({"id":id,"text":null,"files":[{"sha256":oversized_files[0]["sha256"],"name":"账单.pdf"}]}),
+            Some(&token),
+            &headers(&id.to_string(), 1),
+        )
+        .await?;
+    assert_eq!(changed_hash.json()["code"], "idempotency_conflict");
+
+    let owner = app.fixture.owner().await?;
+    let fifth_sha = format!("{:064x}", 5);
+    sqlx::query(
+        "insert into blobs(sha256,mime,bytes) values(decode($1,'hex'),'application/pdf',1)",
+    )
+    .bind(&fifth_sha)
+    .execute(&owner)
+    .await?;
+    sqlx::query("insert into blob_refs(space_id,module,sha256,uploaded_by_member_id) values($1,'chat_file',decode($2,'hex'),$3)")
+        .bind(space)
+        .bind(&fifth_sha)
+        .bind(member)
+        .execute(&owner)
+        .await?;
+    owner.close().await;
+    oversized_files.push(json!({"sha256":fifth_sha,"name":"part-5.pdf"}));
+    let too_many_id = Uuid::now_v7();
+    let too_many = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            json!({"id":too_many_id,"text":null,"files":oversized_files}),
+            Some(&token),
+            &headers(&too_many_id.to_string(), 1),
+        )
+        .await?;
+    assert_eq!(too_many.status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    let changed = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            json!({"id":id,"text":null,"files":[{"sha256":sha.clone(),"name":"other.pdf"}]}),
+            Some(&token),
+            &headers(&id.to_string(), 1),
+        )
+        .await?;
+    assert_eq!(changed.json()["code"], "idempotency_conflict");
+    for files in [
+        json!([{"sha256":sha.clone(),"name":"../bad.pdf"}]),
+        json!([{"sha256":sha.clone(),"name":"same.pdf"},{"sha256":sha.clone(),"name":"same-again.pdf"}]),
+    ] {
+        let id = Uuid::now_v7();
+        let invalid = app
+            .request(
+                "POST",
+                &format!("/v1/spaces/{space}/chat/messages"),
+                json!({"id":id,"text":null,"files":files}),
+                Some(&token),
+                &headers(&id.to_string(), 1),
+            )
+            .await?;
+        assert_eq!(invalid.status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    Ok(())
 }
 
 #[tokio::test]

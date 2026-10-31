@@ -37,8 +37,10 @@ pub(crate) fn apply(router: Router<AppState>, state: AppState) -> Router {
         .with_state(state)
 }
 fn blob_transfer(route: Option<&str>, method: &Method) -> bool {
-    route == Some("/v1/spaces/{space_id}/blobs/{sha256}")
-        && matches!(*method, Method::PUT | Method::GET)
+    matches!(
+        route,
+        Some("/v1/spaces/{space_id}/blobs/{sha256}") | Some("/v1/spaces/{space_id}/files/{sha256}")
+    ) && matches!(*method, Method::PUT | Method::GET)
 }
 fn request_timeout(blob: bool, blob_seconds: u64) -> std::time::Duration {
     std::time::Duration::from_secs(if blob { blob_seconds } else { 30 })
@@ -256,6 +258,9 @@ mod timeout_tests {
         let path = Some("/v1/spaces/{space_id}/blobs/{sha256}");
         assert!(blob_transfer(path, &Method::PUT));
         assert!(blob_transfer(path, &Method::GET));
+        let file = Some("/v1/spaces/{space_id}/files/{sha256}");
+        assert!(blob_transfer(file, &Method::PUT));
+        assert!(blob_transfer(file, &Method::GET));
         assert!(!blob_transfer(path, &Method::POST));
         assert!(!blob_transfer(Some("/v1/sync/pull"), &Method::POST));
         for blob in [true, false] {

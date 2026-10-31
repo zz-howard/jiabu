@@ -52,6 +52,63 @@ fn ai_available_only_looks_at_requested_chat_route() {
     assert!(!router.availability(TaskKind::Chat).available);
     assert!(router.availability(TaskKind::ChatVision).available);
 }
+#[test]
+fn chat_file_preflight_applies_file_and_image_capabilities() {
+    let mut c = config();
+    c.routes
+        .retain(|route| route.model_id == uuid::Uuid::from_u128(1));
+    c.routes[0].task_kind = TaskKind::ChatFile;
+    let mut req = request();
+    let RequestItem::Message { files, .. } = &mut req.items[0] else {
+        unreachable!();
+    };
+    files.push(FileAttachment {
+        name: "synthetic.pdf".into(),
+        mime: "application/pdf".into(),
+        data: "synthetic-hash".into(),
+    });
+
+    let incapable = Arc::new(MockProvider::scripted("fake-1", capabilities(), vec![]));
+    let router = AiRouter::new(c.clone(), vec![incapable]);
+    assert_eq!(
+        router.request_availability(TaskKind::ChatFile, &req).reason,
+        "no_available_route"
+    );
+
+    let mut file_caps = capabilities();
+    file_caps.files = true;
+    file_caps.max_files = 1;
+    let capable = Arc::new(MockProvider::scripted("fake-1", file_caps.clone(), vec![]));
+    let router = AiRouter::new(c.clone(), vec![capable]);
+    assert!(
+        router
+            .request_availability(TaskKind::ChatFile, &req)
+            .available
+    );
+
+    if let RequestItem::Message { files, .. } = &mut req.items[0] {
+        files.push(FileAttachment {
+            name: "second.pdf".into(),
+            mime: "application/pdf".into(),
+            data: "second-hash".into(),
+        });
+    }
+    assert_eq!(
+        router.request_availability(TaskKind::ChatFile, &req).reason,
+        "no_available_route"
+    );
+
+    if let RequestItem::Message { files, .. } = &mut req.items[0] {
+        files.truncate(1);
+    }
+    c.models[0].vision = false;
+    let capable = Arc::new(MockProvider::scripted("fake-1", file_caps, vec![]));
+    let router = AiRouter::new(c, vec![capable]);
+    assert_eq!(
+        router.request_availability(TaskKind::ChatFile, &req).reason,
+        "no_available_route"
+    );
+}
 #[tokio::test]
 async fn reload_preserves_open_breaker_until_successful_single_half_open_probe() {
     let failed = Arc::new(MockProvider::scripted(

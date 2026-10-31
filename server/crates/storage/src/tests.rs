@@ -17,6 +17,16 @@ fn jpeg(width: u32, height: u32) -> Bytes {
 fn hash(bytes: &[u8]) -> BlobHash {
     BlobHash::from_bytes(Sha256::digest(bytes).into())
 }
+fn pdf(size: usize) -> Bytes {
+    let prefix = b"%PDF-1.7\n";
+    let suffix = b"\n%%EOF\n";
+    assert!(size >= prefix.len() + suffix.len());
+    let mut bytes = Vec::with_capacity(size);
+    bytes.extend_from_slice(prefix);
+    bytes.resize(size - suffix.len(), b'x');
+    bytes.extend_from_slice(suffix);
+    bytes.into()
+}
 fn with_exif(bytes: &[u8], orientation: u16) -> Bytes {
     let description = b"sample camera\0";
     let description_at = 50_u32;
@@ -218,6 +228,45 @@ fn jpeg_sniff_hash_body_pixels_edge_and_decode_budget_are_enforced() -> anyhow::
     assert!(BlobHash::parse("../orig.jpg").is_err());
     Ok(())
 }
+
+#[test]
+fn pdf_envelope_size_and_hash_are_enforced() {
+    let valid = pdf(128);
+    let expected = hash(&valid);
+    let prepared = prepare_pdf(valid.clone(), expected).unwrap();
+    assert_eq!(prepared.hash, expected);
+    assert_eq!(prepared.bytes, valid);
+
+    for invalid in [
+        Bytes::new(),
+        Bytes::from_static(b"garbage%PDF-1.7\n%%EOF\n"),
+        Bytes::from_static(b"%PDF-a.7\n%%EOF\n"),
+        Bytes::from_static(b"%PDF-1.7\nno trailer"),
+        Bytes::from_static(b"%PDF-1.7\n%%EOF\nnot whitespace"),
+    ] {
+        assert!(matches!(
+            prepare_pdf(invalid.clone(), hash(&invalid)),
+            Err(StorageError::NotPdf)
+        ));
+    }
+    let mut distant_trailer = b"%PDF-1.7\n%%EOF".to_vec();
+    distant_trailer.resize(distant_trailer.len() + 1025, b' ');
+    assert!(matches!(
+        prepare_pdf(distant_trailer.clone().into(), hash(&distant_trailer)),
+        Err(StorageError::NotPdf)
+    ));
+    assert!(matches!(
+        prepare_pdf(valid.clone(), BlobHash::from_bytes([7; 32])),
+        Err(StorageError::Invalid)
+    ));
+    let maximum = pdf(MAX_PDF_BYTES);
+    assert!(prepare_pdf(maximum.clone(), hash(&maximum)).is_ok());
+    let over = pdf(MAX_PDF_BYTES + 1);
+    assert!(matches!(
+        prepare_pdf(over.clone(), hash(&over)),
+        Err(StorageError::TooLarge)
+    ));
+}
 struct Directory(std::path::PathBuf);
 impl Drop for Directory {
     fn drop(&mut self) {
@@ -251,10 +300,34 @@ async fn local_layout_conditional_create_stream_and_recovery_listing() -> anyhow
         })
         .await?;
     assert_eq!(actual, bytes.as_ref());
+    let file_bytes = pdf(256);
+    let file = prepare_pdf(file_bytes.clone(), hash(&file_bytes))?;
+    store.put_file_if_absent(&file).await?;
+    let file_sha = file.hash.to_string();
+    assert!(
+        root.0
+            .join(format!("blobs/{}/{file_sha}.file.pdf", &file_sha[..2]))
+            .is_file()
+    );
+    let object = store.get_file_stream(file.hash).await?;
+    let actual = object
+        .stream
+        .try_fold(Vec::new(), |mut out, bytes| async move {
+            out.extend(bytes);
+            Ok(out)
+        })
+        .await?;
+    assert_eq!(actual, file_bytes.as_ref());
+    assert_eq!(store.candidates().await?.len(), 2);
     store.delete(image.hash).await?;
+    store.delete(file.hash).await?;
     store.delete(image.hash).await?;
     assert!(matches!(
         store.get_stream(image.hash, Variant::Original).await,
+        Err(StorageError::NotFound)
+    ));
+    assert!(matches!(
+        store.get_file_stream(file.hash).await,
         Err(StorageError::NotFound)
     ));
     assert!(store.candidates().await?.is_empty());

@@ -74,11 +74,26 @@ pub fn tool_idempotency_key(run_id: Uuid, call_id: &str) -> Uuid {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct SubmittedFile {
+    pub sha256: String,
+    pub name: String,
+}
+#[derive(Clone, Deserialize, Serialize)]
+pub struct ResolvedFile {
+    pub sha256: String,
+    pub name: String,
+    pub mime: String,
+    pub bytes: i64,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct StartMessage {
     pub id: Uuid,
     pub text: Option<String>,
     #[serde(default)]
     pub images: Vec<String>,
+    #[serde(default)]
+    pub files: Vec<SubmittedFile>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -135,7 +150,7 @@ pub use decision::{
     unavailable_displays,
 };
 pub use executor::ToolExecutor;
-pub use runtime::{ImageLoader, Runtime, RuntimeHandle};
+pub use runtime::{FileLoader, ImageLoader, Runtime, RuntimeHandle};
 pub use service::ScopedRuns;
 mod meter;
 pub use meter::RuntimeMeter;

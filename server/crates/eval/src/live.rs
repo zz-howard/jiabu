@@ -120,6 +120,8 @@ pub async fn load(database_url: &str) -> Result<Providers> {
                 structured: StructuredMode::ToolCall,
                 vision: true,
                 max_images: 8,
+                files: true,
+                max_files: 4,
                 context_tokens: 0,
             },
             manager,

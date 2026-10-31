@@ -8,7 +8,7 @@ use jiabu_domain::{
     SpaceId,
     spaces::{Change, CreateSpace},
 };
-use jiabu_storage::{ImageLimits, PreparedJpeg, Variant, prepare_jpeg};
+use jiabu_storage::{ImageLimits, PreparedJpeg, Variant, prepare_jpeg, prepare_pdf};
 use sha2::{Digest, Sha256};
 use tokio::sync::Notify;
 use uuid::Uuid;
@@ -61,6 +61,9 @@ async fn referenced_blob_survives_and_purge_starts_a_fresh_one_day_grace() -> Re
     let db = AppDb::connect(&fixture.app_url).await?;
     let store = BlobStore::local(fixture.data_dir())?;
     let image = image();
+    let file_bytes = Bytes::from_static(b"%PDF-1.7\nsynthetic retained file\n%%EOF\n");
+    let file_hash = BlobHash::from_bytes(Sha256::digest(&file_bytes).into());
+    let file = prepare_pdf(file_bytes, file_hash)?;
     let now = Utc::now();
     let space = SpaceId(Uuid::now_v7());
     db.create_space(
@@ -91,7 +94,17 @@ async fn referenced_blob_survives_and_purge_starts_a_fresh_one_day_grace() -> Re
     )
     .await?;
     store.put_if_absent(&image).await?;
+    tx.save_file(
+        space,
+        &file.hash.bytes(),
+        file.bytes.len() as i64,
+        now - Days::days(30),
+    )
+    .await?;
+    store.put_file_if_absent(&file).await?;
     tx.add_blob_ref(space, "ledger", &image.hash.bytes(), now)
+        .await?;
+    tx.add_blob_ref(space, "chat_file", &file.hash.bytes(), now)
         .await?;
     tx.commit().await?;
     assert_eq!(cleanup_once(&db, &store, &Fixed(now)).await?.blobs, 0);
@@ -101,6 +114,7 @@ async fn referenced_blob_survives_and_purge_starts_a_fresh_one_day_grace() -> Re
             .await
             .is_ok()
     );
+    assert!(store.get_file_stream(file.hash).await.is_ok());
     let tx = SpaceTx::begin(&db, seed.user_id, &[(space, None)], Mode::Write).await?;
     tx.apply_change(
         space,
@@ -122,11 +136,12 @@ async fn referenced_blob_survives_and_purge_starts_a_fresh_one_day_grace() -> Re
         cleanup_once(&db, &store, &Fixed(now + Days::days(1)))
             .await?
             .blobs,
-        1
+        2
     );
     for variant in [Variant::Original, Variant::Display, Variant::Thumb] {
         assert!(store.get_stream(image.hash, variant).await.is_err());
     }
+    assert!(store.get_file_stream(file.hash).await.is_err());
     db.close().await?;
     Ok(())
 }

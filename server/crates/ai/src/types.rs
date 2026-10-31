@@ -7,7 +7,24 @@ pub struct Capabilities {
     pub structured: StructuredMode,
     pub vision: bool,
     pub max_images: u8,
+    pub files: bool,
+    pub max_files: u8,
     pub context_tokens: u32,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FileAttachment {
+    pub name: String,
+    pub mime: String,
+    pub data: String,
+}
+impl std::fmt::Debug for FileAttachment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FileAttachment")
+            .field("name", &"[redacted]")
+            .field("mime", &self.mime)
+            .field("data", &"[redacted]")
+            .finish()
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -36,6 +53,8 @@ pub enum RequestItem {
         role: String,
         text: String,
         images: Vec<String>,
+        #[serde(default)]
+        files: Vec<FileAttachment>,
     },
     ToolCall {
         call_id: String,

@@ -1,7 +1,7 @@
 //! Process lifecycle and original image IO; no HTTP routing lives here.
 use base64::Engine;
 use futures_util::StreamExt;
-use jiabu_agent::{ImageLoader, Runtime, RuntimeMeter};
+use jiabu_agent::{FileLoader, ImageLoader, Runtime, RuntimeMeter};
 use jiabu_db::OperationError;
 use jiabu_storage::{BlobHash, BlobStore, Variant};
 use std::sync::Arc;
@@ -25,6 +25,26 @@ impl ImageLoader for Originals {
         ))
     }
 }
+struct PdfFiles(Arc<BlobStore>);
+#[async_trait::async_trait]
+impl FileLoader for PdfFiles {
+    async fn pdf(&self, sha: &str) -> Result<String, OperationError> {
+        let hash = BlobHash::parse(sha).map_err(|_| OperationError::invalid())?;
+        let mut blob = self
+            .0
+            .get_file_stream(hash)
+            .await
+            .map_err(|_| OperationError::not_found())?;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = blob.stream.next().await {
+            bytes.extend_from_slice(&chunk.map_err(|_| OperationError::internal())?);
+        }
+        Ok(format!(
+            "data:application/pdf;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ))
+    }
+}
 pub fn runtime(state: &jiabu_api::AppState, hub: Arc<jiabu_chat::StreamHub>) -> Arc<Runtime> {
     let mut runtime = Runtime::new(
         state.db.clone(),
@@ -38,6 +58,7 @@ pub fn runtime(state: &jiabu_api::AppState, hub: Arc<jiabu_chat::StreamHub>) -> 
         }),
     );
     runtime.images = Some(Arc::new(Originals(state.blobs.clone())));
+    runtime.files = Some(Arc::new(PdfFiles(state.blobs.clone())));
     Arc::new(runtime)
 }
 pub async fn shutdown_signal() {

@@ -49,7 +49,7 @@ pub enum TurnEvent {
     ProviderBlob(ProviderBlob),                         // 加密推理数据，只进 journal
     Done { usage: Usage },                              // 含缓存读取 / 写入 token
 }
-pub struct Capabilities { pub structured: StructuredMode, pub vision: bool, pub max_images: u8, pub context_tokens: u32 }
+pub struct Capabilities { pub structured: StructuredMode, pub vision: bool, pub max_images: u8, pub files: bool, pub max_files: u8, pub context_tokens: u32 }
 pub enum StructuredMode { JsonSchema, ToolCall, JsonObject, PromptOnly }   // 提供方怎么保证工具参数合规（strict 工具、原生 schema……）
 
 #[async_trait::async_trait]   // 需要 dyn，故用 async-trait 或手动 Box<dyn Future>
@@ -171,7 +171,7 @@ AI 处理是异步的**运行**（run）：一条助手回复从开始到结束�
 
 ## 7. 路由、降级与计费策略
 
-**配置存在数据库里**（v0.13 起）：提供方、模型、路由、策略和价格表存在 `ai_providers`、`ai_models`、`ai_routes`、`ai_settings`、`ai_prices` 表里（[服务端 9.5](server-rust.md#95-表结构管理侧草案)），由管理 API 或 `admin` 命令修改；下面的 TOML 是首次导入（`admin ai import`）和导出备份用的格式，字段一一对应。路由按**任务类型**分：`chat`（对话 Agent）、`chat_vision`（这次运行的输入里有图片时用，只挑支持视觉的模型）；每类一个有序列表，第一个是默认模型，其余按顺序降级。
+**配置存在数据库里**（v0.13 起）：提供方、模型、路由、策略和价格表存在 `ai_providers`、`ai_models`、`ai_routes`、`ai_settings`、`ai_prices` 表里（[服务端 9.5](server-rust.md#95-表结构管理侧草案)），由管理 API 或 `admin` 命令修改；下面的 TOML 是首次导入（`admin ai import`）和导出备份用的格式，字段一一对应。路由按**任务类型**分：`chat`（纯文字）、`chat_vision`（有图片）、`chat_file`（有 PDF，若同时有图片也检查视觉能力）和 `probe`；每类一个有序列表，第一个是默认模型，其余按顺序降级。`chat_file` 没有配置或所有候选都被文件/图片能力、数量或付费策略静态排除时立即以 `no_available_route` 失败；只有凭据或熔断器暂不可用时才进入 `waiting_ai`。
 
 ```toml
 # config/ai.toml —— 导入 / 导出格式（凭据只写环境变量名或文件路径变量名，不写值）
@@ -214,6 +214,7 @@ billing = "paid"
 [route]
 chat        = ["chatgpt", "local", "qwen"]
 chat_vision = ["chatgpt", "local", "gemini"]   # 只挑 vision = true 的
+chat_file   = ["chatgpt"]                         # 还须适配器 files = true
 
 [policy]
 allow_paid_fallback = false      # 为 false 时链上 billing = "paid" 的提供方一律跳过
@@ -255,7 +256,7 @@ create table ai_calls (
   id bigint generated always as identity primary key,
   run_id uuid,                                               -- 管理侧的测试调用（probe）为空
   space_id uuid, member_id uuid, user_id uuid,               -- 归属：冗余存一份，统计时不用联查业务表
-  task_kind text not null,                                   -- chat | chat_vision | probe
+  task_kind text not null,                                   -- chat | chat_vision | chat_file | probe
   provider_id text not null, model text not null,
   structured_mode text not null, latency_ms int, input_tokens int, output_tokens int,
   cached_input_tokens int, cache_write_tokens int,           -- 提示词缓存读取 / 写入（第 15 节）

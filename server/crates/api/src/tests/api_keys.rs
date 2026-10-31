@@ -545,7 +545,7 @@ async fn keys_cannot_manage_account_keys_spaces_or_members() -> Result<()> {
             );
             assert_eq!(
                 reply.json()["code"],
-                if path.contains("/chat/") {
+                if path.contains("/chat/") || path.contains("/files/") {
                     "api_key_ai_not_allowed"
                 } else {
                     "api_key_not_allowed"

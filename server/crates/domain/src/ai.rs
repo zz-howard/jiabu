@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub enum TaskKind {
     Chat,
     ChatVision,
+    ChatFile,
     Probe,
 }
 impl TaskKind {
@@ -13,6 +14,7 @@ impl TaskKind {
         match self {
             Self::Chat => "chat",
             Self::ChatVision => "chat_vision",
+            Self::ChatFile => "chat_file",
             Self::Probe => "probe",
         }
     }

@@ -19,6 +19,10 @@ use tokio::sync::{Mutex, Notify, watch};
 pub trait ImageLoader: Send + Sync {
     async fn original(&self, sha: &str) -> Result<String, OperationError>;
 }
+#[async_trait::async_trait]
+pub trait FileLoader: Send + Sync {
+    async fn pdf(&self, sha: &str) -> Result<String, OperationError>;
+}
 pub struct Runtime {
     pub db: AppDb,
     pub router: Arc<RouterStore>,
@@ -27,6 +31,7 @@ pub struct Runtime {
     pub hub: Arc<StreamHub>,
     pub observer: Arc<dyn CallObserver>,
     pub images: Option<Arc<dyn ImageLoader>>,
+    pub files: Option<Arc<dyn FileLoader>>,
     pub budget: RunBudget,
     active: Mutex<HashMap<Uuid, Duration>>,
     owners: Mutex<HashSet<Uuid>>,
@@ -49,6 +54,7 @@ impl Runtime {
             hub,
             observer,
             images: None,
+            files: None,
             budget: RunBudget::default(),
             active: Mutex::new(HashMap::new()),
             owners: Mutex::new(HashSet::new()),
@@ -470,7 +476,12 @@ impl Runtime {
                 }
                 NextAction::Model => {
                     let router = self.router.0.load_full();
-                    let task = if prompt.input["images"]
+                    let has_files = prompt.input["files"]
+                        .as_array()
+                        .is_some_and(|files| !files.is_empty());
+                    let task = if has_files {
+                        TaskKind::ChatFile
+                    } else if prompt.input["images"]
                         .as_array()
                         .is_some_and(|a| !a.is_empty())
                     {
@@ -478,21 +489,57 @@ impl Runtime {
                     } else {
                         TaskKind::Chat
                     };
-                    if !router.availability(task).available {
+                    let mut request =
+                        render_request(run.id, run.conversation_id.to_string(), &prompt, &journal)
+                            .map_err(protocol_error)?;
+                    let availability = if task == TaskKind::ChatFile {
+                        router.request_availability(task, &request)
+                    } else {
+                        router.availability(task)
+                    };
+                    if !availability.available {
+                        if availability.reason == "no_available_route" {
+                            return Err(OperationError::new(503, "no_available_route"));
+                        }
                         let tx = self.begin(p, run, lease).await?;
                         tx.wait_for_ai(space, lease).await?;
                         tx.commit().await?;
                         self.hub.publish(StreamEvent(json!({"protocolVersion":"0.1","type":"message.activity","messageId":run.assistant_message_id,"activity":{"phase":"degraded","label":"等待 AI / Waiting for AI"}}))).await.map_err(protocol_error)?;
                         return Ok(());
                     }
-                    let tx = self.begin(p, run, lease).await?;
-                    tx.begin_model_call(space, lease).await?;
-                    tx.commit().await?;
-                    let mut request =
-                        render_request(run.id, run.conversation_id.to_string(), &prompt, &journal)
-                            .map_err(protocol_error)?;
+                    if has_files {
+                        let tx = self.begin(p, run, lease).await?;
+                        for item in &request.items {
+                            if let RequestItem::Message { files, .. } = item {
+                                for file in files {
+                                    let hash = file.data.as_bytes();
+                                    if hash.len() != 64 {
+                                        return Err(OperationError::invalid());
+                                    }
+                                    let mut decoded = [0_u8; 32];
+                                    for (index, pair) in hash.as_chunks::<2>().0.iter().enumerate()
+                                    {
+                                        let nibble = |byte| match byte {
+                                            b'0'..=b'9' => Some(byte - b'0'),
+                                            b'a'..=b'f' => Some(byte - b'a' + 10),
+                                            _ => None,
+                                        };
+                                        decoded[index] = (nibble(pair[0])
+                                            .ok_or_else(OperationError::invalid)?
+                                            << 4)
+                                            | nibble(pair[1])
+                                                .ok_or_else(OperationError::invalid)?;
+                                    }
+                                    if tx.chat_file_metadata(space, &decoded).await?.is_none() {
+                                        return Err(OperationError::not_found());
+                                    }
+                                }
+                            }
+                        }
+                        tx.commit().await?;
+                    }
                     for item in &mut request.items {
-                        if let RequestItem::Message { images, .. } = item {
+                        if let RequestItem::Message { images, files, .. } = item {
                             for image in images {
                                 let loader = self
                                     .images
@@ -500,8 +547,18 @@ impl Runtime {
                                     .ok_or_else(|| OperationError::new(503, "image_unavailable"))?;
                                 *image = loader.original(image).await?;
                             }
+                            for file in files {
+                                let loader = self
+                                    .files
+                                    .as_ref()
+                                    .ok_or_else(|| OperationError::new(503, "file_unavailable"))?;
+                                file.data = loader.pdf(&file.data).await?;
+                            }
                         }
                     }
+                    let tx = self.begin(p, run, lease).await?;
+                    tx.begin_model_call(space, lease).await?;
+                    tx.commit().await?;
                     let mut sink = Collector {
                         runtime: self,
                         p,

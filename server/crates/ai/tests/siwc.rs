@@ -270,6 +270,7 @@ fn encrypted_reasoning_scope_is_provider_model_and_account_bound() {
             role: "assistant".into(),
             text: format!("after {provider}/{model}/{account}"),
             images: vec![],
+            files: vec![],
         });
     }
     let messages: Vec<_> = req
@@ -803,6 +804,7 @@ fn recorded_request(name: &str) -> (TurnRequest, serde_json::Value) {
                 role: item["role"].as_str().unwrap().into(),
                 text: item["content"][0]["text"].as_str().unwrap().into(),
                 images: vec![],
+                files: vec![],
             },
         })
         .collect();
@@ -1020,16 +1022,19 @@ fn assistant_history_is_string_content_and_user_turns_keep_input_parts() {
             role: "user".into(),
             text: "first".into(),
             images: vec![],
+            files: vec![],
         },
         RequestItem::Message {
             role: "assistant".into(),
             text: "reply".into(),
             images: vec![],
+            files: vec![],
         },
         RequestItem::Message {
             role: "user".into(),
             text: "second".into(),
             images: vec![],
+            files: vec![],
         },
     ];
     let input = body(&req, "synthetic", "synthetic-account").unwrap()["input"].clone();
@@ -1041,6 +1046,60 @@ fn assistant_history_is_string_content_and_user_turns_keep_input_parts() {
             {"role":"user","content":[{"type":"input_text","text":"second"}]}
         ])
     );
+}
+#[test]
+fn pdf_files_follow_text_and_images_and_invalid_shapes_are_rejected() {
+    let mut req = request();
+    let RequestItem::Message { files, .. } = &mut req.items[0] else {
+        panic!("request fixture must start with a message");
+    };
+    files.extend([
+        FileAttachment {
+            name: "one.pdf".into(),
+            mime: "application/pdf".into(),
+            data: "data:application/pdf;base64,JVBERi0xLjcKJSVFT0YK".into(),
+        },
+        FileAttachment {
+            name: "two.pdf".into(),
+            mime: "application/pdf".into(),
+            data: "data:application/pdf;base64,JVBERi0yLjAKJSVFT0YK".into(),
+        },
+    ]);
+    let content =
+        body(&req, "synthetic", "synthetic-account").unwrap()["input"][0]["content"].clone();
+    assert_eq!(
+        content,
+        json!([
+            {"type":"input_text","text":"Synthetic receipt"},
+            {"type":"input_image","image_url":"data:image/jpeg;base64,/9j/2Q==","detail":"auto"},
+            {"type":"input_file","filename":"one.pdf","file_data":"data:application/pdf;base64,JVBERi0xLjcKJSVFT0YK"},
+            {"type":"input_file","filename":"two.pdf","file_data":"data:application/pdf;base64,JVBERi0yLjAKJSVFT0YK"}
+        ])
+    );
+    if let RequestItem::Message { role, .. } = &mut req.items[0] {
+        *role = "assistant".into();
+    }
+    assert!(matches!(
+        body(&req, "synthetic", "synthetic-account"),
+        Err(ProviderError::Unsupported(
+            "assistant images" | "assistant files"
+        ))
+    ));
+    if let RequestItem::Message {
+        role,
+        images,
+        files,
+        ..
+    } = &mut req.items[0]
+    {
+        *role = "user".into();
+        images.clear();
+        files[0].mime = "text/plain".into();
+    }
+    assert!(matches!(
+        body(&req, "synthetic", "synthetic-account"),
+        Err(ProviderError::Unsupported("PDF data URL required"))
+    ));
 }
 #[tokio::test]
 async fn recorded_message_reports_its_full_text_and_phase_once() {

@@ -1,4 +1,4 @@
-use crate::{ApiError, AppState, Principal, services::blobs};
+use crate::{ApiError, AppState, Principal, SessionOnly, services::blobs};
 use axum::{
     body::{Body, to_bytes},
     extract::{
@@ -9,7 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use jiabu_domain::{JoinEpoch, SpaceId};
-use jiabu_storage::{BlobHash, Variant, prepare_jpeg};
+use jiabu_storage::{BlobHash, MAX_PDF_BYTES, Variant, prepare_jpeg, prepare_pdf};
 use serde::Deserialize;
 use uuid::Uuid;
 #[derive(Deserialize)]
@@ -116,6 +116,103 @@ pub(crate) async fn get(
         [
             (header::CONTENT_TYPE, "image/jpeg".to_owned()),
             (header::CONTENT_LENGTH, object.bytes.to_string()),
+        ],
+        Body::from_stream(object.stream),
+    )
+        .into_response())
+}
+
+#[utoipa::path(put,path="/v1/spaces/{space_id}/files/{sha256}",security(("bearer"=[])),params(("space_id"=Uuid,Path),("sha256"=String,Path),("X-Jiabu-Join-Epoch"=i32,Header)),request_body(content=String,content_type="application/pdf",description="Complete PDF bytes, including on repeated uploads"),responses((status=204,description="Stored; empty response for both new and existing content"),(status=400,body=crate::Problem),(status=401,body=crate::Problem),(status=403,body=crate::Problem),(status=404,body=crate::Problem),(status=413,body=crate::Problem),(status=415,body=crate::Problem),(status=422,body=crate::Problem),(status=429,body=crate::Problem),(status=500,body=crate::Problem),(status=503,body=crate::Problem)))]
+pub(crate) async fn upload_file(
+    State(state): State<AppState>,
+    SessionOnly(principal): SessionOnly,
+    path: Result<Path<(Uuid, String)>, PathRejection>,
+    request: Request,
+) -> Result<StatusCode, ApiError> {
+    let Path((space, sha)) = path.map_err(|_| ApiError::bad_request())?;
+    let epoch = request
+        .headers()
+        .get("x-jiabu-join-epoch")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<i32>().ok())
+        .filter(|value| *value > 0)
+        .map(JoinEpoch)
+        .ok_or_else(ApiError::bad_request)?;
+    let space = SpaceId(space);
+    blobs::file_upload_preflight(&state, &principal, space, epoch).await?;
+    let hash = BlobHash::parse(&sha).map_err(blobs::storage_error)?;
+    if request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|value| {
+            value
+                .to_str()
+                .ok()
+                .and_then(|value| value.split(';').next())
+                .is_none_or(|value| !value.trim().eq_ignore_ascii_case("application/pdf"))
+        })
+    {
+        return Err(ApiError::new(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported_media_type",
+        ));
+    }
+    let upload_slot =
+        state
+            .upload_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|error| match error {
+                tokio::sync::TryAcquireError::NoPermits => {
+                    let mut error = ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "upload_busy");
+                    error.retry_after = Some(1);
+                    error
+                }
+                tokio::sync::TryAcquireError::Closed => ApiError::internal(),
+            })?;
+    let bytes = to_bytes(request.into_body(), MAX_PDF_BYTES + 1)
+        .await
+        .map_err(|_| ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"))?;
+    let permit = state
+        .image_work
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| ApiError::internal())?;
+    let (file, _permit, _upload_slot) =
+        tokio::task::spawn_blocking(move || (prepare_pdf(bytes, hash), permit, upload_slot))
+            .await
+            .map_err(|_| ApiError::internal())?;
+    let file = file.map_err(blobs::storage_error)?;
+    #[cfg(test)]
+    if let Some((entered, release)) = &state.upload_gate {
+        entered.notify_one();
+        release.notified().await;
+    }
+    blobs::finish_file_upload(&state, &principal, space, epoch, &file).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(get,path="/v1/spaces/{space_id}/files/{sha256}",security(("bearer"=[])),params(("space_id"=Uuid,Path),("sha256"=String,Path)),responses((status=200,content_type="application/pdf",body=String,description="Streaming PDF bytes",example="%PDF-1.7\n..."),(status=400,body=crate::Problem),(status=401,body=crate::Problem),(status=403,body=crate::Problem),(status=404,body=crate::Problem),(status=429,body=crate::Problem),(status=500,body=crate::Problem),(status=503,body=crate::Problem)))]
+pub(crate) async fn get_file(
+    State(state): State<AppState>,
+    SessionOnly(principal): SessionOnly,
+    path: Result<Path<(Uuid, String)>, PathRejection>,
+) -> Result<Response, ApiError> {
+    let Path((space, sha)) = path.map_err(|_| ApiError::bad_request())?;
+    let hash = BlobHash::parse(&sha).map_err(|_| ApiError::not_found())?;
+    blobs::authorize_file_download(&state, &principal, SpaceId(space), hash).await?;
+    let object = state
+        .blobs
+        .get_file_stream(hash)
+        .await
+        .map_err(blobs::storage_error)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/pdf".to_owned()),
+            (header::CONTENT_LENGTH, object.bytes.to_string()),
+            (header::CONTENT_DISPOSITION, "attachment".to_owned()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
         ],
         Body::from_stream(object.stream),
     )

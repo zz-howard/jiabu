@@ -94,10 +94,23 @@ impl AiRouter {
         next.breakers = self.breakers.clone();
         next
     }
-    fn candidates(
+    fn request_counts(req: Option<&TurnRequest>) -> (usize, usize) {
+        req.map_or((0, 0), |request| {
+            request.items.iter().fold((0, 0), |counts, item| {
+                if let RequestItem::Message { images, files, .. } = item {
+                    (counts.0 + images.len(), counts.1 + files.len())
+                } else {
+                    counts
+                }
+            })
+        })
+    }
+    fn static_candidates(
         &self,
         task: TaskKind,
+        req: Option<&TurnRequest>,
     ) -> Vec<(&jiabu_domain::ai::ModelConfig, &Arc<dyn ModelProvider>)> {
+        let (image_count, file_count) = Self::request_counts(req);
         let mut routes: Vec<_> = self
             .config
             .routes
@@ -122,14 +135,30 @@ impl AiRouter {
                     return None;
                 }
                 let adapter = self.providers.get(&p.id)?;
-                if !adapter.credentials_available()
-                    || (task == TaskKind::ChatVision
-                        && (!m.vision || !adapter.capabilities().vision))
+                let capabilities = adapter.capabilities();
+                if (task == TaskKind::ChatVision && (!m.vision || !capabilities.vision))
+                    || (task == TaskKind::ChatFile
+                        && (!capabilities.files
+                            || file_count > usize::from(capabilities.max_files)
+                            || (image_count > 0
+                                && (!m.vision
+                                    || !capabilities.vision
+                                    || image_count > usize::from(capabilities.max_images)))))
                 {
                     return None;
                 }
                 Some((m, adapter))
             })
+            .collect()
+    }
+    fn candidates(
+        &self,
+        task: TaskKind,
+        req: Option<&TurnRequest>,
+    ) -> Vec<(&jiabu_domain::ai::ModelConfig, &Arc<dyn ModelProvider>)> {
+        self.static_candidates(task, req)
+            .into_iter()
+            .filter(|(_, adapter)| adapter.credentials_available())
             .collect()
     }
     pub fn availability(&self, task: TaskKind) -> AiAvailability {
@@ -139,10 +168,42 @@ impl AiRouter {
                 reason: "unavailable",
             };
         };
-        let available = self.candidates(task).iter().any(|(_, p)| {
+        let available = self.candidates(task, None).iter().any(|(_, p)| {
             breakers
                 .get(p.id())
                 .is_none_or(|b| b.available(Instant::now(), &self.config.breaker))
+        });
+        AiAvailability {
+            available,
+            reason: if available {
+                "available"
+            } else {
+                "unavailable"
+            },
+        }
+    }
+    pub fn request_availability(&self, task: TaskKind, req: &TurnRequest) -> AiAvailability {
+        if task != TaskKind::ChatFile {
+            return self.availability(task);
+        }
+        let static_candidates = self.static_candidates(task, Some(req));
+        if static_candidates.is_empty() {
+            return AiAvailability {
+                available: false,
+                reason: "no_available_route",
+            };
+        }
+        let Ok(breakers) = self.breakers.lock() else {
+            return AiAvailability {
+                available: false,
+                reason: "unavailable",
+            };
+        };
+        let available = static_candidates.iter().any(|(_, provider)| {
+            provider.credentials_available()
+                && breakers
+                    .get(provider.id())
+                    .is_none_or(|breaker| breaker.available(Instant::now(), &self.config.breaker))
         });
         AiAvailability {
             available,
@@ -161,7 +222,7 @@ impl AiRouter {
         observer: &dyn CallObserver,
     ) -> Result<(), ProviderError> {
         let mut last = ProviderError::Unsupported("no available route");
-        for (model, provider) in self.candidates(task) {
+        for (model, provider) in self.candidates(task, Some(req)) {
             let image_count: usize = req
                 .items
                 .iter()
@@ -174,7 +235,7 @@ impl AiRouter {
                 })
                 .sum();
             if image_count > usize::from(provider.capabilities().max_images)
-                || (image_count > 0 && !model.vision)
+                || (image_count > 0 && (!model.vision || !provider.capabilities().vision))
             {
                 continue;
             }
@@ -231,6 +292,7 @@ impl AiRouter {
                             role: "developer".into(),
                             text: "Continue using the recorded results; encrypted reasoning was unavailable.".into(),
                             images: vec![],
+                            files: vec![],
                         });
                         continue;
                     }

@@ -14,11 +14,217 @@ use jiabu_db::{Mode, Principal, SpaceTx, Via};
 use jiabu_domain::{JoinEpoch, SessionId};
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use uuid::Uuid;
 #[path = "../../../tests/support/agent.rs"]
 mod agent_fixture;
 use agent_fixture::*;
+
+struct SyntheticPdfLoader;
+#[async_trait::async_trait]
+impl FileLoader for SyntheticPdfLoader {
+    async fn pdf(&self, sha: &str) -> Result<String, jiabu_db::OperationError> {
+        Ok(format!("data:application/pdf;base64,synthetic-{sha}"))
+    }
+}
+
+struct ToggleProvider {
+    inner: Arc<MockProvider>,
+    credentials: AtomicBool,
+}
+#[async_trait::async_trait]
+impl ModelProvider for ToggleProvider {
+    fn id(&self) -> &str {
+        self.inner.id()
+    }
+    fn capabilities(&self) -> &Capabilities {
+        self.inner.capabilities()
+    }
+    fn credentials_available(&self) -> bool {
+        self.credentials.load(Ordering::SeqCst)
+    }
+    async fn run_turn(
+        &self,
+        request: &TurnRequest,
+        sink: &mut dyn TurnSink,
+    ) -> Result<(), ProviderError> {
+        self.inner.run_turn(request, sink).await
+    }
+}
+
+async fn seed_chat_file(f: &Fixture, byte: u8) -> Result<String> {
+    let hash = format!("{byte:02x}").repeat(32);
+    let tx = SpaceTx::begin(&f.db, f.p.user_id, &[(f.space, None)], Mode::Write).await?;
+    tx.save_file(f.space, &[byte; 32], 100, chrono::Utc::now())
+        .await?;
+    tx.add_blob_ref(f.space, "chat_file", &[byte; 32], chrono::Utc::now())
+        .await?;
+    tx.commit().await?;
+    Ok(hash)
+}
+
+fn install_file_runtime(
+    f: &mut Fixture,
+    scripts: Vec<jiabu_ai::mock::TurnScript>,
+    credentials: bool,
+    include_plain_chat: bool,
+) -> Result<(Arc<MockProvider>, Arc<ToggleProvider>)> {
+    Arc::get_mut(&mut f.runtime)
+        .context("fixture runtime unexpectedly shared")?
+        .files = Some(Arc::new(SyntheticPdfLoader));
+    let inner = Arc::new(MockProvider::scripted(
+        "synthetic",
+        Capabilities {
+            structured: StructuredMode::ToolCall,
+            vision: true,
+            max_images: 8,
+            files: true,
+            max_files: 4,
+            context_tokens: 8192,
+        },
+        scripts,
+    ));
+    let provider = Arc::new(ToggleProvider {
+        inner: inner.clone(),
+        credentials: AtomicBool::new(credentials),
+    });
+    let mut config = f.runtime.router.0.load().config.clone();
+    let model_id = config.models[0].id;
+    config.routes = vec![RouteConfig {
+        task_kind: TaskKind::ChatFile,
+        position: 0,
+        model_id,
+    }];
+    if include_plain_chat {
+        config.routes.push(RouteConfig {
+            task_kind: TaskKind::Chat,
+            position: 0,
+            model_id,
+        });
+    }
+    f.runtime
+        .router
+        .0
+        .store(Arc::new(AiRouter::new(config, vec![provider.clone()])));
+    f.mock = inner.clone();
+    Ok((inner, provider))
+}
+
+async fn start_with_file(f: &Fixture, sha256: String) -> Result<StartResponse> {
+    Ok(f.runs()
+        .start(
+            &f.p,
+            StartMessage {
+                id: Uuid::now_v7(),
+                text: Some("read the synthetic file".into()),
+                images: vec![],
+                files: vec![SubmittedFile {
+                    sha256,
+                    name: "synthetic.pdf".into(),
+                }],
+            },
+        )
+        .await?)
+}
+
+#[tokio::test]
+async fn file_run_without_a_capable_route_fails_immediately() -> Result<()> {
+    let f = Fixture::new(vec![]).await?;
+    let sha = seed_chat_file(&f, 7).await?;
+    let response = start_with_file(&f, sha).await?;
+    assert!(f.work().await?);
+    assert_eq!(f.run(response.message_id).await?.status, "failed");
+    assert!(f.mock.requests().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn waiting_file_run_resumes_after_credentials_reload_and_loads_pdf_just_in_time() -> Result<()>
+{
+    let mut f = Fixture::new(vec![]).await?;
+    let sha = seed_chat_file(&f, 8).await?;
+    let (mock, provider) =
+        install_file_runtime(&mut f, vec![vec![text("done"), done()]], false, false)?;
+    let response = start_with_file(&f, sha.clone()).await?;
+    assert!(f.work().await?);
+    let waiting = f.run(response.message_id).await?;
+    assert_eq!(waiting.status, "waiting_ai");
+    assert!(mock.requests().is_empty());
+
+    provider.credentials.store(true, Ordering::SeqCst);
+    sqlx::query("update agent_runs set run_after=now() where id=$1")
+        .bind(waiting.id)
+        .execute(&f.owner)
+        .await?;
+    assert!(f.work().await?);
+    assert_eq!(f.run(response.message_id).await?.status, "completed");
+    let requests = mock.requests();
+    let attached = requests[0].items.iter().any(|item| {
+        matches!(item, RequestItem::Message { files, .. } if files.iter().any(|file| file.data == format!("data:application/pdf;base64,synthetic-{sha}")))
+    });
+    assert!(
+        attached,
+        "the resumed run must load the same file only at model-call time"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_reference_is_rechecked_before_just_in_time_loading() -> Result<()> {
+    let mut f = Fixture::new(vec![]).await?;
+    let sha = seed_chat_file(&f, 10).await?;
+    let (mock, _) = install_file_runtime(
+        &mut f,
+        vec![vec![text("must not run"), done()]],
+        true,
+        false,
+    )?;
+    let response = start_with_file(&f, sha.clone()).await?;
+    sqlx::query(
+        "delete from blob_refs where space_id=$1 and module='chat_file' and sha256=decode($2,'hex')",
+    )
+    .bind(f.space.0)
+    .bind(sha)
+    .execute(&f.owner)
+    .await?;
+
+    assert!(f.work().await?);
+    assert_eq!(f.run(response.message_id).await?.status, "failed");
+    assert!(mock.requests().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn later_plain_run_does_not_inherit_files_from_conversation_history() -> Result<()> {
+    let mut f = Fixture::new(vec![]).await?;
+    let sha = seed_chat_file(&f, 9).await?;
+    let (mock, _) = install_file_runtime(
+        &mut f,
+        vec![
+            vec![text("file done"), done()],
+            vec![text("plain done"), done()],
+        ],
+        true,
+        true,
+    )?;
+    let file_response = start_with_file(&f, sha).await?;
+    assert!(f.work().await?);
+    assert_eq!(f.run(file_response.message_id).await?.status, "completed");
+    let plain_response = f.start().await?;
+    assert!(f.work().await?);
+    assert_eq!(f.run(plain_response.message_id).await?.status, "completed");
+    let requests = mock.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests[1].items.iter().all(|item| {
+            !matches!(item, RequestItem::Message { files, .. } if !files.is_empty())
+        })
+    );
+    Ok(())
+}
 #[tokio::test]
 async fn mock_text_finishes_with_rev_one_and_durable_ordered_events() -> Result<()> {
     let f = Fixture::new(vec![vec![text("已完成 / Done"), done()]]).await?;
@@ -416,7 +622,8 @@ async fn service_layer_key_rejected_without_runs_or_model_calls() -> Result<()> 
             StartMessage {
                 id: Uuid::now_v7(),
                 text: Some("fake".into()),
-                images: vec![]
+                images: vec![],
+                files: vec![]
             }
         )
         .await
@@ -566,6 +773,8 @@ async fn retry_lunch_50_parking_10_writes_only_parking_and_keeps_original_keys()
             structured: StructuredMode::ToolCall,
             vision: true,
             max_images: 8,
+            files: false,
+            max_files: 0,
             context_tokens: 8192,
         },
         scripts,
@@ -1457,6 +1666,8 @@ async fn permission_change_during_confirmation_closes_the_reply_on_answer() -> R
             structured: StructuredMode::ToolCall,
             vision: true,
             max_images: 8,
+            files: false,
+            max_files: 0,
             context_tokens: 8192,
         },
         scripts,
@@ -1541,6 +1752,8 @@ async fn confirmation_guard_changed_account_does_not_archive() -> Result<()> {
             structured: StructuredMode::ToolCall,
             vision: true,
             max_images: 8,
+            files: false,
+            max_files: 0,
             context_tokens: 8192,
         },
         scripts,

@@ -256,7 +256,7 @@ let app = router
 
 | 接口 | 说明 |
 |---|---|
-| `POST /spaces/{space_id}/chat/messages` | 发消息：`{id, text?, images?}` → ChatWeave `startResponse`，返回 `{userMessageId, messageId}`（同一个 `id` 重放返回同一个 `messageId`）；不进 `/sync/push`，key 不能调用（`SessionOnly`）。请求头 `ChatWeave-Capabilities` 声明客户端能渲染的块类型，存进 `agent_runs.client_capabilities` 供映射时参考 |
+| `POST /spaces/{space_id}/chat/messages` | 发消息：`{id, text?, images?, files?}`，其中 PDF 文件引用为有序的 `{sha256, name}`（最多 4 个、合计 20 MiB）→ ChatWeave `startResponse`，返回 `{userMessageId, messageId}`（同一个 `id` 重放返回同一个 `messageId`）；不进 `/sync/push`，key 不能调用（`SessionOnly`）。服务端把规范 MIME/字节数冻结进本次运行，后续新消息不会自动继承上一次的 PDF |
 | `GET /spaces/{space_id}/chat/messages/{message_id}/stream` | SSE 流（`text/event-stream`）。用 `chatweave-server` 的 Axum 辅助实现：`Last-Event-ID` 续传、15 秒心跳、无法重放时发快照。消息已完成时只发快照后关闭 |
 | `POST /spaces/{space_id}/chat/actions` | UI 动作（选项、确认、表单）。`Idempotency-Key` = 动作 ID；交给 ChatWeave 的 `ActionRegistry::dispatch()` |
 | `POST /spaces/{space_id}/chat/messages/{message_id}/stop` | 停止生成（ChatWeave 的命名）：消息以 `interrupted` 结束，已产出的部分保留；也用于“改为手动填写”取消排队中的运行 |
@@ -413,6 +413,7 @@ create table api_key_audit (id bigint generated always as identity primary key,
 - v1：`object_store::local::LocalFileSystem` 存原图到 `<data_dir>/blobs/{sha256 前 2 位}/{sha256}.{orig|1600|512}.jpg`（内容寻址，物理文件只存一份），数据库存元数据（大小、MIME、宽高）以及逻辑引用 `blob_refs`（按模块 `ledger` / `documents` / `chat`；聊天的图每位成员各一条、只有本人能读，业务模块每个空间每张图一条，[技术方案 3.7](technical-design.md#37-原图)）。上传总是要求完整内容，响应对新图和已有的图完全相同（技术方案 5.8）。以后换 S3 兼容服务只换构造函数。
 - 处理：`infer` 嗅探真实类型（不信任客户端 Content-Type）；`image` 生成 1600px 显示版和 512px 缩略图；按 EXIF 方向转正；派生尺寸重新编码、不带 EXIF；原图写盘前去掉 GPS、XMP / APP13 和图像结束标记之后的附加内容（“实况照片”视频、MPF），画质不动（P70，技术方案 3.7）。原图供 AI 和核对。
 - 下载：本空间要有一条请求者能读的引用（`ledger` / `documents` 按模块读权限，`chat` 要求本人的引用），否则 404；之后流式返回（`tokio_util::io::ReaderStream`），不开放静态目录。
+- **聊天 PDF 文件**：独立的 `PUT/GET /spaces/{space_id}/files/{sha256}` 只接受完整 `application/pdf`（单个 10 MiB）；对象键为 `{sha256}.file.pdf`，引用模块为 `chat_file`，与聊天图片一样按成员隔离。下载固定返回 `attachment` 与 `nosniff`。数据库和运行输入只保存 `{sha256,name,mime,bytes}`，原始字节只在每次模型调用前校验引用并从对象存储载入。
 
 ### 5.4 中间件、配置、错误、校验
 
