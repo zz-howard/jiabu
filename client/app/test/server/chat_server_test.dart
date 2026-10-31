@@ -51,6 +51,7 @@ class _ObservedChat implements ChatApi {
     required int joinEpoch,
     required String opId,
     required String requestId,
+    String? capabilities,
   }) async {
     if (offline) {
       throw const ApiError('network');
@@ -64,6 +65,7 @@ class _ObservedChat implements ChatApi {
       joinEpoch: joinEpoch,
       opId: opId,
       requestId: requestId,
+      capabilities: capabilities,
     );
     if (loseNextSend && endpoint == 'messages') {
       loseNextSend = false;

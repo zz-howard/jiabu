@@ -7,6 +7,7 @@ import 'package:jiabu/data/api/api_client.dart';
 import 'package:jiabu/data/api/api_error.dart';
 import 'package:jiabu/data/api/chat_api.dart';
 import 'package:jiabu/data/chat/chat_action_transport.dart';
+import 'package:jiabu/data/chat/chat_capabilities.dart';
 import 'package:jiabu/data/chat/chatweave_store.dart';
 import 'package:jiabu/data/chat/sse_transport.dart';
 import 'package:jiabu/data/db/daos/local_store.dart';
@@ -556,7 +557,12 @@ final class LocalChatSession implements ChatConversation {
               spaceId: spaceId,
               joinEpoch: fence.joinEpoch,
               kind: 'chat_send',
-              payload: {'id': id, 'text': text, 'images': images},
+              payload: {
+                'id': id,
+                'text': text,
+                'images': images,
+                chatCapabilitiesEnvelopeKey: chatCapabilitiesHeader(caps),
+              },
               entityIds: {'chat_entry:$id'},
               dependsOn: {for (final hash in images) 'blob:chat:$hash'},
               requestId: const Uuid().v7(),
@@ -628,7 +634,10 @@ final class LocalChatSession implements ChatConversation {
           spaceId: spaceId,
           joinEpoch: fence.joinEpoch,
           kind: 'chat_retry',
-          payload: {'messageId': messageId},
+          payload: {
+            'messageId': messageId,
+            chatCapabilitiesEnvelopeKey: chatCapabilitiesHeader(caps),
+          },
           entityIds: {'chat_entry:$messageId'},
           dependsOn: const {},
           requestId: const Uuid().v7(),

@@ -1,7 +1,7 @@
 use crate::*;
 use chrono::{DateTime, Utc};
-use jiabu_chat::{StagedStream, StreamConfig, StreamHub};
-use jiabu_db::chat_runtime::RunRow;
+use jiabu_chat::{ClientCapabilities, StagedStream, StreamConfig, StreamHub};
+use jiabu_db::chat_runtime::{EnqueuedRun, RunRow};
 use jiabu_db::{AppDb, Mode, OperationError, Principal, SpaceTx};
 use jiabu_domain::{JoinEpoch, SpaceId};
 use serde_json::{Value, json};
@@ -97,7 +97,17 @@ impl ScopedRuns {
         p: &Principal,
         input: StartMessage,
     ) -> Result<StartResponse, OperationError> {
-        self.start_at(p, input, Utc::now()).await
+        self.start_with_capabilities(p, input, ClientCapabilities::current_jiabu())
+            .await
+    }
+    pub async fn start_with_capabilities(
+        &self,
+        p: &Principal,
+        input: StartMessage,
+        capabilities: ClientCapabilities,
+    ) -> Result<StartResponse, OperationError> {
+        self.start_at_with_capabilities(p, input, Utc::now(), capabilities)
+            .await
     }
     /// Trusted non-HTTP entry point for reproducible evaluations. Only the frozen
     /// submission timestamp changes; leases and interrupt expiry use wall time.
@@ -106,6 +116,16 @@ impl ScopedRuns {
         p: &Principal,
         input: StartMessage,
         submitted_at: DateTime<Utc>,
+    ) -> Result<StartResponse, OperationError> {
+        self.start_at_with_capabilities(p, input, submitted_at, ClientCapabilities::current_jiabu())
+            .await
+    }
+    pub async fn start_at_with_capabilities(
+        &self,
+        p: &Principal,
+        input: StartMessage,
+        submitted_at: DateTime<Utc>,
+        capabilities: ClientCapabilities,
     ) -> Result<StartResponse, OperationError> {
         let tx = self.begin(p).await?;
         if input.text.as_deref().unwrap_or_default().trim().is_empty()
@@ -202,8 +222,19 @@ impl ScopedRuns {
         jiabu_chat::persist(&tx, self.space, &batch)
             .await
             .map_err(protocol_error)?;
-        tx.enqueue_run(self.space, conversation, input.id, message, run, None)
-            .await?;
+        tx.enqueue_run(
+            self.space,
+            EnqueuedRun {
+                conversation,
+                input: input.id,
+                message,
+                id: run,
+                retry: None,
+                origin_request_id: input.id,
+                client_capabilities: serde_json::to_value(capabilities).map_err(protocol_error)?,
+            },
+        )
+        .await?;
         // Context/input are frozen at submission; history waits until first claim.
         let mut context = tx.space_context(self.space).await?;
         context["presets"] = json!(jiabu_domain::presets::PRESETS);
@@ -267,6 +298,21 @@ impl ScopedRuns {
         p: &Principal,
         message: Uuid,
     ) -> Result<StartResponse, OperationError> {
+        self.retry_with_capabilities(
+            p,
+            message,
+            Uuid::new_v5(&message, b"legacy-retry"),
+            ClientCapabilities::current_jiabu(),
+        )
+        .await
+    }
+    pub async fn retry_with_capabilities(
+        &self,
+        p: &Principal,
+        message: Uuid,
+        origin_request_id: Uuid,
+        capabilities: ClientCapabilities,
+    ) -> Result<StartResponse, OperationError> {
         let tx = self.begin(p).await?;
         let old = tx
             .run_for_message(self.space, message)
@@ -286,6 +332,9 @@ impl ScopedRuns {
         let journal = tx.journal(self.space, old.id).await?;
         validate_environment(tx.member(self.space), &journal)?;
         if let Some(child) = tx.retry_child(self.space, old.id).await? {
+            if child.origin_request_id != Some(origin_request_id) {
+                return Err(OperationError::new(409, "retry_already_accepted"));
+            }
             tx.commit().await?;
             return Ok(StartResponse {
                 user_message_id: old.input_entry_id,
@@ -312,11 +361,15 @@ impl ScopedRuns {
             .map_err(protocol_error)?;
         tx.enqueue_run(
             self.space,
-            old.conversation_id,
-            old.input_entry_id,
-            message,
-            run,
-            Some(old.id),
+            EnqueuedRun {
+                conversation: old.conversation_id,
+                input: old.input_entry_id,
+                message,
+                id: run,
+                retry: Some(old.id),
+                origin_request_id,
+                client_capabilities: serde_json::to_value(capabilities).map_err(protocol_error)?,
+            },
         )
         .await?;
         tx.retry_copy(self.space, &old, run).await?;

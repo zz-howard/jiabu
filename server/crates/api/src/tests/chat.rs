@@ -46,6 +46,142 @@ async fn counts(app: &TestApp) -> Result<(i64, i64, i64)> {
     owner.close().await;
     Ok(value)
 }
+
+#[tokio::test]
+async fn chat_http_capabilities_are_canonical_and_frozen_before_claim() -> Result<()> {
+    let app = TestApp::new(false).await?;
+    let token = app.token().await?;
+    let space = app.plan.space_id.0;
+    let input = Uuid::now_v7();
+    let first = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            json!({"id":input,"text":"虚构能力快照"}),
+            Some(&token),
+            &[
+                ("idempotency-key", input.to_string()),
+                ("x-jiabu-join-epoch", "1".into()),
+                (
+                    "chatweave-capabilities",
+                    " features=stream.snapshot ; blocks=metric:2,markdown:1 ; v=0.1 ".into(),
+                ),
+            ],
+        )
+        .await?;
+    let message = message_id(&first)?;
+    let owner = app.fixture.owner().await?;
+    let (status, origin, frozen): (String, Option<Uuid>, Option<Value>) = sqlx::query_as(
+        "select status,origin_request_id,client_capabilities from agent_runs where assistant_message_id=$1",
+    )
+    .bind(message)
+    .fetch_one(&owner)
+    .await?;
+    assert_eq!(status, "queued");
+    assert_eq!(origin, Some(input));
+    assert_eq!(
+        frozen,
+        Some(json!({
+            "protocolVersions":["0.1"],
+            "blocks":{"markdown":1,"metric":2},
+            "features":["stream.snapshot"]
+        }))
+    );
+
+    let replay = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            json!({"id":input,"text":"虚构能力快照"}),
+            Some(&token),
+            &[
+                ("idempotency-key", input.to_string()),
+                ("x-jiabu-join-epoch", "1".into()),
+                (
+                    "chatweave-capabilities",
+                    "v=0.1; blocks=dataset:9; features=stream.activity".into(),
+                ),
+            ],
+        )
+        .await?;
+    assert_eq!(replay.json(), first.json());
+    let after_replay: Option<Value> = sqlx::query_scalar(
+        "select client_capabilities from agent_runs where assistant_message_id=$1",
+    )
+    .bind(message)
+    .fetch_one(&owner)
+    .await?;
+    assert_eq!(after_replay, frozen);
+
+    let absent = Uuid::now_v7();
+    let absent_reply = app
+        .request(
+            "POST",
+            &format!("/v1/spaces/{space}/chat/messages"),
+            json!({"id":absent,"text":"虚构能力快照"}),
+            Some(&token),
+            &[
+                ("idempotency-key", absent.to_string()),
+                ("x-jiabu-join-epoch", "1".into()),
+            ],
+        )
+        .await?;
+    let absent_message = message_id(&absent_reply)?;
+    let absent_frozen: Option<Value> = sqlx::query_scalar(
+        "select client_capabilities from agent_runs where assistant_message_id=$1",
+    )
+    .bind(absent_message)
+    .fetch_one(&owner)
+    .await?;
+    assert_eq!(
+        absent_frozen,
+        Some(json!({"protocolVersions":[],"blocks":{},"features":[]}))
+    );
+
+    let first_run: Uuid =
+        sqlx::query_scalar("select id from agent_runs where assistant_message_id=$1")
+            .bind(message)
+            .fetch_one(&owner)
+            .await?;
+    let absent_run: Uuid =
+        sqlx::query_scalar("select id from agent_runs where assistant_message_id=$1")
+            .bind(absent_message)
+            .fetch_one(&owner)
+            .await?;
+    let first_context: Value =
+        sqlx::query_scalar("select payload from agent_run_items where run_id=$1 and idx=1")
+            .bind(first_run)
+            .fetch_one(&owner)
+            .await?;
+    let absent_context: Value =
+        sqlx::query_scalar("select payload from agent_run_items where run_id=$1 and idx=1")
+            .bind(absent_run)
+            .fetch_one(&owner)
+            .await?;
+    assert_eq!(first_context, absent_context);
+
+    let mut first_input: Value =
+        sqlx::query_scalar("select payload from agent_run_items where run_id=$1 and idx=2")
+            .bind(first_run)
+            .fetch_one(&owner)
+            .await?;
+    let mut absent_input: Value =
+        sqlx::query_scalar("select payload from agent_run_items where run_id=$1 and idx=2")
+            .bind(absent_run)
+            .fetch_one(&owner)
+            .await?;
+    first_input
+        .as_object_mut()
+        .context("first input object")?
+        .remove("submitted_at");
+    absent_input
+        .as_object_mut()
+        .context("absent input object")?
+        .remove("submitted_at");
+    assert_eq!(first_input, absent_input);
+    owner.close().await;
+    Ok(())
+}
 fn done() -> MockStep {
     MockStep::Emit(TurnEvent::Done {
         usage: Usage::default(),
@@ -455,6 +591,20 @@ async fn chat_http_submit_stop_retry_active_and_sse_resume() -> Result<()> {
         .await?;
     assert_eq!(missing_log.status, StatusCode::OK);
     assert!(std::str::from_utf8(&missing_log.bytes)?.contains("resume_unavailable"));
+    let future_protocol = app
+        .request(
+            "GET",
+            &format!("{base}/messages/{message}/stream"),
+            Value::Null,
+            Some(&token),
+            &[(
+                "chatweave-capabilities",
+                "v=0.2; features=stream.resume,stream.snapshot,stream.activity".into(),
+            )],
+        )
+        .await?;
+    assert_eq!(future_protocol.status, StatusCode::OK);
+    assert!(std::str::from_utf8(&future_protocol.bytes)?.contains("resume_unavailable"));
     let snapshot = app
         .request(
             "GET",
@@ -477,14 +627,87 @@ async fn chat_http_submit_stop_retry_active_and_sse_resume() -> Result<()> {
     assert_eq!(snapshot["type"], "message.snapshot");
     assert_eq!(snapshot["message"], checkpoint(&app, message).await?);
     let path = format!("{base}/messages/{message}/retry");
-    let (a, b) = tokio::join!(
-        write(&app, &token, "POST", &path, Value::Null, 1),
-        write(&app, &token, "POST", &path, Value::Null, 1)
-    );
-    let (a, b) = (a?, b?);
+    let retry_key = Uuid::now_v7();
+    let retry_headers = [
+        ("idempotency-key", retry_key.to_string()),
+        ("x-jiabu-join-epoch", "1".into()),
+        (
+            "chatweave-capabilities",
+            "v=0.1; blocks=markdown:1,metric:1; features=".into(),
+        ),
+    ];
+    let a = app
+        .request("POST", &path, Value::Null, Some(&token), &retry_headers)
+        .await?;
+    // The first response may have been lost: replaying the exact operation key
+    // returns the already accepted child and never replaces its snapshot.
+    let b = app
+        .request("POST", &path, Value::Null, Some(&token), &retry_headers)
+        .await?;
     assert_eq!(message_id(&a)?, message_id(&b)?);
     assert_ne!(message_id(&a)?, message);
-    assert_eq!(counts(&app).await?, (2, 3, 0));
+
+    let second_input = Uuid::now_v7();
+    let second = message_id(&submit(&app, &token, space, second_input).await?)?;
+    write(
+        &app,
+        &token,
+        "POST",
+        &format!("{base}/messages/{second}/stop"),
+        Value::Null,
+        1,
+    )
+    .await?;
+    let second_path = format!("{base}/messages/{second}/retry");
+    let key_a = Uuid::now_v7();
+    let key_b = Uuid::now_v7();
+    let headers_a = [
+        ("idempotency-key", key_a.to_string()),
+        ("x-jiabu-join-epoch", "1".into()),
+        (
+            "chatweave-capabilities",
+            "v=0.1; blocks=metric:1; features=".into(),
+        ),
+    ];
+    let headers_b = [
+        ("idempotency-key", key_b.to_string()),
+        ("x-jiabu-join-epoch", "1".into()),
+        (
+            "chatweave-capabilities",
+            "v=0.1; blocks=dataset:1; features=".into(),
+        ),
+    ];
+    let (different_a, different_b) = tokio::join!(
+        app.request("POST", &second_path, Value::Null, Some(&token), &headers_a,),
+        app.request("POST", &second_path, Value::Null, Some(&token), &headers_b,)
+    );
+    let (different_a, different_b) = (different_a?, different_b?);
+    let (winner, loser, winning_key, winning_block) = if different_a.status == StatusCode::OK {
+        (different_a, different_b, key_a, "metric")
+    } else {
+        (different_b, different_a, key_b, "dataset")
+    };
+    assert_eq!(loser.status, StatusCode::CONFLICT);
+    assert_eq!(loser.json()["code"], "retry_already_accepted");
+    let winning_message = message_id(&winner)?;
+    let owner = app.fixture.owner().await?;
+    let (stored_key, stored_capabilities): (Option<Uuid>, Option<Value>) = sqlx::query_as(
+        "select origin_request_id,client_capabilities from agent_runs where assistant_message_id=$1",
+    )
+    .bind(winning_message)
+    .fetch_one(&owner)
+    .await?;
+    owner.close().await;
+    assert_eq!(stored_key, Some(winning_key));
+    assert_eq!(
+        stored_capabilities,
+        Some(json!({
+            "protocolVersions":["0.1"],
+            "blocks":{(winning_block):1},
+            "features":[]
+        }))
+    );
+    assert_eq!(counts(&app).await?, (4, 6, 0));
     Ok(())
 }
 

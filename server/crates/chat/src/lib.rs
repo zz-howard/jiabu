@@ -1,8 +1,10 @@
 //! ChatWeave adaptation: stage producer events, persist atomically, publish last.
 mod blocks;
+mod capabilities;
 mod staging;
 use async_trait::async_trait;
-pub use blocks::{map_tool_result, validator};
+pub use blocks::{MappedOutput, map_tool_result, map_tool_result_for, validator};
+pub use capabilities::{CapabilityError, ClientCapabilities};
 pub use chatweave_protocol::{DocumentKind, Message, StreamEvent};
 pub use chatweave_server::checkpoint::{Checkpoint, CheckpointStore};
 pub use chatweave_server::event_log::{

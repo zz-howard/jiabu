@@ -89,6 +89,15 @@ fn kind_label(kind: &str) -> &str {
     }
 }
 type Mapped = Option<(&'static str, Value, String)>;
+#[derive(Debug, PartialEq)]
+pub enum MappedOutput {
+    Component {
+        kind: &'static str,
+        data: Value,
+        fallback: String,
+    },
+    Markdown(String),
+}
 /// A display tool's output is already complete: names and numbers come from the
 /// server's own query. Nothing here reads model arguments.
 fn map_display(tool: &str, result: &Value) -> Result<Mapped> {
@@ -616,6 +625,105 @@ pub fn map_tool_result(tool: &str, _args: &Value, result: &Value) -> Result<Mapp
         _ => Ok(None),
     }
 }
+
+/// Select the richest block supported by the run's frozen client declaration.
+/// The preferred mapping is always derived first from the validated tool result;
+/// capability negotiation never reads model text or changes tool execution.
+pub fn map_tool_result_for(
+    tool: &str,
+    args: &Value,
+    result: &Value,
+    capabilities: &crate::ClientCapabilities,
+) -> Result<Option<MappedOutput>> {
+    let Some((kind, data, fallback)) = map_tool_result(tool, args, result)? else {
+        return Ok(None);
+    };
+    if capabilities.supports(kind, 1) {
+        return Ok(Some(MappedOutput::Component {
+            kind,
+            data,
+            fallback,
+        }));
+    }
+    let downgraded = match kind {
+        "breakdown" if capabilities.supports("metric_group", 1) => {
+            let parts = data["parts"].as_array().ok_or(Error::Conflict)?;
+            let metrics: Vec<_> = parts
+                .iter()
+                .map(|part| {
+                    let mut metric = json!({
+                        "label":part["label"],
+                        "value":part["value"]
+                    });
+                    if let Some(format) = data.get("format") {
+                        metric["format"] = format.clone();
+                    }
+                    if let Some(unit) = data.get("unit") {
+                        metric["unit"] = unit.clone();
+                    }
+                    metric
+                })
+                .collect();
+            Some((
+                "metric_group",
+                json!({"title":data["title"],"metrics":metrics}),
+            ))
+        }
+        "category_series" if capabilities.supports("dataset", 1) => {
+            let points = data["points"].as_array().ok_or(Error::Conflict)?;
+            let rows: Vec<_> = points
+                .iter()
+                .map(|point| json!({"label":point["label"],"value":point["value"]}))
+                .collect();
+            let mut value_column = if data["format"]["style"] == "currency" {
+                let format = &data["format"];
+                json!({"key":"value","label":"数值","type":"currency","format":format})
+            } else {
+                let mut column = json!({"key":"value","label":"数值","type":"integer"});
+                if let Some(format) = data.get("format") {
+                    column["format"] = format.clone();
+                }
+                column
+            };
+            if let Some(unit) = data.get("unit") {
+                value_column["unit"] = unit.clone();
+            }
+            Some((
+                "dataset",
+                json!({
+                    "title":data["title"],
+                    "columns":[
+                        {"key":"label","label":"项目","type":"string"},
+                        value_column
+                    ],
+                    "rows":rows
+                }),
+            ))
+        }
+        "x-jiabu.account_card" if capabilities.supports("metric", 1) => {
+            let title = result["title"].as_str().ok_or(Error::Conflict)?;
+            let balance = result["total"].as_i64().ok_or(Error::Conflict)?;
+            let currency = result["currency"].as_str().ok_or(Error::Conflict)?;
+            Some((
+                "metric",
+                json!({
+                    "label":title,
+                    "value":balance,
+                    "format":money_format(currency)
+                }),
+            ))
+        }
+        _ => None,
+    };
+    Ok(Some(match downgraded {
+        Some((kind, data)) => MappedOutput::Component {
+            kind,
+            data,
+            fallback,
+        },
+        None => MappedOutput::Markdown(fallback),
+    }))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -875,6 +983,81 @@ mod tests {
         empty["status"] = json!("no_data");
         assert!(map_tool_result("show_metrics", &json!({}), &empty)?.is_none());
         assert!(!check("metric_group", &json!({"metrics":[]})).await?);
+        Ok(())
+    }
+
+    fn capabilities(blocks: &[&str]) -> crate::ClientCapabilities {
+        crate::ClientCapabilities::parse_header(Some(&format!(
+            "v=0.1; blocks={}",
+            blocks
+                .iter()
+                .map(|block| format!("{block}:1"))
+                .collect::<Vec<_>>()
+                .join(",")
+        )))
+        .unwrap_or_else(|_| panic!("test capabilities"))
+    }
+
+    #[test]
+    fn unsupported_blocks_use_server_owned_markdown() -> Result<()> {
+        let output =
+            json!({"id":"00000000-0000-7000-8000-000000000004","version":2,"amount_minor":999});
+        assert_eq!(
+            map_tool_result_for(
+                "create_record",
+                &json!({"model_supplied":"ignored"}),
+                &output,
+                &crate::ClientCapabilities::default(),
+            )?,
+            Some(MappedOutput::Markdown("已保存".into()))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rich_displays_downgrade_without_model_data() -> Result<()> {
+        let breakdown = json!({"display":"breakdown","status":"shown","title":"支出构成","demo":false,"currency":"CNY","measure":"sum","total":10000,"items":[],"rows":[],"breakdown":{"parts":[{"key":"a","label":"餐饮","value":7000},{"key":"b","label":"居家","value":3000}]},"has_more":false,"groups_may_overlap":false});
+        let Some(MappedOutput::Component { kind, data, .. }) = map_tool_result_for(
+            "show_breakdown",
+            &json!({"parts":[{"label":"模型伪造","value":1}]}),
+            &breakdown,
+            &capabilities(&["metric_group"]),
+        )?
+        else {
+            panic!("missing metric group downgrade");
+        };
+        assert_eq!(kind, "metric_group");
+        assert_eq!(data["metrics"][0]["label"], "餐饮");
+        assert_eq!(data["metrics"][0]["value"], 7000);
+        assert_eq!(data["metrics"][0]["format"]["minorUnits"], true);
+
+        let category = json!({"display":"category_series","status":"shown","title":"月度对比","demo":false,"currency":"CNY","measure":"sum","total":null,"items":[],"rows":[],"category_series":{"points":[{"key":"a","label":"1月","value":5000},{"key":"b","label":"2月","value":-1000}]},"has_more":false,"groups_may_overlap":false});
+        let Some(MappedOutput::Component { kind, data, .. }) = map_tool_result_for(
+            "show_bar_chart",
+            &json!({}),
+            &category,
+            &capabilities(&["dataset"]),
+        )?
+        else {
+            panic!("missing dataset downgrade");
+        };
+        assert_eq!(kind, "dataset");
+        assert_eq!(data["rows"][1]["value"], -1000);
+        assert_eq!(data["columns"][1]["format"]["currency"], "CNY");
+
+        let account = json!({"display":"account_card","status":"shown","title":"日常钱包","demo":false,"currency":"CNY","measure":"sum","total":12345,"items":[],"rows":[],"account_card":{"account_id":"00000000-0000-7000-8000-000000000001","version_at_reply":2,"name_snapshot":"日常钱包","balance_minor":12345,"archived":false},"has_more":false,"groups_may_overlap":false});
+        let Some(MappedOutput::Component { kind, data, .. }) = map_tool_result_for(
+            "show_account_card",
+            &json!({"balance_minor":1}),
+            &account,
+            &capabilities(&["metric"]),
+        )?
+        else {
+            panic!("missing account metric downgrade");
+        };
+        assert_eq!(kind, "metric");
+        assert_eq!(data["value"], 12345);
+        assert!(data.get("accountId").is_none());
         Ok(())
     }
 }

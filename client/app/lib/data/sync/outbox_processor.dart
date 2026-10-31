@@ -6,6 +6,7 @@ import 'package:jiabu/data/api/api_client.dart';
 import 'package:jiabu/data/api/api_error.dart';
 import 'package:jiabu/data/api/chat_api.dart';
 import 'package:jiabu/data/api/dto/sync_dto.dart';
+import 'package:jiabu/data/chat/chat_capabilities.dart';
 import 'package:jiabu/data/db/daos/local_store.dart';
 import 'package:jiabu/data/services/log_redactor_service.dart';
 import 'package:jiabu/data/sync/conflict_service.dart';
@@ -399,13 +400,28 @@ final class OutboxProcessor {
       'chat_retry' => 'messages/${op.payload['messageId']}/retry',
       _ => throw const ApiError('invalid_chat_kind'),
     };
+    final payload = switch (op.kind) {
+      'chat_send' => Map<String, Object?>.of(
+        op.payload,
+      )..remove(chatCapabilitiesEnvelopeKey),
+      'chat_retry' => <String, Object?>{},
+      _ => op.payload,
+    };
+    final rawCapabilities = op.payload[chatCapabilitiesEnvelopeKey];
+    final capabilities =
+        const {'chat_send', 'chat_retry'}.contains(op.kind) &&
+            rawCapabilities is String &&
+            rawCapabilities.isNotEmpty
+        ? rawCapabilities
+        : null;
     final response = await api.chatWrite(
       spaceId: op.spaceId,
       endpoint: endpoint,
-      payload: op.kind == 'chat_retry' ? const {} : op.payload,
+      payload: payload,
       joinEpoch: sent.fence.joinEpoch,
       opId: op.id,
       requestId: op.requestId,
+      capabilities: capabilities,
     );
     await store.transaction(() async {
       if (!await _accepts(owner, sent)) {

@@ -10,6 +10,7 @@ abstract interface class ChatApi {
     required int joinEpoch,
     required String opId,
     required String requestId,
+    String? capabilities,
   });
   Future<List<ActiveMessage>> chatActive(String spaceId);
   Future<StreamConnection> chatStream(

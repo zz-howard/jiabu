@@ -1,12 +1,57 @@
 use crate::*;
 use chrono::Utc;
-use jiabu_chat::{RunEmitter, StagedStream};
+use jiabu_chat::{ClientCapabilities, MappedOutput, RunEmitter, StagedStream};
 use jiabu_db::chat_runtime::{RunLease, RunRow, ToolCallRow};
 use jiabu_db::{AppDb, Mode, OperationError, Principal, SpaceTx};
 use jiabu_domain::{JoinEpoch, SpaceId};
 use jiabu_tools::{Effect, Invocation, ToolCtx};
 use serde_json::json;
 use std::sync::Arc;
+
+fn run_capabilities(run: &RunRow) -> Result<ClientCapabilities, OperationError> {
+    run.client_capabilities
+        .clone()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(service::protocol_error)
+        .map(Option::unwrap_or_default)
+}
+
+async fn emit_mapped(
+    stage: &StagedStream,
+    tool: &str,
+    mapped: MappedOutput,
+) -> Result<(), OperationError> {
+    match mapped {
+        MappedOutput::Markdown(fallback) => stage
+            .markdown(&fallback)
+            .await
+            .map_err(service::protocol_error),
+        MappedOutput::Component {
+            kind,
+            data,
+            fallback,
+        } => {
+            if !stage
+                .component(kind, data, &fallback)
+                .await
+                .map_err(service::protocol_error)?
+            {
+                tracing::error!(
+                    error_kind = "structured_block_invalid",
+                    tool = %tool,
+                    block = kind,
+                    "Structured block failed protocol validation; sent as text"
+                );
+                stage
+                    .markdown(&fallback)
+                    .await
+                    .map_err(service::protocol_error)?;
+            }
+            Ok(())
+        }
+    }
+}
 pub struct ToolExecutor<'a> {
     pub db: &'a AppDb,
     pub registry: Arc<jiabu_tools::ToolRegistry>,
@@ -101,14 +146,15 @@ impl ToolExecutor<'_> {
             Ok(value) => {
                 let shows_component = tool.effect() == Effect::LocalWrite;
                 if shows_component
-                    && let Some((kind, data, fallback)) =
-                        jiabu_chat::map_tool_result(&call.tool, &call.args, &value)
-                            .map_err(service::protocol_error)?
+                    && let Some(mapped) = jiabu_chat::map_tool_result_for(
+                        &call.tool,
+                        &call.args,
+                        &value,
+                        &run_capabilities(run)?,
+                    )
+                    .map_err(service::protocol_error)?
                 {
-                    stage
-                        .component(kind, data, &fallback)
-                        .await
-                        .map_err(service::protocol_error)?;
+                    emit_mapped(stage, &call.tool, mapped).await?;
                 }
                 (value, "succeeded")
             }
@@ -234,26 +280,15 @@ impl ToolExecutor<'_> {
                 Err(e) => return Err(e),
             };
             if status == "succeeded"
-                && let Some((kind, data, fallback)) =
-                    jiabu_chat::map_tool_result(&call.tool, &call.args, &output)
-                        .map_err(service::protocol_error)?
-                && !stage
-                    .component(kind, data, &fallback)
-                    .await
-                    .map_err(service::protocol_error)?
-                && jiabu_tools::is_display_tool(&call.tool)
+                && let Some(mapped) = jiabu_chat::map_tool_result_for(
+                    &call.tool,
+                    &call.args,
+                    &output,
+                    &run_capabilities(run)?,
+                )
+                .map_err(service::protocol_error)?
             {
-                // Our bug, not the model's: show the complete text instead, no retry.
-                tracing::error!(
-                    error_kind = "display_block_invalid",
-                    tool = %call.tool,
-                    block = kind,
-                    "Display block failed protocol validation; sent as text"
-                );
-                stage
-                    .markdown(&fallback)
-                    .await
-                    .map_err(service::protocol_error)?;
+                emit_mapped(stage, &call.tool, mapped).await?;
             }
             if jiabu_tools::is_display_tool(&call.tool) {
                 display_telemetry(&journal, &stored, call, &output);
