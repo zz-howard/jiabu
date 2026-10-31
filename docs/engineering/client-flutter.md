@@ -25,7 +25,7 @@
 | 本机数据库 | drift + drift_dev（底层 sqlite3 3.x，构建钩子打包 SQLite） | 2.35.3 / 2.35.2 |
 | 网络 | dio | 5.11.1 |
 | 数据类 / JSON | freezed + json_serializable + build_runner | 4.0.3 / 6.15.2 / 2.17.1 |
-| 路由 | go_router（StatefulShellRoute 做底部三栏） | 18.1.1 |
+| 路由 | go_router（ShellRoute 做底部四栏） | 18.1.1 |
 | 后台同步 | 前台触发为主 + workmanager 兜底 + connectivity_plus | 0.10.10 / 7.3.2 |
 | 安全存储 | flutter_secure_storage（登录令牌、应用锁 PIN / 图案的加盐哈希，Android Keystore 加密） | 11.2.0 |
 | 本地设置 | shared_preferences（上次使用的空间 ID、引导是否完成、应用锁开关与超时） | 2.5.6 |
@@ -144,14 +144,14 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 | HTTP | **dio**（聊天流式 SSE 也走 dio 的字节流，见 4.7）：拦截器统一注入 `Authorization: Bearer`、`Idempotency-Key`、`X-Request-Id`；把 RFC 9457 problem+json 错误解析成 `ApiError(code, requestId)`。**所有路径都写相对路径**，以便服务端部署在反向代理的子路径下（写测试守住） |
 | 序列化 | Dart 宏已于 2025-01 官方停止开发，所以用 **freezed + json_serializable + build_runner**（build_runner 2.13+ 增量构建快 2–4 倍）。DTO 字段用 snake_case 映射（`build.yaml` 全局 `field_rename: snake`）。不引入 OpenAPI 代码生成器：DTO 手写，以服务器导出的 `openapi.json` 中的示例做 JSON 往返测试 |
 | 生成代码 | **提交进仓库**：评审者和 AI 代理不跑构建也能读到完整代码；CI 重新生成后 `git diff --exit-code`，不一致即失败 |
-| 路由 | go_router：`StatefulShellRoute.indexedStack` 实现底部“聊天 / 总览 / 历史”三栏（切换时各栏保留状态）；详情和编辑用底部弹层，不进路由栈 |
+| 路由 | go_router：`ShellRoute` 实现底部“聊天 / 总览 / 历史 / 我的”四栏；详情和编辑用底部弹层，不进路由栈 |
 | 金额 | 一律整数“分”（`int`），绝不用 `double` |
 
 ### 3.5 空间与成员
 
 | 项 | 我们怎么定 |
 |---|---|
-| 切换 | `SpaceSwitcher`：顶栏左侧显示空间名称 + 一个强调色小圆点，低调不抢眼；点一下打开底部弹层，列出本人是有效成员的空间，底部是“新建空间”“空间设置”。切换只改当前空间，不换整屏配色 |
+| 切换 | `SpaceSwitcher`：三个内容页右上角显示 `SpaceBadge`（虚线外框 + 空间点缀色药丸，带共享 / 个人图标）；点一下打开底部弹层，列出本人是有效成员的空间，底部是“新建空间”“空间设置”。切换只改当前空间，不换整屏配色 |
 | 空间设置 | 改名、查看成员、邀请已有账号（仅 owner，P71；v1 只有预建账号，按用户名邀请，无公开注册）、发出的邀请（仅 owner，可撤回任何一条待接受的邀请）、移除成员（仅 owner）、转让所有者（仅 owner，选一位现有成员）、退出空间、删除空间（仅 owner 且空间里只剩自己时显示，要输入空间名确认，不可恢复）。最后一位 owner 点退出时，引导先转让（还有别人）或删除（只剩自己）。退出前的未上传提示见 3.2。默认个人空间不显示邀请、退出和删除入口。另显示本空间的**照片占用**（张数、大小，`GET /spaces/{id}/storage`，联网时刷新；P68），只给总数 |
 | 新建空间 | 填名称、从固定色板选强调色；创建者成为 owner |
 | 模块权限（预留） | 服务器下发本人在当前空间各模块的级别；界面只显示有权限的模块，无权模块不出现入口、数量或提示。同步只拉有权限的模块；权限被收回时按“退出空间”同一套逻辑清除本机对应数据。v1 所有成员默认全开 |
@@ -163,7 +163,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 
 | 项 | 我们怎么定 |
 |---|---|
-| 入口 | 三个主界面顶栏右侧的“我”入口 → `SettingsScreen`（go_router 普通路由，不进底部三栏）：账号（用户名、改密码）、应用锁、API key、关于与开源许可 |
+| 入口 | 底部第四栏“我的” → `SettingsScreen`：账号（用户名、改密码）、应用锁、API key、关于与开源许可；三个内容页右上角用于 `SpaceBadge`，空间与成员管理仍从空间徽章弹层进入 |
 | 只在线 | API key 的列表、创建、改名、撤销都**只在线**：`ApiKeysRepository` 直接调 `/me/api-keys`，不进 outbox，不缓存进 drift（列表每次进入页面时拉取，离线时显示“需要联网”）。原因：明文只在创建响应里出现一次，排队重发拿不到；撤销必须马上生效，不能“已排队” |
 | 明文只在内存里 | 创建响应里的明文只放在“只显示一次”弹层的 ViewModel 状态里，弹层关闭即丢弃：不写 drift、不写 shared_preferences / flutter_secure_storage、不进日志和崩溃上报、不进 `Result` 的错误信息。dio 拦截器的日志对 `/me/api-keys` 的响应体一律不记 |
 | 防截屏与剪贴板 | “只显示一次”弹层打开期间设置 `FLAG_SECURE`（与应用锁共用 4.6 的平台通道，弹层关闭后恢复原状）；复制时经平台通道给剪贴板内容加 `ClipDescription.EXTRA_IS_SENSITIVE`（Android 13+ 的系统剪贴板预览不显示内容），低版本照常复制 |
@@ -178,7 +178,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 ### 4.1 主题
 
 - **两层结构**：① Material 3 底座 `ColorScheme`、`TextTheme`、组件主题（按钮最小 48×48、底部弹层圆角 20 等）；② `JiabuColors`、`JiabuType`、`JiabuDecor`、`JiabuMotion` 四个 `ThemeExtension`（必须实现 `copyWith` 和 `lerp`）。
-- **单一主题 + 空间强调色**：只有一套 `ThemeData`（`JiabuTheme.light()`），不随空间换整屏配色。每个空间创建时从固定色板选一个强调色；色板颜色是 `jiabu_design` 里的设计令牌（`JiabuColors.spaceAccents`），业务代码只按色板序号取色。强调色只用在空间名称和小标记上（例如 SpaceSwitcher 的圆点、记录卡角标），不用于按钮、背景或金额。
+- **单一主题 + 空间强调色**：只有一套 `ThemeData`（`JiabuTheme.light()`），不随空间换整屏配色。每个空间创建时从固定色板选一个强调色；色板颜色是 `jiabu_design` 里的设计令牌（`JiabuColors.spaceAccents`），业务代码只按色板序号取色。强调色只用在空间徽章的药丸底色和其他小标记上（例如记录卡角标），不用于通用按钮、整屏背景或金额。
 - 访问方式统一为 `context.jiabu.colors.primary`；业务代码**禁止**出现 `Color(0x…)`、`Colors.*`、`TextStyle(fontFamily:)`。
 - 不启用 Material You 动态取色；v1 不做深色主题。
 
@@ -204,7 +204,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 |---|---|
 | 隐式动画 | 默认用 `AnimatedContainer`、`TweenAnimationBuilder` 等；显式 `AnimationController` 只用于“三点跳动”“转圈”这类循环动画 |
 | animations 包 | 按需使用（例如记录卡到详情），不强制引入 |
-| 页面转场 | 保留框架默认（3.38 起安卓默认 `PredictiveBackPageTransitionsBuilder`，时长 450ms；测试里用 `TransitionDurationObserver`，不写死等待时间）；底部三栏切换不用页面转场 |
+| 页面转场 | 保留框架默认（3.38 起安卓默认 `PredictiveBackPageTransitionsBuilder`，时长 450ms；测试里用 `TransitionDurationObserver`，不写死等待时间）；底部四栏切换也走这套默认转场 |
 | 滚动物理 | **不改默认滚动物理**；业务代码禁止设置 `physics:`，除非 AGENTS.md 列为例外 |
 | 动效令牌 | `JiabuMotion`：`sheet = 260ms, Cubic(.2,.8,.2,1)`、`scrim = 220ms`、`snack = 220ms`、`space = 250ms`（切换空间时内容淡入淡出）、`send = 200ms`、`cardIn = 220ms`；业务代码禁止写 `Duration(milliseconds: …)` 字面量 |
 | 减少动态效果 | 跟随系统：`disableAnimations` 为真时所有时长为 0，循环动画换静态图标；倾斜角保留。v1 不做 App 内开关 |
@@ -264,8 +264,8 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 - `ActionTransport`：点追问选项、确认、提交表单时，ChatWeave 生成动作请求（其 ID 即幂等键）；家簿把它写进 outbox（`kind = 'chat_action'`，`id = 动作 ID`），块只显示“提交中”（离线时“已排队，联网后提交”），**不乐观标记“已选择”**；`OutboxProcessor` 上传到 `POST /spaces/{space_id}/chat/actions`。离线时照常排队，联网补发，重发复用同一个动作 ID。结果以服务端返回的补丁或同步下来的新版本为准：对话是一对一的，没有其他成员抢答；但服务端仍可能拒绝（权限、相关记录已变化或删除、校验不通过），自己的另一台手机也可能已经回答过，这时显示服务端记录的结果。
 - **追问 / 确认时回复暂停**（ChatWeave 中断）：流由服务端关闭，客户端不重连；回答的动作结果带 `resume`，ChatWeave 按已收到的序号重新订阅**同一条回复**，回答显示在卡片上（不生成“我的回答”气泡），后续内容接在同一条回复下面。每张中断卡除了自己的选项，还有 ChatWeave 默认带的“输入其他内容”（家簿不关闭它）。
 - **输入栏联动**（ChatWeave 的输入框契约，`chatweave_core` 的 `InterruptComposerController`，按会话一个）：
-  - `locked`：会话里有一条暂停中的回复、中断还开着、本人可以回答 → 家簿输入栏锁定：占位文字“先回答上面的问题”，文字框、发送和拍照按钮都不可用；已经打的草稿保留不清空。
-  - `answering`：点卡片上的“输入其他内容”（控制器 `beginOtherInput`）→ 输入栏解锁、自动聚焦，上方挂“回答：<问题>”标签（ChatWeave 的 `InterruptAnswerChip` 换成家簿外观，见设计规范 4.18）。发送 = `submitOtherInput(text)`：ChatWeave 生成 `freeText` 动作（动作 ID 即幂等键），家簿写进 outbox（`kind = 'chat_action'`），**不是**一条聊天消息；卡片只显示“提交中 / 已排队”，服务端结果到达后显示“你的回答：……”。拍照按钮在这个状态下仍不可用（回答只收文字）。
+  - `locked`：会话里有一条暂停中的回复、中断还开着、本人可以回答 → 家簿输入栏锁定：占位文字“先回答上面的问题”，文字框、发送和回形针附件按钮都不可用；已经打的草稿保留不清空。
+  - `answering`：点卡片上的“输入其他内容”（控制器 `beginOtherInput`）→ 输入栏解锁、自动聚焦，上方挂“回答：<问题>”标签（ChatWeave 的 `InterruptAnswerChip` 换成家簿外观，见设计规范 4.18）。发送 = `submitOtherInput(text)`：ChatWeave 生成 `freeText` 动作（动作 ID 即幂等键），家簿写进 outbox（`kind = 'chat_action'`），**不是**一条聊天消息；卡片只显示“提交中 / 已排队”，服务端结果到达后显示“你的回答：……”。回形针附件按钮在这个状态下仍不可用（回答只收文字）。
   - 点标签上的 ✕（`cancelOtherInput`）→ 回到 `locked`，草稿保留，下次点“输入其他内容”时还在。
   - 中断被关闭（另一台手机已经回答、过期、停止）→ 控制器回到 `free` 并给出原因：输入栏解锁、标签消失，草稿留在输入框里成为普通草稿，提示条说一句“这个问题已在另一台设备上回答 / 已过期 / 已停止”，避免把它误当成回答发出去。
   - 状态只来自 ChatWeave 的本机消息状态（暂停中的消息、块状态、本地“提交中”），App 重启、列表回收后不丢；离线时也照常锁定和回答（回答排队）。

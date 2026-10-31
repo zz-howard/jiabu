@@ -6,7 +6,7 @@
 
 | 文档 | 说明 |
 |---|---|
-| [product/requirements.md](product/requirements.md) | 产品需求：核心方向、三块主界面、三条关键流程、账户与记账规则、家庭资料、身份与权限（含管理员边界、个人 API key）、AI 接入原则、验收路径 |
+| [product/requirements.md](product/requirements.md) | 产品需求：核心方向、三块内容界面 +「我的」、三条关键流程、账户与记账规则、家庭资料、身份与权限（含管理员边界、个人 API key）、AI 接入原则、验收路径 |
 | [design/design-spec.md](design/design-spec.md) | 设计规范「手账拼贴」：颜色令牌、字体、间距 / 圆角 / 阴影 / 倾斜、组件、动效、无障碍、Flutter 实现要点、验收清单 |
 
 ## 工程

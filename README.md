@@ -47,7 +47,7 @@ docs/
 
 | 文档 | 内容 |
 |---|---|
-| [docs/product/requirements.md](docs/product/requirements.md) | 产品需求：空间模型、三块主界面、三条关键流程、记账规则、家庭资料、身份与权限 |
+| [docs/product/requirements.md](docs/product/requirements.md) | 产品需求：空间模型、三块内容界面 +「我的」、三条关键流程、记账规则、家庭资料、身份与权限 |
 | [docs/design/design-spec.md](docs/design/design-spec.md) | 设计规范「手账拼贴」：颜色、字体、间距、倾斜、组件、动效、无障碍、Flutter 实现要点 |
 | [docs/engineering/client-flutter.md](docs/engineering/client-flutter.md) | Flutter 客户端技术与开发规范 |
 | [docs/engineering/server-rust.md](docs/engineering/server-rust.md) | Rust 服务端技术规范、数据与同步原则、日志、测试、发布与部署 |

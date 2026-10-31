@@ -17,7 +17,7 @@
 ```mermaid
 flowchart LR
   subgraph Phone["Android 手机（Flutter）"]
-    UI["三个主界面 + 设置<br/>（View / ViewModel）"]
+    UI["三块内容 + 我的<br/>（View / ViewModel）"]
     Repo["Repository 层"]
     DB[("drift 本机库<br/>按 服务端+账号 分库")]
     OB["outbox 处理器"]
