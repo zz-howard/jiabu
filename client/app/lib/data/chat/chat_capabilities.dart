@@ -1,5 +1,8 @@
 import 'package:chatweave_core/chatweave_core.dart';
 
+/// Client-local outbox envelope field. It is durable but never sent in JSON.
+const chatCapabilitiesEnvelopeKey = '_chatweaveCapabilities';
+
 String chatCapabilitiesHeader(ClientCapabilities caps) {
   final json = caps.json;
   final blocks = json['blocks']! as Map<String, Object?>;

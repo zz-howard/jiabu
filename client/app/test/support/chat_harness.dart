@@ -74,7 +74,15 @@ class FakeChatApi implements ChatApi {
   bool offline = false;
   ApiError? failure;
   final writes =
-      <({String endpoint, String id, Map<String, Object?> payload})>[];
+      <
+        ({
+          String endpoint,
+          String id,
+          String requestId,
+          Map<String, Object?> payload,
+          String? capabilities,
+        })
+      >[];
   final opens = <({String space, String message, int? seq, String caps})>[];
   List<ActiveMessage> active = [];
   Future<void> Function()? beforeReply;
@@ -88,9 +96,16 @@ class FakeChatApi implements ChatApi {
     required int joinEpoch,
     required String opId,
     required String requestId,
+    String? capabilities,
   }) async {
     if (offline) throw const ApiError('network');
-    writes.add((endpoint: endpoint, id: opId, payload: payload));
+    writes.add((
+      endpoint: endpoint,
+      id: opId,
+      requestId: requestId,
+      payload: payload,
+      capabilities: capabilities,
+    ));
     await beforeReply?.call();
     if (failure != null) throw failure!;
     return reply ??

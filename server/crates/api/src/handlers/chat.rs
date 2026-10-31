@@ -114,20 +114,18 @@ fn stream_error(error: jiabu_chat::ChatError) -> ApiError {
         _ => ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
     }
 }
-fn resume_options(headers: &HeaderMap) -> Result<jiabu_chat::ResumeOptions, ApiError> {
-    let capabilities = headers
+fn capabilities(headers: &HeaderMap) -> Result<jiabu_chat::ClientCapabilities, ApiError> {
+    let raw = headers
         .get("chatweave-capabilities")
         .map(|value| value.to_str().map_err(|_| ApiError::bad_request()))
-        .transpose()?
-        .unwrap_or_default();
-    let features: Vec<_> = capabilities
-        .split(';')
-        .filter_map(|part| part.trim().strip_prefix("features="))
-        .flat_map(|features| features.split(',').map(str::trim))
-        .collect();
+        .transpose()?;
+    jiabu_chat::ClientCapabilities::parse_header(raw).map_err(|_| ApiError::bad_request())
+}
+fn resume_options(headers: &HeaderMap) -> Result<jiabu_chat::ResumeOptions, ApiError> {
+    let capabilities = capabilities(headers)?;
     Ok(jiabu_chat::ResumeOptions {
-        snapshots: features.contains(&"stream.snapshot"),
-        activity: features.contains(&"stream.activity"),
+        snapshots: capabilities.feature("stream.snapshot"),
+        activity: capabilities.feature("stream.activity"),
         ..jiabu_chat::ResumeOptions::default()
     })
 }
@@ -136,7 +134,7 @@ pub(crate) struct StreamQuery {
     after: Option<String>,
 }
 
-#[utoipa::path(post,path="/v1/spaces/{space_id}/chat/messages",security(("bearer"=[])),params(("space_id"=Uuid,Path),("X-Jiabu-Join-Epoch"=i32,Header,description="Current membership epoch"),("Idempotency-Key"=Uuid,Header,description="Message/action id for submit/action; operation key for stop/retry")),request_body(content=MessageInput,example=json!({"id":"019a0000-0000-7000-8000-000000000001","text":"午饭 50"})),responses((status=200,body=StartResponse,description="Message identifiers",example=json!({"userMessageId":"019a0000-0000-7000-8000-000000000001","messageId":"019a0000-0000-7000-8000-000000000003"})),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]
+#[utoipa::path(post,path="/v1/spaces/{space_id}/chat/messages",security(("bearer"=[])),params(("space_id"=Uuid,Path),("X-Jiabu-Join-Epoch"=i32,Header,description="Current membership epoch"),("Idempotency-Key"=Uuid,Header,description="Message/action id for submit/action; operation key for stop/retry"),("ChatWeave-Capabilities"=Option<String>,Header,description="Frozen renderer capabilities, e.g. v=0.1; blocks=markdown:1,metric:1; features=stream.resume")),request_body(content=MessageInput,example=json!({"id":"019a0000-0000-7000-8000-000000000001","text":"午饭 50"})),responses((status=200,body=StartResponse,description="Message identifiers",example=json!({"userMessageId":"019a0000-0000-7000-8000-000000000001","messageId":"019a0000-0000-7000-8000-000000000003"})),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]
 pub(crate) async fn send(
     SessionOnly(principal): SessionOnly,
     State(state): State<AppState>,
@@ -152,10 +150,11 @@ pub(crate) async fn send(
             "idempotency_key_mismatch",
         ));
     }
+    let capabilities = capabilities(&headers)?;
     let runs = bind(&state, &tx, space);
     tx.commit().await?;
     Ok(start_response(
-        runs.start(
+        runs.start_with_capabilities(
             &principal,
             jiabu_agent::StartMessage {
                 id: input.id,
@@ -170,12 +169,13 @@ pub(crate) async fn send(
                     })
                     .collect(),
             },
+            capabilities,
         )
         .await?,
     ))
 }
 
-#[utoipa::path(get,path="/v1/spaces/{space_id}/chat/messages/{message_id}/stream",security(("bearer"=[])),params(("space_id"=Uuid,Path),("message_id"=Uuid,Path),("ChatWeave-Capabilities"=Option<String>,Header,description="v=0.1; features=stream.resume,stream.snapshot,stream.activity"),("Last-Event-ID"=Option<String>,Header,description="Last reliable sequence; overrides after"),("after"=Option<String>,Query,description="Resume cursor when Last-Event-ID is absent")),responses((status=200,body=String,description="Resumable ChatWeave event stream; 15s heartbeat, 5min idle timeout; snapshot/activity require capability declarations",content_type="text/event-stream",example="event: message.start\ndata: {\"protocolVersion\":\"0.1\",\"messageId\":\"019a0000-0000-7000-8000-000000000003\",\"type\":\"message.start\",\"message\":{\"id\":\"019a0000-0000-7000-8000-000000000003\",\"role\":\"assistant\",\"conversationId\":\"019a0000-0000-7000-8000-000000000005\",\"createdAt\":\"2026-01-01T00:00:00Z\"},\"seq\":1}\n\n"),(status=503,body=crate::Problem,description="Stream storage unavailable"),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]
+#[utoipa::path(get,path="/v1/spaces/{space_id}/chat/messages/{message_id}/stream",security(("bearer"=[])),params(("space_id"=Uuid,Path),("message_id"=Uuid,Path),("ChatWeave-Capabilities"=Option<String>,Header,description="v=0.1; blocks=markdown:1,metric:1; features=stream.resume,stream.snapshot,stream.activity"),("Last-Event-ID"=Option<String>,Header,description="Last reliable sequence; overrides after"),("after"=Option<String>,Query,description="Resume cursor when Last-Event-ID is absent")),responses((status=200,body=String,description="Resumable ChatWeave event stream; 15s heartbeat, 5min idle timeout; snapshot/activity require capability declarations",content_type="text/event-stream",example="event: message.start\ndata: {\"protocolVersion\":\"0.1\",\"messageId\":\"019a0000-0000-7000-8000-000000000003\",\"type\":\"message.start\",\"message\":{\"id\":\"019a0000-0000-7000-8000-000000000003\",\"role\":\"assistant\",\"conversationId\":\"019a0000-0000-7000-8000-000000000005\",\"createdAt\":\"2026-01-01T00:00:00Z\"},\"seq\":1}\n\n"),(status=503,body=crate::Problem,description="Stream storage unavailable"),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]
 pub(crate) async fn stream(
     SessionOnly(principal): SessionOnly,
     State(state): State<AppState>,
@@ -243,7 +243,7 @@ pub(crate) async fn stop(
     Ok(Json(json!({"status":"accepted"})))
 }
 
-#[utoipa::path(post,path="/v1/spaces/{space_id}/chat/messages/{message_id}/retry",security(("bearer"=[])),params(("space_id"=Uuid,Path),("message_id"=Uuid,Path),("X-Jiabu-Join-Epoch"=i32,Header,description="Current membership epoch"),("Idempotency-Key"=Uuid,Header,description="Message/action id for submit/action; operation key for stop/retry")),responses((status=200,body=StartResponse,description="Message identifiers",example=json!({"userMessageId":"019a0000-0000-7000-8000-000000000001","messageId":"019a0000-0000-7000-8000-000000000003"})),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]
+#[utoipa::path(post,path="/v1/spaces/{space_id}/chat/messages/{message_id}/retry",security(("bearer"=[])),params(("space_id"=Uuid,Path),("message_id"=Uuid,Path),("X-Jiabu-Join-Epoch"=i32,Header,description="Current membership epoch"),("Idempotency-Key"=Uuid,Header,description="Message/action id for submit/action; operation key for stop/retry"),("ChatWeave-Capabilities"=Option<String>,Header,description="Frozen renderer capabilities for this retry")),responses((status=200,body=StartResponse,description="Message identifiers",example=json!({"userMessageId":"019a0000-0000-7000-8000-000000000001","messageId":"019a0000-0000-7000-8000-000000000003"})),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]
 pub(crate) async fn retry(
     SessionOnly(principal): SessionOnly,
     State(state): State<AppState>,
@@ -251,9 +251,14 @@ pub(crate) async fn retry(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let tx = check_space(&state, &principal, space, &headers, true).await?;
+    let key = idempotency_key(&headers)?;
+    let capabilities = capabilities(&headers)?;
     let runs = bind(&state, &tx, space);
     tx.commit().await?;
-    Ok(start_response(runs.retry(&principal, message_id).await?))
+    Ok(start_response(
+        runs.retry_with_capabilities(&principal, message_id, key, capabilities)
+            .await?,
+    ))
 }
 
 #[utoipa::path(get,path="/v1/spaces/{space_id}/chat/active-messages",security(("bearer"=[])),params(("space_id"=Uuid,Path)),responses((status=200,body=ActiveResponse,description="Own queued/running/waiting_ai/paused assistant messages in FIFO order",example=json!({"messages":[{"messageId":"019a0000-0000-7000-8000-000000000003","conversationId":"019a0000-0000-7000-8000-000000000005","lastSeq":1,"replyTo":"019a0000-0000-7000-8000-000000000001","status":"streaming"}]})),(status=403,body=crate::Problem,description="API keys cannot use AI"),(status=404,body=crate::Problem,description="Not found"),(status=400,body=crate::Problem,description="Invalid headers or cursor"),(status=409,body=crate::Problem,description="Membership, idempotency or runtime conflict"),(status=422,body=crate::Problem,description="Invalid input")))]

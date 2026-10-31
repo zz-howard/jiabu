@@ -10941,6 +10941,18 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "description": "Frozen renderer capabilities, e.g. v=0.1; blocks=markdown:1,metric:1; features=stream.resume",
+            "in": "header",
+            "name": "ChatWeave-Capabilities",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "requestBody": {
@@ -11070,6 +11082,18 @@
             "schema": {
               "format": "uuid",
               "type": "string"
+            }
+          },
+          {
+            "description": "Frozen renderer capabilities for this retry",
+            "in": "header",
+            "name": "ChatWeave-Capabilities",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         ],
@@ -11292,7 +11316,7 @@
             }
           },
           {
-            "description": "v=0.1; features=stream.resume,stream.snapshot,stream.activity",
+            "description": "v=0.1; blocks=markdown:1,metric:1; features=stream.resume,stream.snapshot,stream.activity",
             "in": "header",
             "name": "ChatWeave-Capabilities",
             "required": false,

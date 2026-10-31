@@ -32,6 +32,8 @@ pub struct RunRow {
     pub lease_epoch: i64,
     pub lease_owner: Option<Uuid>,
     pub retry_of_run_id: Option<Uuid>,
+    pub origin_request_id: Option<Uuid>,
+    pub client_capabilities: Option<Value>,
     pub open_interrupt: Option<Value>,
     pub history_item: Option<Value>,
     pub model_turns: i32,
@@ -39,6 +41,15 @@ pub struct RunRow {
     pub cancel_requested: bool,
     pub journal_compacted_at: Option<String>,
     pub last_error: Option<String>,
+}
+pub struct EnqueuedRun {
+    pub conversation: Uuid,
+    pub input: Uuid,
+    pub message: Uuid,
+    pub id: Uuid,
+    pub retry: Option<Uuid>,
+    pub origin_request_id: Uuid,
+    pub client_capabilities: Value,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct JournalItem {
@@ -175,17 +186,9 @@ impl SpaceTx {
             vec![space.0.into(),self.chat_scope(space).0.into(),self.member(space).join_epoch().0.into()]
         )).await?.into_iter().map(|r| r.try_get("", "data")).collect()
     }
-    pub async fn enqueue_run(
-        &self,
-        space: SpaceId,
-        conversation: Uuid,
-        input: Uuid,
-        message: Uuid,
-        id: Uuid,
-        retry: Option<Uuid>,
-    ) -> Result<(), DbErr> {
+    pub async fn enqueue_run(&self, space: SpaceId, run: EnqueuedRun) -> Result<(), DbErr> {
         self.assert_write();
-        self.tx.execute_raw(statement("insert into agent_runs(id,space_id,member_id,conversation_id,assistant_message_id,input_entry_id,join_epoch,retry_of_run_id,kind,status,agent_def_version,prompt_snapshot) values($1,$2,$3,$4,$5,$6,$7,$8,'chat','queued','s7-v1',''::bytea)",vec![id.into(),space.0.into(),self.chat_scope(space).0.into(),conversation.into(),message.into(),input.into(),self.member(space).join_epoch().0.into(),retry.into()])).await?;
+        self.tx.execute_raw(statement("insert into agent_runs(id,space_id,member_id,conversation_id,assistant_message_id,input_entry_id,join_epoch,retry_of_run_id,origin_request_id,client_capabilities,kind,status,agent_def_version,prompt_snapshot) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'chat','queued','s7-v1',''::bytea)",vec![run.id.into(),space.0.into(),self.chat_scope(space).0.into(),run.conversation.into(),run.message.into(),run.input.into(),self.member(space).join_epoch().0.into(),run.retry.into(),run.origin_request_id.into(),run.client_capabilities.into()])).await?;
         self.tx
             .execute_raw(statement("select pg_notify('agent_runs','')", vec![]))
             .await?;

@@ -176,6 +176,7 @@ final class DioApiClient implements ApiClient, ChatApi {
     required int joinEpoch,
     required String opId,
     required String requestId,
+    String? capabilities,
   }) async {
     final response = await _request<Map<String, Object?>>(
       'v1/spaces/$spaceId/chat/$endpoint',
@@ -185,6 +186,7 @@ final class DioApiClient implements ApiClient, ChatApi {
         'X-Jiabu-Join-Epoch': joinEpoch,
         'Idempotency-Key': opId,
         'X-Request-Id': requestId,
+        'ChatWeave-Capabilities': ?capabilities,
       },
     );
     return response.data ?? <String, Object?>{};

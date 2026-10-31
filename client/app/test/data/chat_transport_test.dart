@@ -110,6 +110,68 @@ void main() {
     expect(adapter.requests.single.headers['Idempotency-Key'], 'action');
     expect(adapter.requests.single.headers['X-Jiabu-Join-Epoch'], 4);
     expect(adapter.requests.single.headers['X-Request-Id'], 'request');
+    expect(adapter.requests.single.headers['ChatWeave-Capabilities'], isNull);
+    api.dio.close();
+  });
+  test('chat_submission_sends_capabilities_without_changing_json', () async {
+    final adapter = CapturingAdapter()
+      ..body = {'userMessageId': 'message', 'messageId': 'reply'};
+    final api = DioApiClient(
+      server: 'https://example.invalid/',
+      clientHeader: 'android/1',
+      token: () async => null,
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    const capabilities =
+        'v=0.1; blocks=markdown:1,metric:1; features=stream.resume';
+    final payload = <String, Object?>{
+      'id': 'message',
+      'text': '用户A',
+      'images': <String>[],
+    };
+    await api.chatWrite(
+      spaceId: 's',
+      endpoint: 'messages',
+      payload: payload,
+      joinEpoch: 4,
+      opId: 'message',
+      requestId: 'request',
+      capabilities: capabilities,
+    );
+    final request = adapter.requests.single;
+    expect(request.headers['ChatWeave-Capabilities'], capabilities);
+    expect(request.data, payload);
+    final sent = request.data as Map<String, Object?>;
+    expect(sent, isNot(contains(chatCapabilitiesEnvelopeKey)));
+    api.dio.close();
+  });
+  test('chat_retry_sends_frozen_capabilities_with_an_empty_body', () async {
+    final adapter = CapturingAdapter()
+      ..body = {'userMessageId': 'message', 'messageId': 'retry-reply'};
+    final api = DioApiClient(
+      server: 'https://example.invalid/',
+      clientHeader: 'android/1',
+      token: () async => null,
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    const capabilities =
+        'v=0.1; blocks=markdown:1,metric:1; features=stream.resume';
+    await api.chatWrite(
+      spaceId: 's',
+      endpoint: 'messages/message/retry',
+      payload: const {},
+      joinEpoch: 4,
+      opId: 'retry-operation',
+      requestId: 'retry-request',
+      capabilities: capabilities,
+    );
+
+    final request = adapter.requests.single;
+    expect(request.uri.path, '/v1/spaces/s/chat/messages/message/retry');
+    expect(request.data, <String, Object?>{});
+    expect(request.headers['ChatWeave-Capabilities'], capabilities);
+    expect(request.headers['Idempotency-Key'], 'retry-operation');
+    expect(request.headers['X-Request-Id'], 'retry-request');
     api.dio.close();
   });
 }
