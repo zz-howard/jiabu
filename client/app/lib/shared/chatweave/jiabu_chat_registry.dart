@@ -7,6 +7,7 @@ import 'package:jiabu_design/jiabu_design.dart';
 
 BlockRegistry jiabuChatRegistry({
   required BlockWidgetBuilder recordBuilder,
+  BlockWidgetBuilder? accountBuilder,
   BlockRenderError? onError,
 }) {
   // ChatWeave re-parses a growing markdown tail only after it has
@@ -48,25 +49,60 @@ BlockRegistry jiabuChatRegistry({
       ),
     );
   }
-  registry.register(
-    'x-jiabu.record_card',
-    BlockRegistration(
-      parse: (data) {
-        if (data['recordId'] is! String ||
-            data['versionAtReply'] is! int ||
-            data.keys.any(
-              (key) => !const {'recordId', 'versionAtReply'}.contains(key),
-            )) {
-          throw const FormatException('invalid_record_reference');
-        }
-      },
-      build: recordBuilder,
-      placeholder: (context, block) =>
-          const JiabuBlockSkeleton(type: 'x-jiabu.record_card'),
-    ),
-  );
+  registry
+    ..register(
+      'x-jiabu.record_card',
+      BlockRegistration(
+        parse: (data) {
+          if (data['recordId'] is! String ||
+              data['versionAtReply'] is! int ||
+              data.keys.any(
+                (key) => !const {'recordId', 'versionAtReply'}.contains(key),
+              )) {
+            throw const FormatException('invalid_record_reference');
+          }
+        },
+        build: recordBuilder,
+        placeholder: (context, block) =>
+            const JiabuBlockSkeleton(type: 'x-jiabu.record_card'),
+      ),
+    )
+    ..register(
+      'x-jiabu.account_card',
+      BlockRegistration(
+        parse: (data) {
+          final accountId = data['accountId'];
+          final version = data['versionAtReply'];
+          final name = data['nameSnapshot'];
+          if (accountId is! String ||
+              !_uuid.hasMatch(accountId) ||
+              version is! int ||
+              version < 1 ||
+              name is! String ||
+              name.isEmpty ||
+              name.runes.length > 100 ||
+              data.keys.any(
+                (key) => !const {
+                  'accountId',
+                  'versionAtReply',
+                  'nameSnapshot',
+                }.contains(key),
+              )) {
+            throw const FormatException('invalid_account_reference');
+          }
+        },
+        build: accountBuilder ?? (context, block) => const SizedBox.shrink(),
+        placeholder: (context, block) =>
+            const JiabuBlockSkeleton(type: 'x-jiabu.account_card'),
+      ),
+    );
   return registry;
 }
+
+final _uuid = RegExp(
+  '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-'
+  r'[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+);
 
 class JiabuBlockSkeleton extends StatelessWidget {
   const JiabuBlockSkeleton({required this.type, super.key});

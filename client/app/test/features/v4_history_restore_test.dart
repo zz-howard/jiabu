@@ -16,7 +16,10 @@ Finder _chipRow() => find.descendant(
   ),
 );
 
-Finder _chips() => find.byType(PaperFilterChip);
+Finder _chips() => find.descendant(
+  of: find.byKey(const Key('history-chip-row')),
+  matching: find.byType(PaperFilterChip),
+);
 
 Future<void> _scrollChips(WidgetTester tester, {required bool toEnd}) async {
   final position = tester.state<ScrollableState>(_chipRow()).position;

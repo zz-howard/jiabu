@@ -50,7 +50,7 @@ String? validateRecord(
     if (!shape.contains(field)) {
       return 'validation_failed';
     }
-    final account = snapshot.find(snapshot.accounts, id.toString());
+    final account = snapshot.account(id.toString());
     if (account == null ||
         account.text('kind') !=
             (field.contains('purpose') ? 'purpose' : 'real')) {

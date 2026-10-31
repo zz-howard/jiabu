@@ -59,6 +59,19 @@ void main() {
       isA<Failure<Map<String, int>>>(),
     );
   });
+  test('single-account balance rejects a foreign-space account row', () {
+    final snapshot = LedgerSnapshot(spaceId: 's', space: LedgerRow({}));
+    final foreign = LedgerRow({
+      'id': 'foreign',
+      'space_id': 'other-space',
+      'kind': 'real',
+      'opening_balance_minor': 12345,
+    });
+    expect(
+      ledgerAccountBalance(snapshot, foreign),
+      const Failure<int>('account_space_mismatch'),
+    );
+  });
   test(
     'balance_includes_archived_accounts_and_ignores_opening_date_cutoff',
     () {

@@ -471,6 +471,11 @@ class HistoryPage extends ConsumerWidget {
               text: text ?? filter.text,
               member: clear == 'member' ? null : member ?? filter.member,
               account: clear == 'account' ? null : account ?? filter.account,
+              accountLabel: clear == 'account'
+                  ? null
+                  : account != null
+                  ? snapshot.account(account)?.text('name')
+                  : filter.accountLabel,
               tag: clear == 'tag' ? null : tag ?? filter.tag,
               kind: clear == 'kind' ? null : kind ?? filter.kind,
               from: from ?? filter.from,
@@ -578,7 +583,8 @@ class HistoryPage extends ConsumerWidget {
                           l.ledgerAccounts,
                           [
                             for (final a in snapshot.accounts)
-                              (a.id, a.text('name')),
+                              if (a.text('space_id') == snapshot.spaceId)
+                                (a.id, a.text('name')),
                           ],
                           filter.account,
                           (id) => update(
@@ -643,7 +649,23 @@ class HistoryPage extends ConsumerWidget {
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: gutter),
                     child: Wrap(
+                      spacing: filter.account == null ? 0 : JiabuSpacing.sm,
+                      runSpacing: filter.account == null ? 0 : JiabuSpacing.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
+                        if (filter.account != null)
+                          PaperFilterChip(
+                            key: const Key('history-account-filter'),
+                            label: l.ledgerOnlyAccount(
+                              snapshot.account(filter.account!)?.text('name') ??
+                                  filter.accountLabel ??
+                                  l.ledgerAccounts,
+                            ),
+                            selected: true,
+                            maxWidth:
+                                MediaQuery.sizeOf(context).width - gutter * 2,
+                            onPressed: () => update(clear: 'account'),
+                          ),
                         Text(l.ledgerResultCount(rows.length)),
                         TextButton(
                           onPressed: () => ref
@@ -803,6 +825,7 @@ class DateFilterForm extends ConsumerWidget {
                         text: filter.text,
                         member: filter.member,
                         account: filter.account,
+                        accountLabel: filter.accountLabel,
                         tag: filter.tag,
                         kind: filter.kind,
                         from: from,

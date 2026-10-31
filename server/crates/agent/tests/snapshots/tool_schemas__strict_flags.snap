@@ -25,6 +25,7 @@ expression: flags
   "search_documents": false,
   "search_records": false,
   "set_allocation_plan": false,
+  "show_account_card": true,
   "show_bar_chart": true,
   "show_breakdown": true,
   "show_metrics": true,

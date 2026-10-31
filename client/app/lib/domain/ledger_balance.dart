@@ -9,46 +9,51 @@ Result<Map<String, int>> ledgerBalances(LedgerSnapshot snapshot) {
     if (account.text('space_id') != snapshot.spaceId) {
       continue;
     }
-    var amount = BigInt.from(account.number('opening_balance_minor'));
-    for (final record in snapshot.records) {
-      if (record.text('space_id') != snapshot.spaceId || !record.active) {
-        continue;
-      }
-      final kind = record.text('kind');
-      var sign = 0;
-      if (account.text('kind') == 'real') {
-        if (record.text('account_id') == account.id) {
-          if (const ['income', 'refund'].contains(kind)) {
-            sign = 1;
-          }
-          if (const ['expense', 'transfer'].contains(kind)) {
-            sign = -1;
-          }
-        } else if (kind == 'transfer' &&
-            record.text('to_account_id') == account.id) {
-          sign = 1;
-        }
-      } else if (account.text('kind') == 'purpose') {
-        if (record.text('purpose_id') == account.id) {
-          if (const ['allocation', 'refund'].contains(kind)) {
-            sign = 1;
-          }
-          if (const ['expense', 'reallocation'].contains(kind)) {
-            sign = -1;
-          }
-        } else if (kind == 'reallocation' &&
-            record.text('to_purpose_id') == account.id) {
-          sign = 1;
-        }
-      }
-      amount += BigInt.from(record.number('amount_minor')) * BigInt.from(sign);
+    final balance = ledgerAccountBalance(snapshot, account);
+    if (balance case Failure<int>(:final code)) {
+      return Failure(code);
     }
-    if (amount.abs() > BigInt.from(9007199254740991)) {
-      return const Failure('aggregate_out_of_range');
-    }
-    result[account.id] = amount.toInt();
+    result[account.id] = (balance as Ok<int>).value;
   }
   return Ok(Map.unmodifiable(result));
+}
+
+/// Calculates one account without allowing an unrelated account's overflow to
+/// suppress a detail view for this account.
+Result<int> ledgerAccountBalance(LedgerSnapshot snapshot, LedgerRow account) {
+  if (account.text('space_id') != snapshot.spaceId) {
+    return const Failure('account_space_mismatch');
+  }
+  var amount = BigInt.from(account.number('opening_balance_minor'));
+  for (final record in snapshot.records) {
+    if (record.text('space_id') != snapshot.spaceId || !record.active) {
+      continue;
+    }
+    final kind = record.text('kind');
+    var sign = 0;
+    if (account.text('kind') == 'real') {
+      if (record.text('account_id') == account.id) {
+        if (const ['income', 'refund'].contains(kind)) sign = 1;
+        if (const ['expense', 'transfer'].contains(kind)) sign = -1;
+      } else if (kind == 'transfer' &&
+          record.text('to_account_id') == account.id) {
+        sign = 1;
+      }
+    } else if (account.text('kind') == 'purpose') {
+      if (record.text('purpose_id') == account.id) {
+        if (const ['allocation', 'refund'].contains(kind)) sign = 1;
+        if (const ['expense', 'reallocation'].contains(kind)) sign = -1;
+      } else if (kind == 'reallocation' &&
+          record.text('to_purpose_id') == account.id) {
+        sign = 1;
+      }
+    }
+    amount += BigInt.from(record.number('amount_minor')) * BigInt.from(sign);
+  }
+  if (amount.abs() > BigInt.from(9007199254740991)) {
+    return const Failure('aggregate_out_of_range');
+  }
+  return Ok(amount.toInt());
 }
 
 int refundedMinor(

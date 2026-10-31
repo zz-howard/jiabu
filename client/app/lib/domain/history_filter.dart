@@ -5,6 +5,7 @@ final class HistoryFilter {
     this.text = '',
     this.member,
     this.account,
+    this.accountLabel,
     this.tag,
     this.kind,
     this.from,
@@ -14,6 +15,10 @@ final class HistoryFilter {
   final String text;
   final String? member;
   final String? account;
+
+  /// Snapshot label used by cross-route entry points until live account data is
+  /// available. Filtering remains ID-only.
+  final String? accountLabel;
   final String? tag;
   final String? kind;
   final String? from;
@@ -41,7 +46,7 @@ String recordSearchTitle(
     'purpose_id',
     'to_purpose_id',
   ])
-    snapshot.find(snapshot.accounts, row.text(field))?.text('name') ?? '',
+    snapshot.account(row.text(field))?.text('name') ?? '',
   for (final id in row.strings('tag_ids'))
     tagName(snapshot.find(snapshot.tags, id), labels),
 ].join(' ');

@@ -330,9 +330,7 @@ class RecordDetails extends ConsumerWidget {
                     : field == 'to_account_id' || field == 'to_purpose_id'
                     ? l.ledgerTo
                     : l.ledgerPurposeField,
-                value:
-                    data.find(data.accounts, row.text(field))?.text('name') ??
-                    '',
+                value: data.account(row.text(field))?.text('name') ?? '',
               ),
             ),
         JiabuStackItem.content(
@@ -643,10 +641,7 @@ class ConflictSheet extends ConsumerWidget {
                     ])
                       if (pair.$2.text(field).isNotEmpty)
                         Text(
-                          data
-                                  .find(data.accounts, pair.$2.text(field))
-                                  ?.text('name') ??
-                              '',
+                          data.account(pair.$2.text(field))?.text('name') ?? '',
                         ),
                     Text(
                       pair.$2
@@ -760,7 +755,7 @@ String eventFieldValue(
         .join(' · ');
   }
   if (field.endsWith('_id')) {
-    return data.find(data.accounts, value.toString())?.text('name') ?? '';
+    return data.account(value.toString())?.text('name') ?? '';
   }
   return value.toString();
 }

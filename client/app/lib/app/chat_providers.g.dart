@@ -107,7 +107,7 @@ final class ChatRegistryProvider
   }
 }
 
-String _$chatRegistryHash() => r'e4c0191cb89391fa0a80601894039592bc9cc74d';
+String _$chatRegistryHash() => r'f8efff6e977595f8e9fd48c5890c670de225d518';
 
 final class ChatRegistryFamily extends $Family
     with $FunctionalFamilyOverride<BlockRegistry, String> {

@@ -206,11 +206,16 @@ class PaperFilterChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onPressed,
+    this.maxWidth,
     super.key,
   });
   final String label;
   final bool selected;
   final VoidCallback onPressed;
+
+  /// Bounds route-entry filter labels without changing the intrinsic width of
+  /// chips in the horizontally scrolling selector row.
+  final double? maxWidth;
   @override
   Widget build(BuildContext context) {
     final c = context.jiabu.colors;
@@ -221,7 +226,7 @@ class PaperFilterChip extends StatelessWidget {
       key: const Key('paper-filter-chip-body'),
       constraints: const BoxConstraints(
         minHeight: JiabuLedgerMetrics.chipHeight,
-      ),
+      ).copyWith(maxWidth: maxWidth),
       padding: const EdgeInsetsDirectional.only(
         start: JiabuSpacing.gap14,
         end: JiabuSpacing.md,
@@ -260,14 +265,10 @@ class PaperFilterChip extends StatelessWidget {
               ),
               const SizedBox(width: JiabuSpacing.xs),
             ],
-            Text(
-              label,
-              maxLines: 1,
-              style: context.jiabu.type.body.copyWith(
-                color: ink,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            if (maxWidth == null)
+              _label(context, ink)
+            else
+              Flexible(child: _label(context, ink)),
             const SizedBox(width: JiabuSpacing.xs),
             ExcludeSemantics(
               child: JiabuIcon(
@@ -290,6 +291,16 @@ class PaperFilterChip extends StatelessWidget {
       ),
     );
   }
+
+  Widget _label(BuildContext context, Color ink) => Text(
+    label,
+    maxLines: 1,
+    overflow: maxWidth == null ? null : TextOverflow.ellipsis,
+    style: context.jiabu.type.body.copyWith(
+      color: ink,
+      fontWeight: FontWeight.w600,
+    ),
+  );
 }
 
 class NegativeBalanceNote extends StatelessWidget {

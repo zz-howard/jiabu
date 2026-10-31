@@ -238,9 +238,7 @@ class LedgerRecordCard extends StatelessWidget {
                     value: [
                       for (final field in ['account_id', 'to_account_id'])
                         if (value.text(field).isNotEmpty)
-                          snapshot
-                                  .find(snapshot.accounts, value.text(field))
-                                  ?.text('name') ??
+                          snapshot.account(value.text(field))?.text('name') ??
                               '',
                     ].join(' → '),
                   ),
@@ -253,7 +251,7 @@ class LedgerRecordCard extends StatelessWidget {
                         DottedValueRow(
                           label:
                               snapshot
-                                  .find(snapshot.accounts, value.text(field))
+                                  .account(value.text(field))
                                   ?.text('name') ??
                               l.ledgerPurposeBalance,
                           value: formatMinor(

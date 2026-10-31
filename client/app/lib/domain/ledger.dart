@@ -64,6 +64,15 @@ final class LedgerSnapshot {
     return null;
   }
 
+  LedgerRow? account(String id) {
+    for (final row in accounts) {
+      if (row.id == id && row.text('space_id') == spaceId) {
+        return row;
+      }
+    }
+    return null;
+  }
+
   LedgerRow? conflict(String kind, String id) {
     for (final row in conflicts) {
       if (row.text('entity_kind') == kind && row.text('entity_id') == id) {

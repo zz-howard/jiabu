@@ -200,6 +200,12 @@
   "ledgerManual": "Add entry",
   "ledgerManualSemantics": "Add an entry manually",
   "ledgerAccounts": "Accounts",
+  "ledgerOnlyAccount": "Only {name} ×",
+  "@ledgerOnlyAccount": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
   "ledgerReal": "Real accounts",
   "ledgerPurpose": "Purpose accounts",
   "ledgerRecent": "Recent changes",
@@ -529,6 +535,15 @@
     }
   },
   "chatRecordSyncing": "Syncing record",
+  "chatAccountSyncing": "Syncing account",
+  "chatAccountUnavailable": "This account is not available locally yet.",
+  "chatAccountArchived": "Archived",
+  "chatAccountChanged": "Updated since this reply",
+  "chatAccountBalance": "Current balance",
+  "chatAccountMonthIn": "In this month",
+  "chatAccountMonthOut": "Out this month",
+  "chatAccountNoRecent": "No recent entries",
+  "chatAccountViewHistory": "View account history",
   "chatWeave000": "Content is being generated",
   "chatWeave001": "Generating…",
   "chatWeave002": "No data",

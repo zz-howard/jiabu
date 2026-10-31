@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:jiabu/domain/chat.dart';
 import 'package:jiabu/features/catalog/c3_cases.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
+import 'package:jiabu/shared/chatweave/account_card_block.dart';
 import 'package:jiabu/shared/chatweave/chat_attachment_sheet.dart';
 import 'package:jiabu/shared/chatweave/chat_composer.dart';
 import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
@@ -65,6 +66,10 @@ const c5States = [
   'attach_files',
 ];
 
+const accountCardPreviewSpaceId = 'fictional-account-card-space';
+const accountCardPreviewRealId = '123e4567-e89b-42d3-a456-426614174001';
+const accountCardPreviewPurposeId = '123e4567-e89b-42d3-a456-426614174002';
+
 /// The catalog's fixed "now" for date tapes: 2026-10-29 (the fixtures' day).
 final c5Now = DateTime(2026, 10, 29, 12, 30);
 
@@ -81,6 +86,11 @@ const _conversationStates = {
   'conversation',
   'attach_gallery',
   'attach_files',
+  'account_card_real',
+  'account_card_purpose',
+  'account_card_archived_changed',
+  'account_card_empty',
+  'account_card_loading',
 };
 
 /// Fictional protocol content. UI labels themselves always come from ARB.
@@ -189,7 +199,9 @@ Message c5Message(String state) {
       state.contains('answering') ||
       state.contains('queued') ||
       state == 'process_paused';
-  final type = state.startsWith('record_')
+  final type = state.startsWith('account_card_')
+      ? 'x-jiabu.account_card'
+      : state.startsWith('record_')
       ? 'x-jiabu.record_card'
       : state.startsWith('choice_') || paused
       ? 'choice'
@@ -208,6 +220,20 @@ Message c5Message(String state) {
       ? 'x-jiabu.document_card'
       : 'markdown';
   var block = c5Block(type);
+  if (state.startsWith('account_card_')) {
+    final purpose = state == 'account_card_purpose';
+    block = {
+      ...block,
+      'fallbackText': purpose ? '虚构日常账户' : '虚构银行卡账户',
+      'data': {
+        'accountId': purpose
+            ? accountCardPreviewPurposeId
+            : accountCardPreviewRealId,
+        'versionAtReply': 1,
+        'nameSnapshot': purpose ? '虚构日常账户' : '虚构银行卡账户',
+      },
+    };
+  }
   if (state == 'choice_resolved') {
     block = {
       ...block,
@@ -513,6 +539,12 @@ class _C5PreviewState extends State<C5Preview> {
             ? 'card_loading'
             : 'card_recorded',
         accent: widget.accent,
+      ),
+      accountBuilder: (context, block) => AccountCardBlock(
+        spaceId: accountCardPreviewSpaceId,
+        accountId: block.data['accountId']! as String,
+        versionAtReply: block.data['versionAtReply']! as int,
+        nameSnapshot: block.data['nameSnapshot']! as String,
       ),
     );
     Widget body;

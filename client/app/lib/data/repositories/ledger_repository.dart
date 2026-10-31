@@ -261,7 +261,7 @@ final class LocalLedgerRepository implements LedgerRepository {
         if ((balances as Ok<Map<String, int>>).value[id] != 0) {
           return const Failure('balance_not_zero');
         }
-        final old = data.find(data.accounts, id);
+        final old = data.account(id);
         if (old == null) {
           return const Failure('not_found');
         }
