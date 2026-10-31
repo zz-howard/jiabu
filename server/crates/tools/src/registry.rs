@@ -25,6 +25,7 @@ impl ToolRegistry {
         };
         crate::ledger::register(&mut registry)?;
         registry.register(crate::ask_user::AskUser)?;
+        crate::display::register(&mut registry)?;
         Ok(registry)
     }
     pub fn with_templates(
@@ -126,7 +127,7 @@ impl ToolRegistry {
             return Err(ToolError::not_found());
         }
         // ask_user is a typed interrupt intent, never an executable business tool.
-        if tool.exposure() == Exposure::AgentOnly {
+        if tool.exposure() == Exposure::AgentOnly && !crate::is_display_tool(name) {
             tool.validate(args_raw)?;
             return Err(ToolError::new(409, "agent_interrupt_required"));
         }
@@ -187,7 +188,7 @@ impl ToolRegistry {
         tx.guard_run(ctx.space_id, lease).await?;
         let tool = self.get(&prepared.name)?;
         if tool.effect() != Effect::Read
-            || tool.exposure() != Exposure::AgentAndApi
+            || (tool.exposure() != Exposure::AgentAndApi && !crate::is_display_tool(tool.name()))
             || ctx.bound_effect != Effect::Read
             || ctx.run_id != Some(lease.run_id)
         {

@@ -55,20 +55,21 @@ pub fn next_action(items: &[JournalItem], calls: &[ToolCallRow]) -> NextAction {
     }
     interrupt.map_or(NextAction::Model, NextAction::Interrupt)
 }
-/// The first tool whose failed results exceed the first attempt plus
-/// `MAX_TOOL_CORRECTIONS`. The model stops getting another try once this is `Some`.
-pub fn corrections_exhausted<'a>(
-    items: &[JournalItem],
-    calls: &'a [ToolCallRow],
-) -> Option<&'a str> {
-    // A user retry copies the earlier run's results and then freezes a new prompt;
-    // only results after the latest freeze belong to this run's budget.
+/// A user retry copies the earlier run's results and then freezes a new prompt;
+/// only items after the latest freeze belong to this run's budget.
+fn this_run(items: &[JournalItem]) -> &[JournalItem] {
     let start = items
         .iter()
         .rposition(|i| i.kind == "note" && i.payload.get("frozen_prompt").is_some())
         .map_or(0, |p| p + 1);
+    &items[start..]
+}
+/// Tools whose failed results exceed the first attempt plus `MAX_TOOL_CORRECTIONS`,
+/// in the order they crossed the bound.
+fn over_bound<'a>(items: &[JournalItem], calls: &'a [ToolCallRow]) -> Vec<&'a str> {
     let mut counts = std::collections::BTreeMap::<&str, usize>::new();
-    for item in items[start..].iter().filter(|i| i.kind == "tool_result") {
+    let mut over = Vec::new();
+    for item in this_run(items).iter().filter(|i| i.kind == "tool_result") {
         if !crate::counts_as_failure(&item.payload["output"]) {
             continue;
         }
@@ -80,11 +81,41 @@ pub fn corrections_exhausted<'a>(
         };
         let n = counts.entry(call.tool.as_str()).or_default();
         *n += 1;
-        if *n > crate::MAX_TOOL_CORRECTIONS {
-            return Some(call.tool.as_str());
+        if *n == crate::MAX_TOOL_CORRECTIONS + 1 {
+            over.push(call.tool.as_str());
         }
     }
-    None
+    over
+}
+/// The first non-display tool over the correction bound. The run fails once this is
+/// `Some`: a write the model cannot get right must not be guessed.
+pub fn corrections_exhausted<'a>(
+    items: &[JournalItem],
+    calls: &'a [ToolCallRow],
+) -> Option<&'a str> {
+    over_bound(items, calls)
+        .into_iter()
+        .find(|t| !jiabu_tools::is_display_tool(t))
+}
+/// Display tools are optional: over the bound they become unavailable for the rest
+/// of the run (a note tells the model to answer in text) instead of failing it.
+pub fn unavailable_displays(items: &[JournalItem]) -> Vec<String> {
+    this_run(items)
+        .iter()
+        .filter(|i| i.kind == "note")
+        .filter_map(|i| i.payload["display_unavailable"].as_str().map(str::to_owned))
+        .collect()
+}
+/// Display tools that just crossed the bound and have no note yet.
+pub fn newly_unavailable_displays<'a>(
+    items: &[JournalItem],
+    calls: &'a [ToolCallRow],
+) -> Vec<&'a str> {
+    let noted = unavailable_displays(items);
+    over_bound(items, calls)
+        .into_iter()
+        .filter(|t| jiabu_tools::is_display_tool(t) && !noted.iter().any(|n| n == t))
+        .collect()
 }
 #[cfg(test)]
 mod tests {

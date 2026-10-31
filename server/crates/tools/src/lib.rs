@@ -60,12 +60,14 @@ mod tests {
 pub mod api_key;
 mod ask_user;
 mod context;
+mod display;
 mod documents;
 mod ledger;
 mod registry;
 pub mod templates;
 pub mod tool;
 pub use context::{Invocation, ToolCtx};
+pub use display::{DisplayKind, DisplayOutput, DisplayStatus, is_display_tool};
 pub use jiabu_db::OperationError as ToolError;
 #[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
@@ -126,6 +128,9 @@ mod registry_tests {
             "rename_tag",
             "delete_tag",
             "ask_user",
+            "show_metrics",
+            "show_trend",
+            "show_records",
         ];
         assert_eq!(
             registry.tools().map(|t| t.name()).collect::<Vec<_>>(),
@@ -152,6 +157,10 @@ mod registry_tests {
         }
         assert_eq!(registry.get("delete_tag")?.exposure(), Exposure::ApiOnly);
         assert_eq!(registry.get("ask_user")?.exposure(), Exposure::AgentOnly);
+        assert_eq!(
+            registry.get("show_metrics")?.exposure(),
+            Exposure::AgentOnly
+        );
         assert!(
             registry
                 .agent_tools()

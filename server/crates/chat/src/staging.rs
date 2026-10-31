@@ -121,7 +121,8 @@ impl StagedStream {
     /// would exceed its size limit) is skipped rather than failing the run; the
     /// complete tool result still reaches the model. The check runs on a copy of
     /// the current stream so the real stream is never left with a half-open block.
-    pub async fn component(&self, kind: &str, data: Value, fallback: &str) -> Result<()> {
+    /// Returns whether the block was emitted.
+    pub async fn component(&self, kind: &str, data: Value, fallback: &str) -> Result<bool> {
         let scratch = Self::load(Checkpoint {
             message: self.stream.message().await?,
             last_seq: self.stream.last_seq().await,
@@ -133,9 +134,10 @@ impl StagedStream {
             .await
             .is_err()
         {
-            return Ok(());
+            return Ok(false);
         }
-        self.emit_component(kind, data, fallback).await
+        self.emit_component(kind, data, fallback).await?;
+        Ok(true)
     }
     async fn emit_component(&self, kind: &str, data: Value, fallback: &str) -> Result<()> {
         let block = self.stream.start_block(kind, 1, fallback).await?;

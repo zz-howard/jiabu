@@ -130,7 +130,10 @@ mod executor;
 pub mod render;
 mod runtime;
 mod service;
-pub use decision::{NextAction, corrections_exhausted, next_action};
+pub use decision::{
+    NextAction, corrections_exhausted, newly_unavailable_displays, next_action,
+    unavailable_displays,
+};
 pub use executor::ToolExecutor;
 pub use runtime::{ImageLoader, Runtime, RuntimeHandle};
 pub use service::ScopedRuns;

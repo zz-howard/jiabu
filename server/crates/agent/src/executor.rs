@@ -110,7 +110,7 @@ impl ToolExecutor<'_> {
                     );
                 if shows_component
                     && let Some((kind, data, fallback)) =
-                        jiabu_chat::map_tool_result(&call.tool, &value)
+                        jiabu_chat::map_tool_result(&call.tool, &call.args, &value)
                             .map_err(service::protocol_error)?
                 {
                     stage
@@ -173,7 +173,8 @@ impl ToolExecutor<'_> {
         )
         .await?;
         tx.guard_run(space, lease).await?;
-        service::validate_environment(tx.member(space), &tx.journal(space, run.id).await?)?;
+        let journal = tx.journal(space, run.id).await?;
+        service::validate_environment(tx.member(space), &journal)?;
         let stored = tx.calls(space, run.id).await?;
         let mut contexts = Vec::new();
         for call in calls {
@@ -206,11 +207,18 @@ impl ToolExecutor<'_> {
             );
         }
         let mut steps = Vec::new();
-        for _ in calls {
+        for (call, ctx) in calls.iter().zip(&contexts) {
+            let label = if jiabu_tools::is_display_tool(&call.tool) {
+                let tool = self.registry.get(&call.tool)?;
+                tool.step_label(tool.validate(call.args.clone())?.as_ref(), ctx)
+                    .0
+            } else {
+                "查询 / Query"
+            };
             steps.push(
                 stage
                     .stream
-                    .start_step("查询 / Query")
+                    .start_step(label)
                     .await
                     .map_err(service::protocol_error)?,
             );
@@ -235,13 +243,28 @@ impl ToolExecutor<'_> {
             };
             if status == "succeeded"
                 && let Some((kind, data, fallback)) =
-                    jiabu_chat::map_tool_result(&call.tool, &output)
+                    jiabu_chat::map_tool_result(&call.tool, &call.args, &output)
                         .map_err(service::protocol_error)?
-            {
-                stage
+                && !stage
                     .component(kind, data, &fallback)
                     .await
+                    .map_err(service::protocol_error)?
+                && jiabu_tools::is_display_tool(&call.tool)
+            {
+                // Our bug, not the model's: show the complete text instead, no retry.
+                tracing::error!(
+                    error_kind = "display_block_invalid",
+                    tool = %call.tool,
+                    block = kind,
+                    "Display block failed protocol validation; sent as text"
+                );
+                stage
+                    .markdown(&fallback)
+                    .await
                     .map_err(service::protocol_error)?;
+            }
+            if jiabu_tools::is_display_tool(&call.tool) {
+                display_telemetry(&journal, &stored, call, &output);
             }
             tx.append_journal(
                 space,
@@ -269,4 +292,44 @@ impl ToolExecutor<'_> {
             .await
             .map_err(service::protocol_error)
     }
+}
+
+/// One log line per display result. Counting by tool, outcome and rule happens in
+/// log aggregation; rule names and pointers only, never argument values.
+fn display_telemetry(
+    journal: &[jiabu_db::chat_runtime::JournalItem],
+    calls: &[ToolCallRow],
+    call: &ToolCallRow,
+    output: &serde_json::Value,
+) {
+    let earlier_failures = journal
+        .iter()
+        .filter(|i| i.kind == "tool_result" && crate::counts_as_failure(&i.payload["output"]))
+        .filter(|i| {
+            calls
+                .iter()
+                .any(|c| i.call_id.as_deref() == Some(c.call_id.as_str()) && c.tool == call.tool)
+        })
+        .count();
+    let outcome = match (output["error"].as_str(), output["status"].as_str()) {
+        (Some(_), _) => "rejected",
+        (None, Some("no_data")) => "no_data",
+        _ if earlier_failures > 0 => "shown_after_correction",
+        _ => "shown",
+    };
+    let rules = output["errors"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e["rule"].as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    tracing::info!(
+        display_tool = %call.tool,
+        display_outcome = outcome,
+        error_code = %output["error"].as_str().unwrap_or(""),
+        rules = %rules,
+        attempt = earlier_failures + 1,
+        "Display tool result"
+    );
 }
