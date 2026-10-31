@@ -1,6 +1,7 @@
 import 'package:chatweave_flutter/chatweave_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:jiabu/shared/chatweave/cjk_emphasis.dart';
+import 'package:jiabu/shared/chatweave/jiabu_chart_blocks.dart';
 import 'package:jiabu/shared/chatweave/jiabu_structured_blocks.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
@@ -8,7 +9,7 @@ BlockRegistry jiabuChatRegistry({
   required BlockWidgetBuilder recordBuilder,
   BlockRenderError? onError,
 }) {
-  // ChatWeave (ab5cabb) re-parses a growing markdown tail only after it has
+  // ChatWeave re-parses a growing markdown tail only after it has
   // grown by max(256 chars, its parsed length) and shows the characters in
   // between as literal text, so lists and bold appeared as raw "- **" mid
   // stream. MarkdownBlockView defaults to complete: true, which parses the
@@ -28,6 +29,8 @@ BlockRegistry jiabuChatRegistry({
     'metric_group',
     'dataset',
     'time_series',
+    'breakdown',
+    'category_series',
     'comparison',
     'status',
     'choice',
@@ -38,7 +41,10 @@ BlockRegistry jiabuChatRegistry({
       type,
       BlockRegistration(
         build: (context, block) => JiabuStructuredBlock(block: block),
-        placeholder: (context, block) => JiabuBlockSkeleton(type: block.type),
+        placeholder: (context, block) =>
+            const {'breakdown', 'category_series'}.contains(block.type)
+            ? JiabuChartSkeleton(type: block.type)
+            : JiabuBlockSkeleton(type: block.type),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:chatweave_flutter/chatweave_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
+import 'package:jiabu/shared/chatweave/jiabu_chart_blocks.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 class JiabuStructuredBlock extends StatelessWidget {
@@ -42,6 +43,8 @@ class JiabuStructuredBlock extends StatelessWidget {
         summary: block['fallbackText'] as String? ?? '',
       ),
       'comparison' => ComparisonTable(data: data),
+      'breakdown' => JiabuBreakdownBlock(block: block),
+      'category_series' => JiabuCategorySeriesBlock(block: block),
       _ => BuiltinBlockView(
         block: block,
         interactions: scope?.interactions,
@@ -69,7 +72,13 @@ class JiabuStructuredBlock extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: JiabuChatMetrics.rowGap),
         child: PaperCard(
-          pattern: const {'dataset', 'comparison'}.contains(block.type)
+          pattern:
+              const {
+                'dataset',
+                'comparison',
+                'breakdown',
+                'category_series',
+              }.contains(block.type)
               ? PaperPattern.ruled
               : PaperPattern.dots,
           child: Column(

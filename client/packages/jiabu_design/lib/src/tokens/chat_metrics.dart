@@ -11,6 +11,10 @@ abstract final class JiabuChatMetrics {
   static const double chartHeight = 160;
   static const double chartStroke = 2;
   static const double chartAxis = 1;
+  static const double chartCenterLabel = 92;
+  static const double chartCategoryLabel = 108;
+  static const double chartCategoryLabelLarge = 132;
+  static const double chartValue = 72;
   static const double tableColumn = 140;
   static const double lineHeight = 44;
   static const double skeletonHeight = 96;

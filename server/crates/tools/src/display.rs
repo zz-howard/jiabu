@@ -30,6 +30,8 @@ const MAX_RECORDS: u32 = 50;
 const MAX_TEXT_CHARS: usize = 100;
 /// metric_group holds at most 12 metrics: 11 largest groups plus one merged rest.
 const MAX_METRICS: usize = 12;
+const MAX_BREAKDOWN_PARTS: usize = 6;
+const MAX_CATEGORY_POINTS: usize = 12;
 /// ChatWeave's time_series schema accepts at most 500 points per series.
 const MAX_TREND_POINTS: usize = 500;
 /// Words in the user's own input that allow fixed demo data.
@@ -141,6 +143,16 @@ pub struct ShowTrend {
 pub struct ShowRecords {
     pub source: Source<RecordsQuery>,
 }
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct ShowBreakdown {
+    pub source: Source<StatsQuery>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct ShowBarChart {
+    pub source: Source<StatsQuery>,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -148,6 +160,8 @@ pub enum DisplayKind {
     Metrics,
     Trend,
     Records,
+    Breakdown,
+    CategorySeries,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -201,6 +215,14 @@ pub enum TrendPayload {
         points: Vec<MeasurementTrendPoint>,
     },
 }
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct BreakdownPayload {
+    pub parts: Vec<DisplayItem>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CategorySeriesPayload {
+    pub points: Vec<LedgerTrendPoint>,
+}
 /// Everything shown is here, filled by the server. The model reads it to write a
 /// one- or two-sentence conclusion; crates/chat maps it to the block.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -216,6 +238,10 @@ pub struct DisplayOutput {
     pub rows: Vec<DisplayRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trend: Option<TrendPayload>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub breakdown: Option<BreakdownPayload>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category_series: Option<CategorySeriesPayload>,
     pub has_more: bool,
     /// Tag groups can overlap, so their sum may exceed the total.
     pub groups_may_overlap: bool,
@@ -235,6 +261,8 @@ impl DisplayOutput {
             items: vec![],
             rows: vec![],
             trend: None,
+            breakdown: None,
+            category_series: None,
             has_more: false,
             groups_may_overlap: false,
             note: None,
@@ -512,6 +540,169 @@ fn metric_items(
     }
     items
 }
+
+fn sorted_group_items(
+    groups: Vec<StatsGroup>,
+    group_by: GroupBy,
+    names: &Names,
+) -> Vec<DisplayItem> {
+    let mut items: Vec<_> = groups
+        .into_iter()
+        .map(|group| DisplayItem {
+            label: names.group(Some(group_by), group.key.as_deref()),
+            key: group.key.unwrap_or_else(|| "none".into()),
+            value: group.value,
+            merged_count: None,
+        })
+        .collect();
+    items.sort_by(|a, b| {
+        b.value
+            .cmp(&a.value)
+            .then_with(|| a.label.cmp(&b.label))
+            .then_with(|| a.key.cmp(&b.key))
+    });
+    items
+}
+
+fn breakdown_parts(
+    stats: &StatsResult,
+    group_by: GroupBy,
+    names: &Names,
+    pointer: &str,
+) -> Result<Vec<DisplayItem>, ToolError> {
+    if stats.tag_groups_may_overlap {
+        return Err(ToolError::invalid_at(
+            pointer,
+            "not_a_breakdown: overlapping groups; use show_bar_chart",
+        ));
+    }
+    if stats.groups.iter().any(|group| group.value < 0) {
+        return Err(ToolError::invalid_at(
+            pointer,
+            "not_a_breakdown: every group must be non-negative; use show_bar_chart",
+        ));
+    }
+    let groups: Vec<_> = stats
+        .groups
+        .iter()
+        .filter(|group| group.value != 0)
+        .cloned()
+        .collect();
+    if groups.is_empty() {
+        return Ok(vec![]);
+    }
+    if groups.len() == 1 {
+        return Err(ToolError::invalid_at(
+            pointer,
+            "not_a_breakdown: at least two non-zero groups; use show_metrics",
+        ));
+    }
+    let sum: i128 = groups.iter().map(|group| i128::from(group.value)).sum();
+    if sum != i128::from(stats.total) || stats.total <= 0 {
+        return Err(ToolError::invalid_at(
+            pointer,
+            "not_a_breakdown: source groups must sum exactly to a positive total",
+        ));
+    }
+    let items = sorted_group_items(groups, group_by, names);
+    let mut named = Vec::new();
+    let mut merged = Vec::new();
+    for item in items {
+        let below_three_percent = i128::from(item.value) * 100 < i128::from(stats.total) * 3;
+        if below_three_percent || named.len() == MAX_BREAKDOWN_PARTS - 1 {
+            merged.push(item);
+        } else {
+            named.push(item);
+        }
+    }
+    if !merged.is_empty() {
+        let merged_count = merged.len();
+        named.push(DisplayItem {
+            key: "other".into(),
+            label: format!("其他（{merged_count} 项）"),
+            value: merged.iter().map(|item| item.value).sum(),
+            merged_count: (merged_count >= 2).then_some(merged_count),
+        });
+    }
+    debug_assert!(named.len() <= MAX_BREAKDOWN_PARTS);
+    Ok(named)
+}
+
+fn category_points(
+    stats: &StatsResult,
+    query: &QueryStats,
+    names: &Names,
+    pointer: &str,
+) -> Result<Vec<LedgerTrendPoint>, ToolError> {
+    let Some(group_by) = query.group_by else {
+        return Err(ToolError::invalid_at(pointer, "group_by: required"));
+    };
+    if stats.groups.is_empty() {
+        return Ok(vec![]);
+    }
+    let items = if group_by == GroupBy::Month {
+        let keys = month_keys(&query.period);
+        let mut values = HashMap::new();
+        for group in &stats.groups {
+            let Some(key) = &group.key else {
+                return Err(ToolError::invalid_at(
+                    pointer,
+                    "month groups: valid calendar months",
+                ));
+            };
+            if !keys.iter().any(|(expected, _)| expected == key)
+                || values.insert(key.clone(), group.value).is_some()
+            {
+                return Err(ToolError::invalid_at(
+                    pointer,
+                    "month groups: unique months inside period",
+                ));
+            }
+        }
+        keys.into_iter()
+            .map(|(key, label)| DisplayItem {
+                value: values.get(&key).copied().unwrap_or_default(),
+                key,
+                label,
+                merged_count: None,
+            })
+            .collect()
+    } else {
+        sorted_group_items(stats.groups.clone(), group_by, names)
+    };
+    if items.len() == 1 {
+        return Err(ToolError::invalid_at(
+            pointer,
+            "not_a_category_series: at least two points; use show_metrics",
+        ));
+    }
+    let mut items = items;
+    // Month buckets keep every calendar month up to the 12-point limit.
+    // Categorical comparisons reserve the twelfth point for an explicit
+    // "other" bucket whenever there is anything beyond the first eleven.
+    if group_by != GroupBy::Month && items.len() >= MAX_CATEGORY_POINTS {
+        let rest = items.split_off(MAX_CATEGORY_POINTS - 1);
+        let merged_count = rest.len();
+        let merged_value = i64::try_from(
+            rest.iter().map(|item| i128::from(item.value)).sum::<i128>(),
+        )
+        .map_err(|_| ToolError::invalid_at(pointer, "category values: merged sum must fit i64"))?;
+        items.push(DisplayItem {
+            key: "other".into(),
+            label: format!("其他（{merged_count} 项）"),
+            value: merged_value,
+            merged_count: Some(merged_count),
+        });
+    }
+    Ok(items
+        .into_iter()
+        .map(|item| LedgerTrendPoint {
+            key: item.key,
+            label: item.label,
+            value: item.value,
+        })
+        .collect())
+}
 fn month_keys(period: &Period) -> Vec<(String, String)> {
     let span_years = period.from.year() != period.through.year();
     let (mut year, mut month) = (period.from.year(), period.from.month());
@@ -600,6 +791,56 @@ fn demo_output(scene: DemoScene, currency: String) -> DisplayOutput {
     }
     output.demo = true;
     output.title = format!("【演示数据】{}", output.title);
+    output
+}
+
+fn breakdown_demo(currency: String) -> DisplayOutput {
+    let parts = [
+        ("demo_1", "餐饮", 142_000),
+        ("demo_2", "居家", 98_000),
+        ("demo_3", "购物", 75_000),
+        ("demo_4", "交通", 41_000),
+        ("other", "其他（2 项）", 72_600),
+    ]
+    .into_iter()
+    .map(|(key, label, value)| DisplayItem {
+        key: key.into(),
+        label: label.into(),
+        value,
+        merged_count: (key == "other").then_some(2),
+    })
+    .collect::<Vec<_>>();
+    let mut output = DisplayOutput::new(
+        DisplayKind::Breakdown,
+        "【演示数据】本月支出 · 按用途".into(),
+        currency,
+    );
+    output.demo = true;
+    output.measure = Some(Measure::Sum);
+    output.total = Some(parts.iter().map(|part| part.value).sum());
+    output.breakdown = Some(BreakdownPayload { parts });
+    output
+}
+
+fn category_demo(currency: String) -> DisplayOutput {
+    let values = [382_000, 405_500, 361_200, 452_800, 418_900, 428_600];
+    let points = values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| LedgerTrendPoint {
+            key: format!("demo_{}", index + 1),
+            label: format!("第 {} 月", index + 1),
+            value,
+        })
+        .collect();
+    let mut output = DisplayOutput::new(
+        DisplayKind::CategorySeries,
+        "【演示数据】近 6 个月支出".into(),
+        currency,
+    );
+    output.demo = true;
+    output.measure = Some(Measure::Sum);
+    output.category_series = Some(CategorySeriesPayload { points });
     output
 }
 
@@ -900,6 +1141,254 @@ impl TypedTool for ShowTrendTool {
     }
 }
 
+struct ShowBreakdownTool;
+impl TypedTool for ShowBreakdownTool {
+    type Args = ShowBreakdown;
+    type Output = DisplayOutput;
+    fn name(&self) -> &'static str {
+        "show_breakdown"
+    }
+    fn description(&self) -> &'static str {
+        "在回答里展示占比构成（2–6部分，小于 3% 或超出的组合并为“其他”）。服务端查询并填入名字和数字，你只说查什么。\n何时用：用户问一个总体按用途、账户、成员或不重叠标签的构成占比。\n何时别用：按月或数值可为负时用 show_bar_chart；标签组可重叠；只有一组时用 show_metrics 或文字。\n例：{\"source\":{\"query\":{\"measure\":\"sum\",\"kinds\":[\"expense\"],\"period\":{\"from\":\"2026-10-01\",\"through\":\"2026-10-31\"},\"group_by\":\"purpose\",\"account_id\":null,\"purpose_id\":null,\"tag_id\":null,\"member_id\":null},\"from_call\":null,\"demo\":null}}"
+    }
+    fn effect(&self) -> Effect {
+        Effect::Read
+    }
+    fn exposure(&self) -> Exposure {
+        Exposure::AgentOnly
+    }
+    fn step_kind(&self) -> StepKind {
+        StepKind::ShowBreakdown
+    }
+    fn step_label(&self, _: &Self::Args, _: &ToolCtx) -> StepLabel {
+        StepLabel("整理构成")
+    }
+    fn check(&self, args: &Self::Args) -> Vec<ValidationIssue> {
+        let mut issues = vec![];
+        source_issues(&args.source, DemoScene::MonthlySpending, &mut issues);
+        if let Some(query) = &args.source.query {
+            period_issues(&query.period, "/source/query/period", &mut issues);
+            if query.group_by.is_none() || query.group_by == Some(GroupBy::Month) {
+                issues.push(issue(
+                    "/source/query/group_by",
+                    "group_by: purpose|account|member|tag",
+                ));
+            }
+        }
+        issues
+    }
+    fn example_args(&self) -> Value {
+        json!({"source":{"query":{"measure":"sum","kinds":["expense"],"period":{"from":"2026-01-01","through":"2026-01-31"},"group_by":"purpose","account_id":null,"purpose_id":null,"tag_id":null,"member_id":null},"from_call":null,"demo":null}})
+    }
+    fn example_output(&self) -> Value {
+        json!({"display":"breakdown","status":"shown","title":"2026年1月支出 · 按用途","demo":false,"currency":"CNY","measure":"sum","total":5000,"items":[],"rows":[],"breakdown":{"parts":[{"key":"a","label":"餐饮","value":3000},{"key":"b","label":"交通","value":2000}]},"has_more":false,"groups_may_overlap":false})
+    }
+    fn execute<'a>(
+        &'a self,
+        args: Self::Args,
+        ctx: &'a ToolCtx,
+        tx: &'a SpaceTx,
+    ) -> ToolFuture<'a, Result<Self::Output, ToolError>> {
+        Box::pin(async move {
+            let space = ctx.space_id;
+            let (query, stats, pointer) = match args.source {
+                Source { demo: Some(_), .. } => {
+                    require_demo_request(ctx, tx).await?;
+                    return Ok(breakdown_demo(tx.ledger_currency(space).await?));
+                }
+                Source {
+                    from_call: Some(id),
+                    ..
+                } => {
+                    let (query, stats): (QueryStats, StatsResult) =
+                        referenced(ctx, tx, &id, "query_stats").await?;
+                    validate_reused_period(&query.period)?;
+                    if query.group_by.is_none() || query.group_by == Some(GroupBy::Month) {
+                        return Err(ToolError::invalid_at(
+                            "/source/from_call",
+                            "from_call: query_stats grouped by purpose|account|member|tag",
+                        ));
+                    }
+                    (query, stats, "/source/from_call")
+                }
+                Source {
+                    query: Some(query), ..
+                } => {
+                    let query = QueryStats {
+                        measure: query.measure,
+                        kinds: query.kinds,
+                        period: query.period,
+                        group_by: query.group_by,
+                        filters: filters(
+                            query.account_id,
+                            query.purpose_id,
+                            query.tag_id,
+                            query.member_id,
+                        ),
+                    };
+                    let stats = tx
+                        .ledger_stats(space, query.clone())
+                        .await
+                        .map_err(query_error)?;
+                    (query, stats, "/source/query")
+                }
+                _ => {
+                    return Err(ToolError::invalid_at(
+                        "/source",
+                        "source: exactly one of query|from_call|demo is not null",
+                    ));
+                }
+            };
+            let group_by = query.group_by.ok_or_else(|| {
+                ToolError::invalid_at(pointer, "group_by: purpose|account|member|tag")
+            })?;
+            let title = format!(
+                "{}{}{}",
+                period_label(&query.period),
+                kinds_label(&query.kinds, query.measure),
+                group_label(query.group_by)
+            );
+            let mut output =
+                DisplayOutput::new(DisplayKind::Breakdown, title, stats.currency.clone());
+            output.measure = Some(query.measure);
+            output.total = Some(stats.total);
+            let names = Names::load(tx, space).await?;
+            let parts = breakdown_parts(&stats, group_by, &names, pointer)?;
+            if parts.is_empty() {
+                return Ok(output.no_data());
+            }
+            output.breakdown = Some(BreakdownPayload { parts });
+            Ok(output)
+        })
+    }
+}
+
+struct ShowBarChartTool;
+impl TypedTool for ShowBarChartTool {
+    type Args = ShowBarChart;
+    type Output = DisplayOutput;
+    fn name(&self) -> &'static str {
+        "show_bar_chart"
+    }
+    fn description(&self) -> &'static str {
+        "在回答里展示离散柱状图（2–12 个月份或类别；服务端排序、补零并填入名字和数字）。\n何时用：用户要比较各月、用途、账户、成员或标签的数值大小，包括负值或重叠标签。\n何时别用：只有一个数值时用 show_metrics 或文字；要表达整体占比时用 show_breakdown；要看连续趋势时用 show_trend。\n例：{\"source\":{\"query\":{\"measure\":\"sum\",\"kinds\":[\"expense\"],\"period\":{\"from\":\"2026-05-01\",\"through\":\"2026-10-31\"},\"group_by\":\"month\",\"account_id\":null,\"purpose_id\":null,\"tag_id\":null,\"member_id\":null},\"from_call\":null,\"demo\":null}}"
+    }
+    fn effect(&self) -> Effect {
+        Effect::Read
+    }
+    fn exposure(&self) -> Exposure {
+        Exposure::AgentOnly
+    }
+    fn step_kind(&self) -> StepKind {
+        StepKind::ShowBarChart
+    }
+    fn step_label(&self, _: &Self::Args, _: &ToolCtx) -> StepLabel {
+        StepLabel("整理对比")
+    }
+    fn check(&self, args: &Self::Args) -> Vec<ValidationIssue> {
+        let mut issues = vec![];
+        source_issues(&args.source, DemoScene::HalfYearTrend, &mut issues);
+        if let Some(query) = &args.source.query {
+            period_issues(&query.period, "/source/query/period", &mut issues);
+            if query.group_by.is_none() {
+                issues.push(issue("/source/query/group_by", "group_by: required"));
+            } else if query.group_by == Some(GroupBy::Month)
+                && !(2..=12).contains(&months(&query.period))
+            {
+                issues.push(issue(
+                    "/source/query/period",
+                    "period: 2..12 calendar months for month grouping",
+                ));
+            }
+        }
+        issues
+    }
+    fn example_args(&self) -> Value {
+        json!({"source":{"query":{"measure":"sum","kinds":["expense"],"period":{"from":"2026-01-01","through":"2026-02-28"},"group_by":"month","account_id":null,"purpose_id":null,"tag_id":null,"member_id":null},"from_call":null,"demo":null}})
+    }
+    fn example_output(&self) -> Value {
+        json!({"display":"category_series","status":"shown","title":"2026年1月–2026年2月支出","demo":false,"currency":"CNY","measure":"sum","total":null,"items":[],"rows":[],"category_series":{"points":[{"key":"2026-01","label":"1月","value":3000},{"key":"2026-02","label":"2月","value":2000}]},"has_more":false,"groups_may_overlap":false})
+    }
+    fn execute<'a>(
+        &'a self,
+        args: Self::Args,
+        ctx: &'a ToolCtx,
+        tx: &'a SpaceTx,
+    ) -> ToolFuture<'a, Result<Self::Output, ToolError>> {
+        Box::pin(async move {
+            let space = ctx.space_id;
+            let (query, stats, pointer) = match args.source {
+                Source { demo: Some(_), .. } => {
+                    require_demo_request(ctx, tx).await?;
+                    return Ok(category_demo(tx.ledger_currency(space).await?));
+                }
+                Source {
+                    from_call: Some(id),
+                    ..
+                } => {
+                    let (query, stats): (QueryStats, StatsResult) =
+                        referenced(ctx, tx, &id, "query_stats").await?;
+                    validate_reused_period(&query.period)?;
+                    if query.group_by.is_none()
+                        || (query.group_by == Some(GroupBy::Month)
+                            && !(2..=12).contains(&months(&query.period)))
+                    {
+                        return Err(ToolError::invalid_at(
+                            "/source/from_call",
+                            "from_call: grouped query_stats; month grouping spans 2..12 months",
+                        ));
+                    }
+                    (query, stats, "/source/from_call")
+                }
+                Source {
+                    query: Some(query), ..
+                } => {
+                    let query = QueryStats {
+                        measure: query.measure,
+                        kinds: query.kinds,
+                        period: query.period,
+                        group_by: query.group_by,
+                        filters: filters(
+                            query.account_id,
+                            query.purpose_id,
+                            query.tag_id,
+                            query.member_id,
+                        ),
+                    };
+                    let stats = tx
+                        .ledger_stats(space, query.clone())
+                        .await
+                        .map_err(query_error)?;
+                    (query, stats, "/source/query")
+                }
+                _ => {
+                    return Err(ToolError::invalid_at(
+                        "/source",
+                        "source: exactly one of query|from_call|demo is not null",
+                    ));
+                }
+            };
+            let title = format!(
+                "{}{}{}",
+                period_label(&query.period),
+                kinds_label(&query.kinds, query.measure),
+                group_label(query.group_by)
+            );
+            let mut output =
+                DisplayOutput::new(DisplayKind::CategorySeries, title, stats.currency.clone());
+            output.measure = Some(query.measure);
+            output.groups_may_overlap = stats.tag_groups_may_overlap;
+            let names = Names::load(tx, space).await?;
+            let points = category_points(&stats, &query, &names, pointer)?;
+            if points.is_empty() {
+                return Ok(output.no_data());
+            }
+            output.category_series = Some(CategorySeriesPayload { points });
+            Ok(output)
+        })
+    }
+}
+
 struct ShowRecordsTool;
 impl TypedTool for ShowRecordsTool {
     type Args = ShowRecords;
@@ -1049,6 +1538,8 @@ pub(crate) fn register(registry: &mut ToolRegistry) -> Result<(), ToolError> {
     registry.register(ShowMetricsTool)?;
     registry.register(ShowTrendTool)?;
     registry.register(ShowRecordsTool)?;
+    registry.register(ShowBreakdownTool)?;
+    registry.register(ShowBarChartTool)?;
     Ok(())
 }
 
@@ -1114,6 +1605,16 @@ mod tests {
         let mut many = records.example_args();
         many["source"]["query"]["limit"] = json!(51);
         assert_eq!(rules(records, many)[0].0, "/source/query/limit");
+        let breakdown = registry.get("show_breakdown")?;
+        assert!(rules(breakdown, breakdown.example_args()).is_empty());
+        let mut month = breakdown.example_args();
+        month["source"]["query"]["group_by"] = json!("month");
+        assert_eq!(rules(breakdown, month)[0].0, "/source/query/group_by");
+        let bars = registry.get("show_bar_chart")?;
+        assert!(rules(bars, bars.example_args()).is_empty());
+        let mut thirteen = bars.example_args();
+        thirteen["source"]["query"]["period"] = json!({"from":"2025-12-01","through":"2026-12-31"});
+        assert_eq!(rules(bars, thirteen)[0].0, "/source/query/period");
         Ok(())
     }
     #[test]
@@ -1134,6 +1635,201 @@ mod tests {
             items.iter().map(|i| i.value).sum::<i64>(),
             (1..=14_i64).sum::<i64>()
         );
+    }
+    #[test]
+    fn breakdown_uses_exact_three_percent_and_deterministic_merging() {
+        let names = Names(HashMap::from([
+            ("a".into(), "A".into()),
+            ("b".into(), "B".into()),
+            ("c".into(), "C".into()),
+            ("d".into(), "D".into()),
+        ]));
+        let stats = StatsResult {
+            currency: "CNY".into(),
+            total: 10_000,
+            groups: [("a", 5_000), ("b", 4_401), ("c", 300), ("d", 299)]
+                .into_iter()
+                .map(|(key, value)| StatsGroup {
+                    key: Some(key.into()),
+                    value,
+                })
+                .collect(),
+            tag_groups_may_overlap: false,
+        };
+        let parts =
+            breakdown_parts(&stats, GroupBy::Purpose, &names, "/source/query").expect("breakdown");
+        assert_eq!(
+            parts
+                .iter()
+                .map(|part| part.label.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B", "C", "其他（1 项）"]
+        );
+        assert_eq!(parts.last().map(|part| part.value), Some(299));
+        assert_eq!(parts.last().and_then(|part| part.merged_count), None);
+
+        let names = Names(
+            (1..=8)
+                .map(|value| (value.to_string(), format!("G{value}")))
+                .collect(),
+        );
+        let stats = StatsResult {
+            currency: "CNY".into(),
+            total: 100,
+            groups: [40, 20, 15, 10, 7, 4, 3, 1]
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| StatsGroup {
+                    key: Some((index + 1).to_string()),
+                    value,
+                })
+                .collect(),
+            tag_groups_may_overlap: false,
+        };
+        let parts = breakdown_parts(&stats, GroupBy::Account, &names, "/source/query")
+            .expect("merged breakdown");
+        assert_eq!(parts.len(), 6);
+        assert_eq!(parts[5].value, 8);
+        assert_eq!(parts[5].merged_count, Some(3));
+        assert_eq!(parts.iter().map(|part| part.value).sum::<i64>(), 100);
+    }
+    #[test]
+    fn breakdown_rejects_unsuitable_source_shapes() {
+        let names = Names(HashMap::new());
+        let stats = |values: &[i64], total: i64, overlap: bool| StatsResult {
+            currency: "CNY".into(),
+            total,
+            groups: values
+                .iter()
+                .enumerate()
+                .map(|(index, value)| StatsGroup {
+                    key: Some(index.to_string()),
+                    value: *value,
+                })
+                .collect(),
+            tag_groups_may_overlap: overlap,
+        };
+        assert!(
+            breakdown_parts(&stats(&[0, 0], 0, false), GroupBy::Purpose, &names, "p")
+                .expect("zero values are no data")
+                .is_empty()
+        );
+        for unsuitable in [
+            stats(&[10], 10, false),
+            stats(&[10, -1], 9, false),
+            stats(&[6, 4], 10, true),
+            stats(&[6, 4], 11, false),
+        ] {
+            assert!(
+                breakdown_parts(&unsuitable, GroupBy::Tag, &names, "p").is_err(),
+                "{unsuitable:?}"
+            );
+        }
+    }
+    #[test]
+    fn category_series_fills_months_and_reserves_other_for_categories() {
+        let period = Period {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap_or_default(),
+            through: NaiveDate::from_ymd_opt(2026, 3, 31).unwrap_or_default(),
+        };
+        let query = QueryStats {
+            measure: Measure::Sum,
+            kinds: vec![],
+            period,
+            group_by: Some(GroupBy::Month),
+            filters: Filters::default(),
+        };
+        let stats = StatsResult {
+            currency: "CNY".into(),
+            total: 5,
+            groups: vec![
+                StatsGroup {
+                    key: Some("2026-01".into()),
+                    value: 10,
+                },
+                StatsGroup {
+                    key: Some("2026-03".into()),
+                    value: -5,
+                },
+            ],
+            tag_groups_may_overlap: false,
+        };
+        let points = category_points(&stats, &query, &Names(HashMap::new()), "/source/query")
+            .expect("months");
+        assert_eq!(
+            points.iter().map(|point| point.value).collect::<Vec<_>>(),
+            [10, 0, -5]
+        );
+
+        let twelve_month_query = QueryStats {
+            period: Period {
+                from: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap_or_default(),
+                through: NaiveDate::from_ymd_opt(2026, 12, 31).unwrap_or_default(),
+            },
+            ..query.clone()
+        };
+        let twelve_months = category_points(
+            &stats,
+            &twelve_month_query,
+            &Names(HashMap::new()),
+            "/source/query",
+        )
+        .expect("twelve months");
+        assert_eq!(twelve_months.len(), 12);
+        assert_eq!(twelve_months[11].key, "2026-12");
+
+        let names = Names(
+            (1..=13)
+                .map(|value| (value.to_string(), format!("G{value:02}")))
+                .collect(),
+        );
+        let query = QueryStats {
+            group_by: Some(GroupBy::Tag),
+            ..query
+        };
+        for count in [11_i64, 12, 13] {
+            let stats = StatsResult {
+                currency: "CNY".into(),
+                total: (1..=count).sum(),
+                groups: (1..=count)
+                    .map(|value| StatsGroup {
+                        key: Some(value.to_string()),
+                        value,
+                    })
+                    .collect(),
+                tag_groups_may_overlap: true,
+            };
+            let points =
+                category_points(&stats, &query, &names, "/source/query").expect("categories");
+            assert_eq!(points.len(), count.min(12) as usize);
+            assert_eq!(points[0].value, count);
+            if count >= 12 {
+                let merged_count = count - 11;
+                assert_eq!(
+                    points[11].value,
+                    (1..=merged_count).sum::<i64>(),
+                    "count={count}"
+                );
+                assert_eq!(
+                    points[11].label,
+                    format!("其他（{merged_count} 项）"),
+                    "count={count}"
+                );
+            }
+        }
+
+        let overflow = StatsResult {
+            currency: "CNY".into(),
+            total: 0,
+            groups: (0..13)
+                .map(|index| StatsGroup {
+                    key: Some((index + 1).to_string()),
+                    value: i64::MAX,
+                })
+                .collect(),
+            tag_groups_may_overlap: false,
+        };
+        assert!(category_points(&overflow, &query, &names, "p").is_err());
     }
     #[test]
     fn trend_months_and_period_labels() {

@@ -141,8 +141,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "dart/packages/chatweave_core"
-      ref: ab5cabb1b67338a52078e8da875804b9a1543a75
-      resolved-ref: ab5cabb1b67338a52078e8da875804b9a1543a75
+      ref: acd253a0aec8aad5c138544dcc0c06fe77754e0f
+      resolved-ref: acd253a0aec8aad5c138544dcc0c06fe77754e0f
       url: "https://github.com/zz-howard/chatweave"
     source: git
     version: "0.1.0"
@@ -150,8 +150,8 @@ packages:
     dependency: transitive
     description:
       path: "dart/packages/chatweave_flutter"
-      ref: ab5cabb1b67338a52078e8da875804b9a1543a75
-      resolved-ref: ab5cabb1b67338a52078e8da875804b9a1543a75
+      ref: acd253a0aec8aad5c138544dcc0c06fe77754e0f
+      resolved-ref: acd253a0aec8aad5c138544dcc0c06fe77754e0f
       url: "https://github.com/zz-howard/chatweave"
     source: git
     version: "0.1.0"

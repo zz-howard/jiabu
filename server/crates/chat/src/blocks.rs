@@ -75,9 +75,20 @@ fn kind_label(kind: &str) -> &str {
 type Mapped = Option<(&'static str, Value, String)>;
 /// A display tool's output is already complete: names and numbers come from the
 /// server's own query. Nothing here reads model arguments.
-fn map_display(result: &Value) -> Result<Mapped> {
+fn map_display(tool: &str, result: &Value) -> Result<Mapped> {
     if result["status"] != "shown" {
         return Ok(None);
+    }
+    let expected = match tool {
+        "show_metrics" => "metrics",
+        "show_trend" => "trend",
+        "show_records" => "records",
+        "show_breakdown" => "breakdown",
+        "show_bar_chart" => "category_series",
+        _ => return Err(Error::Conflict),
+    };
+    if result["display"] != expected {
+        return Err(Error::Conflict);
     }
     let title = result["title"].as_str().ok_or(Error::Conflict)?;
     let currency = result["currency"].as_str().unwrap_or("CNY");
@@ -115,7 +126,11 @@ fn map_display(result: &Value) -> Result<Mapped> {
     };
     match result["display"].as_str() {
         Some("metrics") => {
-            if !result["trend"].is_null() || !rows.is_empty() {
+            if !result["trend"].is_null()
+                || !result["breakdown"].is_null()
+                || !result["category_series"].is_null()
+                || !rows.is_empty()
+            {
                 return Err(Error::Conflict);
             }
             let total = result["total"].as_i64().unwrap_or_default();
@@ -161,7 +176,11 @@ fn map_display(result: &Value) -> Result<Mapped> {
             )))
         }
         Some("trend") => {
-            if !items.is_empty() || !rows.is_empty() {
+            if !items.is_empty()
+                || !rows.is_empty()
+                || !result["breakdown"].is_null()
+                || !result["category_series"].is_null()
+            {
                 return Err(Error::Conflict);
             }
             let trend = result["trend"].as_object().ok_or(Error::Conflict)?;
@@ -293,8 +312,157 @@ fn map_display(result: &Value) -> Result<Mapped> {
                 _ => Err(Error::Conflict),
             }
         }
+        Some("breakdown") => {
+            if !items.is_empty()
+                || !rows.is_empty()
+                || !result["trend"].is_null()
+                || !result["category_series"].is_null()
+                || result["groups_may_overlap"] == true
+                || (result["measure"] != "sum" && result["measure"] != "count")
+            {
+                return Err(Error::Conflict);
+            }
+            let currency = if money {
+                result["currency"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(Error::Conflict)?
+            } else {
+                currency
+            };
+            let payload = result["breakdown"].as_object().ok_or(Error::Conflict)?;
+            if payload.len() != 1 {
+                return Err(Error::Conflict);
+            }
+            let parts = payload
+                .get("parts")
+                .and_then(Value::as_array)
+                .ok_or(Error::Conflict)?;
+            if !(2..=6).contains(&parts.len()) {
+                return Err(Error::Conflict);
+            }
+            let total = result["total"].as_i64().ok_or(Error::Conflict)?;
+            if total <= 0 {
+                return Err(Error::Conflict);
+            }
+            let mut sum = 0_i128;
+            let mapped: Result<Vec<_>> = parts
+                .iter()
+                .enumerate()
+                .map(|(index, part)| {
+                    let object = part.as_object().ok_or(Error::Conflict)?;
+                    if !(object.len() == 3
+                        || (object.len() == 4 && object.contains_key("merged_count")))
+                        || !part["key"].is_string()
+                    {
+                        return Err(Error::Conflict);
+                    }
+                    let label = part["label"].as_str().ok_or(Error::Conflict)?;
+                    let value = part["value"].as_i64().ok_or(Error::Conflict)?;
+                    // The display tool removes zero groups before mapping. A
+                    // shown breakdown therefore needs at least two strictly
+                    // positive parts, even though the generic protocol permits
+                    // zero-valued parts.
+                    if value <= 0 {
+                        return Err(Error::Conflict);
+                    }
+                    sum += i128::from(value);
+                    let mut mapped = json!({
+                        "key":format!("part_{}", index + 1),
+                        "label":label,
+                        "value":value
+                    });
+                    if let Some(merged) = part.get("merged_count") {
+                        let merged = merged.as_u64().ok_or(Error::Conflict)?;
+                        if merged < 2 {
+                            return Err(Error::Conflict);
+                        }
+                        mapped["mergedCount"] = json!(merged);
+                    }
+                    Ok(mapped)
+                })
+                .collect();
+            let mapped = mapped?;
+            if sum != i128::from(total) {
+                return Err(Error::Conflict);
+            }
+            let mut data = json!({"title":title,"parts":mapped});
+            if money {
+                data["format"] = money_format(currency);
+            } else {
+                data["format"] = json!({"style":"integer"});
+                data["unit"] = json!("笔");
+            }
+            let fallback = format!("{title}：{}；合计 {}", listed(parts), value_text(total));
+            Ok(Some(("breakdown", data, fallback)))
+        }
+        Some("category_series") => {
+            if !items.is_empty()
+                || !rows.is_empty()
+                || !result["trend"].is_null()
+                || !result["breakdown"].is_null()
+                || !result["total"].is_null()
+                || (result["measure"] != "sum" && result["measure"] != "count")
+            {
+                return Err(Error::Conflict);
+            }
+            let currency = if money {
+                result["currency"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(Error::Conflict)?
+            } else {
+                currency
+            };
+            let payload = result["category_series"]
+                .as_object()
+                .ok_or(Error::Conflict)?;
+            if payload.len() != 1 {
+                return Err(Error::Conflict);
+            }
+            let points = payload
+                .get("points")
+                .and_then(Value::as_array)
+                .ok_or(Error::Conflict)?;
+            if !(2..=12).contains(&points.len()) {
+                return Err(Error::Conflict);
+            }
+            let mapped: Result<Vec<_>> = points
+                .iter()
+                .enumerate()
+                .map(|(index, point)| {
+                    let object = point.as_object().ok_or(Error::Conflict)?;
+                    if object.len() != 3 || !point["key"].is_string() {
+                        return Err(Error::Conflict);
+                    }
+                    let label = point["label"].as_str().ok_or(Error::Conflict)?;
+                    let value = point["value"].as_i64().ok_or(Error::Conflict)?;
+                    Ok(json!({
+                        "key":format!("point_{}", index + 1),
+                        "label":label,
+                        "value":value
+                    }))
+                })
+                .collect();
+            let mut data = json!({"title":title,"points":mapped?});
+            if money {
+                data["format"] = money_format(currency);
+            } else {
+                data["format"] = json!({"style":"integer"});
+                data["unit"] = json!("笔");
+            }
+            Ok(Some((
+                "category_series",
+                data,
+                format!("{title}：{}", listed(points)),
+            )))
+        }
         Some("records") => {
-            if !result["trend"].is_null() || !items.is_empty() {
+            if !result["trend"].is_null()
+                || !result["breakdown"].is_null()
+                || !result["category_series"].is_null()
+                || !items.is_empty()
+            {
                 return Err(Error::Conflict);
             }
             let data_rows: Vec<_> = rows
@@ -340,7 +508,7 @@ fn map_display(result: &Value) -> Result<Mapped> {
 /// arguments only say how a result was asked for (e.g. sum or count).
 pub fn map_tool_result(tool: &str, _args: &Value, result: &Value) -> Result<Mapped> {
     if tool.starts_with("show_") {
-        return map_display(result);
+        return map_display(tool, result);
     }
     let card = match tool {
         "create_record" | "update_record" | "void_record" | "restore_record" => {
@@ -494,6 +662,56 @@ mod tests {
         };
         assert_eq!(data["series"][0]["points"][0]["y"], 50.0);
         assert!(check(kind, &data).await?, "{data}");
+        let breakdown = json!({"display":"breakdown","status":"shown","title":"支出构成","demo":false,"currency":"CNY","measure":"sum","total":10000,"items":[],"rows":[],"breakdown":{"parts":[{"key":"a","label":"餐饮","value":7000},{"key":"other","label":"其他（2 项）","value":3000,"merged_count":2}]},"has_more":false,"groups_may_overlap":false});
+        let Some((kind, data, fallback)) =
+            map_tool_result("show_breakdown", &json!({}), &breakdown)?
+        else {
+            panic!("missing breakdown");
+        };
+        assert_eq!(kind, "breakdown");
+        assert_eq!(data["parts"][1]["mergedCount"], 2);
+        assert_eq!(data["format"]["minorUnits"], true);
+        assert!(fallback.contains("合计 ¥100.00"));
+        assert!(check(kind, &data).await?, "{data}");
+        let category = json!({"display":"category_series","status":"shown","title":"月度对比","demo":false,"currency":"CNY","measure":"sum","total":null,"items":[],"rows":[],"category_series":{"points":[{"key":"2026-01","label":"1月","value":5000},{"key":"2026-02","label":"2月","value":-1000}]},"has_more":false,"groups_may_overlap":false});
+        let Some((kind, data, fallback)) =
+            map_tool_result("show_bar_chart", &json!({}), &category)?
+        else {
+            panic!("missing category series");
+        };
+        assert_eq!(kind, "category_series");
+        assert_eq!(data["points"][1]["value"], -1000);
+        assert!(fallback.contains("-¥10.00"));
+        assert!(check(kind, &data).await?, "{data}");
+        let mut inconsistent = breakdown.clone();
+        inconsistent["total"] = json!(9_999);
+        assert!(map_tool_result("show_breakdown", &json!({}), &inconsistent).is_err());
+        let mut zero_part = breakdown.clone();
+        zero_part["breakdown"]["parts"][0]["value"] = json!(10_000);
+        zero_part["breakdown"]["parts"][1]["value"] = json!(0);
+        assert!(map_tool_result("show_breakdown", &json!({}), &zero_part).is_err());
+        assert!(map_tool_result("show_metrics", &json!({}), &breakdown).is_err());
+        let mut overflow = category.clone();
+        overflow["category_series"]["points"] = json!(
+            (0..13)
+                .map(|index| json!({"key":format!("k{index}"),"label":format!("L{index}"),"value":index}))
+                .collect::<Vec<_>>()
+        );
+        assert!(map_tool_result("show_bar_chart", &json!({}), &overflow).is_err());
+        for (tool, valid) in [
+            ("show_breakdown", breakdown.clone()),
+            ("show_bar_chart", category.clone()),
+        ] {
+            let mut missing_currency = valid.clone();
+            missing_currency
+                .as_object_mut()
+                .expect("display result object")
+                .remove("currency");
+            assert!(map_tool_result(tool, &json!({}), &missing_currency).is_err());
+            let mut non_string_currency = valid;
+            non_string_currency["currency"] = json!(123);
+            assert!(map_tool_result(tool, &json!({}), &non_string_currency).is_err());
+        }
         let measurement = json!({"display":"trend","status":"shown","title":"body.weight","demo":false,"currency":"","measure":null,"total":null,"items":[],"rows":[],"trend":{"kind":"measurement","unit":"kg","points":[{"date":"2026-01-01","value":62.5},{"date":"2026-02-01","value":0.0},{"date":"2026-03-01","value":-1.25}]},"has_more":false,"groups_may_overlap":false});
         let Some((kind, data, fallback)) = map_tool_result("show_trend", &json!({}), &measurement)?
         else {
