@@ -178,7 +178,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 ### 4.1 主题
 
 - **两层结构**：① Material 3 底座 `ColorScheme`、`TextTheme`、组件主题（按钮最小 48×48、底部弹层圆角 20 等）；② `JiabuColors`、`JiabuType`、`JiabuDecor`、`JiabuMotion` 四个 `ThemeExtension`（必须实现 `copyWith` 和 `lerp`）。
-- **单一主题 + 空间强调色**：只有一套 `ThemeData`（`JiabuTheme.light()`），不随空间换整屏配色。每个空间创建时从固定色板选一个强调色；色板颜色是 `jiabu_design` 里的设计令牌（`JiabuColors.spaceAccents`），业务代码只按色板序号取色。强调色只用在空间名称和小标记上（例如 SpaceSwitcher 的圆点、记录卡角标），不用于按钮、背景或金额。
+- **单一主题 + 空间强调色**：只有一套 `ThemeData`（`JiabuTheme.light()`），不随空间换整屏配色。每个空间创建时从固定色板选一个强调色；色板颜色是 `jiabu_design` 里的设计令牌（`JiabuColors.spaceAccents`），业务代码只按色板序号取色。强调色只用在空间徽章的药丸底色和其他小标记上（例如记录卡角标），不用于通用按钮、整屏背景或金额。
 - 访问方式统一为 `context.jiabu.colors.primary`；业务代码**禁止**出现 `Color(0x…)`、`Colors.*`、`TextStyle(fontFamily:)`。
 - 不启用 Material You 动态取色；v1 不做深色主题。
 
@@ -204,7 +204,7 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 |---|---|
 | 隐式动画 | 默认用 `AnimatedContainer`、`TweenAnimationBuilder` 等；显式 `AnimationController` 只用于“三点跳动”“转圈”这类循环动画 |
 | animations 包 | 按需使用（例如记录卡到详情），不强制引入 |
-| 页面转场 | 保留框架默认（3.38 起安卓默认 `PredictiveBackPageTransitionsBuilder`，时长 450ms；测试里用 `TransitionDurationObserver`，不写死等待时间）；底部四栏切换不用页面转场 |
+| 页面转场 | 保留框架默认（3.38 起安卓默认 `PredictiveBackPageTransitionsBuilder`，时长 450ms；测试里用 `TransitionDurationObserver`，不写死等待时间）；底部四栏切换也走这套默认转场 |
 | 滚动物理 | **不改默认滚动物理**；业务代码禁止设置 `physics:`，除非 AGENTS.md 列为例外 |
 | 动效令牌 | `JiabuMotion`：`sheet = 260ms, Cubic(.2,.8,.2,1)`、`scrim = 220ms`、`snack = 220ms`、`space = 250ms`（切换空间时内容淡入淡出）、`send = 200ms`、`cardIn = 220ms`；业务代码禁止写 `Duration(milliseconds: …)` 字面量 |
 | 减少动态效果 | 跟随系统：`disableAnimations` 为真时所有时长为 0，循环动画换静态图标；倾斜角保留。v1 不做 App 内开关 |
@@ -264,8 +264,8 @@ outbox 即“待发送队列”：所有改动先写进本机，再按顺序发�
 - `ActionTransport`：点追问选项、确认、提交表单时，ChatWeave 生成动作请求（其 ID 即幂等键）；家簿把它写进 outbox（`kind = 'chat_action'`，`id = 动作 ID`），块只显示“提交中”（离线时“已排队，联网后提交”），**不乐观标记“已选择”**；`OutboxProcessor` 上传到 `POST /spaces/{space_id}/chat/actions`。离线时照常排队，联网补发，重发复用同一个动作 ID。结果以服务端返回的补丁或同步下来的新版本为准：对话是一对一的，没有其他成员抢答；但服务端仍可能拒绝（权限、相关记录已变化或删除、校验不通过），自己的另一台手机也可能已经回答过，这时显示服务端记录的结果。
 - **追问 / 确认时回复暂停**（ChatWeave 中断）：流由服务端关闭，客户端不重连；回答的动作结果带 `resume`，ChatWeave 按已收到的序号重新订阅**同一条回复**，回答显示在卡片上（不生成“我的回答”气泡），后续内容接在同一条回复下面。每张中断卡除了自己的选项，还有 ChatWeave 默认带的“输入其他内容”（家簿不关闭它）。
 - **输入栏联动**（ChatWeave 的输入框契约，`chatweave_core` 的 `InterruptComposerController`，按会话一个）：
-  - `locked`：会话里有一条暂停中的回复、中断还开着、本人可以回答 → 家簿输入栏锁定：占位文字“先回答上面的问题”，文字框、发送和拍照按钮都不可用；已经打的草稿保留不清空。
-  - `answering`：点卡片上的“输入其他内容”（控制器 `beginOtherInput`）→ 输入栏解锁、自动聚焦，上方挂“回答：<问题>”标签（ChatWeave 的 `InterruptAnswerChip` 换成家簿外观，见设计规范 4.18）。发送 = `submitOtherInput(text)`：ChatWeave 生成 `freeText` 动作（动作 ID 即幂等键），家簿写进 outbox（`kind = 'chat_action'`），**不是**一条聊天消息；卡片只显示“提交中 / 已排队”，服务端结果到达后显示“你的回答：……”。拍照按钮在这个状态下仍不可用（回答只收文字）。
+  - `locked`：会话里有一条暂停中的回复、中断还开着、本人可以回答 → 家簿输入栏锁定：占位文字“先回答上面的问题”，文字框、发送和回形针附件按钮都不可用；已经打的草稿保留不清空。
+  - `answering`：点卡片上的“输入其他内容”（控制器 `beginOtherInput`）→ 输入栏解锁、自动聚焦，上方挂“回答：<问题>”标签（ChatWeave 的 `InterruptAnswerChip` 换成家簿外观，见设计规范 4.18）。发送 = `submitOtherInput(text)`：ChatWeave 生成 `freeText` 动作（动作 ID 即幂等键），家簿写进 outbox（`kind = 'chat_action'`），**不是**一条聊天消息；卡片只显示“提交中 / 已排队”，服务端结果到达后显示“你的回答：……”。回形针附件按钮在这个状态下仍不可用（回答只收文字）。
   - 点标签上的 ✕（`cancelOtherInput`）→ 回到 `locked`，草稿保留，下次点“输入其他内容”时还在。
   - 中断被关闭（另一台手机已经回答、过期、停止）→ 控制器回到 `free` 并给出原因：输入栏解锁、标签消失，草稿留在输入框里成为普通草稿，提示条说一句“这个问题已在另一台设备上回答 / 已过期 / 已停止”，避免把它误当成回答发出去。
   - 状态只来自 ChatWeave 的本机消息状态（暂停中的消息、块状态、本地“提交中”），App 重启、列表回收后不丢；离线时也照常锁定和回答（回答排队）。
