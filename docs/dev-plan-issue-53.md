@@ -189,8 +189,11 @@ slice.
 
 ### Client domain and parser tests
 
-- [ ] Parser accepts the exact v1 reference and rejects missing, extra,
-      wrong-typed, invalid-version, and invalid-ID cases.
+- [ ] Data parser accepts the exact v1 reference and rejects missing, extra,
+      wrong-typed, and invalid-ID fields.
+- [ ] A registry/render-boundary test proves `schemaVersion > 1` is rejected by
+      ChatWeave before the data parser, uses the unsupported-version fallback,
+      and reports the bounded render error.
 - [ ] Real-account expense/income/refund/outgoing transfer/incoming transfer
       produce the correct relative flow.
 - [ ] Purpose-account allocation/expense/refund/outgoing reallocation/incoming
