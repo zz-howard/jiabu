@@ -200,6 +200,12 @@
   "ledgerManual": "记一笔",
   "ledgerManualSemantics": "手动记一笔",
   "ledgerAccounts": "账户",
+  "ledgerOnlyAccount": "只看 {name} ×",
+  "@ledgerOnlyAccount": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
   "ledgerReal": "真实资金账户",
   "ledgerPurpose": "用途账户",
   "ledgerRecent": "近期变化",
@@ -529,6 +535,15 @@
     }
   },
   "chatRecordSyncing": "记录同步中",
+  "chatAccountSyncing": "账户同步中",
+  "chatAccountUnavailable": "这个账户暂未同步到本机",
+  "chatAccountArchived": "已归档",
+  "chatAccountChanged": "回复后已有更新",
+  "chatAccountBalance": "当前余额",
+  "chatAccountMonthIn": "本月流入",
+  "chatAccountMonthOut": "本月流出",
+  "chatAccountNoRecent": "最近没有流水",
+  "chatAccountViewHistory": "查看这个账户的流水",
   "chatWeave000": "内容正在生成",
   "chatWeave001": "正在生成…",
   "chatWeave002": "暂无数据",

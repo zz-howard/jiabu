@@ -16,6 +16,22 @@ pub fn validator() -> Result<Validator> {
             .register(kind, 1, schema)
             .map_err(|_| Error::Unavailable)?;
     }
+    registry
+        .register(
+            "x-jiabu.account_card",
+            1,
+            json!({
+                "type":"object",
+                "required":["accountId","versionAtReply","nameSnapshot"],
+                "additionalProperties":false,
+                "properties":{
+                    "accountId":{"type":"string","format":"uuid"},
+                    "versionAtReply":{"type":"integer","minimum":1},
+                    "nameSnapshot":{"type":"string","minLength":1,"maxLength":100}
+                }
+            }),
+        )
+        .map_err(|_| Error::Unavailable)?;
     Validator::new(Limits::default(), registry).map_err(|_| Error::Unavailable)
 }
 /// Display format for money: raw minor units, the renderer divides (ChatWeave).
@@ -85,9 +101,13 @@ fn map_display(tool: &str, result: &Value) -> Result<Mapped> {
         "show_records" => "records",
         "show_breakdown" => "breakdown",
         "show_bar_chart" => "category_series",
+        "show_account_card" => "account_card",
         _ => return Err(Error::Conflict),
     };
     if result["display"] != expected {
+        return Err(Error::Conflict);
+    }
+    if result["display"] != "account_card" && !result["account_card"].is_null() {
         return Err(Error::Conflict);
     }
     let title = result["title"].as_str().ok_or(Error::Conflict)?;
@@ -125,6 +145,55 @@ fn map_display(tool: &str, result: &Value) -> Result<Mapped> {
             .join("、")
     };
     match result["display"].as_str() {
+        Some("account_card") => {
+            if !items.is_empty()
+                || !rows.is_empty()
+                || !result["trend"].is_null()
+                || !result["breakdown"].is_null()
+                || !result["category_series"].is_null()
+                || result["measure"] != "sum"
+            {
+                return Err(Error::Conflict);
+            }
+            let account = result["account_card"]
+                .as_object()
+                .ok_or(Error::Conflict)?;
+            let id = account
+                .get("account_id")
+                .and_then(Value::as_str)
+                .ok_or(Error::Conflict)?;
+            let version = account
+                .get("version_at_reply")
+                .and_then(Value::as_i64)
+                .filter(|version| *version > 0)
+                .ok_or(Error::Conflict)?;
+            let name = account
+                .get("name_snapshot")
+                .and_then(Value::as_str)
+                .filter(|name| !name.is_empty() && name.chars().count() <= 100)
+                .ok_or(Error::Conflict)?;
+            let balance = account
+                .get("balance_minor")
+                .and_then(Value::as_i64)
+                .ok_or(Error::Conflict)?;
+            if title != name
+                || result["total"].as_i64() != Some(balance)
+                || result["currency"].as_str().is_none()
+                || !matches!(account.get("archived"), Some(Value::Bool(_)))
+                || account.len() != 5
+            {
+                return Err(Error::Conflict);
+            }
+            Ok(Some((
+                "x-jiabu.account_card",
+                json!({
+                    "accountId":id,
+                    "versionAtReply":version,
+                    "nameSnapshot":name
+                }),
+                format!("{name}：{}", money_text(balance, currency)),
+            )))
+        }
         Some("metrics") => {
             if !result["trend"].is_null()
                 || !result["breakdown"].is_null()

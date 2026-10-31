@@ -471,6 +471,11 @@ class HistoryPage extends ConsumerWidget {
               text: text ?? filter.text,
               member: clear == 'member' ? null : member ?? filter.member,
               account: clear == 'account' ? null : account ?? filter.account,
+              accountLabel: clear == 'account'
+                  ? null
+                  : account != null
+                  ? snapshot.find(snapshot.accounts, account)?.text('name')
+                  : filter.accountLabel,
               tag: clear == 'tag' ? null : tag ?? filter.tag,
               kind: clear == 'kind' ? null : kind ?? filter.kind,
               from: from ?? filter.from,
@@ -643,7 +648,26 @@ class HistoryPage extends ConsumerWidget {
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: gutter),
                     child: Wrap(
+                      spacing: JiabuSpacing.sm,
+                      runSpacing: JiabuSpacing.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
+                        if (filter.account != null)
+                          PaperFilterChip(
+                            key: const Key('history-account-filter'),
+                            label: l.ledgerOnlyAccount(
+                              snapshot
+                                      .find(
+                                        snapshot.accounts,
+                                        filter.account!,
+                                      )
+                                      ?.text('name') ??
+                                  filter.accountLabel ??
+                                  l.ledgerAccounts,
+                            ),
+                            selected: true,
+                            onPressed: () => update(clear: 'account'),
+                          ),
                         Text(l.ledgerResultCount(rows.length)),
                         TextButton(
                           onPressed: () => ref
@@ -803,6 +827,7 @@ class DateFilterForm extends ConsumerWidget {
                         text: filter.text,
                         member: filter.member,
                         account: filter.account,
+                        accountLabel: filter.accountLabel,
                         tag: filter.tag,
                         kind: filter.kind,
                         from: from,

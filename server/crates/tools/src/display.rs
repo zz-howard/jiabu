@@ -6,7 +6,7 @@ use crate::{
     tool::ToolFuture,
 };
 use chrono::{Datelike, NaiveDate};
-use jiabu_db::{SpaceTx, ValidationIssue};
+use jiabu_db::{SpaceTx, ValidationIssue, ledger::Entity};
 use jiabu_domain::{
     SpaceId,
     documents::{MetricResult, MetricSeries},
@@ -153,6 +153,11 @@ pub struct ShowBreakdown {
 pub struct ShowBarChart {
     pub source: Source<StatsQuery>,
 }
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Validate)]
+#[serde(deny_unknown_fields)]
+pub struct ShowAccountCard {
+    pub account_id: Uuid,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -162,6 +167,7 @@ pub enum DisplayKind {
     Records,
     Breakdown,
     CategorySeries,
+    AccountCard,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -223,6 +229,15 @@ pub struct BreakdownPayload {
 pub struct CategorySeriesPayload {
     pub points: Vec<LedgerTrendPoint>,
 }
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AccountCardPayload {
+    pub account_id: Uuid,
+    pub version_at_reply: i32,
+    pub name_snapshot: String,
+    pub balance_minor: i64,
+    pub archived: bool,
+}
 /// Everything shown is here, filled by the server. The model reads it to write a
 /// one- or two-sentence conclusion; crates/chat maps it to the block.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -242,6 +257,8 @@ pub struct DisplayOutput {
     pub breakdown: Option<BreakdownPayload>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category_series: Option<CategorySeriesPayload>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_card: Option<AccountCardPayload>,
     pub has_more: bool,
     /// Tag groups can overlap, so their sum may exceed the total.
     pub groups_may_overlap: bool,
@@ -263,6 +280,7 @@ impl DisplayOutput {
             trend: None,
             breakdown: None,
             category_series: None,
+            account_card: None,
             has_more: false,
             groups_may_overlap: false,
             note: None,
@@ -349,6 +367,13 @@ fn filters(
 fn query_error(error: ToolError) -> ToolError {
     if error.status == 404 {
         ToolError::invalid_at("/source/query", "ids: from SPACE_CONTEXT")
+    } else {
+        error
+    }
+}
+fn account_error(error: ToolError) -> ToolError {
+    if error.status == 404 {
+        ToolError::invalid_at("/account_id", "account_id: from SPACE_CONTEXT")
     } else {
         error
     }
@@ -1389,6 +1414,81 @@ impl TypedTool for ShowBarChartTool {
     }
 }
 
+struct ShowAccountCardTool;
+impl TypedTool for ShowAccountCardTool {
+    type Args = ShowAccountCard;
+    type Output = DisplayOutput;
+    fn name(&self) -> &'static str {
+        "show_account_card"
+    }
+    fn description(&self) -> &'static str {
+        "在回答里展示一个可点开看流水的账户卡。账户名称和余额由服务端查询，卡片到达 App 后会用本地账本实时更新。\n何时用：用户问某个已在 SPACE_CONTEXT 里的真实账户或用途账户还有多少钱，或要查看这个账户的流水。\n何时别用：用户没有指明账户或上下文里找不到唯一账户；要比较多个账户时用 show_metrics 或 show_bar_chart；不要猜 ID、名称或金额。\n例：{\"account_id\":\"00000000-0000-7000-8000-000000000001\"}"
+    }
+    fn effect(&self) -> Effect {
+        Effect::Read
+    }
+    fn exposure(&self) -> Exposure {
+        Exposure::AgentOnly
+    }
+    fn step_kind(&self) -> StepKind {
+        StepKind::ShowAccountCard
+    }
+    fn step_label(&self, _: &Self::Args, _: &ToolCtx) -> StepLabel {
+        StepLabel("整理账户")
+    }
+    fn example_args(&self) -> Value {
+        json!({"account_id":"00000000-0000-7000-8000-000000000001"})
+    }
+    fn example_output(&self) -> Value {
+        json!({"display":"account_card","status":"shown","title":"示例账户","demo":false,"currency":"CNY","measure":"sum","total":5000,"items":[],"rows":[],"account_card":{"account_id":"00000000-0000-7000-8000-000000000001","version_at_reply":2,"name_snapshot":"示例账户","balance_minor":5000,"archived":false},"has_more":false,"groups_may_overlap":false})
+    }
+    fn execute<'a>(
+        &'a self,
+        args: Self::Args,
+        ctx: &'a ToolCtx,
+        tx: &'a SpaceTx,
+    ) -> ToolFuture<'a, Result<Self::Output, ToolError>> {
+        Box::pin(async move {
+            let space = ctx.space_id;
+            let account: Account = serde_json::from_value(
+                tx.ledger_snapshot(space, Entity::Account, args.account_id)
+                    .await
+                    .map_err(account_error)?,
+            )
+            .map_err(|_| ToolError::internal())?;
+            let balances = tx
+                .ledger_balance(
+                    space,
+                    QueryBalance {
+                        account_id: Some(args.account_id),
+                    },
+                )
+                .await
+                .map_err(account_error)?;
+            let balance = balances
+                .balances
+                .into_iter()
+                .find(|balance| balance.account_id == args.account_id)
+                .ok_or_else(ToolError::internal)?;
+            let mut output = DisplayOutput::new(
+                DisplayKind::AccountCard,
+                account.name.clone(),
+                balances.currency,
+            );
+            output.measure = Some(Measure::Sum);
+            output.total = Some(balance.balance_minor);
+            output.account_card = Some(AccountCardPayload {
+                account_id: account.id,
+                version_at_reply: account.version,
+                name_snapshot: account.name,
+                balance_minor: balance.balance_minor,
+                archived: account.archived_at.is_some(),
+            });
+            Ok(output)
+        })
+    }
+}
+
 struct ShowRecordsTool;
 impl TypedTool for ShowRecordsTool {
     type Args = ShowRecords;
@@ -1540,6 +1640,7 @@ pub(crate) fn register(registry: &mut ToolRegistry) -> Result<(), ToolError> {
     registry.register(ShowRecordsTool)?;
     registry.register(ShowBreakdownTool)?;
     registry.register(ShowBarChartTool)?;
+    registry.register(ShowAccountCardTool)?;
     Ok(())
 }
 

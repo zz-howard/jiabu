@@ -3,6 +3,7 @@ import 'package:jiabu/app/providers.dart';
 import 'package:jiabu/data/services/log_redactor_service.dart';
 import 'package:jiabu/domain/chat.dart';
 import 'package:jiabu/features/chat/blocks/record_card_block.dart';
+import 'package:jiabu/features/chat/blocks/account_card_block.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chat_registry.dart';
 import 'package:logging/logging.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -25,5 +26,11 @@ BlockRegistry chatRegistry(Ref ref, String spaceId) => jiabuChatRegistry(
     spaceId: spaceId,
     recordId: block.data['recordId']! as String,
     versionAtReply: block.data['versionAtReply']! as int,
+  ),
+  accountBuilder: (context, block) => AccountCardBlock(
+    spaceId: spaceId,
+    accountId: block.data['accountId']! as String,
+    versionAtReply: block.data['versionAtReply']! as int,
+    nameSnapshot: block.data['nameSnapshot']! as String,
   ),
 );

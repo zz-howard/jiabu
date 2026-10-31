@@ -68,8 +68,8 @@ pub mod templates;
 pub mod tool;
 pub use context::{Invocation, ToolCtx};
 pub use display::{
-    BreakdownPayload, CategorySeriesPayload, DisplayKind, DisplayOutput, DisplayStatus,
-    LedgerTrendPoint, MeasurementTrendPoint, TrendPayload, is_display_tool,
+    AccountCardPayload, BreakdownPayload, CategorySeriesPayload, DisplayKind, DisplayOutput,
+    DisplayStatus, LedgerTrendPoint, MeasurementTrendPoint, TrendPayload, is_display_tool,
 };
 pub use jiabu_db::OperationError as ToolError;
 #[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -136,6 +136,7 @@ mod registry_tests {
             "show_records",
             "show_breakdown",
             "show_bar_chart",
+            "show_account_card",
         ];
         assert_eq!(
             registry.tools().map(|t| t.name()).collect::<Vec<_>>(),

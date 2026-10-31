@@ -5,6 +5,7 @@ final class HistoryFilter {
     this.text = '',
     this.member,
     this.account,
+    this.accountLabel,
     this.tag,
     this.kind,
     this.from,
@@ -14,6 +15,9 @@ final class HistoryFilter {
   final String text;
   final String? member;
   final String? account;
+  /// Snapshot label used by cross-route entry points until live account data is
+  /// available. Filtering remains ID-only.
+  final String? accountLabel;
   final String? tag;
   final String? kind;
   final String? from;
