@@ -16,12 +16,36 @@ async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percen
             row.id,
             row.reasons
         );
-        for c in [&row.amount, &row.date, &row.category_accuracy, &row.tools] {
+        if e.expect.display.is_some() {
+            assert!(
+                row.display_pass && row.prose_pass,
+                "{} {:?}",
+                row.id,
+                row.reasons
+            );
+        }
+        for c in [&row.amount, &row.date, &row.category_accuracy] {
             if c.total > 0 {
                 assert_eq!(c.rate(), Some(1.0), "{}", row.id);
             }
         }
-        assert_eq!(row.business_errors, 0, "{}", row.id);
+        let expected_invalid = e
+            .expect
+            .display
+            .as_ref()
+            .map_or(0, |display| display.expected_invalid_calls);
+        assert_eq!(
+            row.tools.total - row.tools.correct,
+            expected_invalid,
+            "{}",
+            row.id
+        );
+        let expected_business_errors = e
+            .expect
+            .display
+            .as_ref()
+            .map_or(0, |display| display.expected_business_errors);
+        assert_eq!(row.business_errors, expected_business_errors, "{}", row.id);
         rows.push(row);
         drop(scenario);
         let pool = sqlx::PgPool::connect(&scratch).await?;
@@ -38,16 +62,19 @@ async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percen
     report::write(&dir, &rows)?;
     let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
     for metric in [
-        "tool_argument_validity",
         "amount_precision",
         "date_accuracy",
         "category_accuracy",
         "question_precision",
         "question_recall",
         "ambiguous_date_recall",
+        "display_tool_accuracy",
+        "display_block_accuracy",
+        "display_value_accuracy",
     ] {
         assert!(summary.contains(&format!("\"{metric}\",\"1\"")), "{metric}");
     }
+    assert!(summary.contains("\"tool_argument_validity\","));
     assert!(summary.contains("\"hard_failure_count\",\"0\""));
     std::fs::remove_dir_all(dir)?;
     Ok(())
@@ -66,7 +93,7 @@ async fn binary_mock_entry_point_emits_csv_and_success_exit_status() -> Result<(
         "mock CLI failed (output suppressed)"
     );
     let results = std::fs::read_to_string(dir.join("results.csv"))?;
-    assert_eq!(results.lines().count(), 65);
+    assert_eq!(results.lines().count(), 85);
     assert!(dir.join("summary.csv").is_file());
     std::fs::remove_dir_all(dir)?;
     Ok(())

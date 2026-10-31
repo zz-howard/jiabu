@@ -1,7 +1,8 @@
 # S7 ③ 评测与在线冒烟
 
-64 条完全虚构的输入经 **RunService + Runtime worker + 真实 PG18 + ToolRegistry**
-完整循环执行。Mock 的 100% 只证明夹具、格式和评分自洽；收据识别与模型能力须看 live 结果。
+84 条完全虚构的输入经 **RunService + Runtime worker + 真实 PG18 + ToolRegistry**
+完整循环执行：原有 64 条记账/追问样例保持 v1 不变，另有 20 条 genUI 展示样例使用 v2。
+Mock 的 100% 只证明夹具、格式和评分自洽；收据识别与模型能力须看 live 结果。
 本切片不调提示词，不增加 HTTP 接口，不录制真实交互。
 
 ## 构建机准备
@@ -99,6 +100,65 @@ expect:
 - `account/purpose/to_account/to_purpose` 指 setup 账户别名；`refund_of` 指 setup 记录别名。
   `transfer` 是实账户间转账；`reallocation` 是用途间调拨；不产生计划专属的 `allocation`。
 
+## 数据格式 v2：genUI 展示
+
+v2 只用于 `category: display`，并保留与 v1 相同的 `input/setup` 结构。展示样例固定为
+`behavior: no_write` 且 `records: []`，因此任何账本写入、追问、确认或非完成终态都会使硬标准失败。
+`expect.display.hard` 在执行前声明；当前 20 条的组件选择、事实数值、能力降级、演示标记和安全
+约束都是硬标准，句式偏好仍单独体现在 prose 指标中。
+
+```yaml
+schema_version: 2
+id: display-example
+locale: zh-Hans
+category: display
+today: "2026-10-21"
+timezone: Asia/Shanghai
+input: {text: "给我看看本月支出分布"}
+client_capabilities: # 省略时使用当前 Jiabu 完整能力
+  blocks: {markdown: 1, metric_group: 1}
+setup:
+  currency: CNY
+  accounts: []
+  records: []
+expect:
+  behavior: no_write
+  hard: false
+  records: []
+  display:
+    hard: true
+    expected_invalid_calls: 0
+    expected_business_errors: 0
+    source_calls: [] # 可选：先执行 query_stats/search_records，供 from_call 复用
+    calls:
+      - {tool: show_metrics, args: {source: {query: null, from_call: null, demo: monthly_spending}}}
+    blocks:
+      - {kind: metric_group, labels: [餐饮, 居家, 购物, 交通, 其他], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
+    fallback_contains: ["【演示数据】"]
+    server_fallback_contains: ["【演示数据】"]
+    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5, forbid_numeric_restatement: true}
+```
+
+- `source_calls` 是可选的精确有序 `query_stats` / `search_records` 前置调用；`calls` 是精确有序展示
+  工具调用。评分同时核对工具名和完整参数，额外、重复、错序、错误期间/分组/账户/demo 均失败。
+  `calls` 可用 `$call:source-0` 断言 `from_call` 必须引用对应前置调用；`$account:<alias>` 会展开为
+  setup 中的真实 UUID。
+- `blocks` 是最终持久化 checkpoint 中的精确有序非 Markdown 组件序列；额外或重复组件不会被忽略。
+  比较 `metric/metric_group/dataset/time_series/breakdown/category_series/x-jiabu.account_card`
+  的服务端事实视图，而不是从生产 mapper 反推期望值。
+- `labels` 与 `values_minor` 来自数据集明确写下的虚构事实。金额一律用整数最小货币单位；趋势图
+  在协议中使用元时，评分器只做确定性的 ×100 还原。账户卡同时核对真实账户 UUID 与 setup 名称，
+  余额则由 `fallback_contains` 核对服务端拥有的 fallback，因为账户卡组件故意不携带余额。
+- `client_capabilities` 会在 enqueue 时冻结。受限客户端必须产生声明的降级组件，或在完全不支持
+  组件时只保留服务端 Markdown fallback；不支持的组件不得持久化。
+- `server_fallback_contains` 只检查由对应展示工具结果映射并实际持久化的服务端 fallback，模型 Markdown
+  不能冒充；`fallback_contains` 用于明确允许由最终文字回答满足的 no-data/错误兜底断言。
+- 演示组件必须有显式 `source.demo`，标题/fallback 必须带「【演示数据】」；无数据样例不得用
+  demo 冒充。`expected_invalid_calls/business_errors` 只用于一条故意触发参数校验并验证文字兜底的样例。
+- prose 只检查模型生成的 Markdown block，不把组件自带 fallback 当作模型赘述；Mermaid、连续三行
+  字符/ASCII 柱图及超过五个数据行的表格是硬安全约束。`max_sentences` 与
+  `forbid_numeric_restatement` 是单独报告、不改变进程退出码的软风格指标。
+
 ## 隔离与提供方
 
 每条样例新建一个临时数据库，完整迁移、种子数据、独立用户/空间/会话；默认顺序跑。
@@ -149,7 +209,8 @@ CLI 仅输出样例 ID 和固定错误码；配置/数据错误也不格式化�
 软准确率不设退出门槛，luna.coco 逐条评审真实失败项后再决定提示词调整。
 
 `results.csv` 每条一行：身份、期望/实际行为、终态、hard/hard_pass、行为/记录检查、
-确认前未写入、金额/日期/分类/工具的正确数及分母和比率、业务错误次数、延迟、成本、失败原因。
+展示 hard/pass、工具序列/组件序列/事实值的正确数与分母、prose 检查、确认前未写入、
+金额/日期/分类/工具的正确数及分母和比率、业务错误次数、延迟、成本、失败原因。
 `calls_json` 为按调用顺序排列的 JSON 数组，各项只有调用种类、缓存读取/写入 token、未缓存输入
 token、成本（USD 十进制字符串）、调用延迟与 outcome。未缓存输入沿用现有口径
 `input_tokens - cached_input_tokens - cache_write_tokens`，未知为 null。
@@ -170,6 +231,7 @@ token、成本（USD 十进制字符串）、调用延迟与 outcome。未缓存
 业务校验失败另计，不当作参数 schema 错误。无工具调用的分母为 0，不冒充合法率 100%。
 
 `summary.csv` 是 `metric,value,numerator,denominator`：工具合法率、金额精确率、日期/分类准确率、
+展示工具序列/组件序列/事实值准确率、
 追问精确率 TP/(TP+FP)、召回率 TP/(TP+FN)、含糊日期子集召回率、nearest-rank P50/P95 延迟、
 平均成本、未知成本数、硬失败数及追问混淆矩阵计数。确认卡不算追问。
 比率为 0–1，分母为 0 时 value 留空；成本缺用量或费率也留空。全集任一成本未知则全集均值留空。

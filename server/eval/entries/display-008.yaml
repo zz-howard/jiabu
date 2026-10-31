@@ -1,0 +1,25 @@
+schema_version: 2
+id: "display-008"
+locale: "zh-Hans"
+category: "display"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input: {text: "本月没有记账时如实告诉我，不要编造图表。"}
+setup:
+  currency: "CNY"
+  accounts:
+    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
+    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+  records: []
+expect:
+  behavior: "no_write"
+  hard: false
+  records: []
+  display:
+    hard: true
+    calls:
+      - tool: "show_metrics"
+        args: {source: {query: {measure: "sum", kinds: ["expense"], period: {from: "2026-10-01", through: "2026-10-31"}, group_by: null, account_id: null, purpose_id: null, tag_id: null, member_id: null}, from_call: null, demo: null}}
+    blocks: []
+    fallback_contains: ["本月没有记录"]
+    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}

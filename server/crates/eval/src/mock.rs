@@ -46,8 +46,24 @@ impl Identities {
                 fields[key] = json!(v);
             }
         }
-        if let Some(k) = &r.preset_key {
-            fields["tag_ids"] = json!([self.tags.get(k).context("unknown preset")?]);
+        let preset_keys = r
+            .preset_key
+            .iter()
+            .chain(&r.preset_keys)
+            .collect::<Vec<_>>();
+        if !preset_keys.is_empty() {
+            fields["tag_ids"] = Value::Array(
+                preset_keys
+                    .into_iter()
+                    .map(|key| {
+                        self.tags
+                            .get(key)
+                            .copied()
+                            .map(|id| json!(id))
+                            .context("unknown preset")
+                    })
+                    .collect::<Result<_>>()?,
+            );
         }
         if let Some(k) = &r.refund_of {
             fields["refund_of_id"] = json!(self.records.get(k).context("unknown refund parent")?);
@@ -68,8 +84,100 @@ impl Identities {
         };
         Ok((format!("{}_record", r.operation), args))
     }
+    pub fn display_args(&self, value: &Value) -> Result<Value> {
+        self.display_args_with_calls(value, &BTreeMap::new())
+    }
+    pub fn display_args_with_calls(
+        &self,
+        value: &Value,
+        calls: &BTreeMap<String, String>,
+    ) -> Result<Value> {
+        Ok(match value {
+            Value::String(value) if value.starts_with("$account:") => {
+                let alias = value.trim_start_matches("$account:");
+                json!(
+                    self.accounts
+                        .get(alias)
+                        .context("unknown display account alias")?
+                )
+            }
+            Value::String(value) if value.starts_with("$call:") => json!(
+                calls
+                    .get(value)
+                    .context("unknown display source-call alias")?
+            ),
+            Value::Array(values) => Value::Array(
+                values
+                    .iter()
+                    .map(|value| self.display_args_with_calls(value, calls))
+                    .collect::<Result<_>>()?,
+            ),
+            Value::Object(values) => Value::Object(
+                values
+                    .iter()
+                    .map(|(key, value)| {
+                        Ok((key.clone(), self.display_args_with_calls(value, calls)?))
+                    })
+                    .collect::<Result<_>>()?,
+            ),
+            value => value.clone(),
+        })
+    }
 }
 pub fn scripts(e: &Entry, ids: &Identities) -> Result<Vec<TurnScript>> {
+    if let Some(display) = &e.expect.display {
+        let final_text = if display.fallback_contains.is_empty() {
+            if e.locale == "en" {
+                "Displayed.".to_owned()
+            } else {
+                "已展示。".to_owned()
+            }
+        } else {
+            display.fallback_contains.join("；")
+        };
+        if display.calls.is_empty() {
+            return Ok(vec![vec![text(&final_text), done()]]);
+        }
+        let call_aliases: BTreeMap<_, _> = display
+            .source_calls
+            .iter()
+            .enumerate()
+            .map(|(index, _)| (format!("$call:source-{index}"), format!("source-{index}")))
+            .collect();
+        let mut turns = Vec::new();
+        if !display.source_calls.is_empty() {
+            let mut source_turn = display
+                .source_calls
+                .iter()
+                .enumerate()
+                .map(|(index, call_spec)| {
+                    Ok(call(
+                        &format!("source-{index}"),
+                        &call_spec.tool,
+                        ids.display_args(&call_spec.args)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            source_turn.push(done());
+            turns.push(source_turn);
+        }
+        let mut turn = display
+            .calls
+            .iter()
+            .enumerate()
+            .map(|(index, call_spec)| {
+                Ok(call(
+                    &format!("display-{index}"),
+                    &call_spec.tool,
+                    ids.display_args_with_calls(&call_spec.args, &call_aliases)?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        turn.push(done());
+        turns.push(turn);
+        turns.push(vec![text(&final_text), done()]);
+        return Ok(turns);
+    }
     Ok(match e.expect.behavior {
         Behavior::AskUser => vec![vec![
             call(

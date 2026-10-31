@@ -1,0 +1,33 @@
+schema_version: 2
+id: "display-016"
+locale: "zh-Hans"
+category: "display"
+today: "2026-10-21"
+timezone: "Asia/Shanghai"
+input: {text: "本月各用途支出；这个客户端只能显示文字。"}
+client_capabilities:
+  blocks: {markdown: 1}
+setup:
+  currency: "CNY"
+  accounts:
+    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
+    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+    - {key: "saving", kind: "purpose", name: "虚构储备", opening_on: "2026-01-01"}
+  records:
+    - key: "daily-record"
+      record: {operation: "create", kind: "expense", amount_minor: 6800, currency: "CNY", occurred_on: "2026-10-01", account: "bank", purpose: "daily", preset_key: "dining"}
+    - key: "saving-record"
+      record: {operation: "create", kind: "expense", amount_minor: 3200, currency: "CNY", occurred_on: "2026-10-02", account: "bank", purpose: "saving", preset_key: "shopping"}
+expect:
+  behavior: "no_write"
+  hard: false
+  records: []
+  display:
+    hard: true
+    calls:
+      - tool: "show_metrics"
+        args: {source: {query: {measure: "sum", kinds: ["expense"], period: {from: "2026-10-01", through: "2026-10-31"}, group_by: "purpose", account_id: null, purpose_id: null, tag_id: null, member_id: null}, from_call: null, demo: null}}
+    blocks: []
+    fallback_contains: []
+    server_fallback_contains: ["虚构日常 ¥68.00", "虚构储备 ¥32.00"]
+    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}
