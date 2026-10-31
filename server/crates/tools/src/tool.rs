@@ -52,6 +52,9 @@ pub enum StepKind {
     UpdateSubject,
     ArchiveSubject,
     DeleteSubject,
+    ShowMetrics,
+    ShowTrend,
+    ShowRecords,
 }
 pub struct StepLabel(pub &'static str);
 pub struct StepSummary(pub &'static str);
@@ -85,6 +88,10 @@ pub trait TypedTool: Send + Sync + 'static {
     fn step_label(&self, args: &Self::Args, ctx: &ToolCtx) -> StepLabel;
     fn step_summary(&self, _outcome: &Self::Output) -> Option<StepSummary> {
         None
+    }
+    /// Business rules beyond the schema, as field pointer plus rule; empty passes.
+    fn check(&self, _args: &Self::Args) -> Vec<jiabu_db::ValidationIssue> {
+        Vec::new()
     }
     fn example_args(&self) -> Value;
     fn example_output(&self) -> Value;
@@ -236,6 +243,12 @@ impl<T: TypedTool> AgentTool for TypedAdapter<T> {
             );
             error
         })?;
+        let issues = self.tool.check(&args);
+        if !issues.is_empty() {
+            let mut error = ToolError::invalid();
+            error.errors = Some(issues);
+            return Err(error);
+        }
         Ok(Box::new(Call {
             tool: self.tool.clone(),
             args,

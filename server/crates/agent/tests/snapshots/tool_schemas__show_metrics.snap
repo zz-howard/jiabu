@@ -1,0 +1,182 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$defs": {
+    "DemoScene": {
+      "enum": [
+        "monthly_spending",
+        "half_year_trend",
+        "recent_records"
+      ],
+      "type": "string"
+    },
+    "GroupBy": {
+      "enum": [
+        "tag",
+        "purpose",
+        "account",
+        "member",
+        "month"
+      ],
+      "type": "string"
+    },
+    "Measure": {
+      "enum": [
+        "sum",
+        "count"
+      ],
+      "type": "string"
+    },
+    "Period": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "format": "date",
+          "type": "string"
+        },
+        "through": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "through"
+      ],
+      "type": "object"
+    },
+    "RecordKind": {
+      "enum": [
+        "expense",
+        "income",
+        "transfer",
+        "allocation",
+        "reallocation",
+        "refund"
+      ],
+      "type": "string"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "description": "Exactly one way to get the numbers. Every property is present (strict mode);\nthe unused ones are null.",
+      "properties": {
+        "demo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoScene"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Fixed sample data, only when the user explicitly asked for a demo."
+        },
+        "from_call": {
+          "description": "call_id of a succeeded query call from an earlier turn of this reply.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "query": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StatsQuery"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Query the ledger. Same meaning as the matching query tool's arguments."
+        }
+      },
+      "required": [
+        "query",
+        "from_call",
+        "demo"
+      ],
+      "type": "object"
+    },
+    "StatsQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupBy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kinds": {
+          "description": "Empty means expenses.",
+          "items": {
+            "$ref": "#/$defs/RecordKind"
+          },
+          "type": "array"
+        },
+        "measure": {
+          "$ref": "#/$defs/Measure"
+        },
+        "member_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "$ref": "#/$defs/Period"
+        },
+        "purpose_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tag_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "measure",
+        "kinds",
+        "period",
+        "group_by",
+        "account_id",
+        "purpose_id",
+        "tag_id",
+        "member_id"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "$ref": "#/$defs/Source"
+    }
+  },
+  "required": [
+    "source"
+  ],
+  "title": "ShowMetrics",
+  "type": "object"
+}

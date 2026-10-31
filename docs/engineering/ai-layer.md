@@ -373,10 +373,13 @@ Agent 是一个 **ReAct 循环**：调用模型（思考）→ 有工具调用�
 | 没有工具调用的回答 | `markdown` |
 | `create_document` / `update_document` 成功 | `x-jiabu.document_card { documentId, versionAtReply }` |
 | 问数工具 `query_stats { metric, period, filters }`（v1 单主 Agent 的工具） | 服务端执行真实查询 → 单值用 `metric`，多值用 `metric_group`，明细用 `dataset`，按时间的数值用 `time_series`（例如历次视力） |
+| 展示工具 `show_metrics` / `show_trend` / `show_records`（2026-10-31 起，见下） | 服务端查询、填名字和数字 → `metric` / `metric_group`、`time_series`、`dataset` |
 | 首次设置缺多项信息（`ask_user` 的小表单） | `form_intent { action: clarification.answer }`（首次设置不单设动作）；设置完成后账户摘要用 `dataset` |
 | 需要用户确认的操作（改记录等，v1 预留） | 服务端拦下这次工具调用、冻结参数（14.4 C）→ `confirmation { severity, action: pending_operation.confirm, action.expiresAt: 24 小时后 }`，回复暂停（中断，`reason: confirmation`，同样带“输入其他内容”）；确认、取消或写了别的话之后同一条回复继续 |
 
 记录卡、资料卡只带 ID 和回复时的版本 `versionAtReply`（用来显示“后来改过”，技术方案 9.3），卡片内容由客户端从本机已同步的记录读取：编辑 / 撤销后自动更新，聊天记录里也不复制业务数据。
+
+**展示工具（genUI，2026-10-31 方案 v1 第 1 片）**：模型主动“放一个组件”时调用展示工具（`crates/tools/src/display.rs`，只给 Agent、按读处理）。参数只说明数从哪来，`source` 三选一：`query`（与 `query_stats` / `search_records` 同义的查询条件）、`from_call`（本条回复前面某一轮成功的查询调用）、`demo`（固定样例，只在用户本轮输入明确要演示时允许，标题和兜底文字带“【演示数据】”）。校验分四层：参数格式（严格 schema，由 Rust 类型生成）；业务规则（`TypedTool::check`，如期间先后、最长 24 个月、`source` 恰好一种）；查询后的适配（没有数据回 `no_data`，不算模型出错）；块校验（不过说明是服务端的问题：改发完整兜底文字并报 `display_block_invalid`，不让模型重试）。错误只回“字段路径 + 规则”。同一展示工具失败超过改正上限（`MAX_TOOL_CORRECTIONS`）时不让整轮失败：journal 记一条 `display_unavailable` 说明，模型改用文字回答，之后再调用直接拒绝；写入类工具仍按原规则让运行失败。每次结果记一行日志（`display_tool`、`display_outcome`、`rules`、`attempt`）。
 
 ### 13.3 流式与提供方
 

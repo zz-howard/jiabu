@@ -1,0 +1,172 @@
+---
+source: crates/agent/tests/tool_schemas.rs
+expression: tool.parameters()
+---
+{
+  "$defs": {
+    "DemoScene": {
+      "enum": [
+        "monthly_spending",
+        "half_year_trend",
+        "recent_records"
+      ],
+      "type": "string"
+    },
+    "Period": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "format": "date",
+          "type": "string"
+        },
+        "through": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "through"
+      ],
+      "type": "object"
+    },
+    "RecordKind": {
+      "enum": [
+        "expense",
+        "income",
+        "transfer",
+        "allocation",
+        "reallocation",
+        "refund"
+      ],
+      "type": "string"
+    },
+    "RecordsQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kinds": {
+          "description": "Empty means every kind.",
+          "items": {
+            "$ref": "#/$defs/RecordKind"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "description": "1–50, newest first.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "member_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Period"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "purpose_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tag_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "Matches inside notes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kinds",
+        "period",
+        "account_id",
+        "purpose_id",
+        "tag_id",
+        "member_id",
+        "text",
+        "limit"
+      ],
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "description": "Exactly one way to get the numbers. Every property is present (strict mode);\nthe unused ones are null.",
+      "properties": {
+        "demo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoScene"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Fixed sample data, only when the user explicitly asked for a demo."
+        },
+        "from_call": {
+          "description": "call_id of a succeeded query call from an earlier turn of this reply.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "query": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecordsQuery"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Query the ledger. Same meaning as the matching query tool's arguments."
+        }
+      },
+      "required": [
+        "query",
+        "from_call",
+        "demo"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "$ref": "#/$defs/Source"
+    }
+  },
+  "required": [
+    "source"
+  ],
+  "title": "ShowRecords",
+  "type": "object"
+}

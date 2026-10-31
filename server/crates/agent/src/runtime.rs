@@ -375,6 +375,23 @@ impl Runtime {
                     .map_err(protocol_error)?;
                 return Ok(());
             }
+            let newly = if action == NextAction::Model {
+                newly_unavailable_displays(&journal, &calls)
+            } else {
+                vec![]
+            };
+            if !newly.is_empty() {
+                for tool in newly {
+                    tracing::warn!(
+                        error_kind = "display_fallback_text",
+                        tool = %tool,
+                        "Display tool kept failing; the model answers in text"
+                    );
+                    tx.append_journal(space, lease, "note", None, json!({"display_unavailable":tool,"text":format!("{tool} is unavailable for the rest of this reply. Do not call it again; answer briefly in text.")}), None).await?;
+                }
+                tx.commit().await?;
+                continue;
+            }
             tx.commit().await?;
             match action {
                 NextAction::Complete => {
@@ -500,6 +517,7 @@ impl Runtime {
                         block: None,
                         done: false,
                         allowed: &prompt.snapshot.tools,
+                        unavailable: unavailable_displays(&journal),
                         last_event: Arc::new(Mutex::new(Instant::now())),
                     };
                     let last_event = sink.last_event.clone();
@@ -688,9 +706,23 @@ impl Runtime {
                     // Rejected calls get their result in the same commit, so the next
                     // step is another model turn that sees what to correct.
                     for (call_id, output) in &sink.rejected {
+                        let tool = sink
+                            .calls
+                            .iter()
+                            .find(|c| &c.call_id == call_id)
+                            .map_or("", |c| c.tool.as_str());
+                        let rules = output["errors"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|e| e["rule"].as_str())
+                            .collect::<Vec<_>>()
+                            .join(",");
                         tracing::info!(
                             error_kind = "tool_arguments_rejected",
                             error_code = %output["error"].as_str().unwrap_or(""),
+                            tool = %tool,
+                            rules = %rules,
                             "Tool call arguments returned to the model"
                         );
                         tx.append_journal(
@@ -997,6 +1029,8 @@ struct Collector<'a> {
     block: Option<BlockHandle>,
     done: bool,
     allowed: &'a [ToolDefinition],
+    /// Display tools that kept failing in this run; further calls are refused.
+    unavailable: Vec<String>,
     last_event: Arc<Mutex<Instant>>,
 }
 #[async_trait::async_trait]
@@ -1042,7 +1076,13 @@ impl TurnSink for Collector<'_> {
                 if self.calls.iter().any(|c| c.call_id == call_id) {
                     return Err(ProviderError::InvalidOutput);
                 }
-                match check_call(self.runtime, self.allowed, &name, &args_raw) {
+                match check_call(
+                    self.runtime,
+                    self.allowed,
+                    &self.unavailable,
+                    &name,
+                    &args_raw,
+                ) {
                     Ok((tool, args, confirmation)) => self.calls.push(ToolCallRow {
                         call_id: call_id.clone(),
                         tool: name.clone(),
@@ -1116,6 +1156,7 @@ type CheckedCall<'a> = (&'a dyn jiabu_tools::AgentTool, Value, bool);
 fn check_call<'a>(
     runtime: &'a Runtime,
     allowed: &[ToolDefinition],
+    unavailable: &[String],
     name: &str,
     args_raw: &str,
 ) -> Result<CheckedCall<'a>, (i32, Value, Value)> {
@@ -1142,6 +1183,13 @@ fn check_call<'a>(
         }
     };
     let version = tool.schema_version() as i32;
+    if unavailable.iter().any(|t| t == name) {
+        return Err((
+            version,
+            stored(None),
+            json!({"error":"display_unavailable","note":"Answer briefly in text without this tool."}),
+        ));
+    }
     let args: Value = match serde_json::from_str(args_raw) {
         Ok(args) => args,
         Err(_) => {

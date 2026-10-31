@@ -104,7 +104,7 @@ impl SpaceTx {
             balances,
         })
     }
-    async fn ledger_currency(&self, space: SpaceId) -> Result<String, Error> {
+    pub async fn ledger_currency(&self, space: SpaceId) -> Result<String, Error> {
         let row = self
             .tx
             .query_one_raw(Statement::from_sql_and_values(
