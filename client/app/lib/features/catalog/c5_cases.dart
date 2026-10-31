@@ -32,6 +32,8 @@ const c5States = [
   'user_waiting_ai',
   'user_photo',
   'user_manual_takeover',
+  'user_offline',
+  'user_menu',
   'composer_idle',
   'composer_locked',
   'composer_answering',
@@ -534,7 +536,7 @@ class _C5PreviewState extends State<C5Preview> {
         ),
       );
     } else if (state.startsWith('user_')) {
-      body = UserMessageNote(
+      final note = UserMessageNote(
         message: Message.fromJson({
           'id': 'user',
           'role': 'user',
@@ -555,13 +557,43 @@ class _C5PreviewState extends State<C5Preview> {
         }),
         delivery: switch (state) {
           'user_failed' => ChatDelivery.failed,
-          'user_waiting_ai' => ChatDelivery.waitingAi,
+          'user_waiting_ai' || 'user_menu' => ChatDelivery.waitingAi,
           'user_manual_takeover' => ChatDelivery.manual,
           _ => ChatDelivery.pending,
         },
+        online: state != 'user_offline',
         onRetry: () {},
         onManual: () {},
       );
+      // chat5: the long-press menu open over a waiting note.
+      body = state != 'user_menu'
+          ? note
+          : SizedBox.expand(
+              child: Stack(
+                key: const Key('chat-note-menu-preview'),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(JiabuChatMetrics.gap),
+                    child: note,
+                  ),
+                  Positioned.fill(
+                    child: ColoredBox(color: context.jiabu.colors.scrim),
+                  ),
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: JiabuSheet(
+                      child: NoteMenu(
+                        actions: const [
+                          NoteMenuAction.copy,
+                          NoteMenuAction.manual,
+                        ],
+                        onPick: (_) {},
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
     } else if (state.startsWith('composer_')) {
       body = JiabuChatComposer(
         composer: _composer,
@@ -683,10 +715,12 @@ class _C5PreviewState extends State<C5Preview> {
       );
     }
     return JiabuChatWeaveTheme(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(JiabuChatMetrics.gap),
-        child: body,
-      ),
+      child: state == 'user_menu'
+          ? body
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(JiabuChatMetrics.gap),
+              child: body,
+            ),
     );
   }
 

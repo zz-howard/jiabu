@@ -150,22 +150,20 @@ void main() {
         tester.getRect(time).top,
         greaterThan(tester.getRect(note).bottom),
       );
-      // The note only carries what I wrote; state and link are outside it.
+      // The note only carries what I wrote; a normal state says nothing.
       expect(
         find.descendant(of: note, matching: find.text('改为手动填写')),
         findsNothing,
       );
-      expect(
-        find.descendant(of: note, matching: find.text('待 AI 处理')),
-        findsNothing,
-      );
+      expect(find.text('待 AI 处理'), findsNothing);
+      expect(find.byKey(const Key('chat-note-status')), findsNothing);
       expect(
         tester.getRect(note).left,
         greaterThanOrEqualTo(JiabuChatMetrics.noteLead),
       );
     });
 
-    testWidgets('manual entry is a small text link with a 44 tap area', (
+    testWidgets('retry is a small text link with a 44 tap area', (
       tester,
     ) async {
       var taps = 0;
@@ -186,12 +184,12 @@ void main() {
                 'input': {'text': '午饭 68', 'images': <String>[]},
               },
             }),
-            delivery: ChatDelivery.waitingAi,
-            onManual: () => taps++,
+            delivery: ChatDelivery.failed,
+            onRetry: () => taps++,
           ),
         ),
       );
-      final link = find.text('改为手动填写');
+      final link = find.text('重试');
       final style = tester.widget<Text>(link).style!;
       expect(style.fontSize, lessThanOrEqualTo(13));
       expect(style.decoration, TextDecoration.underline);

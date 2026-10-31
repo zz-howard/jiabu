@@ -77,8 +77,18 @@ void main() {
     testWidgets('${state}_keeps_original_and_manual_entry', (tester) async {
       await pumpC3(tester, child: C5Preview(state: state));
       expect(find.text('午饭 68，信用卡，日常餐饮'), findsOneWidget);
-      expect(find.text('改为手动填写'), findsOneWidget);
+      // chat5: manual entry moved off the note into its long-press menu.
+      expect(find.text('改为手动填写'), findsNothing);
       if (state == 'user_failed') expect(find.text('重试'), findsOneWidget);
+      await tester.longPress(find.text('午饭 68，信用卡，日常餐饮'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('chat-note-menu')),
+          matching: find.text('改为手动填写'),
+        ),
+        findsOneWidget,
+      );
     });
   }
   testWidgets('record_card_reference_changed_and_syncing', (tester) async {

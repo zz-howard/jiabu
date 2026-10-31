@@ -49,3 +49,13 @@
 - **测试**：`v5_chat_restore_test.dart` 新增“附件弹层”组（相册页三列、拍照在第一格、格子不矮于格宽、底部分段在格子下面且 ≥ 44；文件页只有图片文件格和说明；三个格子分别让弹层返回 拍照 / 相册 / 文件；`jiabu/image_files` 通道以 `limit: 9` 调用且最多取 9 张），输入栏测试改为“无拍照钮、框内回形针”；`media_and_logs_test` 新增“图片文件走同一条 JPEG 流程”。C5 布局矩阵新增 `attach_gallery`、`attach_files`。负对照：`client/tool/v5b-negative-controls.json`（7 条），并更新 V5 两条的测试名。
 - **Golden**：重录全部聊天 golden（输入栏变化），新增 `chat/attach_gallery_*` 5 张、`chat/attach_files_*` 3 张。
 - **验证**：构建机上 debug APK（dev flavor、arm64）编译通过，包含新的 `MainActivity` 通道；**没有在真机上点过**文件选择器。iOS 端没有工程，不涉及。
+
+## chat5 便利贴下面不再写状态
+
+分支：`chat5-quiet-status`。Howard 认为我的便利贴下面的「待 AI 处理 · 改为手动填写」多余又难看（AI 那边的「思考中」已在显示进度）。
+
+- **状态行只留异常**（`UserMessageNote`，规范 4.9 表格）：`pending` 且在线、`waitingAi`、`complete`、`manual` 下面什么都不写，只剩手写时间；`pending` 且离线 →「等联网后发送」；`failed` →「没发出去 · 重试」（「重试」仍是 Sans 13 下划线小链接、点击区 ≥ 44）。“在线”取 `ChatSession.online`（新参数 `online`，默认 true）。AI 回复自身出错 / 中断时本条消息是 `complete`，错误由 AI 那条消息显示（与之前相同），便利贴下不再重复。
+- **长按菜单**：长按便利贴打开 `JiabuSheet` 纸面弹层 `NoteMenu`：复制（总有）/ 重试（只在 `failed` 且有重试回调）/ 改为手动填写（只在原来出现链接的 `pending`、`failed`、`waitingAi`、`manual`；账本只读时灰色不可点，同原来）。复制后提示条「已复制」。读屏：便利贴是一个语义容器，带长按提示「更多操作」和同样几项自定义操作。
+- **文案**：新 `chatNotSent`、`chatWaitOnline`、`chatNoteCopy`、`chatNoteCopied`、`chatNoteActions`（中英）；删去不再使用的 `chatPending`、`chatFailed`、`chatManualState`。`chatWaitingAi` 仍用于 4.17a 的「待 AI 处理」思考行。没有新的手写字字符。
+- **测试**：新 `test/features/chat5_quiet_status_test.dart`（正常四态无状态文字、只剩时间；离线排队一行；失败一行 + 44 高重试；英文；目录里待 AI / 待上传 / 思考中无状态行；长按菜单在待 AI 时给复制 + 改为手动填写、无重试；失败时有重试；已回复只有复制；复制进剪贴板并提示；只读灰色；读屏自定义操作可触发；200% 字号菜单不出界）。`chat_interaction_test` 四个 `user_*` 改为“便利贴下无改为手动填写、长按菜单里有”；`v5_chat_restore_test` 的链接测试改测「重试」。C5 布局矩阵新增 `user_offline`、`user_menu`。负对照：`client/tool/chat5-negative-controls.json`，V5 的 `manual_link_is_large_again` 改名 `retry_link_is_large_again` 并指向新测试名。
+- **Golden**：重录 `chat/user_*`、带便利贴的对话类状态；新增 `chat/user_offline_*` 5 张、`chat/user_menu_*` 5 张、`chat/user_failed_en_pine_w360_text100`。
