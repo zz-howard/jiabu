@@ -49,12 +49,27 @@ inline Responses `input_file` containing a valid fake PDF completed on
   accidentally share semantics.
 - Extend `RequestItem::Message` with `files`, defaulting to an empty list for
   backward-compatible deserialization of existing journal/history fixtures.
-- Extend `Capabilities` with explicit file support and a maximum file count.
-  SIWC advertises PDF support; current mocks/config fixtures opt in explicitly.
-- A file-bearing chat uses a new `chat_file` task kind rather than overloading
-  `chat_vision`. Add it append-only to database checks, admin parsing, routing,
-  status/OpenAPI projections, and default configuration. Existing chat and
-  vision routes remain unchanged.
+- Extend adapter `Capabilities` with explicit PDF/file support and a maximum
+  file count. SIWC advertises that support; current mocks opt in explicitly.
+  Do not add a model-level `files` column: the dedicated route is the
+  administrator's per-model allowlist, while adapter capability is the hard
+  provider-protocol gate.
+- A file-bearing chat uses a new `chat_file` task kind. This is deliberately not
+  the smallest code diff: it follows the existing `chat_vision` route model,
+  gives waiting/availability and metering a distinct PDF category, and lets an
+  administrator choose the ordered models allowed to receive PDFs. Add it
+  append-only to both task-kind database checks, admin parsing, routing,
+  metering/status/OpenAPI projections, and default configuration.
+- When one message contains both images and files, select `chat_file` and also
+  apply the existing model/adaptor vision and `max_images` filters. Route
+  preflight must evaluate the actual request requirements, not merely the task
+  name, so it cannot optimistically report a file route as usable when every
+  candidate is eliminated by the images.
+- Distinguish route states before waiting: if no configured, enabled, paid-policy
+  eligible, credentialed, file-capable candidate satisfies the request, fail the
+  run immediately with stable reason `no_available_route`; only candidates that
+  exist but are temporarily excluded by an open circuit breaker enter the
+  existing `waiting_ai` retry window.
 
 ### 2. Storage and database
 
@@ -63,14 +78,28 @@ inline Responses `input_file` containing a valid fake PDF completed on
   dimensions nullable only for non-image rows, enforced by a check constraint.
 - Reuse `blobs` and `blob_refs`; add a `chat_file` module/ref kind so generic
   files cannot be mistaken for images by existing document/ledger code.
+- Rebuild the two partial uniqueness indexes so `chat` and `chat_file` are both
+  member-owned: the member index uses
+  `module in ('chat','chat_file')`, and the space/module index excludes both.
+  Update every existing module predicate deliberately: the accepted module list
+  and member-scoped module lookup include `chat_file`; ledger/document promotion
+  continues to accept only the caller's `chat` JPEG ref; the chat-runtime image
+  resolver continues to require `module='chat'` and `image/jpeg`.
 - Keep filename out of global blob metadata because equal content can be sent
   under different names. Filename is message/run metadata.
-- Extend object keys with one raw PDF variant/suffix. Generic file write uses
-  the same put-if-absent and lifecycle lock ordering as JPEGs; cleanup lists and
-  deletes every object variant belonging to a hash.
+- Extend object storage with one raw PDF key/suffix. Generic file write uses the
+  same put-if-absent and lifecycle lock ordering as JPEGs. Update key creation,
+  newest-object lookup, deletion, orphan candidate discovery, and local staging
+  cleanup so both committed and interrupted PDF uploads are collectable while
+  the three JPEG variants remain unchanged.
 - Validate a complete buffered body before the final authorization recheck:
-  size, supplied SHA-256, PDF MIME/header, and a minimally complete PDF trailer.
-  No decompression, parsing, network fetch, or content extraction occurs.
+  size, supplied SHA-256, request Content-Type when present, and this exact PDF
+  envelope rule: byte offset zero is `%PDF-` followed by one ASCII digit, `.`,
+  and one ASCII digit; `%%EOF` occurs within the final 1024 bytes and only ASCII
+  whitespace or NUL follows it. V1 deliberately rejects leading garbage bytes.
+  It does not parse xref/trailer structures, decrypt, decompress, render, fetch,
+  or extract content; encrypted PDFs may upload and later receive the provider's
+  existing request-rejection error.
 
 ### 3. HTTP authorization and replay
 
@@ -79,6 +108,10 @@ inline Responses `input_file` containing a valid fake PDF completed on
   is read and validated and before adding the reference.
 - Repeated uploads still consume and validate the complete body and return the
   same response as a new upload. Global existence is never disclosed.
+- PDF envelope mismatch, an empty body, or a present non-`application/pdf`
+  request Content-Type maps to the existing 415 `unsupported_media_type`;
+  oversize maps to 413 `payload_too_large`; hash mismatch keeps the existing
+  `StorageError::Invalid` / validation mapping. Add no new upload error category.
 - Download begins through `SpaceTx` and requires a `chat_file` ref owned by the
   requesting member. Cross-space, stale membership, and another member's chat
   attachment all return the same not-found behavior.
@@ -105,6 +138,12 @@ inline Responses `input_file` containing a valid fake PDF completed on
   dropped after the provider call.
 - File data never enters journal items, `chat_entries`, frozen history,
   prompt-snapshot rows, metering rows, errors, traces, or debug output.
+- Files remain available for every provider/tool-loop attempt inside the run
+  created by the attaching message. V1 does not automatically resend a PDF in a
+  later user message/run: a follow-up such as “第 3 页呢” sees history text but
+  not the prior file unless the client attaches it again. This matches current
+  image-history behavior and avoids unbounded repeated payload cost; lock it with
+  a test and state it in the public contract.
 
 ### 5. SIWC mapping
 
@@ -121,6 +160,8 @@ inline Responses `input_file` containing a valid fake PDF completed on
       build host.
 - [ ] Add raw PDF validation and raw object-store put/get/delete support without
       changing JPEG behavior.
+- [ ] Rebuild member-vs-space blob-ref uniqueness predicates and audit every
+      `module='chat'` / `module<>'chat'` decision for intentional PDF behavior.
 - [ ] Add file upload/download routes, handlers, service methods, OpenAPI
       annotations, route catalog entries, and isolation-matrix coverage.
 - [ ] Add database methods for saving/resolving member-owned `chat_file` refs
@@ -129,6 +170,8 @@ inline Responses `input_file` containing a valid fake PDF completed on
       retry/render logic with resolved ordered files.
 - [ ] Add `chat_file` task routing and explicit file capabilities across domain,
       configuration, admin, router, mocks, eval fixtures, and status reporting.
+- [ ] Make request-aware route preflight distinguish permanent no-candidate from
+      temporary breaker exclusion, including combined image+PDF requirements.
 - [ ] Add runtime file loading and SIWC `input_file` request construction with
       redacted debug behavior.
 - [ ] Regenerate both OpenAPI documents and update delivery/engineering docs
@@ -145,8 +188,12 @@ inline Responses `input_file` containing a valid fake PDF completed on
 - [ ] Existing JPEG original/display/thumb behavior is unchanged.
 - [ ] Removing the last ref starts retention; cleanup deletes raw PDF objects;
       a concurrent new ref prevents deletion.
-- [ ] Migration up/down/up succeeds on disposable PostgreSQL 18; generated
-      entities match the schema.
+- [ ] An interrupted PDF upload whose transaction never commits is discovered
+      and reclaimed by orphan/staging cleanup after the grace period.
+- [ ] Migration succeeds on a fresh PostgreSQL 18 database and when upgrading a
+      database at migration 0010 that already contains JPEG blob/ref rows;
+      generated entities match the resulting schema. The repository has no down
+      migrations, so no synthetic down/up claim is made.
 
 ### API/security
 
@@ -158,6 +205,11 @@ inline Responses `input_file` containing a valid fake PDF completed on
       `attachment`, and `nosniff`.
 - [ ] Unknown hash, cross-space, other-member, exited/rejoined member, API key,
       and unauthorized cases are indistinguishable where required.
+- [ ] Two members in one space can upload identical PDF bytes, each receives a
+      distinct member-owned ref, each can attach/download their own ref, and
+      neither can infer or access the other's ref.
+- [ ] The legacy JPEG download authorizer rejects the new `chat_file` module by
+      default, preventing the old endpoint from exposing raw PDF content.
 - [ ] Every space path is in the isolation matrix; OpenAPI examples contain
       fake data only.
 
@@ -173,13 +225,24 @@ inline Responses `input_file` containing a valid fake PDF completed on
 - [ ] Frozen input and retry preserve resolved metadata, not bytes/base64.
 - [ ] Router requires file capability and the `chat_file` route, enforces count,
       and never falls through to a paid provider while paid fallback is off.
+- [ ] No configured request-capable candidate fails immediately with
+      `no_available_route`; a request-capable candidate excluded only by its
+      circuit breaker enters the existing wait/retry path.
+- [ ] A combined image+PDF request selects `chat_file`, applies vision and image
+      count filters, and fails immediately when those filters remove all routes.
 - [ ] SIWC wire fixture contains ordered `input_file` parts with filename and
       PDF data URL; unsupported/assistant files fail before network IO.
 - [ ] A runtime test proves bytes are loaded only immediately before a provider
       attempt and a missing object/reference fails without leaking content.
+- [ ] A later user message does not silently inherit the earlier run's PDF; the
+      same-run tool loop continues to receive it on each provider attempt.
 - [ ] Sentinel filename/content/base64 strings are absent from captured logs,
       journal/history/chat rows, prompt snapshots, metering rows, and errors.
 - [ ] Synthetic online SIWC smoke reads a fake PDF and returns its probe value.
+- [ ] Before release, an online synthetic PDF near the 10 MiB per-file limit
+      confirms the provider/request-body limit and records peak request memory;
+      four files/20 MiB raw expands to roughly 27 MiB of base64 before JSON and
+      is reconstructed on each model attempt.
 
 ### Full verification
 
@@ -224,12 +287,14 @@ inline Responses `input_file` containing a valid fake PDF completed on
       the configured account/model before implementation.
 - [x] The upstream request does not require the OpenAI Files API for this path;
       verified by the same inline-data probe.
-- [ ] `chat_file` is the smallest sustainable routing extension. Plan review
-      must verify that adding a task kind is preferable to a generic capability
-      filter on `chat` before implementation.
-- [ ] Minimal PDF header/trailer validation is sufficient for v1 because the
-      server does not parse/render the document. Plan review must confirm the
-      exact accepted signature rule and error category.
+- [x] `chat_file` is the chosen routing extension even though a generic
+      capability filter would touch less code: it follows `chat_vision`, keeps
+      availability/waiting and metering explicit, and makes route configuration
+      the per-model PDF allowlist without adding a model-level files column.
+- [x] Minimal PDF envelope validation is sufficient for v1 because the server
+      does not parse/render the document: strict offset-zero version header plus
+      final-1024-byte `%%EOF` with only whitespace/NUL after it; upload failures
+      reuse the existing 415/413/validation mappings.
 - [x] Client work can follow independently because the new fields are optional
       and existing image contracts remain unchanged.
 
