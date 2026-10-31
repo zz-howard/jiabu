@@ -61,6 +61,8 @@ fn script(f: &mut Fixture, scripts: Vec<TurnScript>) {
             structured: StructuredMode::ToolCall,
             vision: true,
             max_images: 8,
+            files: false,
+            max_files: 0,
             context_tokens: 8192,
         },
         scripts,
@@ -109,6 +111,7 @@ async fn start(f: &Fixture, text: &str) -> Result<jiabu_agent::StartResponse> {
                 id: Uuid::now_v7(),
                 text: Some(text.into()),
                 images: vec![],
+                files: vec![],
             },
         )
         .await?)

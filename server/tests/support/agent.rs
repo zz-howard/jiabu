@@ -110,6 +110,8 @@ impl Fixture {
                 structured: StructuredMode::ToolCall,
                 vision: true,
                 max_images: 8,
+                files: false,
+                max_files: 0,
                 context_tokens: 8192,
             },
             scripts,
@@ -164,6 +166,7 @@ impl Fixture {
                     id: Uuid::now_v7(),
                     text: Some("虚构输入 / Synthetic input".into()),
                     images: vec![],
+                    files: vec![],
                 },
             )
             .await?)

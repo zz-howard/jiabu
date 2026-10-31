@@ -184,6 +184,8 @@ async fn reload_with_key(
             structured: jiabu_ai::StructuredMode::ToolCall,
             vision: true,
             max_images: 8,
+            files: true,
+            max_files: 4,
             context_tokens: 0,
         };
         providers.push(Arc::new(SiwcProvider::new(p.id.clone(), caps, manager)?));
@@ -516,6 +518,8 @@ mod tests {
                     structured: StructuredMode::ToolCall,
                     vision: true,
                     max_images: 8,
+                    files: false,
+                    max_files: 0,
                     context_tokens: 32000,
                 }),
                 TaskKind::Probe,
@@ -550,6 +554,8 @@ mod tests {
                 structured: StructuredMode::ToolCall,
                 vision: true,
                 max_images: 8,
+                files: false,
+                max_files: 0,
                 context_tokens: 32000,
             },
             vec![vec![

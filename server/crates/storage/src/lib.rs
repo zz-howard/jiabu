@@ -1,4 +1,5 @@
 //! Content addressed JPEG objects. No database or authorization decisions live here.
+mod files;
 mod images;
 mod jpeg_exif;
 mod objects;
@@ -9,6 +10,8 @@ pub use objects::{BlobHash, BlobStore, ObjectCandidate, StoredBlob, Variant};
 pub enum StorageError {
     #[error("unsupported_media_type")]
     NotJpeg,
+    #[error("unsupported_media_type")]
+    NotPdf,
     #[error("payload_too_large")]
     TooLarge,
     #[error("validation_failed")]
@@ -28,3 +31,4 @@ impl From<object_store::Error> for StorageError {
 }
 #[cfg(test)]
 mod tests;
+pub use files::{MAX_PDF_BYTES, PreparedFile, prepare_pdf};

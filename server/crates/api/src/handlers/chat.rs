@@ -13,11 +13,19 @@ use uuid::Uuid;
 
 #[derive(Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
+pub struct FileInput {
+    pub sha256: String,
+    pub name: String,
+}
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MessageInput {
     pub id: Uuid,
     pub text: Option<String>,
     #[serde(default)]
     pub images: Vec<String>,
+    #[serde(default)]
+    pub files: Vec<FileInput>,
 }
 #[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -153,6 +161,14 @@ pub(crate) async fn send(
                 id: input.id,
                 text: input.text,
                 images: input.images,
+                files: input
+                    .files
+                    .into_iter()
+                    .map(|file| jiabu_agent::SubmittedFile {
+                        sha256: file.sha256,
+                        name: file.name,
+                    })
+                    .collect(),
             },
         )
         .await?,

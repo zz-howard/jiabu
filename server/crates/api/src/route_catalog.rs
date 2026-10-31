@@ -38,6 +38,16 @@ fn build() -> (
     mount!("POST", "/v1/sync/pull", sync::pull);
     mount!("PUT", "/v1/spaces/{space_id}/blobs/{sha256}", blobs::upload);
     mount!("GET", "/v1/spaces/{space_id}/blobs/{sha256}", blobs::get);
+    mount!(
+        "PUT",
+        "/v1/spaces/{space_id}/files/{sha256}",
+        blobs::upload_file
+    );
+    mount!(
+        "GET",
+        "/v1/spaces/{space_id}/files/{sha256}",
+        blobs::get_file
+    );
     mount!("POST", "/v1/spaces/{space_id}/chat/messages", chat::send);
     mount!(
         "GET",

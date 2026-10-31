@@ -120,6 +120,8 @@ impl Scenario {
                     structured: StructuredMode::ToolCall,
                     vision: true,
                     max_images: 8,
+                    files: false,
+                    max_files: 0,
                     context_tokens: 8192,
                 },
                 scripts,
@@ -220,6 +222,7 @@ impl Scenario {
                     id: Uuid::now_v7(),
                     text: Some(e.input.text.clone()),
                     images: self.images.clone(),
+                    files: vec![],
                 },
                 at,
             )

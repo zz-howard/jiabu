@@ -118,6 +118,7 @@ pub fn request() -> TurnRequest {
             role: "user".into(),
             text: "Synthetic receipt".into(),
             images: vec!["data:image/jpeg;base64,/9j/2Q==".into()],
+            files: vec![],
         }],
     }
 }
@@ -126,6 +127,8 @@ pub fn capabilities() -> Capabilities {
         structured: StructuredMode::ToolCall,
         vision: true,
         max_images: 8,
+        files: false,
+        max_files: 0,
         context_tokens: 32000,
     }
 }

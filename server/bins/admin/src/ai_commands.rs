@@ -322,6 +322,7 @@ fn task(value: &str) -> Result<TaskKind> {
     match value {
         "chat" => Ok(TaskKind::Chat),
         "chat_vision" => Ok(TaskKind::ChatVision),
+        "chat_file" => Ok(TaskKind::ChatFile),
         "probe" => Ok(TaskKind::Probe),
         _ => anyhow::bail!("invalid task kind"),
     }

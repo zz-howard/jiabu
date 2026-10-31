@@ -9,9 +9,10 @@ pub fn body(
     let mut input = vec![];
     for item in &req.items {
         input.push(match item {
-            RequestItem::Message { role, text, images } => {
+            RequestItem::Message { role, text, images, files } => {
                 if !matches!(role.as_str(), "user" | "assistant" | "developer") { return Err(ProviderError::Unsupported("message role")); }
                 if role == "assistant" && !images.is_empty() { return Err(ProviderError::Unsupported("assistant images")); }
+                if role == "assistant" && !files.is_empty() { return Err(ProviderError::Unsupported("assistant files")); }
                 // Upstream rejects `input_text` parts in assistant history (invalid_value at
                 // input[n].content[0]); plain string content is valid for every role.
                 if role == "assistant" { input.push(json!({"role":role,"content":text})); continue; }
@@ -19,6 +20,12 @@ pub fn body(
                 for image in images {
                     if !image.starts_with("data:image/jpeg;base64,") { return Err(ProviderError::Unsupported("JPEG data URL required")); }
                     content.push(json!({"type":"input_image","image_url":image,"detail":"auto"}));
+                }
+                for file in files {
+                    if file.mime != "application/pdf" || !file.data.starts_with("data:application/pdf;base64,") {
+                        return Err(ProviderError::Unsupported("PDF data URL required"));
+                    }
+                    content.push(json!({"type":"input_file","filename":file.name,"file_data":file.data}));
                 }
                 json!({"role":role,"content":content})
             },

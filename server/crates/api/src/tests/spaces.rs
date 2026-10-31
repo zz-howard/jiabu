@@ -1255,7 +1255,11 @@ async fn cross_space_child_ids_and_session_only_routes() -> Result<()> {
         // Tool routes validate arguments before the Idempotency-Key check (S5 order:
         // member -> read-only -> authorize -> replay); the generic matrix body is not a
         // valid tool argument, so missing-key coverage for tools lives in tests::api_keys.
-        if requires_key && !route.path.contains("/tools/") && !route.path.contains("/blobs/") {
+        if requires_key
+            && !route.path.contains("/tools/")
+            && !route.path.contains("/blobs/")
+            && !route.path.contains("/files/")
+        {
             let missing = app
                 .request(
                     route.method,

@@ -6,7 +6,34 @@ use jiabu_db::{AppDb, Mode, OperationError, Principal, SpaceTx};
 use jiabu_domain::{JoinEpoch, SpaceId};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
+const MAX_FILES: usize = 4;
+const MAX_FILE_BYTES: i64 = 20 * 1024 * 1024;
+
+fn valid_filename(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && name.trim() == name
+        && !matches!(name, "." | "..")
+        && !name
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '/' | '\\'))
+}
+fn file_hash(value: &str) -> Option<[u8; 32]> {
+    if value.len() != 64 {
+        return None;
+    }
+    let mut result = [0_u8; 32];
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+        let nibble = |byte| match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            _ => None,
+        };
+        result[index] = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+    }
+    Some(result)
+}
 /// A request binds its space and epoch explicitly; neither is inferred from a
 /// message UUID. HTTP binds it after checking membership and request headers.
 pub struct ScopedRuns {
@@ -81,10 +108,16 @@ impl ScopedRuns {
         submitted_at: DateTime<Utc>,
     ) -> Result<StartResponse, OperationError> {
         let tx = self.begin(p).await?;
-        if input.text.as_deref().unwrap_or_default().trim().is_empty() && input.images.is_empty() {
+        if input.text.as_deref().unwrap_or_default().trim().is_empty()
+            && input.images.is_empty()
+            && input.files.is_empty()
+        {
             return Err(OperationError::invalid());
         }
-        if input.text.as_ref().is_some_and(|s| s.len() > 32000) || input.images.len() > 8 {
+        if input.text.as_ref().is_some_and(|s| s.len() > 32000)
+            || input.images.len() > 8
+            || input.files.len() > MAX_FILES
+        {
             return Err(OperationError::invalid());
         }
         // Image references must already be verified original blob IDs. Never
@@ -92,8 +125,33 @@ impl ScopedRuns {
         for image in &input.images {
             tx.require_chat_image(self.space, image).await?;
         }
+        let mut hashes = HashSet::new();
+        let mut combined_bytes = 0_i64;
+        let mut files = Vec::with_capacity(input.files.len());
+        for file in &input.files {
+            if !valid_filename(&file.name) || !hashes.insert(file.sha256.as_str()) {
+                return Err(OperationError::invalid());
+            }
+            let hash = file_hash(&file.sha256).ok_or_else(OperationError::invalid)?;
+            let Some((mime, bytes)) = tx.chat_file_metadata(self.space, &hash).await? else {
+                return Err(OperationError::invalid());
+            };
+            combined_bytes = combined_bytes
+                .checked_add(bytes)
+                .ok_or_else(OperationError::invalid)?;
+            if combined_bytes > MAX_FILE_BYTES {
+                return Err(OperationError::invalid());
+            }
+            files.push(ResolvedFile {
+                sha256: file.sha256.clone(),
+                name: file.name.clone(),
+                mime,
+                bytes,
+            });
+        }
+        let files = serde_json::to_value(&files).map_err(protocol_error)?;
         if let Some(existing) = tx.message(self.space, input.id).await? {
-            let expected = json!({"text":input.text,"images":input.images});
+            let expected = json!({"text":input.text,"images":input.images,"files":files});
             if existing.message["metadata"]["input"] != expected {
                 return Err(OperationError::new(409, "idempotency_conflict"));
             }
@@ -125,7 +183,7 @@ impl ScopedRuns {
         let message = Uuid::now_v7();
         let now = submitted_at.to_rfc3339();
         let text = input.text.clone().unwrap_or_default();
-        let user = json!({"protocolVersion":"0.1","id":input.id,"conversationId":conversation,"role":"user","status":"complete","rev":1,"createdAt":now,"fallbackText":text,"blocks":[],"metadata":{"input":{"text":input.text,"images":input.images},"locale":p.user.locale}});
+        let user = json!({"protocolVersion":"0.1","id":input.id,"conversationId":conversation,"role":"user","status":"complete","rev":1,"createdAt":now,"fallbackText":text,"blocks":[],"metadata":{"input":{"text":input.text,"images":input.images,"files":files.clone()},"locale":p.user.locale}});
         tx.insert_message(self.space, conversation, None, None, user, 0)
             .await?;
         let mut config = StreamConfig::new(message.to_string());
@@ -173,7 +231,7 @@ impl ScopedRuns {
             model: String::new(),
             parameters: jiabu_ai::ModelParameters::default(),
         };
-        tx.seed_run_context(self.space,run,context,json!({"text":text,"images":user_images(&input.images),"locale":p.user.locale,"submitted_at":now}),json!({"snapshot":snapshot,"tool_versions":versions})).await?;
+        tx.seed_run_context(self.space,run,context,json!({"text":text,"images":user_images(&input.images),"files":files,"locale":p.user.locale,"submitted_at":now}),json!({"snapshot":snapshot,"tool_versions":versions})).await?;
         tx.commit().await?;
         for b in closing {
             jiabu_chat::publish(&self.hub, b)

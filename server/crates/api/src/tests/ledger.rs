@@ -736,7 +736,7 @@ async fn exposure_status_schemas_and_oneof_are_public_contracts() -> Result<()> 
         .await?;
     assert_eq!(
         status.json(),
-        json!({"ai_available":false,"ai_reason":"unavailable"})
+        json!({"ai_available":false,"ai_reason":"unavailable","file_ai_available":false,"file_ai_reason":"unavailable"})
     );
     let tools = h
         .app

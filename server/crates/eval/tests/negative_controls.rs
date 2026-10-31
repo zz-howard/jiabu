@@ -193,6 +193,8 @@ fn replace_scripts(s: &Scenario, scripts: Vec<jiabu_ai::mock::TurnScript>) {
             structured: StructuredMode::ToolCall,
             vision: true,
             max_images: 8,
+            files: false,
+            max_files: 0,
             context_tokens: 8192,
         },
         scripts,
@@ -272,6 +274,8 @@ async fn tool_argument_audit_counts_invalid_calls_before_runtime_can_discard_the
             structured: StructuredMode::ToolCall,
             vision: false,
             max_images: 0,
+            files: false,
+            max_files: 0,
             context_tokens: 8192,
         },
         vec![vec![

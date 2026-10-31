@@ -1,4 +1,4 @@
-use crate::{PreparedJpeg, StorageError};
+use crate::{PreparedFile, PreparedJpeg, StorageError};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures_util::{Stream, StreamExt, TryStreamExt};
@@ -137,7 +137,7 @@ impl BlobStore {
                 let Some((hash, suffix)) = key.split_once('.') else {
                     continue;
                 };
-                if !matches!(suffix, "orig.jpg" | "1600.jpg" | "512.jpg")
+                if !matches!(suffix, "orig.jpg" | "1600.jpg" | "512.jpg" | "file.pdf")
                     || BlobHash::parse(hash).is_err()
                     || &hash[..2] != name
                 {
@@ -175,6 +175,10 @@ impl BlobStore {
             variant.suffix()
         ))
     }
+    fn file_key(hash: BlobHash) -> Path {
+        let hash = hash.to_string();
+        Path::from(format!("blobs/{}/{}.file.pdf", &hash[..2], hash))
+    }
     /// Called only inside the final lifecycle critical section. Conditional
     /// creation is atomic; no partial object is exposed by LocalFileSystem.
     pub async fn put_if_absent(&self, image: &PreparedJpeg) -> Result<(), StorageError> {
@@ -207,6 +211,30 @@ impl BlobStore {
         }
         Ok(())
     }
+    /// Called only inside the final lifecycle critical section.
+    pub async fn put_file_if_absent(&self, file: &PreparedFile) -> Result<(), StorageError> {
+        let path = Self::file_key(file.hash);
+        match self.store.head(&path).await {
+            Ok(_) => return Ok(()),
+            Err(object_store::Error::NotFound { .. }) => {}
+            Err(error) => return Err(error.into()),
+        }
+        match self
+            .store
+            .put_opts(
+                &path,
+                file.bytes.clone().into(),
+                PutOptions {
+                    mode: PutMode::Create,
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            Ok(_) | Err(object_store::Error::AlreadyExists { .. }) => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
     pub async fn get_stream(
         &self,
         hash: BlobHash,
@@ -214,6 +242,15 @@ impl BlobStore {
     ) -> Result<StoredBlob, StorageError> {
         let object = self.store.get(&Self::key(hash, variant)).await?;
         // object_store releases expose usize or u64 here; normalize the wire length.
+        #[allow(clippy::unnecessary_cast)]
+        let bytes = object.meta.size as u64;
+        Ok(StoredBlob {
+            bytes,
+            stream: Box::pin(object.into_stream().map_err(StorageError::from)),
+        })
+    }
+    pub async fn get_file_stream(&self, hash: BlobHash) -> Result<StoredBlob, StorageError> {
+        let object = self.store.get(&Self::file_key(hash)).await?;
         #[allow(clippy::unnecessary_cast)]
         let bytes = object.meta.size as u64;
         Ok(StoredBlob {
@@ -233,6 +270,13 @@ impl BlobStore {
                 Err(error) => return Err(error.into()),
             }
         }
+        match self.store.head(&Self::file_key(hash)).await {
+            Ok(meta) => {
+                newest = Some(newest.map_or(meta.last_modified, |old| old.max(meta.last_modified)))
+            }
+            Err(object_store::Error::NotFound { .. }) => {}
+            Err(error) => return Err(error.into()),
+        }
         Ok(newest)
     }
     pub async fn delete(&self, hash: BlobHash) -> Result<(), StorageError> {
@@ -241,6 +285,10 @@ impl BlobStore {
                 Ok(()) | Err(object_store::Error::NotFound { .. }) => {}
                 Err(error) => return Err(error.into()),
             }
+        }
+        match self.store.delete(&Self::file_key(hash)).await {
+            Ok(()) | Err(object_store::Error::NotFound { .. }) => {}
+            Err(error) => return Err(error.into()),
         }
         Ok(())
     }
@@ -260,7 +308,7 @@ impl BlobStore {
             let Some((hash, suffix)) = parts[2].split_once('.') else {
                 continue;
             };
-            if !matches!(suffix, "orig.jpg" | "1600.jpg" | "512.jpg")
+            if !matches!(suffix, "orig.jpg" | "1600.jpg" | "512.jpg" | "file.pdf")
                 || hash.len() != 64
                 || !hash.is_ascii()
                 || parts[1] != &hash[..2]

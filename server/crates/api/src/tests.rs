@@ -214,6 +214,8 @@ const ISOLATION_MATRIX: &[(&str, &str)] = &[
     ("POST", "/v1/spaces/{space_id}/tools/delete_subject"),
     ("PUT", "/v1/spaces/{space_id}/blobs/{sha256}"),
     ("GET", "/v1/spaces/{space_id}/blobs/{sha256}"),
+    ("PUT", "/v1/spaces/{space_id}/files/{sha256}"),
+    ("GET", "/v1/spaces/{space_id}/files/{sha256}"),
     ("GET", "/v1/spaces/{space_id}/tools"),
     ("POST", "/v1/spaces/{space_id}/tools/list_accounts"),
     ("POST", "/v1/spaces/{space_id}/tools/list_tags"),
@@ -350,6 +352,19 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
                         &[("x-jiabu-join-epoch", "1".into())],
                     )
                     .await?
+                } else if pattern.contains("/files/") {
+                    let file = b"%PDF-1.7\nsynthetic\n%%EOF\n".to_vec();
+                    let hash = s4::hash(&file);
+                    let path = path.replace("{sha256}", &hash.to_string());
+                    app.raw_request(
+                        method,
+                        &path,
+                        file,
+                        "application/pdf",
+                        Some(caller),
+                        &[("x-jiabu-join-epoch", "1".into())],
+                    )
+                    .await?
                 } else {
                     app.request(
                         method,
@@ -376,7 +391,7 @@ async fn isolation_matrix_responses_are_byte_identical() -> Result<()> {
                 if expected == StatusCode::FORBIDDEN {
                     assert_eq!(
                         reply.json()["code"],
-                        if pattern.contains("/chat/") {
+                        if pattern.contains("/chat/") || pattern.contains("/files/") {
                             "api_key_ai_not_allowed"
                         } else {
                             "api_key_not_allowed"
@@ -1211,6 +1226,8 @@ async fn status_uses_chat_availability_with_session_or_key_and_never_creates_run
             structured: StructuredMode::ToolCall,
             vision: true,
             max_images: 8,
+            files: false,
+            max_files: 0,
             context_tokens: 1000,
         },
         vec![],

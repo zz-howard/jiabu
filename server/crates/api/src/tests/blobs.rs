@@ -1,8 +1,192 @@
 use super::{s4::*, *};
 use jiabu_domain::{SpaceId, spaces::Change};
-use jiabu_storage::ImageLimits;
+use jiabu_storage::{BlobHash, ImageLimits};
 use std::{future::Future, sync::Arc, task::Poll, time::Duration};
 use tokio::sync::Notify;
+
+fn fake_pdf() -> Vec<u8> {
+    b"%PDF-1.7\nsynthetic attachment\n%%EOF\n".to_vec()
+}
+async fn put_file(
+    h: &S4App,
+    space: Uuid,
+    bytes: Vec<u8>,
+    token: &str,
+    content_type: &str,
+) -> Result<Reply> {
+    let sha = hash(&bytes);
+    h.app
+        .raw_request(
+            "PUT",
+            &format!("/v1/spaces/{space}/files/{sha}"),
+            bytes,
+            content_type,
+            Some(token),
+            &[("x-jiabu-join-epoch", "1".into())],
+        )
+        .await
+}
+async fn get_file(h: &S4App, space: Uuid, sha: BlobHash, token: &str) -> Result<Reply> {
+    h.app
+        .raw_request(
+            "GET",
+            &format!("/v1/spaces/{space}/files/{sha}"),
+            vec![],
+            "application/pdf",
+            Some(token),
+            &[],
+        )
+        .await
+}
+
+#[tokio::test]
+async fn pdf_files_are_member_owned_and_download_with_safe_headers() -> Result<()> {
+    let h = S4App::new().await?;
+    let space = h.new_space().await?;
+    let guest = h.actor("pdf-guest", space).await?;
+    let bytes = fake_pdf();
+    let sha = hash(&bytes);
+    let first = put_file(&h, space, bytes.clone(), &guest.token, "application/pdf").await?;
+    assert_eq!(first.status, StatusCode::NO_CONTENT);
+    let repeated = put_file(&h, space, bytes.clone(), &guest.token, "application/pdf").await?;
+    assert_eq!(repeated.status, first.status);
+    let mut first_headers = first.headers.clone();
+    let mut repeated_headers = repeated.headers.clone();
+    first_headers.remove("x-request-id");
+    repeated_headers.remove("x-request-id");
+    assert_eq!(repeated_headers, first_headers);
+    assert_eq!(repeated.bytes, first.bytes);
+    assert_eq!(
+        get_file(&h, space, sha, &h.token).await?.status,
+        StatusCode::NOT_FOUND
+    );
+    let guest_download = get_file(&h, space, sha, &guest.token).await?;
+    assert_eq!(guest_download.status, StatusCode::OK);
+    assert_eq!(guest_download.bytes, bytes);
+    assert_eq!(guest_download.headers["content-type"], "application/pdf");
+    assert_eq!(guest_download.headers["content-disposition"], "attachment");
+    assert_eq!(guest_download.headers["x-content-type-options"], "nosniff");
+
+    assert_eq!(
+        put_file(
+            &h,
+            space,
+            bytes.clone(),
+            &h.token,
+            "application/pdf; charset=binary"
+        )
+        .await?
+        .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        get_file(&h, space, sha, &h.token).await?.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        h.get(space, sha, "original", &guest.token).await?.status,
+        StatusCode::NOT_FOUND,
+        "legacy JPEG endpoint must reject chat_file refs"
+    );
+    let owner = h.app.fixture.owner().await?;
+    let refs: i64 = sqlx::query_scalar(
+        "select count(*) from blob_refs where space_id=$1 and module='chat_file'",
+    )
+    .bind(space)
+    .fetch_one(&owner)
+    .await?;
+    assert_eq!(refs, 2);
+    owner.close().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn pdf_upload_validates_complete_body_type_hash_and_size() -> Result<()> {
+    let h = S4App::new().await?;
+    let bytes = fake_pdf();
+    let sha = hash(&bytes);
+    let path = format!("/v1/spaces/{}/files/{sha}", h.space);
+    for (body, content_type, expected) in [
+        (
+            vec![],
+            "application/pdf",
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            b"not a pdf".to_vec(),
+            "application/pdf",
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            bytes.clone(),
+            "text/plain",
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+    ] {
+        let reply = h
+            .app
+            .raw_request(
+                "PUT",
+                &path,
+                body,
+                content_type,
+                Some(&h.token),
+                &[("x-jiabu-join-epoch", "1".into())],
+            )
+            .await?;
+        assert_eq!(reply.status, expected);
+    }
+    let request = Request::builder()
+        .method("PUT")
+        .uri(&path)
+        .header("authorization", format!("Bearer {}", h.token))
+        .header("x-jiabu-join-epoch", "1")
+        .body(Body::from(bytes.clone()))?;
+    assert_eq!(
+        h.app.router.clone().oneshot(request).await?.status(),
+        StatusCode::NO_CONTENT,
+        "an absent Content-Type is accepted because the PDF envelope is authoritative"
+    );
+    assert_eq!(
+        h.app
+            .raw_request(
+                "PUT",
+                &path,
+                b"%PDF-1.7\nmissing trailer".to_vec(),
+                "application/pdf",
+                Some(&h.token),
+                &[("x-jiabu-join-epoch", "1".into())],
+            )
+            .await?
+            .status,
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "an existing hash must not bypass complete-body validation"
+    );
+    let wrong_hash = format!("/v1/spaces/{}/files/{}", h.space, "00".repeat(32));
+    assert_eq!(
+        h.app
+            .raw_request(
+                "PUT",
+                &wrong_hash,
+                bytes,
+                "application/pdf",
+                Some(&h.token),
+                &[("x-jiabu-join-epoch", "1".into())],
+            )
+            .await?
+            .status,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut over = b"%PDF-1.7\n".to_vec();
+    over.resize(10 * 1024 * 1024 + 1, b'x');
+    assert_eq!(
+        put_file(&h, h.space, over, &h.token, "application/pdf")
+            .await?
+            .status,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    Ok(())
+}
 
 #[tokio::test]
 async fn blob_upload_responses_identical_for_repeat_cross_space_and_second_chat_member()
@@ -395,6 +579,57 @@ async fn blob_finish_rechecks_epoch_and_grants_after_processing_barrier() -> Res
     }).await??;
     Ok(())
 }
+
+#[tokio::test]
+async fn pdf_finish_rechecks_epoch_after_processing_barrier() -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let mut h = S4App::new().await?;
+        let space = h.new_space().await?;
+        let guest = h.actor("pdf-race-guest", space).await?;
+        let bytes = fake_pdf();
+        let sha = hash(&bytes);
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        h.state.upload_gate = Some((entered.clone(), release.clone()));
+        h.app.router = crate::router(h.state.clone());
+        let router = h.app.router.clone();
+        let token = guest.token.clone();
+        let pending = tokio::spawn(async move {
+            let request = Request::builder()
+                .method("PUT")
+                .uri(format!("/v1/spaces/{space}/files/{sha}"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/pdf")
+                .header("x-jiabu-join-epoch", "1")
+                .body(Body::from(bytes))?;
+            Ok::<_, anyhow::Error>(router.oneshot(request).await?)
+        });
+        entered.notified().await;
+        let tx = SpaceTx::begin(
+            &h.state.db,
+            guest.user,
+            &[(SpaceId(space), None)],
+            Mode::Write,
+        )
+        .await?;
+        tx.apply_change(SpaceId(space), Change::Leave, Uuid::now_v7())
+            .await?;
+        tx.commit().await?;
+        assert_eq!(
+            h.join(guest.user, &guest.username, space).await?,
+            guest.member
+        );
+        release.notify_one();
+        let response = pending.await??;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let problem: Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+        assert_eq!(problem["code"], "membership_changed");
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    Ok(())
+}
+
 #[tokio::test]
 async fn record_attachment_requires_blob_upload_before_tool_and_rejected_op_can_retry() -> Result<()>
 {

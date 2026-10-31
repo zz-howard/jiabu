@@ -683,6 +683,22 @@
         ],
         "type": "object"
       },
+      "FileInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "name"
+        ],
+        "type": "object"
+      },
       "InviteRequest": {
         "additionalProperties": false,
         "properties": {
@@ -840,6 +856,12 @@
       "MessageInput": {
         "additionalProperties": false,
         "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/FileInput"
+            },
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "type": "string"
@@ -1565,11 +1587,19 @@
           },
           "ai_reason": {
             "type": "string"
+          },
+          "file_ai_available": {
+            "type": "boolean"
+          },
+          "file_ai_reason": {
+            "type": "string"
           }
         },
         "required": [
           "ai_available",
-          "ai_reason"
+          "ai_reason",
+          "file_ai_available",
+          "file_ai_reason"
         ],
         "type": "object"
       },
@@ -11375,6 +11405,253 @@
         ]
       }
     },
+    "/v1/spaces/{space_id}/files/{sha256}": {
+      "get": {
+        "operationId": "get_file",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {
+                "example": "%PDF-1.7\n...",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Streaming PDF bytes"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "upload_file",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "space_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Jiabu-Join-Epoch",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/pdf": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Complete PDF bytes, including on repeated uploads",
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Stored; empty response for both new and existing content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/v1/spaces/{space_id}/invitations": {
       "get": {
         "operationId": "invitations",
@@ -17520,14 +17797,16 @@
               "application/json": {
                 "example": {
                   "ai_available": false,
-                  "ai_reason": "unavailable"
+                  "ai_reason": "unavailable",
+                  "file_ai_available": false,
+                  "file_ai_reason": "unavailable"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/Status"
                 }
               }
             },
-            "description": "Availability of the configured chat route"
+            "description": "Availability of the configured chat routes"
           }
         },
         "security": [

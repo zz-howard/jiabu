@@ -50,6 +50,8 @@ fn script(f: &mut Fixture, scripts: Vec<TurnScript>) {
             structured: StructuredMode::ToolCall,
             vision: true,
             max_images: 8,
+            files: false,
+            max_files: 0,
             context_tokens: 8192,
         },
         scripts,

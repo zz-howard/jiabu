@@ -79,6 +79,7 @@ pub fn render_request(
             role: message["role"].as_str().unwrap_or("assistant").into(),
             text: message["fallbackText"].as_str().unwrap_or_default().into(),
             images: vec![],
+            files: vec![],
         });
     }
     items.push(RequestItem::Message {
@@ -89,6 +90,18 @@ pub fn render_request(
             .into_iter()
             .flatten()
             .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect(),
+        files: prompt.input["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|file| {
+                Some(jiabu_ai::FileAttachment {
+                    name: file["name"].as_str()?.to_owned(),
+                    mime: file["mime"].as_str()?.to_owned(),
+                    data: file["sha256"].as_str()?.to_owned(),
+                })
+            })
             .collect(),
     });
     for item in journal {
@@ -106,6 +119,7 @@ pub fn render_request(
                         role: "assistant".into(),
                         text: text.into(),
                         images: vec![],
+                        files: vec![],
                     });
                 }
                 if let Some(output) = item.payload["items"].as_array() {
@@ -140,6 +154,7 @@ pub fn render_request(
                 role: "developer".into(),
                 text: serde_json::to_string(&canonical(&item.payload))?,
                 images: vec![],
+                files: vec![],
             }),
             _ => {}
         }

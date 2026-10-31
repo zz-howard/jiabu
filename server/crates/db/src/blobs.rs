@@ -35,6 +35,21 @@ impl SpaceTx {
             vec![sha.to_vec().into(),bytes.into(),dimensions.0.into(),dimensions.1.into(),now.into()])).await?;
         Ok(())
     }
+    pub async fn save_file(
+        &self,
+        space: SpaceId,
+        sha: &[u8],
+        bytes: i64,
+        now: DateTime<Utc>,
+    ) -> Result<(), Error> {
+        self.assert_write();
+        self.member(space);
+        self.lock_blobs().await?;
+        self.tx.execute_raw(Statement::from_sql_and_values(DbBackend::Postgres,
+            "insert into blobs(sha256,mime,bytes,width,height,created_at,unreferenced_at) values($1,'application/pdf',$2,null,null,$3,$3) on conflict do nothing",
+            vec![sha.to_vec().into(),bytes.into(),now.into()])).await?;
+        Ok(())
+    }
     pub async fn add_blob_ref(
         &self,
         space: SpaceId,
@@ -44,7 +59,7 @@ impl SpaceTx {
     ) -> Result<(), Error> {
         self.assert_write();
         let member = self.member(space);
-        if !matches!(module, "ledger" | "documents" | "chat") {
+        if !matches!(module, "ledger" | "documents" | "chat" | "chat_file") {
             return Err(Error::invalid());
         }
         self.lock_blobs().await?;
@@ -58,11 +73,23 @@ impl SpaceTx {
     pub async fn blob_ref_modules(&self, space: SpaceId, sha: &[u8]) -> Result<Vec<String>, DbErr> {
         let member = self.member(space);
         let rows=self.tx.query_all_raw(Statement::from_sql_and_values(DbBackend::Postgres,
-            "select module from blob_refs where space_id=$1 and sha256=$2 and (module<>'chat' or uploaded_by_member_id=$3)",
+            "select module from blob_refs where space_id=$1 and sha256=$2 and (module not in ('chat','chat_file') or uploaded_by_member_id=$3)",
             vec![space.0.into(),sha.to_vec().into(),member.id().0.into()])).await?;
         rows.into_iter()
             .map(|row| row.try_get("", "module"))
             .collect()
+    }
+    pub async fn chat_file_metadata(
+        &self,
+        space: SpaceId,
+        sha: &[u8],
+    ) -> Result<Option<(String, i64)>, DbErr> {
+        let member = self.member(space);
+        let row=self.tx.query_one_raw(Statement::from_sql_and_values(DbBackend::Postgres,
+            "select b.mime,b.bytes from blobs b join blob_refs r on r.sha256=b.sha256 where r.space_id=$1 and r.module='chat_file' and r.uploaded_by_member_id=$2 and b.sha256=$3 and b.mime='application/pdf'",
+            vec![space.0.into(),member.id().0.into(),sha.to_vec().into()])).await?;
+        row.map(|row| Ok((row.try_get("", "mime")?, row.try_get("", "bytes")?)))
+            .transpose()
     }
     /// Called only by an authorized ledger write. The source must be an existing
     /// ledger reference or the current caller's chat reference, never another's.
