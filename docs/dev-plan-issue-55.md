@@ -44,11 +44,16 @@ presentation only; it has no visual design or deployment work.
 - [ ] Parse `v`, `blocks`, and `features` with explicit raw-length, section,
   entry, token-length, and integer bounds before constructing collections.
 - [ ] Reject malformed syntax, duplicate sections, duplicate block names,
-  conflicting values, zero versions, and integer overflow.
-- [ ] Accept bounded syntactically valid unknown block names; interpret a
-  declared version as the highest compatible schema version.
+  duplicate features/protocol versions, conflicting values, unknown 0.1
+  feature tokens, zero versions, and integer overflow, matching the pinned
+  ChatWeave 0.1 capability schema.
+- [ ] Accept bounded syntactically valid host-defined `x-*` block names even
+  when Jiabu does not register them; reject unknown bare built-in names per the
+  pinned ChatWeave capability schema. Interpret a declared version as the
+  highest compatible schema version.
 - [ ] Treat absent/empty declarations and valid non-0.1 protocol declarations
-  as text-only for blocks. Keep malformed declarations as HTTP 400.
+  as text-only for blocks and as having no negotiated stream features. Keep
+  malformed declarations as HTTP 400.
 - [ ] Make stream resume derive only stream features from the shared parser and
   never write capabilities to a run.
 
@@ -76,6 +81,11 @@ presentation only; it has no visual design or deployment work.
   without changing its snapshot.
 - [ ] Make explicit retry create or replay exactly one child with the retry
   request's own snapshot; an absent header is an empty/text-only snapshot.
+- [ ] Pass the retry `Idempotency-Key` into `ScopedRuns::retry` and persist it as
+  `agent_runs.origin_request_id` in the same statement that creates the child
+  and capability snapshot. The same key replays that child without mutation;
+  a different key after a child exists returns stable 409
+  `retry_already_accepted` instead of adopting another device's child.
 - [ ] Expose the snapshot on `RunRow` only to presentation mapping; never add it
   to the prompt snapshot.
 
@@ -116,13 +126,16 @@ presentation only; it has no visual design or deployment work.
 
 ### Parser and API
 
-- [ ] Canonical order, whitespace/order variants, unknown names, empty maps,
-  unsupported protocol versions, and max-version compatibility (`2` accepts
-  emitted schema `1`).
-- [ ] Duplicate sections/entries, conflicting values, malformed names/versions,
-  zero/overflow versions, oversize headers, and every configured count bound.
+- [ ] Canonical order, whitespace/order variants, unknown valid `x-*` names,
+  invalid bare built-in names, empty maps, unsupported protocol versions, and
+  max-version compatibility (`2` accepts emitted schema `1`).
+- [ ] Duplicate sections/entries/features/protocol versions, conflicting
+  values, unknown 0.1 features, malformed names/versions, zero/overflow
+  versions, oversize headers, and every configured count bound.
 - [ ] Stream feature negotiation uses the same parser while a mismatched stream
   block map cannot mutate the stored run.
+- [ ] A valid non-0.1 header negotiates neither structured blocks nor stream
+  snapshot/activity features.
 
 ### Client durability and transport
 
@@ -141,6 +154,9 @@ presentation only; it has no visual design or deployment work.
 - [ ] Same-request replay does not mutate the snapshot.
 - [ ] Explicit retry and response-lost retry-child replay are stable; a retry
   without a header never inherits the original run.
+- [ ] Concurrent retries from two devices are first-writer-wins: the winning
+  key's snapshot is frozen, its same-key replay succeeds, and the losing
+  different key receives 409 without reading or reusing the child snapshot.
 - [ ] Cross-member, cross-space, and cross-device scenarios cannot read or reuse
   another run's snapshot.
 
