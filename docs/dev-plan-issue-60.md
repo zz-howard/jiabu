@@ -28,16 +28,18 @@ Out of scope:
 Use two independent canonical objects rather than one display intent:
 
 - `DisplaySelection`: the ordered display-tool enum only (`show_metrics`, `show_breakdown`, `show_bar_chart`, `show_trend`, `show_records`, `show_account_card`; extend only from the repository's fixed display-tool allowlist). The display tool is never part of query comparison.
-- `CanonicalQuery`: source family (`stats`, `records`, `demo`, or `account`), plus only the behaviorally material query fields for that family. Stats retain measure, kinds, period, grouping, filters, and account alias. Records retain structured filters, ordering, limit, and a `text_present` boolean; raw search text is never stored or exported. Demo retains an allowlisted scene enum. Account retains a stable fixture alias, never a UUID.
+- `CanonicalQuery`: source family (`stats`, `records`, `demo`, or `account`), plus only the behaviorally material query fields for that family. Stats retain measure, kinds, period, grouping, filters, and account alias. Records retain structured filters, ordering, limit, and a `text_present` boolean. When search text is present, compare normalized actual text to expected text transiently while the journal value is in scope, retain only a non-content `text_equal` result, and never copy the text into canonical/audit/report structures. Demo retains an allowlisted scene enum. Account retains a stable fixture alias, never a UUID.
 
 Pair expected and actual display calls by display-call ordinal. Missing, extra, or reordered display calls fail display-selection cardinality/order. For a paired call:
 
 - Display selection is pass/fail from the tool enum alone, even when its arguments are invalid.
-- Argument validity is pass/fail from provider validation and, for executed calls, the journal outcome.
+- Argument validity is pass/fail only from provider/tool-schema validation (including tool-specific argument checks). A schema-valid call remains valid if execution later returns a business/runtime error. Execution outcome is a separate internal fact used for `from_call` resolution and the preserved legacy business-error check.
 - Query semantics is tri-state: `pass`, `fail`, or `not_assessable`. It is `not_assessable` when an expected call is missing, arguments cannot be parsed, a `from_call` reference is absent/later/failed, or the source family cannot be resolved. Query pass rate uses only pass+fail as its denominator, while reports must show the `not_assessable` count separately. A required row with `not_assessable` still fails the unchanged row hard-pass result through the missing/invalid display layer; it can never become green by leaving the query denominator.
 - Block shape, factual values, and prose/safety continue to score from delivered output, independently of the three call layers.
 
 Direct-query and `from_call` paths compare equal only after both resolve to the same `CanonicalQuery`. Build a journal result map keyed by call ID containing tool, typed arguments, ordinal, and actual success/failure outcome; never infer success from call presence or order. A reference is eligible only when it points to an earlier successful compatible source call (`query_stats` for stats displays, `search_records` for record-list displays).
+
+Preserve the two existing row invariants exactly: global provider-invalid count (`tool_total - tool_valid`) must equal `expected_invalid_calls`, and global journal business-error count must equal `expected_business_errors`. Mismatches keep the existing `display_invalid_call_mismatch` / `display_business_error_mismatch` reasons and continue to feed `display_pass` and therefore `hard_pass`. These legacy whole-run checks include non-display calls and are reported separately from the new per-display argument-validity layer. `display-018` removes its nonzero expectations as frozen below; all other entries retain their current values/defaults.
 
 ## Frozen Case Revisions
 
@@ -57,11 +59,11 @@ Tier assignments outside those five cases are also frozen: `display-013` through
 - [ ] Introduce separate `DisplaySelection` and `CanonicalQuery` types and the ordered pairing/tri-state rules from the scoring model.
 - [ ] Normalize nested versus flat filters and fixture IDs to stable aliases. Do not retain display tool type inside `CanonicalQuery`.
 - [ ] Build the per-call journal result map keyed by call ID and dereference only earlier, successful, compatible source calls.
-- [ ] Keep non-equivalent queries distinct: wrong source family, measure/kind, period, grouping, filter, record ordering/limit/text-presence, demo scene, account alias, or unresolved/incompatible `from_call` must not pass query semantics.
+- [ ] Keep non-equivalent queries distinct: wrong source family, measure/kind, period, grouping, filter, record ordering/limit/text equality, demo scene, account alias, or unresolved/incompatible `from_call` must not pass query semantics. Compare search text transiently and retain/export only presence/equality signals.
 - [ ] Extend the provider audit with a bounded display-call record. Tool names serialize only as a fixed known-tool enum or `<unknown>`; arbitrary names are never copied. Arguments serialize only through allowlisted typed fields. Record-search text becomes presence/equality signals only, never text. UUIDs become fixture aliases or `<redacted-id>`.
-- [ ] Cap audited display calls at 16 per case and every list at 16 items; cap allowlisted labels/enum-like strings at 64 UTF-8 bytes. On overflow, retain the prefix, set an explicit `truncated: true` marker and count, and fail argument validity with `audit_overflow`; never append the discarded content.
+- [ ] Cap audited display calls at 16 per case and every list at 16 items; cap allowlisted labels/enum-like strings at 64 UTF-8 bytes. On overflow, retain the prefix, set an explicit `audit_complete: false`, `truncated: true` marker and discarded count, and never append discarded content. Audit completeness is a separate diagnostic: overflow does not turn individually schema-valid calls into invalid calls and does not alter the preserved hard-pass formula.
 - [ ] Export CSV columns for tier, expected/actual display selections, bounded canonical-query summaries, display-selection score, query-semantic tri-state, query `not_assessable` count, and argument-validity score. Keep existing block/value/prose columns and replace the overloaded reason with layer-specific allowlisted reason codes.
-- [ ] Add overall and per-tier summary rows for the unchanged hard-pass count and each new display layer. Preserve existing business and question metrics, existing CLI exit codes, and current hard-pass behavior.
+- [ ] Add overall and per-tier summary rows for the unchanged hard-pass count and each new display layer. Preserve existing business and question metrics, existing CLI exit codes, current hard-pass behavior, and the exact global invalid-call/business-error comparisons described above.
 - [ ] Apply the exact five case revisions above without changing the 84-entry count.
 - [ ] Update eval README/schema documentation so future cases declare whether they test user behavior, integration fallback, or stress behavior and do not pre-register an arbitrary equivalent transport path.
 - [ ] Check all repository consumers of result CSV before changing the header; update only in-repository consumers in this slice.
@@ -74,10 +76,11 @@ Tier assignments outside those five cases are also frozen: `display-013` through
 - [ ] Journal tests prove `from_call` resolution uses the actual result mapped by call ID; present-but-failed, later, missing, and source-incompatible references cannot pass.
 - [ ] Negative controls independently mutate only display tool, query period, grouping, filter, limit, demo scene, source-call compatibility/order/outcome, validity, block type, and value. Each mutation turns red only in its intended layer, except the documented hard-pass consequence.
 - [ ] A direct query and an equivalent source-query path both pass selection/query semantics; an exact-trace plumbing test still distinguishes them where explicitly required.
-- [ ] Invalid JSON, unknown tool, invalid schema, valid-but-business-rejected calls, and 17+ repeated invalid calls produce bounded sanitized evidence. Overflow sets the marker/reason and never emits discarded content.
+- [ ] Invalid JSON, unknown tool, invalid schema, valid-but-business-rejected calls, and 17+ repeated calls produce bounded sanitized evidence. A valid-but-business-rejected call remains argument-valid; repeated individually valid calls remain valid. Overflow only makes `audit_complete` false, sets truncation/count fields, and never emits discarded content.
 - [ ] Malicious unknown tool names, record-search text, labels, URLs, DSNs, bearer tokens, note text, upstream errors, and UUIDs cannot enter CSV evidence. Tests assert `<unknown>`, presence/equality signals, stable aliases/redaction, byte caps, and RFC 4180 escaping instead of raw content.
 - [ ] The old `display-018` invalid-call fallback remains covered by deterministic fault injection and no live case asks a model to make a bad call.
 - [ ] Result and summary CSV tests cover all new columns, tier rows, empty query denominators, explicit `not_assessable`, stable ordering, caps, overflow, and escaping.
+- [ ] Regression tests retain whole-run `expected_invalid_calls` and `expected_business_errors` behavior, including invalid non-display calls, the existing reason codes, and their current effect on `display_pass`, `hard_pass`, and CLI exit code.
 - [ ] Deterministic PostgreSQL Mock evaluation remains 84/84 on the revised corpus.
 - [ ] Existing scoring, CLI, negative-control, live-feature compile-only, and synthetic credential tests remain green.
 - [ ] Full x86 build-host gates pass: format, workspace/live checks, clippy, complete nextest, deny, audit, admin dependency boundary, rules, entities, and OpenAPI checks.
@@ -95,7 +98,7 @@ Tier assignments outside those five cases are also frozen: `display-013` through
 - [ ] A failed row states independently whether display selection, query meaning, argument validity, final block, factual value, or prose contract failed.
 - [ ] `display-002` passes with either equivalent query path, while a wrong display type fails only selection and a wrong month/group/filter fails query semantics.
 - [ ] The five corrected live inputs, setups, canonical queries, tiers, outputs, and fallbacks match the frozen definitions above and contain no hidden requirement to make an invalid call.
-- [ ] Evidence contains only known enums/`<unknown>`, stable aliases/redactions, bounded allowlisted fields, and non-content signals; malicious raw content cannot survive into CSV.
+- [ ] Evidence contains only known enums/`<unknown>`, stable aliases/redactions, bounded allowlisted fields, and non-content presence/equality signals; differently worded non-empty record searches fail query semantics without either text entering CSV.
 - [ ] Core, integration, and stress results are separately visible; the unchanged overall total and CLI behavior remain available, and no new tier gate is introduced.
 - [ ] Independent plan and code review find no P0/P1/P2 issue.
 - [ ] All offline gates and Mock 84/84 pass.
