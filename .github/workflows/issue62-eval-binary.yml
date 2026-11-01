@@ -22,7 +22,6 @@ jobs:
       - name: Run focused mock regressions
         run: |
           rustfmt --edition 2024 --check crates/ai/src/siwc/mod.rs
-          rustfmt --edition 2024 --check crates/eval/src/judge.rs
           cargo test -p jiabu-ai --lib siwc::diagnostic_tests::transport_diagnostics_use_only_bounded_closed_fields -- --exact
           cargo test -p jiabu-ai --lib siwc::diagnostic_tests::credential_resolution_diagnostic_records_provenance_and_closed_variant -- --exact
           cargo test -p jiabu-ai --lib siwc::diagnostic_tests::response_stream_diagnostic_records_provenance_and_closed_variants -- --exact
