@@ -558,6 +558,9 @@ fn money_variants(value_minor: i64) -> Vec<String> {
         format!("{sign}{absolute} 分"),
         format!("{sign}{absolute}分"),
     ];
+    if fen != 0 && fen % 10 == 0 {
+        variants.push(format!("{sign}{yuan}.{}", fen / 10));
+    }
     if fen == 0 {
         variants.extend([
             format!("{sign}{yuan} 元"),
@@ -569,7 +572,7 @@ fn money_variants(value_minor: i64) -> Vec<String> {
     variants
 }
 fn prose_money_values(prose: &str) -> Vec<i64> {
-    let mut values = Vec::new();
+    let mut values = BTreeMap::new();
     let chars = prose.chars().collect::<Vec<_>>();
     let numeric = |character: char| character.is_ascii_digit() || matches!(character, '.' | '-');
     for (index, character) in chars.iter().enumerate() {
@@ -579,11 +582,14 @@ fn prose_money_values(prose: &str) -> Vec<i64> {
                 .take_while(|character| numeric(**character))
                 .collect::<String>();
             if let Ok(value) = token.parse::<f64>() {
-                values.push((value * 100.0).round() as i64);
+                values.insert(
+                    (index + 1, index + 1 + token.chars().count()),
+                    (value * 100.0).round() as i64,
+                );
             }
         }
         if matches!(*character, '元' | '分') {
-            let token = chars[..index]
+            let raw = chars[..index]
                 .iter()
                 .rev()
                 .take_while(|character| numeric(**character) || character.is_whitespace())
@@ -591,18 +597,142 @@ fn prose_money_values(prose: &str) -> Vec<i64> {
                 .collect::<Vec<_>>()
                 .into_iter()
                 .rev()
-                .collect::<String>();
-            if let Ok(value) = token.trim().parse::<f64>() {
-                values.push(if *character == '元' {
-                    (value * 100.0).round() as i64
-                } else {
-                    value.round() as i64
-                });
+                .collect::<Vec<_>>();
+            let leading = raw.iter().take_while(|character| character.is_whitespace()).count();
+            let trailing = raw
+                .iter()
+                .rev()
+                .take_while(|character| character.is_whitespace())
+                .count();
+            let start = index - raw.len() + leading;
+            let end = index - trailing;
+            let token = chars[start..end].iter().collect::<String>();
+            if let Ok(value) = token.parse::<f64>() {
+                values.insert(
+                    (start, end),
+                    if *character == '元' {
+                        (value * 100.0).round() as i64
+                    } else {
+                        value.round() as i64
+                    },
+                );
             }
         }
     }
+    let mut values = values.into_values().collect::<Vec<_>>();
     values.sort_unstable();
     values
+}
+fn kind_terms(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "expense" => &["expense", "支出", "消费"],
+        "income" => &["income", "收入"],
+        "transfer" => &["transfer", "转账"],
+        "reallocation" => &["reallocation", "调拨"],
+        "refund" => &["refund", "退款"],
+        _ => &[],
+    }
+}
+fn segment_kind_pass(segment: &str, expected: &str) -> bool {
+    let lower = segment.to_lowercase();
+    kind_terms(expected).iter().any(|term| lower.contains(term))
+        && ["expense", "income", "transfer", "reallocation", "refund"]
+            .into_iter()
+            .filter(|kind| *kind != expected)
+            .all(|kind| !kind_terms(kind).iter().any(|term| lower.contains(term)))
+}
+fn setup_name<'a>(e: &'a Entry, alias: &str) -> Option<&'a str> {
+    e.setup
+        .accounts
+        .iter()
+        .find(|candidate| candidate.key == alias)
+        .map(|candidate| candidate.name.as_str())
+}
+fn rich_block_facts_pass(e: &Entry, alternative: &DisplayAlternative, actual: &[&Value]) -> bool {
+    let records = alternative
+        .facts
+        .iter()
+        .filter_map(|fact| match fact {
+            DisplayFact::Record {
+                date,
+                record_kind,
+                amount_minor,
+                account,
+                purpose,
+                note,
+            } => Some((date, record_kind, amount_minor, account, purpose, note)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if records.is_empty() {
+        return true;
+    }
+    let rows = actual
+        .iter()
+        .filter(|block| block["type"] == "dataset")
+        .flat_map(|block| {
+            block["data"]["rows"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+        })
+        .collect::<Vec<_>>();
+    rows.len() == records.len()
+        && rows.iter().zip(records).all(|(row, fact)| {
+            let (date, record_kind, amount_minor, account, purpose, note) = fact;
+            row["date"] == json!(date)
+                && row["amount"] == json!(amount_minor)
+                && row["kind"]
+                    .as_str()
+                    .is_some_and(|kind| segment_kind_pass(kind, record_kind))
+                && account.as_ref().is_none_or(|alias| {
+                    setup_name(e, alias).is_some_and(|name| row["account"] == name)
+                })
+                && purpose.as_ref().is_none_or(|alias| {
+                    setup_name(e, alias).is_some_and(|name| row["purpose"] == name)
+                })
+                && note.as_ref().map_or(row["note"].is_null(), |note| {
+                    row["note"].as_str() == Some(note.as_str())
+                })
+        })
+}
+fn supplemental_prose_pass(alternative: &DisplayAlternative, prose: &str) -> bool {
+    if prose.is_empty() {
+        return true;
+    }
+    let mut expected_money = BTreeMap::<i64, usize>::new();
+    let mut expected_kinds = BTreeSet::new();
+    for fact in &alternative.facts {
+        match fact {
+            DisplayFact::Aggregate { value_minor, .. }
+            | DisplayFact::Record { amount_minor: value_minor, .. }
+            | DisplayFact::AccountBalance {
+                balance_minor: value_minor,
+                ..
+            } => *expected_money.entry(*value_minor).or_default() += 1,
+            DisplayFact::NoData => {}
+        }
+        if let DisplayFact::Record { record_kind, .. } = fact {
+            expected_kinds.insert(record_kind.as_str());
+        }
+    }
+    for value in prose_money_values(prose) {
+        let Some(remaining) = expected_money.get_mut(&value) else {
+            return false;
+        };
+        if *remaining == 0 {
+            return false;
+        }
+        *remaining -= 1;
+    }
+    ["expense", "income", "transfer", "reallocation", "refund"]
+        .into_iter()
+        .all(|kind| {
+            expected_kinds.contains(kind)
+                || !kind_terms(kind)
+                    .iter()
+                    .any(|term| prose.to_lowercase().contains(&term.to_lowercase()))
+        })
 }
 fn prose_facts_pass(
     e: &Entry,
@@ -655,18 +785,9 @@ fn prose_facts_pass(
             note,
             ..
         } => {
-            let kind_present = lower.contains(record_kind)
-                || match record_kind.as_str() {
-                    "expense" => prose.contains("支出") || prose.contains("消费"),
-                    "income" => prose.contains("收入"),
-                    "transfer" => prose.contains("转账"),
-                    "reallocation" => prose.contains("调拨"),
-                    "refund" => prose.contains("退款"),
-                    _ => false,
-                };
             segments.iter().any(|segment| {
                 segment.contains(&date.to_string())
-                    && kind_present
+                    && segment_kind_pass(segment, record_kind)
                     && money_variants(*amount_minor)
                         .iter()
                         .any(|value| contains_number(segment, value))
@@ -1113,6 +1234,18 @@ fn display_alternative_score(
         result.values.total += 1;
         result.values.correct += usize::from(
             actual.is_empty() && prose_facts_pass(e, alternative, fact_text, o, ids),
+        );
+    } else if !alternative.facts.is_empty() {
+        let supplemental = blocks
+            .iter()
+            .filter(|block| block["type"] == "markdown")
+            .filter_map(|block| block["fallbackText"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        result.values.total += 1;
+        result.values.correct += usize::from(
+            rich_block_facts_pass(e, alternative, &actual)
+                && supplemental_prose_pass(alternative, &supplemental),
         );
     }
     if expect.prose.forbid_mermaid && prose.to_ascii_lowercase().contains("```mermaid") {

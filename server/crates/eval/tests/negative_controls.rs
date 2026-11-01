@@ -573,7 +573,20 @@ fn alternative_message(entry: &dataset::Entry, index: usize) -> Value {
                 "breakdown" => json!({"parts":expected.labels.iter().zip(&expected.values_minor).map(|(label,value)|json!({"label":label,"value":value})).collect::<Vec<_>>()}),
                 "category_series" => json!({"points":expected.labels.iter().zip(&expected.values_minor).map(|(label,value)|json!({"label":label,"value":value})).collect::<Vec<_>>()}),
                 "time_series" => json!({"yUnit":"元","series":[{"points":expected.labels.iter().zip(&expected.values_minor).map(|(label,value)|json!({"x":label,"y":*value as f64/100.0})).collect::<Vec<_>>()}]}),
-                "dataset" if expected.labels.first().is_some_and(|label| label.starts_with("2026-")) => json!({"columns":[{"key":"date"}],"rows":expected.labels.iter().zip(&expected.values_minor).map(|(date,amount)|json!({"date":date,"amount":amount})).collect::<Vec<_>>()}),
+                "dataset" if expected.labels.first().is_some_and(|label| label.starts_with("2026-")) => json!({
+                    "columns":[{"key":"date"},{"key":"kind"},{"key":"amount"},{"key":"purpose"},{"key":"account"},{"key":"note"}],
+                    "rows":expected.labels.iter().zip(&expected.values_minor).map(|(date,amount)| {
+                        let fact = alternative.facts.iter().find_map(|fact| match fact {
+                            dataset::DisplayFact::Record { date: fact_date, record_kind, account, purpose, note, .. }
+                                if fact_date.to_string() == date.as_str() => Some((record_kind, account, purpose, note)),
+                            _ => None,
+                        }).expect("record fact");
+                        let name = |alias: &Option<String>| alias.as_ref().and_then(|alias| {
+                            entry.setup.accounts.iter().find(|candidate| candidate.key == *alias)
+                        }).map(|candidate| candidate.name.clone());
+                        json!({"date":date,"kind":fact.0,"amount":amount,"account":name(fact.1),"purpose":name(fact.2),"note":fact.3})
+                    }).collect::<Vec<_>>()
+                }),
                 "dataset" => json!({"columns":[{"key":"label"}],"rows":expected.labels.iter().zip(&expected.values_minor).map(|(label,value)|json!({"label":label,"value":value})).collect::<Vec<_>>()}),
                 other => panic!("unsupported test block {other}"),
             };
@@ -617,6 +630,93 @@ fn every_declared_flexible_path_passes_its_complete_contract() {
                 entry.expect.display.as_ref().unwrap().alternatives[index].id
             );
         }
+    }
+}
+
+#[test]
+fn record_blocks_require_complete_typed_facts_and_reject_conflicting_markdown() {
+    let entry = display_entry("display-005.yaml");
+    let valid = alternative_message(&entry, 0);
+    assert!(
+        scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation(&entry, valid.clone()),
+        )
+        .display_pass
+    );
+    for pointer in [
+        "/blocks/0/data/rows/0/kind",
+        "/blocks/0/data/rows/0/account",
+        "/blocks/0/data/rows/0/purpose",
+    ] {
+        let mut missing = valid.clone();
+        *missing.pointer_mut(pointer).unwrap() = Value::Null;
+        assert!(
+            !scoring::score(
+                &entry,
+                &Identities::default(),
+                &display_observation(&entry, missing),
+            )
+            .display_pass,
+            "missing typed field survived: {pointer}"
+        );
+    }
+    let mut conflict = valid;
+    conflict["blocks"].as_array_mut().unwrap().push(json!({
+        "type":"markdown",
+        "data":{"text":"这些其实都是收入。"},
+        "fallbackText":"这些其实都是收入。"
+    }));
+    assert!(
+        !scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation(&entry, conflict),
+        )
+        .display_pass
+    );
+}
+
+#[test]
+fn record_kind_is_bound_to_each_row_and_conflicts_are_rejected() {
+    let entry = display_entry("display-005.yaml");
+    let score = |prose: &str| {
+        let message = json!({
+            "fallbackText":prose,
+            "blocks":[{"type":"markdown","data":{"text":prose},"fallbackText":prose}]
+        });
+        scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation_for(&entry, 1, message),
+        )
+    };
+    let correct = "支出明细\n2026-10-03 支出 虚构银行卡 虚构日常 30.00 元\n2026-10-02 支出 虚构银行卡 虚构日常 20.00 元\n2026-10-01 支出 虚构银行卡 虚构日常 10.00 元";
+    assert!(score(correct).display_pass);
+    assert!(!score(&correct.replace("2026-10-03 支出", "2026-10-03 收入")).display_pass);
+    assert!(
+        !score(&correct.replace("2026-10-03 支出", "2026-10-03 支出、收入")).display_pass
+    );
+}
+
+#[test]
+fn prose_money_accepts_trimmed_decimals_and_deduplicates_symbol_plus_unit() {
+    let mut entry = display_entry("display-019.yaml");
+    entry.expect.display.as_mut().unwrap().alternatives[0]
+        .fallback_contains
+        .clear();
+    for prose in ["本月总支出 68.5 元", "本月总支出 ¥68.00 元"] {
+        let message = json!({
+            "fallbackText":prose,
+            "blocks":[{"type":"markdown","data":{"text":prose},"fallbackText":prose}]
+        });
+        let row = scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation(&entry, message),
+        );
+        assert!(row.display_pass, "{prose}: {:?}", row.reasons);
     }
 }
 
