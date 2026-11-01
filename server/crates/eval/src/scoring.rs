@@ -623,6 +623,51 @@ fn prose_money_values(prose: &str) -> Vec<i64> {
     values.sort_unstable();
     values
 }
+fn prose_money_values_pass(
+    alternative: &DisplayAlternative,
+    prose: &str,
+    allow_aggregate_total: bool,
+) -> bool {
+    let mut expected = alternative
+        .facts
+        .iter()
+        .filter_map(|fact| match fact {
+            DisplayFact::Aggregate { value_minor, .. }
+            | DisplayFact::Record { amount_minor: value_minor, .. }
+            | DisplayFact::AccountBalance {
+                balance_minor: value_minor,
+                ..
+            } => Some(*value_minor),
+            DisplayFact::NoData => None,
+        })
+        .collect::<Vec<_>>();
+    expected.sort_unstable();
+    let actual = prose_money_values(prose);
+    if actual == expected {
+        return true;
+    }
+    if !allow_aggregate_total || expected.len() < 2 {
+        return false;
+    }
+    let aggregate_values = alternative
+        .facts
+        .iter()
+        .map(|fact| match fact {
+            DisplayFact::Aggregate { value_minor, .. } => Some(*value_minor),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(total) = aggregate_values.and_then(|values| {
+        values
+            .into_iter()
+            .try_fold(0_i64, |total, value| total.checked_add(value))
+    }) else {
+        return false;
+    };
+    expected.push(total);
+    expected.sort_unstable();
+    actual == expected
+}
 fn kind_terms(kind: &str) -> &'static [&'static str] {
     match kind {
         "expense" => &["expense", "支出", "消费"],
@@ -740,6 +785,7 @@ fn prose_facts_pass(
     prose: &str,
     o: &Observation,
     ids: &Identities,
+    allow_aggregate_total: bool,
 ) -> bool {
     if alternative.facts.is_empty() {
         return true;
@@ -750,21 +796,7 @@ fn prose_facts_pass(
         .map(str::trim)
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>();
-    let mut expected_money = alternative
-        .facts
-        .iter()
-        .filter_map(|fact| match fact {
-            DisplayFact::Aggregate { value_minor, .. }
-            | DisplayFact::Record { amount_minor: value_minor, .. }
-            | DisplayFact::AccountBalance {
-                balance_minor: value_minor,
-                ..
-            } => Some(*value_minor),
-            DisplayFact::NoData => None,
-        })
-        .collect::<Vec<_>>();
-    expected_money.sort_unstable();
-    if prose_money_values(prose) != expected_money {
+    if !prose_money_values_pass(alternative, prose, allow_aggregate_total) {
         return false;
     }
     alternative.facts.iter().all(|fact| match fact {
@@ -1224,16 +1256,25 @@ fn display_alternative_score(
         prose = fallback.to_owned();
     }
     if alternative.blocks.is_empty() && !alternative.facts.is_empty() {
+        let server_fact_text = !alternative.calls.is_empty() && !server_fallback.is_empty();
         let fact_text = if alternative.calls.is_empty() {
             prose.as_str()
-        } else if !server_fallback.is_empty() {
+        } else if server_fact_text {
             server_fallback.as_str()
         } else {
             fallback
         };
         result.values.total += 1;
         result.values.correct += usize::from(
-            actual.is_empty() && prose_facts_pass(e, alternative, fact_text, o, ids),
+            actual.is_empty()
+                && prose_facts_pass(
+                    e,
+                    alternative,
+                    fact_text,
+                    o,
+                    ids,
+                    server_fact_text,
+                ),
         );
     } else if !alternative.facts.is_empty() {
         let supplemental = blocks

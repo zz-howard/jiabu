@@ -873,6 +873,25 @@ fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutat
         .display_pass,
         "model prose must not satisfy a server fallback assertion"
     );
+    let mut aggregate_total = display_observation(&fallback, json!({"fallbackText":"","blocks":[]}));
+    aggregate_total.server_fallbacks = vec![
+        "虚构日常 ¥68.00；虚构储备 ¥32.00；合计 ¥100.00".into(),
+    ];
+    assert!(
+        scoring::score(&fallback, &Identities::default(), &aggregate_total).display_pass,
+        "the exact aggregate sum is a valid server fallback total"
+    );
+    for wrong in [
+        "虚构日常 ¥68.00；虚构储备 ¥32.00；合计 ¥101.00",
+        "虚构日常 ¥68.00；虚构储备 ¥32.00；合计 ¥100.00；其他 ¥1.00",
+    ] {
+        let mut extra = aggregate_total.clone();
+        extra.server_fallbacks = vec![wrong.into()];
+        assert!(
+            !scoring::score(&fallback, &Identities::default(), &extra).display_pass,
+            "wrong or additional server fallback amount survived: {wrong}"
+        );
+    }
 
     let linked = display_entry("display-002.yaml");
     let mut wrong_link = display_observation(
