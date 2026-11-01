@@ -366,13 +366,7 @@ impl Scenario {
                     })
                     .collect::<Vec<_>>();
                 balances.sort();
-                Some((
-                    call_id.clone(),
-                    BalanceResult {
-                        currency,
-                        balances,
-                    },
-                ))
+                Some((call_id.clone(), BalanceResult { currency, balances }))
             })
             .collect();
         let blocks = checkpoint.message.0["blocks"]

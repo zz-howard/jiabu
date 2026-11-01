@@ -152,7 +152,10 @@ pub struct DisplayAlternative {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DisplayFact {
-    Aggregate { label: String, value_minor: i64 },
+    Aggregate {
+        label: String,
+        value_minor: i64,
+    },
     Record {
         date: NaiveDate,
         record_kind: String,
@@ -516,234 +519,240 @@ pub fn validate(entries: &[Entry], root: &Path) -> Result<()> {
                     "invalid display alternative id"
                 );
                 ensure!(
-                alternative.calls.len() <= 8
-                    && alternative.calls.iter().all(|call| call.args.is_object()
-                        && matches!(
-                            call.tool.as_str(),
-                            "show_metrics"
-                                | "show_records"
-                                | "show_trend"
-                                | "show_breakdown"
-                                | "show_bar_chart"
-                                | "show_account_card"
-                        )),
-                "invalid display tools"
-            );
-            ensure!(
-                alternative.source_calls.len() <= 4
-                    && alternative.source_calls.iter().all(|call| {
-                        call.args.is_object()
-                            && match call.tool.as_str() {
-                                "query_stats" | "search_records" => true,
-                                "query_balance" => call.args.as_object().is_some_and(|o| o.is_empty()),
-                                _ => false,
-                            }
-                    }),
-                "invalid display source tools"
-            );
-            ensure!(alternative.blocks.len() <= 8, "too many expected blocks");
-            ensure!(
-                !alternative.facts.is_empty() && alternative.facts.len() <= 50,
-                "display alternative needs one to fifty closed facts"
-            );
-            ensure!(
-                alternative.expected_invalid_calls
-                    <= alternative.calls.len() + alternative.source_calls.len()
-                    && alternative.expected_business_errors
-                        <= alternative.calls.len() + alternative.source_calls.len(),
-                "invalid expected display error counts"
-            );
-            ensure!(
-                alternative.fallback_contains.len() <= 16
-                    && alternative
-                        .fallback_contains
-                        .iter()
-                        .all(|text| !text.is_empty() && text.chars().count() <= 100),
-                "invalid fallback assertions"
-            );
-            ensure!(
-                alternative.server_fallback_contains.len() <= 16
-                    && alternative
-                        .server_fallback_contains
-                        .iter()
-                        .all(|text| !text.is_empty() && text.chars().count() <= 100),
-                "invalid server fallback assertions"
-            );
-            for block in &alternative.blocks {
-                ensure!(
-                    matches!(
-                        block.kind.as_str(),
-                        "metric"
-                            | "metric_group"
-                            | "dataset"
-                            | "time_series"
-                            | "breakdown"
-                            | "category_series"
-                            | "x-jiabu.account_card"
-                    ),
-                    "invalid expected block"
+                    alternative.calls.len() <= 8
+                        && alternative.calls.iter().all(|call| call.args.is_object()
+                            && matches!(
+                                call.tool.as_str(),
+                                "show_metrics"
+                                    | "show_records"
+                                    | "show_trend"
+                                    | "show_breakdown"
+                                    | "show_bar_chart"
+                                    | "show_account_card"
+                            )),
+                    "invalid display tools"
                 );
                 ensure!(
-                    block.labels.len() <= 50
-                        && block.values_minor.len() <= 50
-                        && block
-                            .values_minor
+                    alternative.source_calls.len() <= 4
+                        && alternative.source_calls.iter().all(|call| {
+                            call.args.is_object()
+                                && match call.tool.as_str() {
+                                    "query_stats" | "search_records" => true,
+                                    "query_balance" => {
+                                        call.args.as_object().is_some_and(|o| o.is_empty())
+                                    }
+                                    _ => false,
+                                }
+                        }),
+                    "invalid display source tools"
+                );
+                ensure!(alternative.blocks.len() <= 8, "too many expected blocks");
+                ensure!(
+                    !alternative.facts.is_empty() && alternative.facts.len() <= 50,
+                    "display alternative needs one to fifty closed facts"
+                );
+                ensure!(
+                    alternative.expected_invalid_calls
+                        <= alternative.calls.len() + alternative.source_calls.len()
+                        && alternative.expected_business_errors
+                            <= alternative.calls.len() + alternative.source_calls.len(),
+                    "invalid expected display error counts"
+                );
+                ensure!(
+                    alternative.fallback_contains.len() <= 16
+                        && alternative
+                            .fallback_contains
                             .iter()
-                            .all(|value| value.unsigned_abs() <= 1_000_000_000_000),
-                    "invalid display values"
+                            .all(|text| !text.is_empty() && text.chars().count() <= 100),
+                    "invalid fallback assertions"
                 );
-                if let Some(account) = &block.account {
+                ensure!(
+                    alternative.server_fallback_contains.len() <= 16
+                        && alternative
+                            .server_fallback_contains
+                            .iter()
+                            .all(|text| !text.is_empty() && text.chars().count() <= 100),
+                    "invalid server fallback assertions"
+                );
+                for block in &alternative.blocks {
                     ensure!(
-                        accounts.get(account.as_str()) == Some(&"real"),
-                        "invalid account-card alias"
+                        matches!(
+                            block.kind.as_str(),
+                            "metric"
+                                | "metric_group"
+                                | "dataset"
+                                | "time_series"
+                                | "breakdown"
+                                | "category_series"
+                                | "x-jiabu.account_card"
+                        ),
+                        "invalid expected block"
+                    );
+                    ensure!(
+                        block.labels.len() <= 50
+                            && block.values_minor.len() <= 50
+                            && block
+                                .values_minor
+                                .iter()
+                                .all(|value| value.unsigned_abs() <= 1_000_000_000_000),
+                        "invalid display values"
+                    );
+                    if let Some(account) = &block.account {
+                        ensure!(
+                            accounts.get(account.as_str()) == Some(&"real"),
+                            "invalid account-card alias"
+                        );
+                    }
+                    ensure!(
+                        block.kind == "x-jiabu.account_card" || block.account.is_none(),
+                        "account alias only applies to account cards"
+                    );
+                }
+                fn display_aliases_resolve(value: &Value, accounts: &BTreeMap<&str, &str>) -> bool {
+                    match value {
+                        Value::String(value) if value.starts_with("$account:") => {
+                            accounts.contains_key(value.trim_start_matches("$account:"))
+                        }
+                        Value::Array(values) => values
+                            .iter()
+                            .all(|value| display_aliases_resolve(value, accounts)),
+                        Value::Object(values) => values
+                            .values()
+                            .all(|value| display_aliases_resolve(value, accounts)),
+                        _ => true,
+                    }
+                }
+                ensure!(
+                    alternative
+                        .source_calls
+                        .iter()
+                        .chain(&alternative.calls)
+                        .all(|call| display_aliases_resolve(&call.args, &accounts)),
+                    "unknown display account alias"
+                );
+                let source_aliases: BTreeSet<_> = (0..alternative.source_calls.len())
+                    .map(|index| format!("$call:source-{index}"))
+                    .collect();
+                fn call_aliases_resolve(value: &Value, aliases: &BTreeSet<String>) -> bool {
+                    match value {
+                        Value::String(value) if value.starts_with("$call:") => {
+                            aliases.contains(value)
+                        }
+                        Value::Array(values) => values
+                            .iter()
+                            .all(|value| call_aliases_resolve(value, aliases)),
+                        Value::Object(values) => values
+                            .values()
+                            .all(|value| call_aliases_resolve(value, aliases)),
+                        _ => true,
+                    }
+                }
+                ensure!(
+                    alternative
+                        .source_calls
+                        .iter()
+                        .all(|call| call_aliases_resolve(&call.args, &BTreeSet::new())),
+                    "source calls cannot reference display call aliases"
+                );
+                ensure!(
+                    alternative
+                        .calls
+                        .iter()
+                        .all(|call| call_aliases_resolve(&call.args, &source_aliases)),
+                    "unknown display source-call alias"
+                );
+                let has_demo_call = alternative.calls.iter().any(|call| {
+                    call.args
+                        .pointer("/source/demo")
+                        .is_some_and(|value| !value.is_null())
+                });
+                ensure!(
+                    !alternative
+                        .blocks
+                        .iter()
+                        .any(|block| block.demo == Some(true))
+                        || has_demo_call,
+                    "demo block requires explicit demo source"
+                );
+                if let Some(capabilities) = &e.client_capabilities {
+                    ensure!(
+                        alternative.blocks.iter().all(|block| capabilities
+                            .blocks
+                            .get(&block.kind)
+                            .is_some_and(|version| *version == 1)),
+                        "expected block is unsupported by client capabilities"
                     );
                 }
                 ensure!(
-                    block.kind == "x-jiabu.account_card" || block.account.is_none(),
-                    "account alias only applies to account cards"
+                    !alternative.blocks.is_empty()
+                        || alternative.calls.is_empty()
+                        || !alternative.fallback_contains.is_empty()
+                        || !alternative.server_fallback_contains.is_empty(),
+                    "component-free display call requires fallback assertion"
                 );
-            }
-            fn display_aliases_resolve(value: &Value, accounts: &BTreeMap<&str, &str>) -> bool {
-                match value {
-                    Value::String(value) if value.starts_with("$account:") => {
-                        accounts.contains_key(value.trim_start_matches("$account:"))
+                for fact in &alternative.facts {
+                    match fact {
+                        DisplayFact::Aggregate { label, value_minor } => ensure!(
+                            !label.is_empty() && value_minor.unsigned_abs() <= 1_000_000_000_000,
+                            "invalid aggregate fact"
+                        ),
+                        DisplayFact::Record {
+                            record_kind,
+                            account,
+                            purpose,
+                            note,
+                            amount_minor,
+                            ..
+                        } => ensure!(
+                            matches!(
+                                record_kind.as_str(),
+                                "expense" | "income" | "transfer" | "reallocation" | "refund"
+                            ) && amount_minor.unsigned_abs() <= 1_000_000_000_000
+                                && account
+                                    .as_ref()
+                                    .is_none_or(|a| accounts.contains_key(a.as_str()))
+                                && purpose
+                                    .as_ref()
+                                    .is_none_or(|a| accounts.contains_key(a.as_str()))
+                                && note.as_ref().is_none_or(|note| note.chars().count() <= 100),
+                            "invalid record fact"
+                        ),
+                        DisplayFact::AccountBalance {
+                            account,
+                            currency,
+                            balance_minor,
+                        } => ensure!(
+                            accounts.get(account.as_str()) == Some(&"real")
+                                && currency == &e.setup.currency
+                                && balance_minor.unsigned_abs() <= 1_000_000_000_000,
+                            "invalid balance fact"
+                        ),
+                        DisplayFact::NoData => {}
                     }
-                    Value::Array(values) => values
-                        .iter()
-                        .all(|value| display_aliases_resolve(value, accounts)),
-                    Value::Object(values) => values
-                        .values()
-                        .all(|value| display_aliases_resolve(value, accounts)),
-                    _ => true,
                 }
-            }
-            ensure!(
-                alternative
-                    .source_calls
-                    .iter()
-                    .chain(&alternative.calls)
-                    .all(|call| display_aliases_resolve(&call.args, &accounts)),
-                "unknown display account alias"
-            );
-            let source_aliases: BTreeSet<_> = (0..alternative.source_calls.len())
-                .map(|index| format!("$call:source-{index}"))
-                .collect();
-            fn call_aliases_resolve(value: &Value, aliases: &BTreeSet<String>) -> bool {
-                match value {
-                    Value::String(value) if value.starts_with("$call:") => aliases.contains(value),
-                    Value::Array(values) => values
-                        .iter()
-                        .all(|value| call_aliases_resolve(value, aliases)),
-                    Value::Object(values) => values
-                        .values()
-                        .all(|value| call_aliases_resolve(value, aliases)),
-                    _ => true,
-                }
-            }
-            ensure!(
-                alternative
-                    .source_calls
-                    .iter()
-                    .all(|call| call_aliases_resolve(&call.args, &BTreeSet::new())),
-                "source calls cannot reference display call aliases"
-            );
-            ensure!(
-                alternative
-                    .calls
-                    .iter()
-                    .all(|call| call_aliases_resolve(&call.args, &source_aliases)),
-                "unknown display source-call alias"
-            );
-            let has_demo_call = alternative.calls.iter().any(|call| {
-                call.args
-                    .pointer("/source/demo")
-                    .is_some_and(|value| !value.is_null())
-            });
-            ensure!(
-                !alternative
-                    .blocks
-                    .iter()
-                    .any(|block| block.demo == Some(true))
-                    || has_demo_call,
-                "demo block requires explicit demo source"
-            );
-            if let Some(capabilities) = &e.client_capabilities {
-                ensure!(
-                    alternative.blocks.iter().all(|block| capabilities
-                        .blocks
-                        .get(&block.kind)
-                        .is_some_and(|version| *version == 1)),
-                    "expected block is unsupported by client capabilities"
-                );
-            }
-            ensure!(
-                !alternative.blocks.is_empty()
-                    || alternative.calls.is_empty()
-                    || !alternative.fallback_contains.is_empty()
-                    || !alternative.server_fallback_contains.is_empty(),
-                "component-free display call requires fallback assertion"
-            );
-            for fact in &alternative.facts {
-                match fact {
-                    DisplayFact::Aggregate { label, value_minor } => ensure!(
-                        !label.is_empty() && value_minor.unsigned_abs() <= 1_000_000_000_000,
-                        "invalid aggregate fact"
-                    ),
-                    DisplayFact::Record {
-                        record_kind,
-                        account,
-                        purpose,
-                        note,
-                        amount_minor,
-                        ..
-                    } => ensure!(
-                        matches!(record_kind.as_str(), "expense" | "income" | "transfer" | "reallocation" | "refund")
-                            && amount_minor.unsigned_abs() <= 1_000_000_000_000
-                            && account
-                                .as_ref()
-                                .is_none_or(|a| accounts.contains_key(a.as_str()))
-                            && purpose
-                                .as_ref()
-                                .is_none_or(|a| accounts.contains_key(a.as_str()))
-                            && note.as_ref().is_none_or(|note| note.chars().count() <= 100),
-                        "invalid record fact"
-                    ),
-                    DisplayFact::AccountBalance {
-                        account,
-                        currency,
-                        balance_minor,
-                    } => ensure!(
-                        accounts.get(account.as_str()) == Some(&"real")
-                            && currency == &e.setup.currency
-                            && balance_minor.unsigned_abs() <= 1_000_000_000_000,
-                        "invalid balance fact"
-                    ),
-                    DisplayFact::NoData => {}
-                }
-            }
-            let unique_facts = alternative
-                .facts
-                .iter()
-                .map(serde_json::to_string)
-                .collect::<std::result::Result<BTreeSet<_>, _>>()?;
-            ensure!(
-                unique_facts.len() == alternative.facts.len(),
-                "duplicate display fact"
-            );
-            ensure!(
-                !alternative
+                let unique_facts = alternative
                     .facts
                     .iter()
-                    .any(|fact| matches!(fact, DisplayFact::NoData))
-                    || alternative.facts.len() == 1,
-                "no-data must be the only display fact"
-            );
-            if alternative.calls.is_empty() && alternative.blocks.is_empty() {
+                    .map(serde_json::to_string)
+                    .collect::<std::result::Result<BTreeSet<_>, _>>()?;
                 ensure!(
-                    !alternative.source_calls.is_empty(),
-                    "prose-only display alternative needs read evidence"
+                    unique_facts.len() == alternative.facts.len(),
+                    "duplicate display fact"
                 );
-            }
+                ensure!(
+                    !alternative
+                        .facts
+                        .iter()
+                        .any(|fact| matches!(fact, DisplayFact::NoData))
+                        || alternative.facts.len() == 1,
+                    "no-data must be the only display fact"
+                );
+                if alternative.calls.is_empty() && alternative.blocks.is_empty() {
+                    ensure!(
+                        !alternative.source_calls.is_empty(),
+                        "prose-only display alternative needs read evidence"
+                    );
+                }
             }
             ensure!(
                 display.prose.max_sentences.is_none_or(|value| value <= 20)

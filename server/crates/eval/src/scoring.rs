@@ -590,7 +590,7 @@ fn money_variants(value_minor: i64) -> Vec<String> {
         format!("{sign}{absolute} 分"),
         format!("{sign}{absolute}分"),
     ];
-    if fen != 0 && fen % 10 == 0 {
+    if fen != 0 && fen.is_multiple_of(10) {
         variants.push(format!("{sign}{yuan}.{}", fen / 10));
     }
     if fen == 0 {
@@ -630,7 +630,10 @@ fn prose_money_values(prose: &str) -> Vec<i64> {
                 .into_iter()
                 .rev()
                 .collect::<Vec<_>>();
-            let leading = raw.iter().take_while(|character| character.is_whitespace()).count();
+            let leading = raw
+                .iter()
+                .take_while(|character| character.is_whitespace())
+                .count();
             let trailing = raw
                 .iter()
                 .rev()
@@ -665,7 +668,10 @@ fn prose_money_values_pass(
         .iter()
         .filter_map(|fact| match fact {
             DisplayFact::Aggregate { value_minor, .. }
-            | DisplayFact::Record { amount_minor: value_minor, .. }
+            | DisplayFact::Record {
+                amount_minor: value_minor,
+                ..
+            }
             | DisplayFact::AccountBalance {
                 balance_minor: value_minor,
                 ..
@@ -790,7 +796,10 @@ fn supplemental_prose_pass(alternative: &DisplayAlternative, prose: &str) -> boo
     for fact in &alternative.facts {
         match fact {
             DisplayFact::Aggregate { value_minor, .. }
-            | DisplayFact::Record { amount_minor: value_minor, .. }
+            | DisplayFact::Record {
+                amount_minor: value_minor,
+                ..
+            }
             | DisplayFact::AccountBalance {
                 balance_minor: value_minor,
                 ..
@@ -832,7 +841,7 @@ fn prose_facts_pass(
     }
     let lower = prose.to_lowercase();
     let segments = prose
-        .split(|character| matches!(character, '\n' | '；' | '。' | '，' | ','))
+        .split(['\n', '；', '。', '，', ','])
         .map(str::trim)
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>();
@@ -840,14 +849,12 @@ fn prose_facts_pass(
         return false;
     }
     alternative.facts.iter().all(|fact| match fact {
-        DisplayFact::Aggregate { label, value_minor } => {
-            segments.iter().any(|segment| {
-                segment.contains(label)
-                    && money_variants(*value_minor)
-                        .iter()
-                        .any(|value| contains_number(segment, value))
-            })
-        }
+        DisplayFact::Aggregate { label, value_minor } => segments.iter().any(|segment| {
+            segment.contains(label)
+                && money_variants(*value_minor)
+                    .iter()
+                    .any(|value| contains_number(segment, value))
+        }),
         DisplayFact::Record {
             date,
             record_kind,
@@ -856,26 +863,21 @@ fn prose_facts_pass(
             purpose,
             note,
             ..
-        } => {
-            segments.iter().any(|segment| {
-                segment.contains(&date.to_string())
-                    && segment_kind_pass(segment, record_kind)
-                    && money_variants(*amount_minor)
+        } => segments.iter().any(|segment| {
+            segment.contains(&date.to_string())
+                && segment_kind_pass(segment, record_kind)
+                && money_variants(*amount_minor)
+                    .iter()
+                    .any(|value| contains_number(segment, value))
+                && [account, purpose].into_iter().flatten().all(|alias| {
+                    e.setup
+                        .accounts
                         .iter()
-                        .any(|value| contains_number(segment, value))
-                    && [account, purpose]
-                        .into_iter()
-                        .flatten()
-                        .all(|alias| {
-                            e.setup
-                                .accounts
-                                .iter()
-                                .find(|account| account.key == *alias)
-                                .is_some_and(|account| segment.contains(&account.name))
-                        })
-                    && note.as_ref().is_none_or(|note| segment.contains(note))
-            })
-        }
+                        .find(|account| account.key == *alias)
+                        .is_some_and(|account| segment.contains(&account.name))
+                })
+                && note.as_ref().is_none_or(|note| segment.contains(note))
+        }),
         DisplayFact::AccountBalance {
             account,
             currency,
@@ -893,29 +895,26 @@ fn prose_facts_pass(
             segments.iter().any(|segment| {
                 account_name.is_some_and(|name| segment.contains(name))
                     && (segment.contains(currency)
-                        || (currency == "CNY"
-                            && (segment.contains('元') || segment.contains('¥'))))
+                        || (currency == "CNY" && (segment.contains('元') || segment.contains('¥'))))
                     && money_variants(*balance_minor)
                         .iter()
                         .any(|value| contains_number(segment, value))
+            }) && alternative.source_calls.iter().any(|source| {
+                source.tool == "query_balance"
+                    && o.tool_calls.iter().any(|call| {
+                        call["tool"] == "query_balance"
+                            && call["args"].as_object().is_some_and(|args| args.is_empty())
+                            && call["call_id"].as_str().is_some_and(|call_id| {
+                                o.tool_results.get(call_id) == Some(&true)
+                                    && o.balance_results.get(call_id).is_some_and(|result| {
+                                        result.currency == currency.as_str()
+                                            && result
+                                                .balances
+                                                .contains(&(account_id.clone(), *balance_minor))
+                                    })
+                            })
+                    })
             })
-                && alternative.source_calls.iter().any(|source| {
-                    source.tool == "query_balance"
-                        && o.tool_calls.iter().any(|call| {
-                            call["tool"] == "query_balance"
-                                && call["args"].as_object().is_some_and(|args| args.is_empty())
-                                && call["call_id"].as_str().is_some_and(|call_id| {
-                                    o.tool_results.get(call_id) == Some(&true)
-                                        && o.balance_results.get(call_id).is_some_and(|result| {
-                                            result.currency == currency.as_str()
-                                                && result.balances.contains(&(
-                                                    account_id.clone(),
-                                                    *balance_minor,
-                                                ))
-                                        })
-                                })
-                        })
-                })
         }
         DisplayFact::NoData => {
             let money = prose_money_values(prose);
@@ -1117,7 +1116,8 @@ fn display_alternative_score(
         for (index, expected) in alternative.source_calls.iter().enumerate() {
             let expected_query = source_query(
                 &expected.tool,
-                &ids.display_args(&expected.args).unwrap_or_else(|_| expected.args.clone()),
+                &ids.display_args(&expected.args)
+                    .unwrap_or_else(|_| expected.args.clone()),
                 ids,
             );
             let actual = actual_sources.get(index).copied();
@@ -1148,7 +1148,9 @@ fn display_alternative_score(
                 }
             }
         }
-        result.queries.total += actual_sources.len().saturating_sub(alternative.source_calls.len());
+        result.queries.total += actual_sources
+            .len()
+            .saturating_sub(alternative.source_calls.len());
     }
     result.query_summary = summary_string(&summaries);
     let blocks = o.message["blocks"]
@@ -1331,14 +1333,7 @@ fn display_alternative_score(
         result.values.total += 1;
         result.values.correct += usize::from(
             actual.is_empty()
-                && prose_facts_pass(
-                    e,
-                    alternative,
-                    fact_text,
-                    o,
-                    ids,
-                    server_fact_text,
-                ),
+                && prose_facts_pass(e, alternative, fact_text, o, ids, server_fact_text),
         );
     } else if !alternative.facts.is_empty() {
         let supplemental = blocks
@@ -1880,15 +1875,12 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         reasons.push("record_mismatch".into());
     }
     if o.tool_total != o.tool_valid
-        && e.expect
-            .display
-            .as_ref()
-            .is_none_or(|display| {
-                display
-                    .alternatives
-                    .iter()
-                    .all(|alternative| alternative.expected_invalid_calls == 0)
-            })
+        && e.expect.display.as_ref().is_none_or(|display| {
+            display
+                .alternatives
+                .iter()
+                .all(|alternative| alternative.expected_invalid_calls == 0)
+        })
     {
         reasons.push("invalid_tool_arguments".into());
     }

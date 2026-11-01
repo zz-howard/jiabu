@@ -321,6 +321,17 @@ async fn evaluate_case(e: Entry, context: Arc<EvaluationContext>) -> Result<Resu
     }
 }
 
+#[tokio::main]
+async fn main() -> ExitCode {
+    match run(Args::parse()).await {
+        Ok(code) => ExitCode::from(code),
+        Err(_) => {
+            eprintln!("evaluation_configuration_or_data_error; see eval/README.md");
+            ExitCode::from(2)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,15 +447,5 @@ mod tests {
         assert!(filtered.iter().all(|entry| entry.category == "display"));
         assert!(filter_entries(entries, Some("not-a-category")).is_err());
         Ok(())
-    }
-}
-#[tokio::main]
-async fn main() -> ExitCode {
-    match run(Args::parse()).await {
-        Ok(code) => ExitCode::from(code),
-        Err(_) => {
-            eprintln!("evaluation_configuration_or_data_error; see eval/README.md");
-            ExitCode::from(2)
-        }
     }
 }

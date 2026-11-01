@@ -348,12 +348,7 @@ fn display_observation_for(
     message: Value,
 ) -> Observation {
     let mut observation = observation(json!([]), json!([]));
-    let alternative = &entry
-        .expect
-        .display
-        .as_ref()
-        .unwrap()
-        .alternatives[alternative_index];
+    let alternative = &entry.expect.display.as_ref().unwrap().alternatives[alternative_index];
     observation.message = message;
     observation.tool_calls = alternative
         .source_calls
@@ -430,24 +425,28 @@ fn flexible_display_alternatives_are_complete_and_never_mixed() {
         "fallbackText": invented,
         "blocks":[{"type":"markdown","data":{"text":invented},"fallbackText":invented}]
     });
-    assert!(!scoring::score(
-        &entry,
-        &Identities::default(),
-        &display_observation_for(&entry, 3, message),
-    )
-    .display_pass);
+    assert!(
+        !scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation_for(&entry, 3, message),
+        )
+        .display_pass
+    );
 
     let swapped = "虚构日常 32.00 元；虚构储备 68.00 元。";
     let message = json!({
         "fallbackText": swapped,
         "blocks":[{"type":"markdown","data":{"text":swapped},"fallbackText":swapped}]
     });
-    assert!(!scoring::score(
-        &entry,
-        &Identities::default(),
-        &display_observation_for(&entry, 3, message),
-    )
-    .display_pass);
+    assert!(
+        !scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation_for(&entry, 3, message),
+        )
+        .display_pass
+    );
 
     let mixed = json!({"fallbackText":"ok","blocks":[{
         "type":"metric_group",
@@ -457,12 +456,14 @@ fn flexible_display_alternatives_are_complete_and_never_mixed() {
         ]},
         "fallbackText":"ok"
     }]});
-    assert!(!scoring::score(
-        &entry,
-        &Identities::default(),
-        &display_observation_for(&entry, 1, mixed),
-    )
-    .display_pass);
+    assert!(
+        !scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation_for(&entry, 1, mixed),
+        )
+        .display_pass
+    );
 }
 
 #[test]
@@ -644,11 +645,8 @@ fn every_declared_flexible_path_passes_its_complete_contract() {
             if skip == Some(index) {
                 continue;
             }
-            let mut observed = display_observation_for(
-                &entry,
-                index,
-                alternative_message(&entry, index),
-            );
+            let mut observed =
+                display_observation_for(&entry, index, alternative_message(&entry, index));
             observed.server_fallbacks = entry.expect.display.as_ref().unwrap().alternatives[index]
                 .server_fallback_contains
                 .clone();
@@ -724,9 +722,7 @@ fn record_kind_is_bound_to_each_row_and_conflicts_are_rejected() {
     let correct = "支出明细\n2026-10-03 支出 虚构银行卡 虚构日常 30.00 元\n2026-10-02 支出 虚构银行卡 虚构日常 20.00 元\n2026-10-01 支出 虚构银行卡 虚构日常 10.00 元";
     assert!(score(correct).display_pass);
     assert!(!score(&correct.replace("2026-10-03 支出", "2026-10-03 收入")).display_pass);
-    assert!(
-        !score(&correct.replace("2026-10-03 支出", "2026-10-03 支出、收入")).display_pass
-    );
+    assert!(!score(&correct.replace("2026-10-03 支出", "2026-10-03 支出、收入")).display_pass);
 }
 
 #[test]
@@ -842,7 +838,13 @@ fn closest_failed_alternative_ties_use_fixture_order() {
     let mut second = entry.expect.display.as_ref().unwrap().alternatives[0].clone();
     entry.expect.display.as_mut().unwrap().alternatives[0].id = "first".into();
     second.id = "second".into();
-    entry.expect.display.as_mut().unwrap().alternatives.push(second);
+    entry
+        .expect
+        .display
+        .as_mut()
+        .unwrap()
+        .alternatives
+        .push(second);
     let wrong = json!({"fallbackText":"ok","blocks":[]});
     let row = scoring::score(
         &entry,
@@ -925,10 +927,8 @@ fn judge_report_allowlist_excludes_request_prose_and_usage() -> Result<()> {
             }],
         },
     )?;
-    let dir = std::env::temp_dir().join(format!(
-        "jiabu-eval-judge-report-{}",
-        uuid::Uuid::now_v7()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("jiabu-eval-judge-report-{}", uuid::Uuid::now_v7()));
     ai_eval::report::write(&dir, &[row])?;
     let results = std::fs::read_to_string(dir.join("results.csv"))?;
     let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
@@ -1173,10 +1173,10 @@ fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutat
         .display_pass,
         "model prose must not satisfy a server fallback assertion"
     );
-    let mut aggregate_total = display_observation(&fallback, json!({"fallbackText":"","blocks":[]}));
-    aggregate_total.server_fallbacks = vec![
-        "虚构日常 ¥68.00；虚构储备 ¥32.00；合计 ¥100.00".into(),
-    ];
+    let mut aggregate_total =
+        display_observation(&fallback, json!({"fallbackText":"","blocks":[]}));
+    aggregate_total.server_fallbacks =
+        vec!["虚构日常 ¥68.00；虚构储备 ¥32.00；合计 ¥100.00".into()];
     assert!(
         scoring::score(&fallback, &Identities::default(), &aggregate_total).display_pass,
         "the exact aggregate sum is a valid server fallback total"
@@ -1229,13 +1229,10 @@ fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutat
         "has_more":false,
         "groups_may_overlap":false
     });
-    let (account_kind, account_data, account_fallback) = jiabu_chat::map_tool_result(
-        "show_account_card",
-        &json!({}),
-        &account_result,
-    )
-    .expect("account mapper")
-    .expect("account component");
+    let (account_kind, account_data, account_fallback) =
+        jiabu_chat::map_tool_result("show_account_card", &json!({}), &account_result)
+            .expect("account mapper")
+            .expect("account component");
     assert_eq!(account_kind, "x-jiabu.account_card");
     let mut account_observation = display_observation(
         &account,
@@ -1506,8 +1503,8 @@ fn record_query_direct_and_successful_source_call_are_equivalent() {
     assert!(!row.display_query_summary.contains("different search"));
 
     let mut kinds_entry = entry.clone();
-    kinds_entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].args["source"]["query"]["kinds"] =
-        json!(["income", "expense", "income"]);
+    kinds_entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].args["source"]["query"]
+        ["kinds"] = json!(["income", "expense", "income"]);
     observed.tool_calls[0]["args"]["filters"]["text"] = Value::Null;
     observed.tool_calls[0]["args"]["filters"]["kinds"] = json!(["expense", "income", "expense"]);
     assert_eq!(
@@ -1518,8 +1515,8 @@ fn record_query_direct_and_successful_source_call_are_equivalent() {
     );
 
     let mut text_entry = entry.clone();
-    text_entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].args["source"]["query"]["text"] =
-        json!(" Lunch ");
+    text_entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].args["source"]["query"]
+        ["text"] = json!(" Lunch ");
     observed.tool_calls[0]["args"]["filters"]["kinds"] = json!(["expense"]);
     observed.tool_calls[0]["args"]["filters"]["text"] = json!(" lunch ");
     assert_eq!(

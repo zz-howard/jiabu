@@ -50,11 +50,9 @@ where
                 infrastructure_failed = true;
             }
         }
-        if !infrastructure_failed {
-            if let Some((index, entry)) = pending.next() {
-                let work = evaluate(entry);
-                active.spawn(async move { (index, work.await) });
-            }
+        if !infrastructure_failed && let Some((index, entry)) = pending.next() {
+            let work = evaluate(entry);
+            active.spawn(async move { (index, work.await) });
         }
     }
     Ok(Batch {

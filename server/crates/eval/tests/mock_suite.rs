@@ -42,11 +42,9 @@ async fn full_mock_suite_uses_real_pg_agent_worker_without_claiming_model_expect
             "{}",
             row.id
         );
-        let expected_business_errors = e
-            .expect
-            .display
-            .as_ref()
-            .map_or(0, |display| display.alternatives[0].expected_business_errors);
+        let expected_business_errors = e.expect.display.as_ref().map_or(0, |display| {
+            display.alternatives[0].expected_business_errors
+        });
         assert_eq!(row.business_errors, expected_business_errors, "{}", row.id);
         rows.push(row);
         drop(scenario);

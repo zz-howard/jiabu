@@ -33,10 +33,16 @@ fn corpus_schema_coverage_presets_and_real_jpegs() -> anyhow::Result<()> {
         case("display-006").input.text,
         "2026年5月到10月每个月分别花了多少？请用柱状图比较。"
     );
-    assert_eq!(case("display-008").input.text, "我 2026 年 10 月花了多少钱？");
+    assert_eq!(
+        case("display-008").input.text,
+        "我 2026 年 10 月花了多少钱？"
+    );
     for id in ["display-013", "display-014", "display-015", "display-016"] {
         let prompt = &case(id).input.text;
-        assert!(!prompt.contains("组件") && !prompt.contains("支持"), "{id}: {prompt}");
+        assert!(
+            !prompt.contains("组件") && !prompt.contains("支持"),
+            "{id}: {prompt}"
+        );
     }
     assert!(case("display-009").input.text.contains("月度支出分类占比"));
     let replacement = case("display-018");
@@ -121,16 +127,28 @@ fn display_schema_rejects_cross_field_inconsistencies() -> anyhow::Result<()> {
         assert!(dataset::validate(&changed, &root).is_err());
     };
     rejects(|entry| entry.setup.accounts.push(entry.setup.accounts[0].clone()));
-    rejects(|entry| entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].tool = "bad_tool".into());
+    rejects(|entry| {
+        entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].tool = "bad_tool".into()
+    });
     rejects(|entry| {
         let duplicate = entry.expect.display.as_ref().unwrap().alternatives[0].clone();
-        entry.expect.display.as_mut().unwrap().alternatives.push(duplicate);
+        entry
+            .expect
+            .display
+            .as_mut()
+            .unwrap()
+            .alternatives
+            .push(duplicate);
     });
-    rejects(|entry| entry.expect.display.as_mut().unwrap().alternatives[0].blocks[0].kind = "bad_block".into());
+    rejects(|entry| {
+        entry.expect.display.as_mut().unwrap().alternatives[0].blocks[0].kind = "bad_block".into()
+    });
     rejects(|entry| {
         entry.expect.display.as_mut().unwrap().alternatives[0].blocks[0].values_minor[0] = i64::MIN;
     });
-    rejects(|entry| entry.expect.display.as_mut().unwrap().alternatives[0].blocks[0].demo = Some(true));
+    rejects(|entry| {
+        entry.expect.display.as_mut().unwrap().alternatives[0].blocks[0].demo = Some(true)
+    });
     rejects(|entry| {
         entry.client_capabilities = Some(dataset::ClientCapabilitiesSpec {
             blocks: [("markdown".into(), 1)].into_iter().collect(),
