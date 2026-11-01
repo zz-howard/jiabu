@@ -38,7 +38,7 @@ pub struct Scenario {
     pub capabilities: ClientCapabilities,
 }
 struct Images(BTreeMap<String, String>);
-fn capabilities(e: &Entry) -> ClientCapabilities {
+pub(crate) fn capabilities(e: &Entry) -> ClientCapabilities {
     if let Some(spec) = &e.client_capabilities {
         ClientCapabilities {
             protocol_versions: ["0.1".to_owned()].into_iter().collect(),
@@ -457,6 +457,13 @@ impl Scenario {
         &self,
         e: &Entry,
     ) -> Result<(ResultRow, Option<crate::judge::JudgeInput>)> {
+        self.evaluate_with_capture(e, None).await
+    }
+    pub async fn evaluate_with_capture(
+        &self,
+        e: &Entry,
+        evidence_dir: Option<&Path>,
+    ) -> Result<(ResultRow, Option<crate::judge::JudgeInput>)> {
         let clock = Instant::now();
         let message = self
             .submit(e)
@@ -495,8 +502,28 @@ impl Scenario {
             if row.hard {
                 row.hard_pass = false;
             }
+            if e.category == "display" {
+                row.expectation_met = None;
+                row.judgment_source = "infrastructure".into();
+            }
         }
-        let judge_input = crate::judge::JudgeInput::from_observation(e, &obs, &row);
+        let mut judge_input = crate::judge::JudgeInput::from_observation(e, &obs, &row);
+        if let Some(input) = &mut judge_input {
+            input.test_reference["fixture_identities"] =
+                json!({"accounts":self.ids.accounts,"tags":self.ids.tags});
+        }
+        if let Some(dir) = evidence_dir {
+            crate::evidence::write(
+                dir,
+                &e.id,
+                "observed",
+                &crate::evidence::capture(e, &obs, &row, judge_input.as_ref()),
+            )?;
+        }
+        if timed_out && e.category == "display" {
+            return Err(anyhow::Error::new(jiabu_ai::ProviderError::Timeout)
+                .context(crate::diagnostic::Stage::Drive));
+        }
         Ok((row, judge_input))
     }
 }

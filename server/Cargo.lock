@@ -2292,6 +2292,7 @@ dependencies = [
  "futures-util",
  "jiabu-db",
  "jiabu-domain",
+ "serde",
  "serde_json",
  "tokio",
  "uuid",

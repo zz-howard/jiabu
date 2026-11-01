@@ -5,6 +5,7 @@ pub mod audit;
 pub mod batch;
 pub mod dataset;
 pub mod diagnostic;
+pub mod evidence;
 pub mod fixture;
 pub mod judge;
 #[cfg(feature = "live")]

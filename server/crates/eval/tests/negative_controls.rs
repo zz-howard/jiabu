@@ -1,7 +1,7 @@
 use ai_eval::{
     dataset::{self, Behavior, RecordSpec},
     fixture::{Scenario, invoke},
-    judge::{self, JudgeOutcome, JudgeVote, ReasonCode},
+    judge::{self, JudgeOutcome, JudgeVote},
     mock::{self, Identities},
     scoring::{self, Observation, Questions},
 };
@@ -22,8 +22,8 @@ fn observation(events: Value, records: Value) -> Observation {
         confirmation_calls: vec![],
         confirmed: false,
         before_confirm: None,
-        baseline: json!({"records":[],"events":[]}),
-        final_state: json!({"records":records,"events":events}),
+        baseline: json!({"currency":"CNY","records":[],"events":[]}),
+        final_state: json!({"currency":"CNY","records":records,"events":events}),
         message: json!({"fallbackText":"","blocks":[]}),
         tool_calls: vec![],
         tool_results: Default::default(),
@@ -489,27 +489,40 @@ fn balance_prose_requires_sanitized_target_currency_and_value_evidence() {
     assert_eq!(row.display_selected, "prose");
     let judge_input = judge::JudgeInput::from_observation(&entry, &observed, &row)
         .expect("display-015 prose judge input");
-    assert_eq!(judge_input.visible_prose, prose);
-    assert_eq!(judge_input.normalized_blocks, json!([]));
+    assert_eq!(judge_input.actual_candidate["visible_prose"], prose);
     assert_eq!(
-        judge_input.verified_actual_typed_facts["facts"],
+        judge_input.actual_candidate["rendered_blocks"],
+        json!([{ "type":"markdown", "data":{"text":prose} }])
+    );
+    assert_eq!(
+        judge_input.actual_candidate["source_balance_results"],
         json!([{
-            "kind":"account_balance",
-            "account":"bank",
-            "currency":"CNY",
-            "balance_minor":-6800
+            "call_id":"source-0","currency":"CNY","balances":[[account_id.to_string(),-6800]]
         }])
     );
 
     let mut wrong_currency = observed.clone();
-    wrong_currency.balance_results.get_mut("source-0").unwrap().currency = "USD".into();
+    wrong_currency
+        .balance_results
+        .get_mut("source-0")
+        .unwrap()
+        .currency = "USD".into();
     assert!(!scoring::score(&entry, &ids, &wrong_currency).display_pass);
     let mut wrong_balance = observed.clone();
-    wrong_balance.balance_results.get_mut("source-0").unwrap().balances[0].1 = -6700;
+    wrong_balance
+        .balance_results
+        .get_mut("source-0")
+        .unwrap()
+        .balances[0]
+        .1 = -6700;
     assert!(!scoring::score(&entry, &ids, &wrong_balance).display_pass);
     let mut wrong_account = observed.clone();
-    wrong_account.balance_results.get_mut("source-0").unwrap().balances[0].0 =
-        uuid::Uuid::nil().to_string();
+    wrong_account
+        .balance_results
+        .get_mut("source-0")
+        .unwrap()
+        .balances[0]
+        .0 = uuid::Uuid::nil().to_string();
     assert!(!scoring::score(&entry, &ids, &wrong_account).display_pass);
     let mut failed = observed.clone();
     failed.tool_results.insert("source-0".into(), false);
@@ -871,15 +884,16 @@ fn alternative_report_is_sanitized_and_contains_only_ids() -> Result<()> {
 #[test]
 fn judge_report_allowlist_excludes_request_prose_and_usage() -> Result<()> {
     let input = judge::JudgeInput {
-        schema_version: 1,
+        schema_version: 2,
         locale: "en-US".into(),
         user_request: "raw-user-request-sentinel".into(),
-        explicit_display_constraints: json!({}),
-        verified_expected_typed_facts: json!([]),
-        verified_actual_typed_facts: json!({}),
+        today: "2026-10-21".into(),
+        timezone: "Asia/Shanghai".into(),
+        as_of: "2026-10-21T12:00:00Z".into(),
+        test_reference: json!({"currency":"CNY","amount_unit":"minor","fact_sets":[],"baseline_records":[]}),
+        actual_candidate: json!({"status":"completed","visible_prose":"raw-visible-prose-sentinel","rendered_blocks":[],"source_calls":[]}),
+        supporting_fallback_evidence: json!({}),
         client_capabilities: json!({}),
-        visible_prose: "raw-visible-prose-sentinel".into(),
-        normalized_blocks: json!([]),
     };
     let serialized_input = serde_json::to_string(&input)?;
     assert!(serialized_input.contains("raw-user-request-sentinel"));
@@ -892,12 +906,7 @@ fn judge_report_allowlist_excludes_request_prose_and_usage() -> Result<()> {
     row.tested_models.insert("synthetic/candidate-z".into());
     row.tested_models.insert("synthetic/candidate-a".into());
     let vote = JudgeVote {
-        intent_satisfaction: true,
-        reasonable_display: true,
-        clear_natural_expression: true,
-        no_misleading_redundancy: true,
-        verdict: true,
-        reason_code: ReasonCode::Pass,
+        expectation_met: true,
     };
     judge::apply(
         &mut row,
@@ -991,20 +1000,10 @@ fn judge_failure_preserves_the_deterministic_hard_gate() -> Result<()> {
     assert!(row.hard_pass);
     assert!(row.display_pass);
     let fail_vote = JudgeVote {
-        intent_satisfaction: false,
-        reasonable_display: false,
-        clear_natural_expression: false,
-        no_misleading_redundancy: false,
-        verdict: false,
-        reason_code: ReasonCode::IntentMiss,
+        expectation_met: false,
     };
     let pass_vote = JudgeVote {
-        intent_satisfaction: true,
-        reasonable_display: true,
-        clear_natural_expression: true,
-        no_misleading_redundancy: true,
-        verdict: true,
-        reason_code: ReasonCode::Pass,
+        expectation_met: true,
     };
     judge::apply(
         &mut row,
@@ -1019,7 +1018,8 @@ fn judge_failure_preserves_the_deterministic_hard_gate() -> Result<()> {
         },
     )?;
     assert!(row.hard_pass);
-    assert!(!row.display_pass);
+    assert_eq!(row.expectation_met, Some(false));
+    assert!(row.display_pass, "legacy diagnostic remains independent");
     assert!(!row.overall_pass());
     assert_eq!(scoring::exit_code(std::slice::from_ref(&row)), 1);
     let dir = std::env::temp_dir().join(format!(
@@ -1250,32 +1250,27 @@ fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutat
     let account_row = scoring::score(&account, &identities, &account_observation);
     assert!(account_row.display_pass);
     assert_eq!(account_row.display_selected, "exact");
-    let judge_input = judge::JudgeInput::from_observation(
-        &account,
-        &account_observation,
-        &account_row,
-    )
-    .expect("display-007 judge input");
+    let judge_input =
+        judge::JudgeInput::from_observation(&account, &account_observation, &account_row)
+            .expect("display-007 judge input");
     assert_eq!(
-        judge_input.normalized_blocks[0],
+        judge_input.actual_candidate["rendered_blocks"][0],
         json!({
-            "type":"x-jiabu.account_card",
-            "name":"虚构银行卡",
-            "version_at_reply":1
+            "type":"x-jiabu.account_card", "data":account_observation.message["blocks"][0]["data"]
         })
     );
-    assert_eq!(
-        judge_input.verified_actual_typed_facts["facts"],
-        json!([{
-            "kind":"account_balance",
-            "account":"bank",
-            "currency":"CNY",
-            "balance_minor":-6800
-        }])
+    assert!(
+        judge_input.actual_candidate["rendered_blocks"][0]["data"]
+            .get("balance_minor")
+            .is_none()
     );
-    assert_eq!(judge_input.visible_prose, "");
     assert_eq!(
-        judge_input.verified_actual_typed_facts["server_fallback_evidence"],
+        judge_input.actual_candidate["source_balance_results"],
+        json!([])
+    );
+    assert_eq!(judge_input.actual_candidate["visible_prose"], "");
+    assert_eq!(
+        judge_input.supporting_fallback_evidence["server_fallbacks"],
         json!(["虚构银行卡：-¥68.00"])
     );
     account_observation.server_fallbacks = vec!["虚构银行卡：+¥68.00".into()];
@@ -1320,11 +1315,13 @@ fn display_selection_query_validity_and_transport_are_independent() {
     let unresolved = scoring::score(&linked, &Identities::default(), &unresolved);
     assert_eq!(unresolved.display_queries.total, 0);
     assert_eq!(unresolved.display_query_not_assessable, 1);
-    assert!(!unresolved.hard_pass);
+    assert!(unresolved.hard_pass);
+    assert_eq!(unresolved.rule_decision, scoring::RuleDecision::NeedsJudge);
+    assert_eq!(unresolved.expectation_met, None);
 }
 
 #[test]
-fn legacy_global_invalid_and_business_error_invariants_still_gate_display() {
+fn actual_invalid_arguments_remain_rule_failures_without_legacy_business_error_preferences() {
     let mut entry = display_entry("display-003.yaml");
     let display = entry.expect.display.as_mut().unwrap();
     display.alternatives[0].expected_invalid_calls = 1;
@@ -1337,8 +1334,9 @@ fn legacy_global_invalid_and_business_error_invariants_still_gate_display() {
     observed.business_errors = 0;
     let row = scoring::score(&entry, &Identities::default(), &observed);
     assert!(!row.display_pass);
+    assert!(row.reasons.contains(&"rule_invalid_tool_arguments".into()));
     assert!(
-        row.reasons
+        !row.reasons
             .contains(&"display_business_error_mismatch".into())
     );
     assert!(!row.hard_pass);
@@ -1475,7 +1473,7 @@ fn stats_kinds_are_compared_as_a_sorted_deduplicated_set() {
 #[test]
 fn record_query_direct_and_successful_source_call_are_equivalent() {
     let entry = display_entry("display-005.yaml");
-    let message = json!({"fallbackText":"ok","blocks":[{"type":"dataset","data":{"columns":[{"key":"date"}],"rows":[{"date":"2026-10-03","amount":3000},{"date":"2026-10-02","amount":2000},{"date":"2026-10-01","amount":1000}]},"fallbackText":"ok"}]});
+    let message = alternative_message(&entry, 0);
     let mut observed = display_observation(&entry, message);
     observed.tool_calls = vec![
         json!({"tool":"search_records","call_id":"records","args":{"filters":{"kinds":["expense"],"from":"2026-10-01","through":"2026-10-31","account_id":null,"purpose_id":null,"tag_id":null,"member_id":null,"text":null,"status":"active"},"page":{"limit":3,"offset":0}}}),
@@ -1625,24 +1623,22 @@ fn every_prose_guard_has_a_focused_negative_control() {
 }
 
 #[test]
-fn sentence_count_and_numeric_restatement_are_soft_findings() {
-    let entry = display_entry("display-001.yaml");
-    let message = json!({"fallbackText":"ok","blocks":[
-        {"type":"breakdown","data":{"parts":[
-            {"label":"虚构日常","value":6800},{"label":"虚构储备","value":3200}
-        ]},"fallbackText":"ok"},
-        {"type":"markdown","data":{"text":"68.00，32.00。第二句。第三句。"},"fallbackText":"68.00，32.00。第二句。第三句。"}
-    ]});
-    let row = scoring::score(
-        &entry,
-        &Identities::default(),
-        &display_observation(&entry, message),
-    );
-    assert!(!row.prose_pass);
-    assert!(row.display_pass && row.hard_pass);
-    assert!(row.reasons.contains(&"display_style_preference".into()));
-
-    for prose in ["68.00", "68 元", "¥68", "6800 分"] {
+fn internal_style_preferences_never_decide_expectation_or_appear_in_rule_reasons() {
+    let mut entry = display_entry("display-001.yaml");
+    entry
+        .expect
+        .display
+        .as_mut()
+        .unwrap()
+        .prose
+        .forbid_numeric_restatement = true;
+    for prose in [
+        "68.00",
+        "68 元",
+        "¥68",
+        "6800 分",
+        "68.00，32.00。第二句。第三句。",
+    ] {
         let message = json!({"fallbackText":"ok","blocks":[
             {"type":"breakdown","data":{"parts":[
                 {"label":"虚构日常","value":6800},{"label":"虚构储备","value":3200}
@@ -1654,25 +1650,10 @@ fn sentence_count_and_numeric_restatement_are_soft_findings() {
             &Identities::default(),
             &display_observation(&entry, message),
         );
-        assert!(!row.prose_pass, "numeric restatement survived: {prose}");
-        assert!(row.display_pass && row.hard_pass);
-    }
-    for prose in ["168.00", "168 元", "¥680", "16800 分"] {
-        let message = json!({"fallbackText":"ok","blocks":[
-            {"type":"breakdown","data":{"parts":[
-                {"label":"虚构日常","value":6800},{"label":"虚构储备","value":3200}
-            ]},"fallbackText":"ok"},
-            {"type":"markdown","data":{"text":prose},"fallbackText":prose}
-        ]});
-        assert!(
-            scoring::score(
-                &entry,
-                &Identities::default(),
-                &display_observation(&entry, message),
-            )
-            .prose_pass,
-            "numeric substring was mistaken for a restatement: {prose}"
-        );
+        assert_eq!(row.rule_decision, scoring::RuleDecision::NeedsJudge);
+        assert_eq!(row.expectation_met, None);
+        assert!(row.reasons.is_empty());
+        assert!(!row.overall_pass());
     }
 }
 

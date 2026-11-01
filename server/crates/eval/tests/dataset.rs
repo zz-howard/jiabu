@@ -102,10 +102,8 @@ fn tier_defaults_to_core_and_rejects_unknown() {
         dataset::parse(&source).unwrap().tier,
         dataset::EvaluationTier::Core
     );
-    let invalid = source.replace(
-        "timezone: \"Asia/Shanghai\"",
-        "timezone: \"Asia/Shanghai\"\ntier: impossible",
-    );
+    assert!(!source.lines().any(|line| line.starts_with("tier:")));
+    let invalid = format!("{source}\ntier: impossible\n");
     assert!(dataset::parse(&invalid).is_err());
 }
 
@@ -193,8 +191,12 @@ fn display_schema_rejects_cross_field_inconsistencies() -> anyhow::Result<()> {
     v1_multi_tag[v1_record].expect.records[0].preset_key = None;
     v1_multi_tag[v1_record].expect.records[0].preset_keys = vec!["dining".into()];
     assert!(dataset::validate(&v1_multi_tag, &root).is_err());
-    let float = std::fs::read_to_string(root.join("entries/display-001.yaml"))?
-        .replace("values_minor: [6800, 3200]", "values_minor: [68.5, 3200]");
+    let source = std::fs::read_to_string(root.join("entries/display-001.yaml"))?;
+    let float = source.replacen("\n        - 6800\n", "\n        - 68.5\n", 1);
+    assert_ne!(
+        float, source,
+        "float control must actually modify the fixture"
+    );
     assert!(dataset::parse(&float).is_err());
     Ok(())
 }

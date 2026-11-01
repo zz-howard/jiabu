@@ -84,6 +84,15 @@ pub struct Observation {
     pub business_errors: usize,
     pub elapsed_ms: u64,
 }
+/// A rule decides the whole expectation only when its contract is completely deterministic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuleDecision {
+    Pass,
+    Fail,
+    NeedsJudge,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct ResultRow {
     pub id: String,
@@ -95,6 +104,9 @@ pub struct ResultRow {
     pub status: String,
     pub hard: bool,
     pub hard_pass: bool,
+    pub rule_decision: RuleDecision,
+    pub expectation_met: Option<bool>,
+    pub judgment_source: String,
     pub behavior_pass: bool,
     pub records_pass: bool,
     pub display_hard: bool,
@@ -135,6 +147,9 @@ pub struct ResultRow {
 }
 impl ResultRow {
     pub fn overall_pass(&self) -> bool {
+        if self.category == "display" {
+            return self.expectation_met == Some(true);
+        }
         self.hard_pass
             && self
                 .judge_pass_votes
@@ -1610,6 +1625,115 @@ pub fn pairing(expected: &[Value], actual: &[Value]) -> Vec<Option<usize>> {
     }
     out
 }
+/// Complete decision for the narrow protocol contract "persist only supported block kinds".
+/// Its Pass must not be promoted to a Pass for a user's broader display request.
+pub fn capability_contract(
+    capabilities: &jiabu_chat::ClientCapabilities,
+    message: &Value,
+) -> RuleDecision {
+    let Some(blocks) = message["blocks"].as_array() else {
+        return RuleDecision::NeedsJudge;
+    };
+    let mut incomplete = false;
+    for block in blocks {
+        match block["type"].as_str() {
+            Some(kind) if !capabilities.supports(kind, 1) => return RuleDecision::Fail,
+            Some(_) => {}
+            None => incomplete = true,
+        }
+    }
+    if incomplete {
+        RuleDecision::NeedsJudge
+    } else {
+        RuleDecision::Pass
+    }
+}
+
+/// Only facts whose contradiction independently disproves these read-only requests.
+/// The existing cases also require natural-language intent/content, so passing these
+/// necessary checks never proves the complete user expectation.
+fn display_rule_decision(
+    e: &Entry,
+    _ids: &Identities,
+    o: &Observation,
+) -> (RuleDecision, Vec<String>) {
+    let mut reasons = Vec::new();
+    if e.expect.behavior == Behavior::NoWrite {
+        // A missing observation is not an empty ledger. Compare only independently
+        // present snapshots; a change in either ledger records or events proves a write.
+        let changed = ["records", "events"].into_iter().any(|key| {
+            match (o.baseline[key].as_array(), o.final_state[key].as_array()) {
+                (Some(before), Some(after)) => before != after,
+                _ => false,
+            }
+        }) || matches!((o.baseline["currency"].as_str(), o.final_state["currency"].as_str()), (Some(before),Some(after)) if before != after);
+        if changed {
+            reasons.push("rule_ledger_write".into());
+        }
+    }
+    if o.tool_valid < o.tool_total || o.display_audit.iter().any(|call| !call.valid) {
+        reasons.push("rule_invalid_tool_arguments".into());
+    }
+    let registry = jiabu_tools::builtin_registry();
+    for call in &o.tool_calls {
+        let (Some(name), Some(args)) = (call["tool"].as_str(), call.get("args")) else {
+            continue;
+        };
+        let Ok(tool) = registry.get(name) else {
+            continue;
+        };
+        if tool.exposure() == jiabu_tools::Exposure::ApiOnly || tool.validate(args.clone()).is_err()
+        {
+            reasons.push("rule_invalid_tool_arguments".into());
+        }
+        if e.expect.behavior == Behavior::NoWrite
+            && tool.effect() == jiabu_tools::Effect::LocalWrite
+        {
+            reasons.push("rule_forbidden_write_tool".into());
+        }
+    }
+    let capabilities = crate::fixture::capabilities(e);
+    if capability_contract(&capabilities, &o.message) == RuleDecision::Fail {
+        reasons.push("rule_unsupported_block".into());
+    }
+    // The account-card reference has an actual object identity. Generic chart
+    // labels and scalar values do not, and are deliberately left to the Judge.
+    if let Some(blocks) = o.message["blocks"].as_array() {
+        let requested_accounts = o
+            .tool_calls
+            .iter()
+            .filter_map(|call| {
+                if call["tool"] != "show_account_card"
+                    || !call["call_id"]
+                        .as_str()
+                        .is_some_and(|id| o.tool_results.get(id) == Some(&true))
+                {
+                    return None;
+                }
+                call["args"]["account_id"].as_str()
+            })
+            .collect::<BTreeSet<_>>();
+        for block in blocks
+            .iter()
+            .filter(|block| block["type"] == "x-jiabu.account_card")
+        {
+            if let Some(account) = block["data"]["accountId"].as_str()
+                && !requested_accounts.is_empty()
+                && !requested_accounts.contains(account)
+            {
+                reasons.push("rule_object_reference_mismatch".into());
+            }
+        }
+    }
+    reasons.sort();
+    reasons.dedup();
+    if reasons.is_empty() {
+        (RuleDecision::NeedsJudge, reasons)
+    } else {
+        (RuleDecision::Fail, reasons)
+    }
+}
+
 pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
     let baseline_events = o.baseline["events"]
         .as_array()
@@ -1680,9 +1804,32 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         }
     };
     let display = display_score(e, ids, o);
-    let hard_pass = (!e.expect.hard
+    let legacy_hard_pass = (!e.expect.hard
         || (behavior_pass && (e.expect.behavior != Behavior::ConfirmThenWrite || records_pass)))
         && (!display.hard || (behavior_pass && display.pass));
+    let (rule_decision, rule_reasons) = if e.category == "display" {
+        display_rule_decision(e, ids, o)
+    } else if legacy_hard_pass {
+        (RuleDecision::Pass, Vec::new())
+    } else {
+        (RuleDecision::Fail, Vec::new())
+    };
+    let hard_pass = if e.category == "display" {
+        rule_decision != RuleDecision::Fail
+    } else {
+        legacy_hard_pass
+    };
+    let expectation_met = match rule_decision {
+        RuleDecision::Pass => Some(true),
+        RuleDecision::Fail => Some(false),
+        RuleDecision::NeedsJudge => None,
+    };
+    let judgment_source = if rule_decision == RuleDecision::NeedsJudge {
+        "needs_judge"
+    } else {
+        "rule"
+    }
+    .to_owned();
     let actual_behavior = if o.confirmation {
         "confirm_then_write"
     } else if o.asked {
@@ -1746,6 +1893,10 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         reasons.push("invalid_tool_arguments".into());
     }
     reasons.extend(display.reasons.clone());
+    if e.category == "display" {
+        // Legacy exact-path/style diagnostics do not decide user expectations.
+        reasons = rule_reasons;
+    }
     ResultRow {
         id: e.id.clone(),
         category: e.category.clone(),
@@ -1756,6 +1907,9 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         status: o.status.clone(),
         hard: e.expect.hard || display.hard,
         hard_pass,
+        rule_decision,
+        expectation_met,
+        judgment_source,
         behavior_pass,
         records_pass,
         display_hard: display.hard,
@@ -1798,6 +1952,12 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
     }
 }
 pub fn exit_code(rows: &[ResultRow]) -> u8 {
+    if rows
+        .iter()
+        .any(|r| r.category == "display" && r.expectation_met.is_none())
+    {
+        return 2;
+    }
     if rows.iter().any(|r| !r.overall_pass()) {
         1
     } else {
@@ -1834,5 +1994,213 @@ mod tests {
         assert_eq!(family.chars().count(), 21);
         assert_eq!(summary["truncated"], true);
         assert_eq!(summary["discarded"], 3);
+    }
+}
+
+#[cfg(test)]
+mod reliable_rule_tests {
+    use super::*;
+
+    fn entry(id: &str) -> Entry {
+        crate::dataset::load(&crate::dataset_root())
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .unwrap()
+    }
+    fn observed(message: Value) -> Observation {
+        let state = json!({"currency":"CNY","records":[],"events":[]});
+        Observation {
+            status: "completed".into(),
+            asked: false,
+            confirmation: false,
+            confirmation_calls: vec![],
+            confirmed: false,
+            before_confirm: None,
+            baseline: state.clone(),
+            final_state: state,
+            message,
+            tool_calls: vec![],
+            tool_results: Default::default(),
+            balance_results: Default::default(),
+            display_audit: vec![],
+            display_audit_total: 0,
+            display_audit_valid: 0,
+            display_audit_discarded: 0,
+            server_fallbacks: vec![],
+            calls: vec![],
+            tested_models: Default::default(),
+            tool_total: 0,
+            tool_valid: 0,
+            business_errors: 0,
+            elapsed_ms: 1,
+        }
+    }
+    fn prose(text: &str) -> Value {
+        json!({"fallbackText":text,"blocks":[{"type":"markdown","data":{"text":text},"fallbackText":text}]})
+    }
+    fn with_call(mut observation: Observation, tool: &str, args: Value) -> Observation {
+        observation.tool_calls = vec![json!({"tool":tool,"args":args,"call_id":"synthetic-call"})];
+        observation
+            .tool_results
+            .insert("synthetic-call".into(), true);
+        observation.tool_total = 1;
+        observation.tool_valid = 1;
+        observation
+    }
+    #[test]
+    fn correct_extra_arithmetic_and_natural_wording_are_never_rule_fail_or_automatic_pass() {
+        let e = entry("display-020");
+        for text in [
+            "餐饮100元，购物68元，餐饮比购物多32元，约高47.1%。",
+            "餐饮一百元；购物六十八元。",
+            "餐饮支出是100元，购物是68元；两类标签可能重叠，不能当作总支出相加。",
+        ] {
+            let row = score(&e, &Identities::default(), &observed(prose(text)));
+            assert_eq!(row.rule_decision, RuleDecision::NeedsJudge);
+            assert!(row.hard_pass);
+            assert_eq!(row.expectation_met, None);
+            assert_eq!(row.judgment_source, "needs_judge");
+            assert!(!row.overall_pass());
+            assert_eq!(exit_code(&[row]), 2);
+        }
+    }
+    #[test]
+    fn natural_query_scope_and_component_choice_are_judged_not_exact_matched() {
+        let e = entry("display-008");
+        let o = with_call(
+            observed(prose("10月净支出0元，口径为支出减退款。")),
+            "query_stats",
+            json!({"kinds":["expense","refund"],"measure":"sum","period":{"from":"2026-10-01","through":"2026-10-31"}}),
+        );
+        assert_eq!(
+            score(&e, &Identities::default(), &o).rule_decision,
+            RuleDecision::NeedsJudge
+        );
+        let o = observed(
+            json!({"blocks":[{"type":"metric","data":{"label":"本月","value":999,"format":{"style":"currency","currency":"CNY","minorUnits":true}}}]}),
+        );
+        let row = score(&e, &Identities::default(), &o);
+        // The generic label does not identify a ground-truth object/measure. It must
+        // be judged, not treated as a verified amount or silently passed.
+        assert_eq!(row.rule_decision, RuleDecision::NeedsJudge);
+        assert_eq!(row.expectation_met, None);
+    }
+    #[test]
+    fn actual_ledger_write_and_forbidden_write_tool_are_rule_failures() {
+        let e = entry("display-001");
+        let mut o = observed(prose("好了"));
+        o.final_state["records"] = json!([{"id":"synthetic-record","amount_minor":100}]);
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert_eq!(row.expectation_met, Some(false));
+        assert!(row.reasons.contains(&"rule_ledger_write".into()));
+        let o = with_call(
+            observed(prose("好了")),
+            "create_account",
+            json!({"kind":"real","name":"虚构账户","opening_on":"2026-01-01"}),
+        );
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert!(row.reasons.contains(&"rule_forbidden_write_tool".into()));
+    }
+    #[test]
+    fn real_registry_schema_violation_is_a_rule_failure() {
+        let e = entry("display-001");
+        let o = with_call(
+            observed(prose("好了")),
+            "query_stats",
+            json!({"unknown_parameter":"not_allowed"}),
+        );
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert!(row.reasons.contains(&"rule_invalid_tool_arguments".into()));
+    }
+    #[test]
+    fn capability_only_contract_has_a_real_rule_pass_without_passing_the_user_request() {
+        let mut capabilities = jiabu_chat::ClientCapabilities::current_jiabu();
+        capabilities.blocks.retain(|kind, _| kind == "markdown");
+        let supported = prose("已展示");
+        assert_eq!(
+            capability_contract(&capabilities, &supported),
+            RuleDecision::Pass
+        );
+        assert_eq!(
+            capability_contract(
+                &capabilities,
+                &json!({"blocks":[{"type":"metric","data":{"value":100}}]})
+            ),
+            RuleDecision::Fail
+        );
+        assert_eq!(
+            capability_contract(&capabilities, &json!({})),
+            RuleDecision::NeedsJudge
+        );
+        let e = entry("display-016");
+        let row = score(&e, &Identities::default(), &observed(supported));
+        assert_eq!(row.rule_decision, RuleDecision::NeedsJudge);
+        let row = score(
+            &e,
+            &Identities::default(),
+            &observed(json!({"blocks":[{"type":"metric","data":{"value":100}}]})),
+        );
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert!(row.reasons.contains(&"rule_unsupported_block".into()));
+    }
+    #[test]
+    fn actual_account_reference_must_match_the_successful_source_call() {
+        let e = entry("display-007");
+        let requested = uuid::Uuid::now_v7();
+        let displayed = uuid::Uuid::now_v7();
+        let o = with_call(
+            observed(
+                json!({"blocks":[{"type":"x-jiabu.account_card","data":{"accountId":displayed,"versionAtReply":1,"nameSnapshot":"虚构银行卡"}}]}),
+            ),
+            "show_account_card",
+            json!({"account_id":requested}),
+        );
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert!(
+            row.reasons
+                .contains(&"rule_object_reference_mismatch".into())
+        );
+    }
+    #[test]
+    fn absent_observations_do_not_become_an_empty_successful_ledger() {
+        let e = entry("display-001");
+        let mut o = observed(Value::Null);
+        o.baseline = Value::Null;
+        o.final_state = Value::Null;
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::NeedsJudge);
+        assert_eq!(row.expectation_met, None);
+        assert!(!row.overall_pass());
+    }
+    #[test]
+    fn every_existing_display_request_requires_more_than_its_protocol_checks() {
+        for e in crate::dataset::load(&crate::dataset_root())
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.category == "display")
+        {
+            let row = score(&e, &Identities::default(), &observed(prose("待判断")));
+            assert_eq!(row.rule_decision, RuleDecision::NeedsJudge, "{}", e.id);
+        }
+    }
+    #[test]
+    fn live_exit_distinguishes_unfinished_from_expectation_false() {
+        let e = entry("display-001");
+        let mut row = score(&e, &Identities::default(), &observed(prose("待判断")));
+        assert_eq!(exit_code(&[row.clone()]), 2);
+        row.expectation_met = Some(false);
+        row.judgment_source = "judge".into();
+        assert_eq!(exit_code(&[row.clone()]), 1);
+        row.expectation_met = Some(true);
+        assert_eq!(exit_code(&[row]), 0);
+        assert_eq!(
+            serde_json::to_value(RuleDecision::NeedsJudge).unwrap(),
+            json!("needs_judge")
+        );
     }
 }
