@@ -12,6 +12,51 @@ use uuid::Uuid;
 const JUDGE_TIMEOUT: Duration = Duration::from_secs(120);
 const JUDGE_TOOL: &str = "submit_display_judgment";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+enum JudgeFailureClass {
+    #[error("transport")]
+    Transport,
+    #[error("timeout")]
+    Timeout,
+    #[error("usage")]
+    Usage,
+    #[error("schema")]
+    Schema,
+    #[error("verdict")]
+    Verdict,
+    #[error("unknown")]
+    Unknown,
+}
+
+fn classified(class: JudgeFailureClass) -> anyhow::Error {
+    anyhow::Error::new(class)
+}
+
+fn provider_failure_class(error: &ProviderError) -> JudgeFailureClass {
+    match error {
+        ProviderError::PartialOutput { source } => provider_failure_class(source),
+        ProviderError::Timeout => JudgeFailureClass::Timeout,
+        ProviderError::InvalidOutput
+        | ProviderError::Rejected { .. }
+        | ProviderError::Unsupported(_) => JudgeFailureClass::Schema,
+        ProviderError::RateLimited { .. }
+        | ProviderError::QuotaExhausted
+        | ProviderError::Auth
+        | ProviderError::Incomplete { .. }
+        | ProviderError::UpstreamFailed { .. }
+        | ProviderError::BlobRejected
+        | ProviderError::Transport => JudgeFailureClass::Transport,
+        ProviderError::Sink | ProviderError::Meter => JudgeFailureClass::Unknown,
+    }
+}
+
+fn failure_class(error: &anyhow::Error) -> JudgeFailureClass {
+    error
+        .downcast_ref::<JudgeFailureClass>()
+        .copied()
+        .unwrap_or(JudgeFailureClass::Unknown)
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct JudgeInput {
     pub schema_version: u8,
@@ -308,19 +353,32 @@ impl Judge {
     }
 
     async fn one_vote(&self, input: &JudgeInput) -> Result<(JudgeVote, Usage)> {
-        let request = self.request(input)?;
+        let request = self
+            .request(input)
+            .map_err(|_| classified(JudgeFailureClass::Unknown))?;
         let mut sink = CollectSink::default();
-        tokio::time::timeout(self.timeout, self.provider.run_turn(&request, &mut sink))
-            .await
-            .context("judge timeout")??;
-        ensure!(sink.done, "judge response missing completion");
-        let usage = sink.usage.context("judge response missing usage")?;
-        ensure!(!sink.text_seen, "judge emitted prose");
-        ensure!(sink.calls.len() == 1, "judge must call exactly once");
+        match tokio::time::timeout(self.timeout, self.provider.run_turn(&request, &mut sink)).await {
+            Err(_) => return Err(classified(JudgeFailureClass::Timeout)),
+            Ok(Err(error)) => return Err(classified(provider_failure_class(&error))),
+            Ok(Ok(())) => {}
+        }
+        if !sink.done {
+            return Err(classified(JudgeFailureClass::Usage));
+        }
+        let usage = sink
+            .usage
+            .ok_or_else(|| classified(JudgeFailureClass::Usage))?;
+        if sink.text_seen || sink.calls.len() != 1 {
+            return Err(classified(JudgeFailureClass::Schema));
+        }
         let (name, args) = &sink.calls[0];
-        ensure!(name == JUDGE_TOOL, "judge called an unknown tool");
-        let vote: JudgeVote = serde_json::from_str(args).context("invalid judge schema")?;
-        vote.validate()?;
+        if name != JUDGE_TOOL {
+            return Err(classified(JudgeFailureClass::Schema));
+        }
+        let vote: JudgeVote = serde_json::from_str(args)
+            .map_err(|_| classified(JudgeFailureClass::Schema))?;
+        vote.validate()
+            .map_err(|_| classified(JudgeFailureClass::Verdict))?;
         Ok((vote, usage))
     }
 
@@ -349,19 +407,25 @@ impl Judge {
             let outcome = match self.evaluate(&input, false).await {
                 Ok(outcome) => outcome,
                 Err(error) => {
-                    eprintln!("judge_calibration_case_{}_evaluation_error", index + 1);
+                    eprintln!(
+                        "judge_calibration_case_{}_class={}",
+                        index + 1,
+                        failure_class(&error)
+                    );
                     return Err(error);
                 }
             };
             eprintln!(
-                "judge_calibration_case_{}_expected={expected}_actual={}_pass_votes={}_fail_votes={}_votes={:?}",
+                "judge_calibration_case_{}_class=ok_expected={expected}_actual={}_pass_votes={}_fail_votes={}",
                 index + 1,
                 outcome.pass,
                 outcome.pass_votes,
-                outcome.fail_votes,
-                outcome.votes
+                outcome.fail_votes
             );
-            ensure!(outcome.pass == expected, "judge calibration failed");
+            if outcome.pass != expected {
+                eprintln!("judge_calibration_case_{}_class=verdict", index + 1);
+                return Err(classified(JudgeFailureClass::Verdict));
+            }
         }
         Ok(())
     }
@@ -480,6 +544,8 @@ mod tests {
     enum Reply {
         Vote(JudgeVote),
         Invalid,
+        MissingUsage,
+        ProviderFailure(ProviderError),
         Timeout,
     }
 
@@ -517,6 +583,8 @@ mod tests {
                     }).await?;
                     sink.emit(TurnEvent::Done { usage: Usage::default() }).await
                 }
+                Some(Reply::MissingUsage) => Ok(()),
+                Some(Reply::ProviderFailure(error)) => Err(error),
                 Some(Reply::Timeout) => {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     Ok(())
@@ -672,6 +740,51 @@ mod tests {
         assert!(invalid.one_vote(&calibration_input("show it", "shown")).await.is_err());
         let (timeout, _) = scripted(vec![Reply::Timeout], Duration::from_millis(1));
         assert!(timeout.one_vote(&calibration_input("show it", "shown")).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn bounded_diagnostics_use_only_closed_failure_classes() {
+        let input = calibration_input("show it", "shown");
+        let cases = [
+            (Reply::Invalid, JudgeFailureClass::Schema),
+            (Reply::MissingUsage, JudgeFailureClass::Usage),
+            (
+                Reply::ProviderFailure(ProviderError::Transport),
+                JudgeFailureClass::Transport,
+            ),
+            (
+                Reply::ProviderFailure(ProviderError::InvalidOutput),
+                JudgeFailureClass::Schema,
+            ),
+            (Reply::Timeout, JudgeFailureClass::Timeout),
+        ];
+        for (reply, expected) in cases {
+            let timeout = if matches!(reply, Reply::Timeout) {
+                Duration::from_millis(1)
+            } else {
+                Duration::from_secs(1)
+            };
+            let (judge, _) = scripted(vec![reply], timeout);
+            let error = judge.one_vote(&input).await.expect_err("classified failure");
+            assert_eq!(failure_class(&error), expected);
+        }
+
+        let inconsistent = JudgeVote {
+            intent_satisfaction: false,
+            reasonable_display: true,
+            clear_natural_expression: true,
+            no_misleading_redundancy: true,
+            verdict: true,
+            reason_code: ReasonCode::Pass,
+        };
+        let (judge, _) = scripted(vec![Reply::Vote(inconsistent)], Duration::from_secs(1));
+        let error = judge.one_vote(&input).await.expect_err("verdict failure");
+        assert_eq!(failure_class(&error), JudgeFailureClass::Verdict);
+
+        assert_eq!(
+            provider_failure_class(&ProviderError::Sink),
+            JudgeFailureClass::Unknown
+        );
     }
 
     #[tokio::test]
