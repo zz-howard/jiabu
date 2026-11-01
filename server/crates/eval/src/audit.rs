@@ -268,7 +268,7 @@ mod tests {
         let args = json!({"source":{"query":{"order":long},"from_call":null,"demo":null}});
         let (summary, discarded) = sanitized_summary(Some("show_records"), Some(&args));
         let order = summary["query"]["order"].as_str().unwrap();
-        assert_eq!(order.as_bytes().len(), 63);
+        assert_eq!(order.len(), 63);
         assert_eq!(order.chars().count(), 21);
         assert_eq!(discarded, 3);
         assert_eq!(summary["truncated"], true);

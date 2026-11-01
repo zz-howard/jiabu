@@ -980,24 +980,6 @@ fn expected_value(r: &RecordSpec, ids: &Identities) -> Value {
     v
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn canonical_summary_truncates_utf8_strings_with_discarded_count() {
-        let query = CanonicalQuery {
-            value: json!({"family":"界".repeat(22)}),
-            text: None,
-        };
-        let summary = query.summary();
-        let family = summary["family"].as_str().unwrap();
-        assert_eq!(family.as_bytes().len(), 63);
-        assert_eq!(family.chars().count(), 21);
-        assert_eq!(summary["truncated"], true);
-        assert_eq!(summary["discarded"], 3);
-    }
-}
 fn differences(expected: &Value, actual: &Value) -> usize {
     expected
         .as_object()
@@ -1287,4 +1269,23 @@ pub fn percentile(values: &[u64], percent: usize) -> Option<u64> {
             .saturating_sub(1)
             .min(v.len() - 1)],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_summary_truncates_utf8_strings_with_discarded_count() {
+        let query = CanonicalQuery {
+            value: json!({"family":"界".repeat(22)}),
+            text: None,
+        };
+        let summary = query.summary();
+        let family = summary["family"].as_str().unwrap();
+        assert_eq!(family.len(), 63);
+        assert_eq!(family.chars().count(), 21);
+        assert_eq!(summary["truncated"], true);
+        assert_eq!(summary["discarded"], 3);
+    }
 }
