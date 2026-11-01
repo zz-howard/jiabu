@@ -458,8 +458,14 @@ impl Scenario {
         e: &Entry,
     ) -> Result<(ResultRow, Option<crate::judge::JudgeInput>)> {
         let clock = Instant::now();
-        let message = self.submit(e).await?;
-        let mut timed_out = self.drive_scored(message).await?;
+        let message = self
+            .submit(e)
+            .await
+            .context(crate::diagnostic::Stage::Submit)?;
+        let mut timed_out = self
+            .drive_scored(message)
+            .await
+            .context(crate::diagnostic::Stage::Drive)?;
         let mut before = None;
         let mut confirmed = false;
         if e.expect.behavior == Behavior::ConfirmThenWrite
@@ -480,7 +486,8 @@ impl Scenario {
                 confirmed,
                 clock.elapsed().as_millis().min(u64::MAX as u128) as u64,
             )
-            .await?;
+            .await
+            .context(crate::diagnostic::Stage::Observe)?;
         let mut row = score(e, &self.ids, &obs);
         if timed_out {
             row.reasons.push("evaluation_timeout".into());
