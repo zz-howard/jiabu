@@ -184,19 +184,23 @@ void main() {
     expect(await auth.resume(), isA<Ok<AuthSession?>>());
     await auth.verificationWork;
     expect(auth.current, isNull);
+    expect(auth.signOutCode, 'unauthenticated');
     expect(await sessions.read(old.partition), isNull);
     expect((await old.store.runtime())['authenticated'], 0);
     expect(await old.store.entity('s', 'record', 'r'), isNotNull);
   });
 
-  LocalAuthRepository coldStart(List<AuthSession?> changes) =>
-      LocalAuthRepository(
-        databases: manager,
-        settings: settings,
-        sessions: sessions,
-        apiFactory: (server, partition) => api,
-        onChanged: changes.add,
-      );
+  LocalAuthRepository coldStart(
+    List<AuthSession?> changes, {
+    void Function()? updated,
+  }) => LocalAuthRepository(
+    databases: manager,
+    settings: settings,
+    sessions: sessions,
+    apiFactory: (server, partition) => api,
+    onChanged: changes.add,
+    onSessionUpdated: updated,
+  );
 
   Future<AuthSession> signIn() async => (await auth.login(
     'https://example.invalid/',
@@ -261,11 +265,13 @@ void main() {
       locale: 'zh',
     );
     final changes = <AuthSession?>[];
-    final resumed = coldStart(changes);
+    var updates = 0;
+    final resumed = coldStart(changes, updated: () => updates++);
     final session = ((await resumed.resume()) as Ok<AuthSession?>).value!;
     await resumed.verificationWork;
-    // Same ownership: no runtime teardown, only the profile is refreshed.
+    // Same ownership: no runtime teardown; observers are told to refresh.
     expect(changes, [session]);
+    expect(updates, 1);
     expect(resumed.current?.user.username, 'fictional-renamed');
     expect(resumed.current?.generation, session.generation);
     final row = await resumed.handle!.store.runtime();
@@ -278,28 +284,122 @@ void main() {
     final first = await signIn();
     api.meUser = const UserDto(id: 'other', username: 'other', locale: 'en');
     final changes = <AuthSession?>[];
-    final resumed = coldStart(changes);
+    var updates = 0;
+    final resumed = coldStart(changes, updated: () => updates++);
     final session = ((await resumed.resume()) as Ok<AuthSession?>).value!;
     await resumed.verificationWork;
     expect(changes, [session, null]);
     expect(resumed.current, isNull);
+    expect(resumed.signOutCode, 'session_user_mismatch');
+    expect(updates, 1);
     expect(await sessions.read(first.partition), isNull);
     final store = (await manager.open(first.partition)).store;
     expect((await store.runtime())['authenticated'], 0);
   });
 
-  test('background_password_change_required_restricts_session', () async {
+  test('background_non_auth_error_keeps_session', () async {
     await signIn();
+    // A full server session is never downgraded; a 403 is like any other
+    // non-authentication error and leaves the local session alone.
     api.restricted = true;
     final changes = <AuthSession?>[];
     final resumed = coldStart(changes);
     final session = ((await resumed.resume()) as Ok<AuthSession?>).value!;
-    expect(session.passwordChangeRequired, isFalse);
     await resumed.verificationWork;
-    expect(changes, hasLength(2));
-    expect(resumed.current?.passwordChangeRequired, isTrue);
-    expect((await resumed.handle!.store.runtime())['authenticated'], 0);
+    expect(changes, [session]);
+    expect(identical(resumed.current, session), isTrue);
+    final row = await resumed.handle!.store.runtime();
+    expect(row['authenticated'], 1);
+    expect(row['generation'], session.generation);
     expect(await sessions.read(session.partition), 'fictional-session');
+  });
+
+  test('cached_identity_of_another_account_waits_for_identity_check', () async {
+    await signIn();
+    final store = auth.handle!.store;
+    await store.saveIdentity(
+      const UserDto(id: 'other', username: 'other', locale: 'en').toJson(),
+      'full',
+    );
+    final gate = Completer<void>();
+    api.meGate = gate.future;
+    final changes = <AuthSession?>[];
+    final resumed = coldStart(changes);
+    var finished = false;
+    final pending = resumed.resume().whenComplete(() => finished = true);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(finished, isFalse);
+    expect(changes, isEmpty);
+    gate.complete();
+    final session = ((await pending) as Ok<AuthSession?>).value!;
+    expect(session.user.id, 'u');
+    expect((await store.runtime())['identity_json'], contains('"id":"u"'));
+  });
+
+  Map<String, Object?> patchedProfile(Map<String, Object?>? body) => {
+    'id': 'u',
+    'username': 'fictional',
+    'locale': body?['locale'],
+  };
+
+  test('set_locale_during_identity_check_is_not_stale', () async {
+    await signIn();
+    final meGate = Completer<void>();
+    final patchGate = Completer<void>();
+    api
+      ..meGate = meGate.future
+      ..meUser = const UserDto(
+        id: 'u',
+        username: 'fictional-renamed',
+        locale: 'en',
+      )
+      ..onAccountRequest = (path, method, body, operationId, joinEpoch) async {
+        await patchGate.future;
+        return patchedProfile(body);
+      };
+    var updates = 0;
+    final resumed = coldStart(<AuthSession?>[], updated: () => updates++);
+    await resumed.resume();
+    final locale = resumed.setLocale('zh-Hans');
+    // The identity check answers while the locale change is in flight.
+    meGate.complete();
+    await resumed.verificationWork;
+    patchGate.complete();
+    expect(await locale, isA<Ok<void>>());
+    expect(resumed.current?.user.locale, 'zh-Hans');
+    expect(resumed.current?.user.username, 'fictional');
+    expect(updates, 0);
+    expect(
+      (await resumed.handle!.store.runtime())['identity_json'],
+      contains('zh-Hans'),
+    );
+  });
+
+  test('identity_check_answer_older_than_set_locale_is_dropped', () async {
+    await signIn();
+    final meGate = Completer<void>();
+    api
+      ..meGate = meGate.future
+      ..meUser = const UserDto(
+        id: 'u',
+        username: 'fictional-renamed',
+        locale: 'en',
+      )
+      ..onAccountRequest = (path, method, body, operationId, joinEpoch) async =>
+          patchedProfile(body);
+    var updates = 0;
+    final resumed = coldStart(<AuthSession?>[], updated: () => updates++);
+    await resumed.resume();
+    expect(await resumed.setLocale('zh-Hans'), isA<Ok<void>>());
+    meGate.complete();
+    await resumed.verificationWork;
+    expect(resumed.current?.user.locale, 'zh-Hans');
+    expect(resumed.current?.user.username, 'fictional');
+    expect(updates, 0);
+    expect(
+      (await resumed.handle!.store.runtime())['identity_json'],
+      contains('zh-Hans'),
+    );
   });
 
   test('late_identity_result_cannot_touch_a_newer_session', () async {

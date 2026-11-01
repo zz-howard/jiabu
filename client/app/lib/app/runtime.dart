@@ -83,6 +83,7 @@ final class AppRuntime {
       onChanged: (session) {
         sessionWork = _sessionChanged(session);
       },
+      onSessionUpdated: notify,
     );
   }
   final DatabaseManager databases;

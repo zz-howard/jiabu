@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,7 @@ import 'package:jiabu/data/services/app_settings_service.dart';
 import 'package:jiabu/data/services/device_context_service.dart';
 import 'package:jiabu/domain/partition.dart';
 import 'package:jiabu/domain/result.dart';
+import 'package:jiabu/domain/sync_state.dart';
 import 'package:jiabu/features/auth/view_model/auth_ui_state.dart';
 import 'package:jiabu/features/auth/view_model/auth_view_model.dart';
 
@@ -56,6 +58,32 @@ class FakeAuth implements AuthRepository {
   }
 }
 
+/// The account was revoked server-side: every identity check answers 401.
+class RevokedAdapter extends RuntimeAdapter {
+  RevokedAdapter(this.code);
+  final String code;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) {
+    if (options.path != 'v1/me') {
+      status = 200;
+      return super.fetch(options, requestStream, cancelFuture);
+    }
+    requests.add(options);
+    return Future.value(
+      ResponseBody.fromString(
+        jsonEncode({'code': code, 'status': 401}),
+        401,
+        headers: headers,
+      ),
+    );
+  }
+}
+
 Future<({ProviderContainer container, AppRuntime runtime, Directory dir})>
 _fixture({List<String> servers = const [], AuthSession? session}) async {
   final directory = await Directory.systemTemp.createTemp('jiabu-start-');
@@ -94,6 +122,64 @@ Future<void> _dispose(
 }
 
 void main() {
+  for (final (code, message) in [
+    ('account_disabled', 'account_disabled'),
+    ('unauthenticated', 'session_expired'),
+  ]) {
+    test('background_401_${code}_signs_out_with_$message', () async {
+      final directory = await Directory.systemTemp.createTemp('jiabu-401-');
+      final storage = MemorySettings();
+      final sessions = MemorySessions();
+      AppRuntime runtime(HttpClientAdapter adapter) => AppRuntime(
+        databases: DatabaseManager(directory),
+        settings: AppSettingsService(storage),
+        sessions: sessions,
+        background: true,
+        createDio: () => Dio()..httpClientAdapter = adapter,
+        device: const DeviceContext(
+          appVersion: '0.1.0',
+          build: 1,
+          model: 'test',
+          osVersion: 'test',
+        ),
+      );
+      final first = runtime(RuntimeAdapter());
+      final login = await first.auth.login(
+        'https://example.invalid/',
+        'fictional',
+        'fictional-password',
+      );
+      final partition = (login as Ok<AuthSession>).value.partition;
+      await first.sessionWork;
+      await first.close();
+
+      final cold = runtime(RevokedAdapter(code));
+      final container = ProviderContainer(
+        overrides: [appRuntimeProvider.overrideWith((ref) => cold)],
+      );
+      final subscription = container.listen(authViewModelProvider, (_, _) {});
+      try {
+        await container.read(authViewModelProvider.notifier).initialize();
+        await cold.auth.verificationWork;
+        await cold.sessionWork;
+        // Runtime events reach the view model asynchronously.
+        await Future<void>.delayed(Duration.zero);
+        final state = container.read(authViewModelProvider);
+        expect(cold.status, SyncStatus.loginRequired);
+        expect(cold.auth.current, isNull);
+        expect(await sessions.read(partition), isNull);
+        expect(state.authenticated, isFalse);
+        expect(state.page, AuthPage.login);
+        expect(state.errorCode, message);
+      } finally {
+        subscription.close();
+        container.dispose();
+        await cold.close();
+        await directory.delete(recursive: true);
+      }
+    });
+  }
+
   test('first_launch_without_server_shows_welcome', () async {
     final first = await _fixture();
     await first.container
