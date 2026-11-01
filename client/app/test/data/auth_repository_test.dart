@@ -44,6 +44,11 @@ class AuthApi extends FakeApi {
   bool offline = false;
   bool unauthorized = false;
   int passwordCalls = 0;
+  int meCalls = 0;
+
+  /// Holds each identity check started while it is set; flags are read after.
+  Future<void>? meGate;
+  UserDto? meUser;
   @override
   Future<LoginResponseDto> login(LoginRequestDto request) async =>
       LoginResponseDto(
@@ -54,6 +59,11 @@ class AuthApi extends FakeApi {
       );
   @override
   Future<UserDto> me() async {
+    meCalls++;
+    final gate = meGate;
+    if (gate != null) {
+      await gate;
+    }
     if (offline) {
       throw const ApiError('network');
     }
@@ -63,7 +73,7 @@ class AuthApi extends FakeApi {
     if (restricted) {
       throw const ApiError('password_change_required', status: 403);
     }
-    return await super.me();
+    return meUser ?? await super.me();
   }
 
   @override
@@ -155,6 +165,9 @@ void main() {
     expect(await resumed.resume(), isA<Ok<AuthSession?>>());
     expect(resumed.current?.user.username, 'fictional');
     expect(await resumed.handle?.store.entity('s', 'record', 'r'), isNotNull);
+    await resumed.verificationWork;
+    expect(resumed.current, isNotNull);
+    expect((await resumed.handle?.store.runtime())?['authenticated'], 1);
   });
 
   test('401_clears_token_stops_sync_and_keeps_partition', () async {
@@ -166,11 +179,154 @@ void main() {
     final old = auth.handle!;
     await old.store.putEntity('s', 'record', sampleRecord('r'));
     api.unauthorized = true;
-    expect(await auth.resume(), isA<Failure<AuthSession?>>());
+    // Local-first resume opens the persisted session; the background identity
+    // check then takes the authentication-lost path.
+    expect(await auth.resume(), isA<Ok<AuthSession?>>());
+    await auth.verificationWork;
     expect(auth.current, isNull);
     expect(await sessions.read(old.partition), isNull);
     expect((await old.store.runtime())['authenticated'], 0);
     expect(await old.store.entity('s', 'record', 'r'), isNotNull);
+  });
+
+  LocalAuthRepository coldStart(List<AuthSession?> changes) =>
+      LocalAuthRepository(
+        databases: manager,
+        settings: settings,
+        sessions: sessions,
+        apiFactory: (server, partition) => api,
+        onChanged: changes.add,
+      );
+
+  Future<AuthSession> signIn() async => (await auth.login(
+    'https://example.invalid/',
+    'fictional',
+    'fictional-test-password',
+  ) as Ok<AuthSession>).value;
+
+  test('cold_start_opens_local_data_while_identity_check_is_pending', () async {
+    final first = await signIn();
+    await auth.handle?.store.putEntity('s', 'record', sampleRecord('r'));
+    // The online check never answers.
+    api.meGate = Completer<void>().future;
+    final calls = api.meCalls;
+    final changes = <AuthSession?>[];
+    final resumed = coldStart(changes);
+    final result = await resumed.resume().timeout(const Duration(seconds: 5));
+    final session = (result as Ok<AuthSession?>).value!;
+    expect(session.user.username, 'fictional');
+    expect(session.partition.prefix, first.partition.prefix);
+    expect(session.passwordChangeRequired, isFalse);
+    expect(changes, [session]);
+    expect(api.meCalls, calls + 1);
+    final store = resumed.handle!.store;
+    expect((await store.runtime())['generation'], session.generation);
+    expect((await store.runtime())['authenticated'], 1);
+    expect(await store.entity('s', 'record', 'r'), isNotNull);
+  });
+
+  for (final state in ['identity_missing', 'login_unconfirmed']) {
+    test('${state}_resume_still_waits_for_identity_check', () async {
+      await signIn();
+      final store = auth.handle!.store;
+      if (state == 'identity_missing') {
+        await store.db.customStatement(
+          'UPDATE sync_runtime SET identity_json = NULL WHERE id = 1',
+        );
+      } else {
+        // Token saved, but the login's own /me confirmation never committed.
+        await store.activate(authenticated: false);
+      }
+      final gate = Completer<void>();
+      api.meGate = gate.future;
+      final changes = <AuthSession?>[];
+      final resumed = coldStart(changes);
+      var finished = false;
+      final pending = resumed.resume().whenComplete(() => finished = true);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(finished, isFalse);
+      expect(changes, isEmpty);
+      gate.complete();
+      final session = ((await pending) as Ok<AuthSession?>).value!;
+      expect(changes, [session]);
+      expect((await store.runtime())['authenticated'], 1);
+    });
+  }
+
+  test('background_identity_check_refreshes_identity_in_place', () async {
+    await signIn();
+    api.meUser = const UserDto(
+      id: 'u',
+      username: 'fictional-renamed',
+      locale: 'zh',
+    );
+    final changes = <AuthSession?>[];
+    final resumed = coldStart(changes);
+    final session = ((await resumed.resume()) as Ok<AuthSession?>).value!;
+    await resumed.verificationWork;
+    // Same ownership: no runtime teardown, only the profile is refreshed.
+    expect(changes, [session]);
+    expect(resumed.current?.user.username, 'fictional-renamed');
+    expect(resumed.current?.generation, session.generation);
+    final row = await resumed.handle!.store.runtime();
+    expect(row['identity_json'], contains('fictional-renamed'));
+    expect(row['session_kind'], 'full');
+    expect(row['generation'], session.generation);
+  });
+
+  test('background_user_mismatch_signs_out', () async {
+    final first = await signIn();
+    api.meUser = const UserDto(id: 'other', username: 'other', locale: 'en');
+    final changes = <AuthSession?>[];
+    final resumed = coldStart(changes);
+    final session = ((await resumed.resume()) as Ok<AuthSession?>).value!;
+    await resumed.verificationWork;
+    expect(changes, [session, null]);
+    expect(resumed.current, isNull);
+    expect(await sessions.read(first.partition), isNull);
+    final store = (await manager.open(first.partition)).store;
+    expect((await store.runtime())['authenticated'], 0);
+  });
+
+  test('background_password_change_required_restricts_session', () async {
+    await signIn();
+    api.restricted = true;
+    final changes = <AuthSession?>[];
+    final resumed = coldStart(changes);
+    final session = ((await resumed.resume()) as Ok<AuthSession?>).value!;
+    expect(session.passwordChangeRequired, isFalse);
+    await resumed.verificationWork;
+    expect(changes, hasLength(2));
+    expect(resumed.current?.passwordChangeRequired, isTrue);
+    expect((await resumed.handle!.store.runtime())['authenticated'], 0);
+    expect(await sessions.read(session.partition), 'fictional-session');
+  });
+
+  test('late_identity_result_cannot_touch_a_newer_session', () async {
+    await signIn();
+    final gate = Completer<void>();
+    api.meGate = gate.future;
+    final changes = <AuthSession?>[];
+    final resumed = coldStart(changes);
+    final old = ((await resumed.resume()) as Ok<AuthSession?>).value!;
+    api.meGate = null;
+    final login = await resumed.login(
+      'https://example.invalid/',
+      'fictional',
+      'fictional-test-password',
+    );
+    final newer = (login as Ok<AuthSession>).value;
+    expect(newer.generation, isNot(old.generation));
+    // The old check now answers 401, after the newer session took over.
+    api.unauthorized = true;
+    gate.complete();
+    await resumed.verificationWork;
+    expect(identical(resumed.current, newer), isTrue);
+    expect(await sessions.read(newer.partition), 'fictional-session');
+    final row = await resumed.handle!.store.runtime();
+    expect(row['authenticated'], 1);
+    expect(row['generation'], newer.generation);
+    expect(changes.last, same(newer));
   });
 
   test('stale_401_generation_cannot_delete_a_new_session', () async {

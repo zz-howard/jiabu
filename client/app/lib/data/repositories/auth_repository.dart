@@ -62,6 +62,10 @@ final class LocalAuthRepository implements AuthRepository {
   PartitionDatabase? handle;
   Future<void> _logoutWork = Future<void>.value();
   Future<void> get logoutWork => _logoutWork;
+  Future<void> _verificationWork = Future<void>.value();
+
+  /// Background identity checks started by local-first resumes.
+  Future<void> get verificationWork => _verificationWork;
 
   @override
   Future<Result<AuthSession>> login(
@@ -171,6 +175,25 @@ final class LocalAuthRepository implements AuthRepository {
       return const Ok(null);
     }
     final resumeGeneration = requireValue<int>(resumeRow['generation']);
+    if (resumeRow['authenticated'] == 1 &&
+        resumeRow['session_kind'] == 'full' &&
+        resumeRow['identity_json'] != null) {
+      // Local-first: all data is local, so open it from the identity accepted
+      // earlier and confirm it online without blocking the first frame.
+      final session = await _resumePersisted(
+        resumeHandle,
+        partition,
+        resumeGeneration,
+      );
+      if (session == null) {
+        return const Failure('stale_response');
+      }
+      current = session;
+      onChanged?.call(session);
+      // Started after onChanged so the request belongs to this runtime.
+      _verifyInBackground(session, resumeHandle);
+      return Ok(session);
+    }
     try {
       final user = await apiFactory(partition.server, partition).me();
       if (user.id != partition.userId) {
@@ -209,31 +232,11 @@ final class LocalAuthRepository implements AuthRepository {
         );
       }
       if (error.code == 'network' || error.status == 426) {
-        final session = await resumeHandle.store.transaction(() async {
-          await resumeHandle.store.lockRuntime();
-          final persisted = await resumeHandle.store.runtime();
-          if (persisted['generation'] != resumeGeneration) {
-            return null;
-          }
-          final identity = persisted['identity_json'] as String?;
-          if (identity == null) {
-            return null;
-          }
-          final user = UserDto.fromJson(
-            (jsonDecode(identity) as Map<String, Object?>)
-                .cast<String, Object?>(),
-          );
-          final restricted = persisted['session_kind'] == 'password_change';
-          final generation = activateOnResume
-              ? await resumeHandle.store.activate(authenticated: !restricted)
-              : resumeGeneration;
-          return AuthSession(
-            user: user,
-            partition: partition,
-            passwordChangeRequired: restricted,
-            generation: generation,
-          );
-        });
+        final session = await _resumePersisted(
+          resumeHandle,
+          partition,
+          resumeGeneration,
+        );
         if (session != null) {
           current = session;
           onChanged?.call(session);
@@ -246,23 +249,14 @@ final class LocalAuthRepository implements AuthRepository {
       if (error.code == 'password_change_required') {
         // /me is forbidden for restricted sessions; allow only the password
         // page.
-        final generation = await resumeHandle.store.transaction(() async {
-          await resumeHandle.store.lockRuntime();
-          if ((await resumeHandle.store.runtime())['generation'] !=
-              resumeGeneration) {
-            return null;
-          }
-          return await resumeHandle.store.activate(authenticated: false);
-        });
-        if (generation == null) {
+        final session = await _restrict(
+          resumeHandle,
+          partition,
+          resumeGeneration,
+        );
+        if (session == null) {
           return const Failure('stale_response');
         }
-        final session = AuthSession(
-          user: UserDto(id: partition.userId, username: '', locale: 'system'),
-          partition: partition,
-          passwordChangeRequired: true,
-          generation: generation,
-        );
         current = session;
         onChanged?.call(session);
         return Ok(session);
@@ -272,6 +266,144 @@ final class LocalAuthRepository implements AuthRepository {
         status: error.status,
         requestId: error.requestId,
       );
+    }
+  }
+
+  /// Rebuilds the session from the identity persisted by an earlier online
+  /// check, or null when the generation moved or no identity was saved.
+  Future<AuthSession?> _resumePersisted(
+    PartitionDatabase opened,
+    Partition partition,
+    int expectedGeneration,
+  ) => opened.store.transaction(() async {
+    await opened.store.lockRuntime();
+    final persisted = await opened.store.runtime();
+    if (persisted['generation'] != expectedGeneration) {
+      return null;
+    }
+    final identity = persisted['identity_json'] as String?;
+    if (identity == null) {
+      return null;
+    }
+    final user = UserDto.fromJson(
+      (jsonDecode(identity) as Map<String, Object?>).cast<String, Object?>(),
+    );
+    final restricted = persisted['session_kind'] == 'password_change';
+    final generation = activateOnResume
+        ? await opened.store.activate(authenticated: !restricted)
+        : expectedGeneration;
+    return AuthSession(
+      user: user,
+      partition: partition,
+      passwordChangeRequired: restricted,
+      generation: generation,
+    );
+  });
+
+  /// Activates a password-change-only session, or null when stale.
+  Future<AuthSession?> _restrict(
+    PartitionDatabase opened,
+    Partition partition,
+    int expectedGeneration, {
+    bool Function()? stillCurrent,
+  }) async {
+    final generation = await opened.store.transaction(() async {
+      await opened.store.lockRuntime();
+      if ((stillCurrent != null && !stillCurrent()) ||
+          (await opened.store.runtime())['generation'] != expectedGeneration) {
+        return null;
+      }
+      return await opened.store.activate(authenticated: false);
+    });
+    if (generation == null) {
+      return null;
+    }
+    return AuthSession(
+      user: UserDto(id: partition.userId, username: '', locale: 'system'),
+      partition: partition,
+      passwordChangeRequired: true,
+      generation: generation,
+    );
+  }
+
+  void _verifyInBackground(AuthSession session, PartitionDatabase opened) {
+    // Late results are discarded by the guards below; a closed database or a
+    // dead network must never surface as an unhandled error.
+    final work = _verifyIdentity(session, opened).catchError((Object _) {});
+    _verificationWork = Future.wait<void>([_verificationWork, work])
+        .then((_) {});
+    unawaited(_verificationWork);
+  }
+
+  /// Applies the online identity check to [session] only while it is still
+  /// the current session and owns the runtime generation it was built with.
+  Future<void> _verifyIdentity(
+    AuthSession session,
+    PartitionDatabase opened,
+  ) async {
+    final partition = session.partition;
+    bool owns() => identical(current, session);
+    try {
+      final user = await apiFactory(partition.server, partition).me();
+      if (!owns()) {
+        return;
+      }
+      if (user.id != partition.userId) {
+        await _dropSession(session);
+        return;
+      }
+      final accepted = await opened.store.transaction(() async {
+        await opened.store.lockRuntime();
+        if (!owns() ||
+            (await opened.store.runtime())['generation'] !=
+                session.generation) {
+          return false;
+        }
+        await opened.store.saveIdentity(user.toJson(), 'full');
+        return true;
+      });
+      if (accepted && owns() && user != session.user) {
+        // Same account and ownership; only the profile changed, so the
+        // runtime built for this session stays.
+        current = AuthSession(
+          user: user,
+          partition: partition,
+          passwordChangeRequired: session.passwordChangeRequired,
+          generation: session.generation,
+          adminResetAt: session.adminResetAt,
+        );
+      }
+    } on ApiError catch (error) {
+      if (!owns()) {
+        return;
+      }
+      if (error.status == 401) {
+        await _dropSession(session);
+        return;
+      }
+      if (error.code == 'password_change_required') {
+        final restricted = await _restrict(
+          opened,
+          partition,
+          session.generation,
+          stillCurrent: owns,
+        );
+        if (restricted != null && owns()) {
+          current = restricted;
+          onChanged?.call(restricted);
+        }
+      }
+      // Network, 426 and other errors keep the local session: sync reports
+      // them and the transport handles client-too-old.
+    }
+  }
+
+  /// The authentication-lost path: revoke this session's ownership, then
+  /// detach it even when another instance already moved the generation.
+  Future<void> _dropSession(AuthSession session) async {
+    await invalidate(session.partition, expectedGeneration: session.generation);
+    if (identical(current, session)) {
+      clearLocalSession();
     }
   }
 
