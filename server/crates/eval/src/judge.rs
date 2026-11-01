@@ -190,6 +190,7 @@ pub struct JudgeOutcome {
 struct CollectSink {
     calls: Vec<(String, String)>,
     text_seen: bool,
+    output_seen: bool,
     done: bool,
     usage: Option<Usage>,
 }
@@ -200,6 +201,7 @@ impl TurnSink for CollectSink {
         self.usage = Some(usage.clone());
     }
     async fn emit(&mut self, event: TurnEvent) -> std::result::Result<(), ProviderError> {
+        self.output_seen = true;
         match event {
             TurnEvent::ToolCall { name, args_raw, .. } => self.calls.push((name, args_raw)),
             TurnEvent::TextDelta(text) | TurnEvent::MessageDone { text, .. } => {
@@ -310,9 +312,25 @@ impl Judge {
     async fn one_vote(&self, input: &JudgeInput) -> Result<(JudgeVote, Usage)> {
         let request = self.request(input)?;
         let mut sink = CollectSink::default();
-        tokio::time::timeout(self.timeout, self.provider.run_turn(&request, &mut sink))
-            .await
-            .context("judge timeout")??;
+        let deadline = tokio::time::Instant::now() + self.timeout;
+        for attempt in 0..2 {
+            match tokio::time::timeout_at(deadline, self.provider.run_turn(&request, &mut sink))
+                .await
+                .context("judge timeout")?
+            {
+                Err(ProviderError::Transport)
+                    if attempt == 0 && !sink.output_seen && sink.usage.is_none() =>
+                {
+                    // Retry the same request once only when no output has been delivered.
+                    // Both attempts share the original vote deadline.
+                    eprintln!("judge_transport_retry=1");
+                }
+                result => {
+                    result?;
+                    break;
+                }
+            }
+        }
         ensure!(sink.done, "judge response missing completion");
         let usage = sink.usage.context("judge response missing usage")?;
         ensure!(!sink.text_seen, "judge emitted prose");
@@ -466,42 +484,98 @@ mod tests {
     enum Reply {
         Vote(JudgeVote),
         Invalid,
+        MissingUsage,
+        ProviderFailure(ProviderError),
+        Partial(TurnEvent),
+        UsageThenTransport,
+        DelayedTransport(Duration),
+        DelayedVote(Duration, JudgeVote),
         Timeout,
     }
 
     struct Scripted {
         replies: Mutex<VecDeque<Reply>>,
         calls: AtomicUsize,
+        requests: Mutex<Vec<Value>>,
         capabilities: Capabilities,
     }
 
     #[async_trait::async_trait]
     impl ModelProvider for Scripted {
-        fn id(&self) -> &str { "scripted" }
-        fn capabilities(&self) -> &Capabilities { &self.capabilities }
+        fn id(&self) -> &str {
+            "scripted"
+        }
+        fn capabilities(&self) -> &Capabilities {
+            &self.capabilities
+        }
         async fn run_turn(
             &self,
-            _request: &TurnRequest,
+            request: &TurnRequest,
             sink: &mut dyn TurnSink,
         ) -> std::result::Result<(), ProviderError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
-            let reply = self.replies.lock().unwrap_or_else(|error| error.into_inner()).pop_front();
+            self.requests
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(serde_json::to_value(request).map_err(|_| ProviderError::InvalidOutput)?);
+            let reply = self
+                .replies
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .pop_front();
             match reply {
                 Some(Reply::Vote(vote)) => {
                     sink.emit(TurnEvent::ToolCall {
                         call_id: "judge".into(),
                         name: JUDGE_TOOL.into(),
-                        args_raw: serde_json::to_string(&vote).map_err(|_| ProviderError::InvalidOutput)?,
-                    }).await?;
-                    sink.emit(TurnEvent::Done { usage: Usage::default() }).await
+                        args_raw: serde_json::to_string(&vote)
+                            .map_err(|_| ProviderError::InvalidOutput)?,
+                    })
+                    .await?;
+                    sink.emit(TurnEvent::Done {
+                        usage: Usage::default(),
+                    })
+                    .await
                 }
                 Some(Reply::Invalid) => {
                     sink.emit(TurnEvent::ToolCall {
                         call_id: "judge".into(),
                         name: JUDGE_TOOL.into(),
                         args_raw: "{}".into(),
-                    }).await?;
-                    sink.emit(TurnEvent::Done { usage: Usage::default() }).await
+                    })
+                    .await?;
+                    sink.emit(TurnEvent::Done {
+                        usage: Usage::default(),
+                    })
+                    .await
+                }
+                Some(Reply::MissingUsage) => Ok(()),
+                Some(Reply::ProviderFailure(error)) => Err(error),
+                Some(Reply::Partial(event)) => {
+                    sink.emit(event).await?;
+                    Err(ProviderError::Transport)
+                }
+                Some(Reply::UsageThenTransport) => {
+                    sink.record_usage(&Usage::default());
+                    Err(ProviderError::Transport)
+                }
+                Some(Reply::DelayedTransport(delay)) => {
+                    tokio::time::sleep(delay).await;
+                    Err(ProviderError::Transport)
+                }
+                Some(Reply::DelayedVote(delay, vote)) => {
+                    tokio::time::sleep(delay).await;
+                    sink.emit(TurnEvent::ToolCall {
+                        call_id: "judge".into(),
+                        name: JUDGE_TOOL.into(),
+                        args_raw: serde_json::to_string(&vote)
+                            .map_err(|_| ProviderError::InvalidOutput)?,
+                    })
+                    .await?;
+                    sink.emit(TurnEvent::Done {
+                        usage: Usage::default(),
+                    })
+                    .await
                 }
                 Some(Reply::Timeout) => {
                     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -527,6 +601,7 @@ mod tests {
         let provider = Arc::new(Scripted {
             replies: Mutex::new(replies.into()),
             calls: AtomicUsize::new(0),
+            requests: Mutex::new(Vec::new()),
             capabilities: Capabilities {
                 structured: StructuredMode::ToolCall,
                 vision: false,
@@ -658,6 +733,102 @@ mod tests {
         assert!(invalid.one_vote(&calibration_input("show it", "shown")).await.is_err());
         let (timeout, _) = scripted(vec![Reply::Timeout], Duration::from_millis(1));
         assert!(timeout.one_vote(&calibration_input("show it", "shown")).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn transient_transport_retry_preserves_the_request_and_successful_votes() -> Result<()> {
+        let (judge, provider) = scripted(
+            vec![
+                Reply::Vote(vote(true)),
+                Reply::ProviderFailure(ProviderError::Transport),
+                Reply::Vote(vote(false)),
+                Reply::Vote(vote(true)),
+            ],
+            Duration::from_secs(1),
+        );
+        let outcome = judge
+            .evaluate(&calibration_input("show it", "shown"), false)
+            .await?;
+        assert_eq!((outcome.pass_votes, outcome.fail_votes), (2, 1));
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 4);
+        let requests = provider.requests.lock().unwrap();
+        assert_ne!(requests[0], requests[1]);
+        assert_eq!(requests[1], requests[2]);
+        assert_ne!(requests[2], requests[3]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn transient_transport_retry_has_a_two_attempt_limit() {
+        let (judge, provider) = scripted(
+            vec![
+                Reply::ProviderFailure(ProviderError::Transport),
+                Reply::ProviderFailure(ProviderError::Transport),
+                Reply::Vote(vote(true)),
+            ],
+            Duration::from_secs(1),
+        );
+        let error = judge
+            .one_vote(&calibration_input("show it", "shown"))
+            .await
+            .unwrap_err();
+        assert!(matches!(error.downcast_ref::<ProviderError>(), Some(ProviderError::Transport)));
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn transient_transport_retry_does_not_retry_other_errors_or_partial_output() {
+        let cases = vec![
+            Reply::ProviderFailure(ProviderError::Auth),
+            Reply::ProviderFailure(ProviderError::QuotaExhausted),
+            Reply::ProviderFailure(ProviderError::RateLimited { retry_after: None }),
+            Reply::ProviderFailure(ProviderError::Timeout),
+            Reply::ProviderFailure(ProviderError::InvalidOutput),
+            Reply::ProviderFailure(ProviderError::PartialOutput {
+                source: Box::new(ProviderError::Transport),
+            }),
+            Reply::Invalid,
+            Reply::MissingUsage,
+            Reply::Partial(TurnEvent::TextDelta(" ".into())),
+            Reply::Partial(TurnEvent::ToolCall {
+                call_id: "partial".into(),
+                name: JUDGE_TOOL.into(),
+                args_raw: "{}".into(),
+            }),
+            Reply::Partial(TurnEvent::Done {
+                usage: Usage::default(),
+            }),
+            Reply::Partial(TurnEvent::Note("partial".into())),
+            Reply::UsageThenTransport,
+        ];
+        for first in cases {
+            let (judge, provider) =
+                scripted(vec![first, Reply::Vote(vote(true))], Duration::from_secs(1));
+            assert!(
+                judge
+                    .one_vote(&calibration_input("show it", "shown"))
+                    .await
+                    .is_err()
+            );
+            assert_eq!(provider.calls.load(Ordering::Relaxed), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn transient_transport_retry_shares_the_original_total_deadline() {
+        let (judge, provider) = scripted(
+            vec![
+                Reply::DelayedTransport(Duration::from_millis(100)),
+                Reply::DelayedVote(Duration::from_millis(250), vote(true)),
+            ],
+            Duration::from_millis(300),
+        );
+        let error = judge
+            .one_vote(&calibration_input("show it", "shown"))
+            .await
+            .unwrap_err();
+        assert!(error.is::<tokio::time::error::Elapsed>());
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test]

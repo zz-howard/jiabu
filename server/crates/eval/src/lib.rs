@@ -3,6 +3,7 @@
 pub mod agent_fixture;
 pub mod audit;
 pub mod dataset;
+pub mod diagnostic;
 pub mod fixture;
 pub mod judge;
 #[cfg(feature = "live")]

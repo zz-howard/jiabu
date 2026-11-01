@@ -227,6 +227,9 @@ Live 启动时先用显式 `--judge-model` 绑定已加载配置中的唯一 ena
 没有静默 fallback。内置校准通过后，仅对 deterministic hard gate 已通过的 14 条 core display
 样例做三次独立 Judge 调用并取 2/3 多数；Mock、integration、stress 及 deterministic 失败均为
 零 Judge 调用。Judge transport、超时、缺失 usage 或严格输出 schema 失败均按基础设施错误退出 2。
+Judge 仅在原始 `Transport` 错误且尚无任何输出或 usage 时，对同一请求最多重试一次；
+两次尝试共享原有每票 120 秒期限，成功票不会重采样，认证/额度/限流/格式错误及部分输出不重试。
+基础设施错误只输出闭合 stage/class 标签，不输出底层错误文字。
 每票 usage 在 evaluator 进程内捕获以确认调用完整，但不写源库、scratch meter 或 CSV；CSV 只持久化
 Judge 模型快照、self-judge、通过/失败票数及闭集布尔/枚举票据，不保存请求、候选文案或自由文本理由。
 

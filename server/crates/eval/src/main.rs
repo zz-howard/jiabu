@@ -86,8 +86,11 @@ async fn run(args: Args) -> Result<u8> {
             providers.as_ref().context("live providers missing")?,
             requested,
         )?;
-        if judge.calibrate().await.is_err() {
-            eprintln!("judge_calibration_infrastructure_error");
+        if let Err(error) = judge.calibrate().await {
+            eprintln!(
+                "judge_calibration_infrastructure_error stage=judge-calibration class={}",
+                ai_eval::diagnostic::class(&error)
+            );
             return Ok(2);
         }
         Some(judge)
@@ -96,13 +99,17 @@ async fn run(args: Args) -> Result<u8> {
     };
     let mut rows = Vec::new();
     for e in entries {
+        let mut stage = "fixture-init";
         let result = async {
             let scenario = Scenario::new(&e, &root, &scratch, providers.as_ref(), None).await?;
+            stage = "actor-evaluate";
             let (mut row, input) = scenario.evaluate_with_judge_input(&e).await?;
             if ai_eval::judge::should_judge(judge.is_some(), &e, &row) {
+                stage = "judge-request";
                 let judge = judge.as_ref().context("judge missing")?;
                 let input = input.as_ref().context("display judge input missing")?;
                 let outcome = judge.evaluate(input, judge.is_self_judge(&row)).await?;
+                stage = "judge-apply";
                 ai_eval::judge::apply(&mut row, outcome)?;
             }
             anyhow::Ok(row)
@@ -122,9 +129,14 @@ async fn run(args: Args) -> Result<u8> {
                 rows.push(row);
                 report::write(&args.out, &rows)?;
             }
-            Err(_) => {
-                // Never format DB/transport errors: these may include a URL or content.
-                eprintln!("{}: infrastructure_error", e.id);
+            Err(error) => {
+                // Emit only closed labels; error text can contain credentials or content.
+                eprintln!(
+                    "{}: infrastructure_error stage={} class={}",
+                    e.id,
+                    ai_eval::diagnostic::stage(&error, stage),
+                    ai_eval::diagnostic::class(&error)
+                );
                 return Ok(2);
             }
         }
