@@ -747,6 +747,38 @@ fn prose_money_accepts_trimmed_decimals_and_deduplicates_symbol_plus_unit() {
 }
 
 #[test]
+fn prose_only_mock_uses_typed_facts_and_wrong_value_is_rejected() -> Result<()> {
+    use jiabu_ai::{mock::MockStep, types::TurnEvent};
+
+    let entry = display_entry("display-019.yaml");
+    let scripts = mock::scripts(&entry, &Identities::default())?;
+    let prose = scripts
+        .last()
+        .and_then(|script| script.first())
+        .and_then(|step| match step {
+            MockStep::Emit(TurnEvent::TextDelta(text)) => Some(text.as_str()),
+            _ => None,
+        })
+        .context("prose-only mock text")?;
+    assert_eq!(prose, "本月总支出 68.00 元");
+
+    let score = |text: &str| {
+        let message = json!({
+            "fallbackText":text,
+            "blocks":[{"type":"markdown","data":{"text":text},"fallbackText":text}]
+        });
+        scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation(&entry, message),
+        )
+    };
+    assert!(score(prose).display_pass);
+    assert!(!score(&prose.replace("68.00", "69.00")).display_pass);
+    Ok(())
+}
+
+#[test]
 fn no_data_prose_accepts_natural_zero_and_rejects_conflicting_semantics() {
     let entry = display_entry("display-008.yaml");
     let score = |prose: &str| {
