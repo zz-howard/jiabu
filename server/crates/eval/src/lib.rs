@@ -4,6 +4,7 @@ pub mod agent_fixture;
 pub mod audit;
 pub mod dataset;
 pub mod fixture;
+pub mod judge;
 #[cfg(feature = "live")]
 pub mod live;
 pub mod mock;

@@ -1,10 +1,12 @@
 use ai_eval::{
     dataset::{self, Behavior, RecordSpec},
     fixture::{Scenario, invoke},
+    judge::{self, JudgeOutcome, JudgeVote, ReasonCode},
     mock::{self, Identities},
     scoring::{self, Observation, Questions},
 };
 use anyhow::{Context, Result};
+use jiabu_ai::Usage;
 use serde_json::{Value, json};
 fn ambiguity() -> dataset::Entry {
     dataset::parse(include_str!("../../../eval/entries/zh-ambiguous-001.yaml")).unwrap()
@@ -32,6 +34,7 @@ fn observation(events: Value, records: Value) -> Observation {
         display_audit_discarded: 0,
         server_fallbacks: vec![],
         calls: vec![],
+        tested_models: Default::default(),
         tool_total: 1,
         tool_valid: 1,
         business_errors: 0,
@@ -796,6 +799,87 @@ fn alternative_report_is_sanitized_and_contains_only_ids() -> Result<()> {
     assert!(results.contains("\"prose\""));
     assert!(!results.contains(&entry.input.text));
     assert!(!results.contains(prose));
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[test]
+fn judge_report_allowlist_excludes_request_prose_and_usage() -> Result<()> {
+    let input = judge::JudgeInput {
+        schema_version: 1,
+        locale: "en-US".into(),
+        user_request: "raw-user-request-sentinel".into(),
+        explicit_display_constraints: json!({}),
+        verified_expected_typed_facts: json!([]),
+        verified_actual_typed_facts: json!({}),
+        client_capabilities: json!({}),
+        visible_prose: "raw-visible-prose-sentinel".into(),
+        normalized_blocks: json!([]),
+    };
+    let serialized_input = serde_json::to_string(&input)?;
+    assert!(serialized_input.contains("raw-user-request-sentinel"));
+    assert!(serialized_input.contains("raw-visible-prose-sentinel"));
+    let mut row = scoring::score(
+        &ambiguity(),
+        &Identities::default(),
+        &observation(json!([]), json!([])),
+    );
+    let vote = JudgeVote {
+        intent_satisfaction: true,
+        reasonable_display: true,
+        clear_natural_expression: true,
+        no_misleading_redundancy: true,
+        verdict: true,
+        reason_code: ReasonCode::Pass,
+    };
+    judge::apply(
+        &mut row,
+        JudgeOutcome {
+            model_snapshot: "synthetic/model@00000000-0000-0000-0000-000000000000".into(),
+            self_judge: false,
+            votes: vec![vote.clone(), vote.clone(), vote],
+            pass_votes: 3,
+            fail_votes: 0,
+            pass: true,
+            usage: vec![Usage {
+                input_tokens: 987_654,
+                output_tokens: 123_456,
+                cached_input_tokens: 456_789,
+                cache_write_tokens: 111_111,
+            }],
+        },
+    )?;
+    let dir = std::env::temp_dir().join(format!(
+        "jiabu-eval-judge-report-{}",
+        uuid::Uuid::now_v7()
+    ));
+    ai_eval::report::write(&dir, &[row])?;
+    let results = std::fs::read_to_string(dir.join("results.csv"))?;
+    for forbidden in [
+        "raw-user-request-sentinel",
+        "raw-visible-prose-sentinel",
+        "987654",
+        "123456",
+        "456789",
+        "111111",
+    ] {
+        assert!(!results.contains(forbidden));
+    }
+    let judge_columns = ai_eval::report::RESULTS_HEADER
+        .iter()
+        .filter(|column| column.starts_with("judge_"))
+        .copied()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        judge_columns,
+        [
+            "judge_model",
+            "judge_self",
+            "judge_pass_votes",
+            "judge_fail_votes",
+            "judge_votes_json",
+        ]
+    );
     std::fs::remove_dir_all(dir)?;
     Ok(())
 }

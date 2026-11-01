@@ -213,7 +213,8 @@ cargo run -p ai-eval -- --provider mock --out eval/results/2026-10-29-mock
 # DATABASE_URL 是现有 SIWC 配置/凭据源库的应用角色 URL；
 # EVAL_DATABASE_URL 是另一个可丢弃 PG18 集群的超级用户 URL。
 cargo run -p ai-eval --features live -- \
-  --provider live --out eval/results/2026-10-29-live
+  --provider live --judge-model <已启用的精确模型名或模型 UUID> \
+  --out eval/results/2026-10-29-live
 
 # 可用 --database-url 显式指定 live 源库，--scratch-database-url 显式指定 scratch。
 # 不在 shell 历史或报告中粘贴真实凭据。--dataset 可指定另一份格式兼容的数据目录。
@@ -221,6 +222,13 @@ cargo run -p ai-eval --features live -- \
 
 凭据、连接 URL、原始请求、模型文字和上游错误正文均不写 CSV 或日志。
 CLI 仅输出样例 ID 和固定错误码；配置/数据错误也不格式化底层异常。
+
+Live 启动时先用显式 `--judge-model` 绑定已加载配置中的唯一 enabled 模型和 provider，
+没有静默 fallback。内置校准通过后，仅对 deterministic hard gate 已通过的 14 条 core display
+样例做三次独立 Judge 调用并取 2/3 多数；Mock、integration、stress 及 deterministic 失败均为
+零 Judge 调用。Judge transport、超时、缺失 usage 或严格输出 schema 失败均按基础设施错误退出 2。
+每票 usage 在 evaluator 进程内捕获以确认调用完整，但不写源库、scratch meter 或 CSV；CSV 只持久化
+Judge 模型快照、self-judge、通过/失败票数及闭集布尔/枚举票据，不保存请求、候选文案或自由文本理由。
 
 ## CSV 与评分
 

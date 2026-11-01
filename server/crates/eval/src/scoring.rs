@@ -78,6 +78,7 @@ pub struct Observation {
     pub display_audit_discarded: usize,
     pub server_fallbacks: Vec<String>,
     pub calls: Vec<Value>,
+    pub tested_models: BTreeSet<String>,
     pub tool_total: usize,
     pub tool_valid: usize,
     pub business_errors: usize,
@@ -124,6 +125,13 @@ pub struct ResultRow {
     pub calls: Vec<Value>,
     pub cost_usd: Option<f64>,
     pub reasons: Vec<String>,
+    #[serde(skip)]
+    pub tested_models: BTreeSet<String>,
+    pub judge_model: String,
+    pub judge_self: Option<bool>,
+    pub judge_pass_votes: Option<usize>,
+    pub judge_fail_votes: Option<usize>,
+    pub judge_votes: String,
 }
 #[derive(Default)]
 struct DisplayScore {
@@ -1772,6 +1780,12 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         calls: o.calls.clone(),
         cost_usd,
         reasons,
+        tested_models: o.tested_models.clone(),
+        judge_model: String::new(),
+        judge_self: None,
+        judge_pass_votes: None,
+        judge_fail_votes: None,
+        judge_votes: String::new(),
     }
 }
 pub fn exit_code(rows: &[ResultRow]) -> u8 {
