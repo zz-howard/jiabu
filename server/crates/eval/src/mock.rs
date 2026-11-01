@@ -126,6 +126,7 @@ impl Identities {
 }
 pub fn scripts(e: &Entry, ids: &Identities) -> Result<Vec<TurnScript>> {
     if let Some(display) = &e.expect.display {
+        let display = &display.alternatives[0];
         let final_text = if display.fallback_contains.is_empty() {
             if e.locale == "en" {
                 "Displayed.".to_owned()
@@ -135,7 +136,7 @@ pub fn scripts(e: &Entry, ids: &Identities) -> Result<Vec<TurnScript>> {
         } else {
             display.fallback_contains.join("；")
         };
-        if display.calls.is_empty() {
+        if display.calls.is_empty() && display.source_calls.is_empty() {
             return Ok(vec![vec![text(&final_text), done()]]);
         }
         let call_aliases: BTreeMap<_, _> = display
@@ -161,20 +162,22 @@ pub fn scripts(e: &Entry, ids: &Identities) -> Result<Vec<TurnScript>> {
             source_turn.push(done());
             turns.push(source_turn);
         }
-        let mut turn = display
-            .calls
-            .iter()
-            .enumerate()
-            .map(|(index, call_spec)| {
-                Ok(call(
-                    &format!("display-{index}"),
-                    &call_spec.tool,
-                    ids.display_args_with_calls(&call_spec.args, &call_aliases)?,
-                ))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        turn.push(done());
-        turns.push(turn);
+        if !display.calls.is_empty() {
+            let mut turn = display
+                .calls
+                .iter()
+                .enumerate()
+                .map(|(index, call_spec)| {
+                    Ok(call(
+                        &format!("display-{index}"),
+                        &call_spec.tool,
+                        ids.display_args_with_calls(&call_spec.args, &call_aliases)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            turn.push(done());
+            turns.push(turn);
+        }
         turns.push(vec![text(&final_text), done()]);
         return Ok(turns);
     }

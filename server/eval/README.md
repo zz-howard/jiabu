@@ -111,10 +111,14 @@ v2 只用于 `category: display`，并保留与 v1 相同的 `input/setup` 结�
 指定的稳定行为，`integration` 测客户端能力降级等跨层契约，`stress` 测合成歧义或指令冲突。
 报告分别汇总各 tier；本切片不改变既有 hard pass 或 CLI 退出规则。
 
-展示评分将组件选择、查询语义、参数合法性、最终 block、事实值和 prose 分层报告。
+展示评分将人类意图与明确指定的表现形式分开：每条样例声明一个或多个完整 `alternatives`，
+每个 alternative 自己拥有读取证据、展示调用、最终 block/fallback 和闭合 typed facts。
+评分器逐个完整路径独立评分，只要一个路径全部成立即可通过，绝不把 A 的工具与 B 的 block
+拼成一次成功；全部失败时按“硬失败 reason class 最少、再按 fixture 顺序”选最近项报告。
 等价的 direct query 与成功的 `query_stats/search_records -> from_call` 共用同一查询语义；
-数据集不应为了锁定传输路径而预注册任意一种等价轨迹。查询无法解析或引用失败时标为
-`not_assessable`，单独计数且不会让 hard pass 变绿。证据只导出有界、脱敏的规范字段。
+纯文字答案则必须先有匹配且成功的 `query_stats`、`search_records` 或空参数 `query_balance`。
+查询无法解析或引用失败时标为 `not_assessable`，单独计数且不会让 hard pass 变绿。
+报告只导出 alternative ID、枚举名和有界脱敏规范字段，不导出原始用户/模型文字或工具结果。
 
 ```yaml
 schema_version: 2
@@ -136,19 +140,24 @@ expect:
   records: []
   display:
     hard: true
-    expected_invalid_calls: 0
-    expected_business_errors: 0
-    source_calls: [] # 可选：先执行 query_stats/search_records，供 from_call 复用
-    calls:
-      - {tool: show_metrics, args: {source: {query: null, from_call: null, demo: monthly_spending}}}
-    blocks:
-      - {kind: metric_group, labels: [餐饮, 居家, 购物, 交通, 其他], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
-    fallback_contains: ["【演示数据】"]
-    server_fallback_contains: ["【演示数据】"]
+    alternatives:
+      - id: metrics
+        expected_invalid_calls: 0
+        expected_business_errors: 0
+        source_calls: [] # 可选：先执行读取，供 from_call 或纯文字证据复用
+        calls:
+          - {tool: show_metrics, args: {source: {query: null, from_call: null, demo: monthly_spending}}}
+        blocks:
+          - {kind: metric_group, labels: [餐饮, 居家, 购物, 交通, 其他], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
+        fallback_contains: ["【演示数据】"]
+        server_fallback_contains: ["【演示数据】"]
+        facts:
+          - {kind: aggregate, label: 餐饮, value_minor: 142000}
     prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5, forbid_numeric_restatement: true}
 ```
 
-- `source_calls` 是可选的精确有序 `query_stats` / `search_records` 前置调用；`calls` 是精确有序展示
+- `source_calls` 是可选的精确有序 `query_stats` / `search_records` / `query_balance` 前置调用；
+  `query_balance` 只允许精确空参数。`calls` 是精确有序展示
   工具调用。评分同时核对工具名和完整参数，额外、重复、错序、错误期间/分组/账户/demo 均失败。
   `calls` 可用 `$call:source-0` 断言 `from_call` 必须引用对应前置调用；`$account:<alias>` 会展开为
   setup 中的真实 UUID。
@@ -158,6 +167,9 @@ expect:
 - `labels` 与 `values_minor` 来自数据集明确写下的虚构事实。金额一律用整数最小货币单位；趋势图
   在协议中使用元时，评分器只做确定性的 ×100 还原。账户卡同时核对真实账户 UUID 与 setup 名称，
   余额则由 `fallback_contains` 核对服务端拥有的 fallback，因为账户卡组件故意不携带余额。
+- `facts` 是闭合的 typed fact 集合：aggregate、record、account_balance 或 no_data。纯文字路径必须
+  陈述全部事实且不能增加金额/记录、错配标签和值、或同时声称“无数据”和“有记录”。余额文字还须
+  匹配脱敏观测中的币种、目标账户和余额；观测与报告不保留原始错误或原始工具结果。
 - `client_capabilities` 会在 enqueue 时冻结。受限客户端必须产生声明的降级组件，或在完全不支持
   组件时只保留服务端 Markdown fallback；不支持的组件不得持久化。
 - `server_fallback_contains` 只检查由对应展示工具结果映射并实际持久化的服务端 fallback，模型 Markdown
@@ -220,6 +232,8 @@ CLI 仅输出样例 ID 和固定错误码；配置/数据错误也不格式化�
 `results.csv` 每条一行：身份、期望/实际行为、终态、hard/hard_pass、行为/记录检查、
 展示 hard/pass、工具序列/组件序列/事实值的正确数与分母、prose 检查、确认前未写入、
 金额/日期/分类/工具的正确数及分母和比率、业务错误次数、延迟、成本、失败原因。
+展示列还包含声明的可接受 alternative ID 集合和最终选中 ID；core、integration、stress 分层汇总，
+integration/stress 的硬失败仍是协议/安全失败，但不会被描述为普通用户的图表选择失败。
 `calls_json` 为按调用顺序排列的 JSON 数组，各项只有调用种类、缓存读取/写入 token、未缓存输入
 token、成本（USD 十进制字符串）、调用延迟与 outcome。未缓存输入沿用现有口径
 `input_tokens - cached_input_tokens - cache_write_tokens`，未知为 null。

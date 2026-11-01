@@ -1,11 +1,11 @@
 use crate::{
     audit::DisplayAuditCall,
-    dataset::{Behavior, Entry, RecordSpec},
+    dataset::{Behavior, DisplayAlternative, DisplayExpect, DisplayFact, Entry, RecordSpec},
     mock::Identities,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Count {
     pub correct: usize,
@@ -54,6 +54,11 @@ impl Questions {
     }
 }
 #[derive(Clone, Debug)]
+pub struct BalanceResult {
+    pub currency: String,
+    pub balances: Vec<(String, i64)>,
+}
+#[derive(Clone, Debug)]
 pub struct Observation {
     pub status: String,
     pub asked: bool,
@@ -66,6 +71,7 @@ pub struct Observation {
     pub message: Value,
     pub tool_calls: Vec<Value>,
     pub tool_results: BTreeMap<String, bool>,
+    pub balance_results: BTreeMap<String, BalanceResult>,
     pub display_audit: Vec<DisplayAuditCall>,
     pub display_audit_total: usize,
     pub display_audit_valid: usize,
@@ -98,6 +104,8 @@ pub struct ResultRow {
     pub display_arguments: Count,
     pub display_expected: String,
     pub display_actual: String,
+    pub display_acceptable: String,
+    pub display_selected: String,
     pub display_query_summary: String,
     pub display_audit_complete: bool,
     pub display_audit_discarded: usize,
@@ -127,6 +135,8 @@ struct DisplayScore {
     arguments: Count,
     expected: String,
     actual: String,
+    acceptable: String,
+    selected: String,
     query_summary: String,
     audit_complete: bool,
     audit_discarded: usize,
@@ -364,6 +374,12 @@ fn source_query(tool: &str, args: &Value, ids: &Identities) -> Option<CanonicalQ
     match tool {
         "query_stats" => Some(canonical_stats(args, ids, false)),
         "search_records" => Some(canonical_records(args, ids, true)),
+        "query_balance" if args.as_object().is_some_and(|args| args.is_empty()) => {
+            Some(CanonicalQuery {
+                value: json!({"family":"balance"}),
+                text: None,
+            })
+        }
         _ => None,
     }
 }
@@ -532,15 +548,202 @@ fn contains_number(prose: &str, needle: &str) -> bool {
             && !after.is_some_and(|character| character.is_ascii_digit() || character == '.')
     })
 }
-fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
-    let Some(expect) = &e.expect.display else {
-        return DisplayScore {
-            pass: true,
-            prose_pass: true,
-            audit_complete: true,
-            ..Default::default()
-        };
-    };
+fn money_variants(value_minor: i64) -> Vec<String> {
+    let sign = if value_minor < 0 { "-" } else { "" };
+    let absolute = value_minor.unsigned_abs();
+    let yuan = absolute / 100;
+    let fen = absolute % 100;
+    let mut variants = vec![
+        format!("{sign}{yuan}.{fen:02}"),
+        format!("{sign}{absolute} 分"),
+        format!("{sign}{absolute}分"),
+    ];
+    if fen == 0 {
+        variants.extend([
+            format!("{sign}{yuan} 元"),
+            format!("{sign}{yuan}元"),
+            format!("¥{sign}{yuan}"),
+            format!("￥{sign}{yuan}"),
+        ]);
+    }
+    variants
+}
+fn prose_money_values(prose: &str) -> Vec<i64> {
+    let mut values = Vec::new();
+    let chars = prose.chars().collect::<Vec<_>>();
+    let numeric = |character: char| character.is_ascii_digit() || matches!(character, '.' | '-');
+    for (index, character) in chars.iter().enumerate() {
+        if matches!(*character, '¥' | '￥') {
+            let token = chars[index + 1..]
+                .iter()
+                .take_while(|character| numeric(**character))
+                .collect::<String>();
+            if let Ok(value) = token.parse::<f64>() {
+                values.push((value * 100.0).round() as i64);
+            }
+        }
+        if matches!(*character, '元' | '分') {
+            let token = chars[..index]
+                .iter()
+                .rev()
+                .take_while(|character| numeric(**character) || character.is_whitespace())
+                .copied()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<String>();
+            if let Ok(value) = token.trim().parse::<f64>() {
+                values.push(if *character == '元' {
+                    (value * 100.0).round() as i64
+                } else {
+                    value.round() as i64
+                });
+            }
+        }
+    }
+    values.sort_unstable();
+    values
+}
+fn prose_facts_pass(
+    e: &Entry,
+    alternative: &DisplayAlternative,
+    prose: &str,
+    o: &Observation,
+    ids: &Identities,
+) -> bool {
+    if alternative.facts.is_empty() {
+        return true;
+    }
+    let lower = prose.to_lowercase();
+    let segments = prose
+        .split(|character| matches!(character, '\n' | '；' | '。' | '，' | ','))
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let mut expected_money = alternative
+        .facts
+        .iter()
+        .filter_map(|fact| match fact {
+            DisplayFact::Aggregate { value_minor, .. }
+            | DisplayFact::Record { amount_minor: value_minor, .. }
+            | DisplayFact::AccountBalance {
+                balance_minor: value_minor,
+                ..
+            } => Some(*value_minor),
+            DisplayFact::NoData => None,
+        })
+        .collect::<Vec<_>>();
+    expected_money.sort_unstable();
+    if prose_money_values(prose) != expected_money {
+        return false;
+    }
+    alternative.facts.iter().all(|fact| match fact {
+        DisplayFact::Aggregate { label, value_minor } => {
+            segments.iter().any(|segment| {
+                segment.contains(label)
+                    && money_variants(*value_minor)
+                        .iter()
+                        .any(|value| contains_number(segment, value))
+            })
+        }
+        DisplayFact::Record {
+            date,
+            record_kind,
+            amount_minor,
+            account,
+            purpose,
+            note,
+            ..
+        } => {
+            let kind_present = lower.contains(record_kind)
+                || match record_kind.as_str() {
+                    "expense" => prose.contains("支出") || prose.contains("消费"),
+                    "income" => prose.contains("收入"),
+                    "transfer" => prose.contains("转账"),
+                    "reallocation" => prose.contains("调拨"),
+                    "refund" => prose.contains("退款"),
+                    _ => false,
+                };
+            segments.iter().any(|segment| {
+                segment.contains(&date.to_string())
+                    && kind_present
+                    && money_variants(*amount_minor)
+                        .iter()
+                        .any(|value| contains_number(segment, value))
+                    && [account, purpose]
+                        .into_iter()
+                        .flatten()
+                        .all(|alias| {
+                            e.setup
+                                .accounts
+                                .iter()
+                                .find(|account| account.key == *alias)
+                                .is_some_and(|account| segment.contains(&account.name))
+                        })
+                    && note.as_ref().is_none_or(|note| segment.contains(note))
+            })
+        }
+        DisplayFact::AccountBalance {
+            account,
+            currency,
+            balance_minor,
+        } => {
+            let Some(account_id) = ids.accounts.get(account).map(ToString::to_string) else {
+                return false;
+            };
+            let account_name = e
+                .setup
+                .accounts
+                .iter()
+                .find(|candidate| candidate.key == *account)
+                .map(|candidate| candidate.name.as_str());
+            segments.iter().any(|segment| {
+                account_name.is_some_and(|name| segment.contains(name))
+                    && (segment.contains(currency)
+                        || (currency == "CNY"
+                            && (segment.contains('元') || segment.contains('¥'))))
+                    && money_variants(*balance_minor)
+                        .iter()
+                        .any(|value| contains_number(segment, value))
+            })
+                && alternative.source_calls.iter().any(|source| {
+                    source.tool == "query_balance"
+                        && o.tool_calls.iter().any(|call| {
+                            call["tool"] == "query_balance"
+                                && call["args"].as_object().is_some_and(|args| args.is_empty())
+                                && call["call_id"].as_str().is_some_and(|call_id| {
+                                    o.tool_results.get(call_id) == Some(&true)
+                                        && o.balance_results.get(call_id).is_some_and(|result| {
+                                            result.currency == currency.as_str()
+                                                && result.balances.contains(&(
+                                                    account_id.clone(),
+                                                    *balance_minor,
+                                                ))
+                                        })
+                                })
+                        })
+                })
+        }
+        DisplayFact::NoData => {
+            (lower.contains("no data")
+                || lower.contains("no records")
+                || prose.contains("没有记录")
+                || prose.contains("暂无记录")
+                || prose.contains("无记录"))
+                && prose_money_values(prose).is_empty()
+                && !lower.contains("records exist")
+                && !prose.contains("存在记录")
+                && !prose.contains("查到记录")
+        }
+    })
+}
+fn display_alternative_score(
+    e: &Entry,
+    expect: &DisplayExpect,
+    alternative: &DisplayAlternative,
+    ids: &Identities,
+    o: &Observation,
+) -> DisplayScore {
     let actual_calls: Vec<_> = o
         .tool_calls
         .iter()
@@ -553,13 +756,13 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
     let mut expected_sources = Vec::new();
     let mut call_aliases = BTreeMap::new();
     let mut expected_results = BTreeMap::new();
-    for (index, call) in expect.source_calls.iter().enumerate() {
+    for (index, call) in alternative.source_calls.iter().enumerate() {
         let id = format!("expected-source-{index}");
         call_aliases.insert(format!("$call:source-{index}"), id.clone());
         expected_results.insert(id.clone(), true);
         expected_sources.push(json!({"tool":call.tool,"args":ids.display_args(&call.args).unwrap_or_else(|_|call.args.clone()),"call_id":id}));
     }
-    let expected_calls: Vec<_> = expect.calls.iter().map(|call| json!({"tool":call.tool,"args":ids.display_args_with_calls(&call.args,&call_aliases).unwrap_or_else(|_|call.args.clone())})).collect();
+    let expected_calls: Vec<_> = alternative.calls.iter().map(|call| json!({"tool":call.tool,"args":ids.display_args_with_calls(&call.args,&call_aliases).unwrap_or_else(|_|call.args.clone())})).collect();
     let expected_selection: Vec<_> = expected_calls
         .iter()
         .filter_map(|call| call["tool"].as_str())
@@ -607,6 +810,7 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         },
         expected: expected_selection.join(","),
         actual: actual_selection.join(","),
+        selected: alternative.id.clone(),
         audit_complete: o.display_audit_discarded == 0
             && o.display_audit.iter().all(|call| !call.truncated),
         audit_discarded: o.display_audit_discarded
@@ -682,6 +886,53 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
             }
         }
     }
+    if expected_calls.is_empty() && !alternative.source_calls.is_empty() {
+        let actual_sources = o
+            .tool_calls
+            .iter()
+            .filter(|call| {
+                matches!(
+                    call["tool"].as_str(),
+                    Some("query_stats" | "search_records" | "query_balance")
+                )
+            })
+            .collect::<Vec<_>>();
+        for (index, expected) in alternative.source_calls.iter().enumerate() {
+            let expected_query = source_query(
+                &expected.tool,
+                &ids.display_args(&expected.args).unwrap_or_else(|_| expected.args.clone()),
+                ids,
+            );
+            let actual = actual_sources.get(index).copied();
+            let actual_query = actual.and_then(|call| {
+                let call_id = call["call_id"].as_str()?;
+                o.tool_results
+                    .get(call_id)
+                    .copied()
+                    .unwrap_or(false)
+                    .then(|| {
+                        source_query(
+                            call["tool"].as_str().unwrap_or_default(),
+                            &call["args"],
+                            ids,
+                        )
+                    })
+                    .flatten()
+            });
+            match (expected_query, actual_query) {
+                (Some(expected), Some(actual)) => {
+                    result.queries.total += 1;
+                    result.queries.correct += usize::from(expected == actual);
+                    summaries.push(actual.summary());
+                }
+                _ => {
+                    result.query_not_assessable += 1;
+                    summaries.push(json!({"state":"not_assessable"}));
+                }
+            }
+        }
+        result.queries.total += actual_sources.len().saturating_sub(alternative.source_calls.len());
+    }
     result.query_summary = summary_string(&summaries);
     let blocks = o.message["blocks"]
         .as_array()
@@ -691,8 +942,8 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         .iter()
         .filter(|block| block["type"] != "markdown")
         .collect();
-    result.blocks.total = expect.blocks.len().max(actual.len());
-    for (index, expected) in expect.blocks.iter().enumerate() {
+    result.blocks.total = alternative.blocks.len().max(actual.len());
+    for (index, expected) in alternative.blocks.iter().enumerate() {
         let Some(block) = actual.get(index) else {
             continue;
         };
@@ -833,21 +1084,37 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         }
     }
     let fallback = o.message["fallbackText"].as_str().unwrap_or_default();
-    for required in &expect.fallback_contains {
+    for required in &alternative.fallback_contains {
         result.values.total += 1;
         result.values.correct += usize::from(fallback.contains(required));
     }
     let server_fallback = o.server_fallbacks.join("\n");
-    for required in &expect.server_fallback_contains {
+    for required in &alternative.server_fallback_contains {
         result.values.total += 1;
         result.values.correct += usize::from(server_fallback.contains(required));
     }
-    let prose = blocks
+    let mut prose = blocks
         .iter()
         .filter(|block| block["type"] == "markdown")
         .filter_map(|block| block["fallbackText"].as_str())
         .collect::<Vec<_>>()
         .join("\n");
+    if prose.is_empty() {
+        prose = fallback.to_owned();
+    }
+    if alternative.blocks.is_empty() && !alternative.facts.is_empty() {
+        let fact_text = if alternative.calls.is_empty() {
+            prose.as_str()
+        } else if !server_fallback.is_empty() {
+            server_fallback.as_str()
+        } else {
+            fallback
+        };
+        result.values.total += 1;
+        result.values.correct += usize::from(
+            actual.is_empty() && prose_facts_pass(e, alternative, fact_text, o, ids),
+        );
+    }
     if expect.prose.forbid_mermaid && prose.to_ascii_lowercase().contains("```mermaid") {
         result.prose_pass = false;
     }
@@ -865,7 +1132,7 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         style_pass &= sentence_count(&prose) <= max;
     }
     if expect.prose.forbid_numeric_restatement {
-        let repeated = expect
+        let repeated = alternative
             .blocks
             .iter()
             .flat_map(|block| &block.values_minor)
@@ -920,10 +1187,10 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
     if !style_pass {
         result.reasons.push("display_style_preference".into());
     }
-    if o.tool_total.saturating_sub(o.tool_valid) != expect.expected_invalid_calls {
+    if o.tool_total.saturating_sub(o.tool_valid) != alternative.expected_invalid_calls {
         result.reasons.push("display_invalid_call_mismatch".into());
     }
-    if o.business_errors != expect.expected_business_errors {
+    if o.business_errors != alternative.expected_business_errors {
         result
             .reasons
             .push("display_business_error_mismatch".into());
@@ -932,6 +1199,50 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         .reasons
         .iter()
         .all(|reason| reason == "display_style_preference");
+    result
+}
+
+fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
+    let Some(expect) = &e.expect.display else {
+        return DisplayScore {
+            pass: true,
+            prose_pass: true,
+            audit_complete: true,
+            ..Default::default()
+        };
+    };
+    let acceptable = expect
+        .alternatives
+        .iter()
+        .map(|alternative| alternative.id.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut scored = expect
+        .alternatives
+        .iter()
+        .map(|alternative| display_alternative_score(e, expect, alternative, ids, o))
+        .collect::<Vec<_>>();
+    let selected = scored
+        .iter()
+        .position(|score| score.pass)
+        .unwrap_or_else(|| {
+            scored
+                .iter()
+                .enumerate()
+                .min_by_key(|(index, score)| {
+                    let hard_reasons = score
+                        .reasons
+                        .iter()
+                        .filter(|reason| reason.as_str() != "display_style_preference")
+                        .collect::<BTreeSet<_>>()
+                        .len();
+                    (hard_reasons, *index)
+                })
+                .map(|(index, _)| index)
+                .unwrap_or(0)
+        });
+    let mut result = scored.swap_remove(selected);
+    result.acceptable = acceptable;
     result
 }
 fn expected_value(r: &RecordSpec, ids: &Identities) -> Value {
@@ -1202,7 +1513,12 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         && e.expect
             .display
             .as_ref()
-            .is_none_or(|display| display.expected_invalid_calls == 0)
+            .is_none_or(|display| {
+                display
+                    .alternatives
+                    .iter()
+                    .all(|alternative| alternative.expected_invalid_calls == 0)
+            })
     {
         reasons.push("invalid_tool_arguments".into());
     }
@@ -1227,6 +1543,8 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         display_arguments: display.arguments,
         display_expected: display.expected,
         display_actual: display.actual,
+        display_acceptable: display.acceptable,
+        display_selected: display.selected,
         display_query_summary: display.query_summary,
         display_audit_complete: display.audit_complete,
         display_audit_discarded: display.audit_discarded,

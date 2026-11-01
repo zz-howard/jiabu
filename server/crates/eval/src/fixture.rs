@@ -3,7 +3,7 @@ use crate::{
     audit::{AuditedProvider, ToolAudit},
     dataset::{Behavior, Entry},
     mock::{self, Identities},
-    scoring::{Observation, ResultRow, score},
+    scoring::{BalanceResult, Observation, ResultRow, score},
     support,
 };
 use anyhow::{Context, Result, ensure};
@@ -328,6 +328,37 @@ impl Scenario {
             .into_iter()
             .map(|call| (call.call_id, call.status == "succeeded"))
             .collect();
+        let balance_results = journal
+            .iter()
+            .filter(|item| item.kind == "tool_result")
+            .filter_map(|item| {
+                let call_id = item.call_id.as_ref()?;
+                tool_calls.iter().find(|call| {
+                    call["call_id"].as_str() == Some(call_id.as_str())
+                        && call["tool"] == "query_balance"
+                })?;
+                let output = &item.payload["output"];
+                let currency = output["currency"].as_str()?.to_owned();
+                let mut balances = output["balances"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(|balance| {
+                        Some((
+                            balance["account_id"].as_str()?.to_owned(),
+                            balance["balance_minor"].as_i64()?,
+                        ))
+                    })
+                    .collect::<Vec<_>>();
+                balances.sort();
+                Some((
+                    call_id.clone(),
+                    BalanceResult {
+                        currency,
+                        balances,
+                    },
+                ))
+            })
+            .collect();
         let blocks = checkpoint.message.0["blocks"]
             .as_array()
             .map(Vec::as_slice)
@@ -381,6 +412,7 @@ impl Scenario {
             message: checkpoint.message.0,
             tool_calls,
             tool_results,
+            balance_results,
             display_audit: self
                 .audit
                 .display
