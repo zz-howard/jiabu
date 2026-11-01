@@ -12,21 +12,30 @@ use uuid::Uuid;
 const JUDGE_TIMEOUT: Duration = Duration::from_secs(120);
 const JUDGE_TOOL: &str = "submit_display_judgment";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum JudgeFailureClass {
-    #[error("transport")]
     Transport,
-    #[error("timeout")]
     Timeout,
-    #[error("usage")]
     Usage,
-    #[error("schema")]
     Schema,
-    #[error("verdict")]
     Verdict,
-    #[error("unknown")]
     Unknown,
 }
+
+impl std::fmt::Display for JudgeFailureClass {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Transport => "transport",
+            Self::Timeout => "timeout",
+            Self::Usage => "usage",
+            Self::Schema => "schema",
+            Self::Verdict => "verdict",
+            Self::Unknown => "unknown",
+        })
+    }
+}
+
+impl std::error::Error for JudgeFailureClass {}
 
 fn classified(class: JudgeFailureClass) -> anyhow::Error {
     anyhow::Error::new(class)
