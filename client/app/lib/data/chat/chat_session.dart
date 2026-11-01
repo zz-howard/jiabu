@@ -653,8 +653,10 @@ final class LocalChatSession implements ChatConversation {
     limit: limit.clamp(0, 8),
   );
   @override
-  Future<Result<List<ChatFile>>> files({List<ChatFile> attached = const []}) =>
-      media.pickFiles(spaceId, attached: attached);
+  Future<Result<ChatAttachments>> documents({
+    List<String> images = const [],
+    List<ChatFile> files = const [],
+  }) => media.pickDocuments(spaceId, images: images, files: files);
   @override
   Future<Result<void>> retry(String messageId) => _guard(() async {
     if ((await dao.runtime())['write_allowed'] != 1) {

@@ -6,6 +6,13 @@ import 'package:flutter/foundation.dart';
 /// `MAX_FILES`, `MAX_FILE_BYTES`), which stays authoritative.
 abstract final class ChatFileLimits {
   static const int maxFiles = 4;
+
+  /// Photos per message (server: 8 images).
+  static const int maxImages = 8;
+
+  /// The largest original image the document picker reads; the JPEG
+  /// pipeline shrinks it before upload.
+  static const int maxImageBytes = 64 * 1024 * 1024;
   static const int maxFileBytes = 10 * 1024 * 1024;
   static const int maxCombinedBytes = 20 * 1024 * 1024;
   static const int maxNameBytes = 255;
@@ -60,6 +67,15 @@ final class ChatFile {
 
   @override
   int get hashCode => Object.hash(sha256, name, bytes);
+}
+
+/// What one 文件-tab selection added: image blob hashes (JPEG pipeline) and
+/// PDFs (file path).
+@immutable
+final class ChatAttachments {
+  const ChatAttachments({this.images = const [], this.files = const []});
+  final List<String> images;
+  final List<ChatFile> files;
 }
 
 /// The server's PDF check: `%PDF-d.d` at the start and `%%EOF` within the last

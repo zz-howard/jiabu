@@ -28,10 +28,19 @@ abstract interface class ImagePickerPort {
 /// document is larger than the requested maximum or beyond the requested
 /// count; [size] is then what the platform reported.
 final class PickedDocument {
-  const PickedDocument({required this.name, required this.size, this.bytes});
+  const PickedDocument({
+    required this.name,
+    required this.size,
+    this.mime,
+    this.bytes,
+  });
+  final String? mime;
   final String? name;
   final int size;
   final Uint8List? bytes;
+
+  /// Images go through the JPEG pipeline; everything else must be a PDF.
+  bool get isImage => mime?.startsWith('image/') ?? false;
 }
 
 /// The platform has no system document picker (yet).
@@ -40,12 +49,15 @@ final class DocumentPickerUnavailable implements Exception {
 }
 
 abstract interface class DocumentPickerPort {
-  /// PDFs from the system document picker (the 文件 tab of the chat
-  /// attachment sheet). Throws [DocumentPickerUnavailable] where the
-  /// platform has none.
-  Future<List<PickedDocument>> pickPdfs({
+  /// Images and PDFs from the system document picker (the 文件 tab of the
+  /// chat attachment sheet), in one selection. Bytes are read for the first
+  /// [limit] documents only, up to [maxBytes] for a PDF and [maxImageBytes]
+  /// for an image. Throws [DocumentPickerUnavailable] where the platform has
+  /// none.
+  Future<List<PickedDocument>> pickDocuments({
     required int limit,
     required int maxBytes,
+    required int maxImageBytes,
   });
 }
 
@@ -95,17 +107,19 @@ final class PlatformDocumentPicker implements DocumentPickerPort {
     : _channel = channel ?? const MethodChannel('jiabu/image_files');
   final MethodChannel _channel;
   @override
-  Future<List<PickedDocument>> pickPdfs({
+  Future<List<PickedDocument>> pickDocuments({
     required int limit,
     required int maxBytes,
+    required int maxImageBytes,
   }) async {
     // Android's Storage Access Framework (no storage permission). Other
     // platforms have no native side yet: say so instead of crashing.
     final List<Object?>? picked;
     try {
-      picked = await _channel.invokeListMethod<Object?>('pickPdfs', {
+      picked = await _channel.invokeListMethod<Object?>('pickDocuments', {
         'limit': limit,
         'maxBytes': maxBytes,
+        'maxImageBytes': maxImageBytes,
       });
     } on MissingPluginException {
       throw const DocumentPickerUnavailable();
@@ -114,6 +128,7 @@ final class PlatformDocumentPicker implements DocumentPickerPort {
       for (final item in picked ?? const <Object?>[])
         if (item is Map<Object?, Object?>)
           PickedDocument(
+            mime: item['mime'] as String?,
             name: item['name'] as String?,
             size: (item['size'] as int?) ?? -1,
             bytes: item['bytes'] as Uint8List?,
@@ -266,12 +281,14 @@ final class MediaService {
     }
   }
 
-  /// Validates PDFs from the 文件 tab against the server's limits, counting
-  /// the files [attached] to the draft already, then imports them. Rejects
-  /// the whole selection when any limit fails; nothing is imported then.
-  Future<Result<List<ChatFile>>> pickFiles(
+  /// The 文件 tab: images and PDFs in one selection. Images go through the
+  /// JPEG pipeline, PDFs through the file path. Limits count what the draft
+  /// already holds ([images], [files]); when any limit fails the whole
+  /// selection is rejected and nothing is imported.
+  Future<Result<ChatAttachments>> pickDocuments(
     String spaceId, {
-    List<ChatFile> attached = const [],
+    List<String> images = const [],
+    List<ChatFile> files = const [],
   }) async {
     final fence = await store.fence(spaceId);
     if (fence == null) {
@@ -281,15 +298,17 @@ final class MediaService {
     if (picker == null) {
       return const Failure('chat_file_unsupported');
     }
-    final remaining = ChatFileLimits.maxFiles - attached.length;
-    if (remaining <= 0) {
-      return const Failure('chat_files_too_many');
+    final imageRoom = ChatFileLimits.maxImages - images.length;
+    final fileRoom = ChatFileLimits.maxFiles - files.length;
+    if (imageRoom <= 0 && fileRoom <= 0) {
+      return const Failure('chat_too_large');
     }
     final List<PickedDocument> picked;
     try {
-      picked = await picker.pickPdfs(
-        limit: remaining,
+      picked = await picker.pickDocuments(
+        limit: math.max(0, imageRoom) + math.max(0, fileRoom),
         maxBytes: ChatFileLimits.maxFileBytes,
+        maxImageBytes: ChatFileLimits.maxImageBytes,
       );
     } on DocumentPickerUnavailable {
       return const Failure('chat_file_unsupported');
@@ -299,13 +318,18 @@ final class MediaService {
     if (!await store.accepts(fence)) {
       return const Failure('stale_response');
     }
-    if (picked.length > remaining) {
+    final pickedImages = picked.where((document) => document.isImage).toList();
+    final pickedPdfs = picked.where((document) => !document.isImage).toList();
+    if (pickedPdfs.length > fileRoom) {
       return const Failure('chat_files_too_many');
     }
-    final known = {for (final file in attached) file.sha256};
-    var combined = attached.fold<int>(0, (sum, file) => sum + file.bytes);
+    if (pickedImages.length > imageRoom) {
+      return const Failure('chat_too_large');
+    }
+    final known = {for (final file in files) file.sha256};
+    var combined = files.fold<int>(0, (sum, file) => sum + file.bytes);
     final accepted = <({String? name, Uint8List bytes})>[];
-    for (final document in picked) {
+    for (final document in pickedPdfs) {
       final bytes = document.bytes;
       if (bytes == null || bytes.length > ChatFileLimits.maxFileBytes) {
         return const Failure('chat_file_too_large');
@@ -323,7 +347,27 @@ final class MediaService {
       }
       accepted.add((name: document.name, bytes: bytes));
     }
-    final files = <ChatFile>[];
+    final imageBytes = <Uint8List>[];
+    for (final document in pickedImages) {
+      final bytes = document.bytes;
+      if (bytes == null) {
+        return const Failure('image_too_large');
+      }
+      imageBytes.add(bytes);
+    }
+    final hashes = <String>[];
+    for (final bytes in imageBytes) {
+      final result = await importImage(spaceId, 'chat', bytes, captured: fence);
+      switch (result) {
+        case Ok<String>(:final value):
+          if (!hashes.contains(value)) {
+            hashes.add(value);
+          }
+        case Failure<String>(:final code):
+          return Failure(code);
+      }
+    }
+    final imported = <ChatFile>[];
     for (final document in accepted) {
       final result = await importFile(
         spaceId,
@@ -333,12 +377,12 @@ final class MediaService {
       );
       switch (result) {
         case Ok<ChatFile>(:final value):
-          files.add(value);
+          imported.add(value);
         case Failure<ChatFile>(:final code):
           return Failure(code);
       }
     }
-    return Ok(files);
+    return Ok(ChatAttachments(images: hashes, files: imported));
   }
 
   /// Stores a PDF's raw bytes (never transformed: the server checks their

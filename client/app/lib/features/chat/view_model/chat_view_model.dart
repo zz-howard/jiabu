@@ -108,18 +108,23 @@ class ChatViewModel extends _$ChatViewModel {
     await state.conversation?.saveDraft(state.draft, state.images, state.files);
   }
 
-  /// PDFs from the 文件 tab; limits count the files already attached.
-  Future<void> attachFiles() async {
+  /// The 文件 tab: images and PDFs in one selection; limits count what the
+  /// draft holds already.
+  Future<void> attachDocuments() async {
     final session = state.conversation;
     if (session == null || state.busy) {
       return;
     }
-    if (state.files.length >= ChatFileLimits.maxFiles) {
-      state = state.copyWith(error: 'chat_files_too_many');
+    if (state.files.length >= ChatFileLimits.maxFiles &&
+        state.images.length >= ChatFileLimits.maxImages) {
+      state = state.copyWith(error: 'chat_too_large');
       return;
     }
     state = state.copyWith(busy: true);
-    final result = await session.files(attached: state.files);
+    final result = await session.documents(
+      images: state.images,
+      files: state.files,
+    );
     if (!ref.mounted) {
       return;
     }
@@ -128,9 +133,10 @@ class ChatViewModel extends _$ChatViewModel {
         final known = {for (final file in state.files) file.sha256};
         state = state.copyWith(
           busy: false,
+          images: {...state.images, ...value.images}.toList(),
           files: [
             ...state.files,
-            ...value.where((file) => known.add(file.sha256)),
+            ...value.files.where((file) => known.add(file.sha256)),
           ],
           error: null,
         );

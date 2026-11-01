@@ -12,6 +12,7 @@ import 'package:jiabu/domain/chat.dart';
 import 'package:jiabu/domain/chat_files.dart';
 import 'package:jiabu/domain/result.dart';
 
+import '../fixtures/jpeg_fixture.dart';
 import '../support/chat_harness.dart';
 
 /// A minimal fictional PDF: valid header and trailer, [pad] filler bytes.
@@ -28,13 +29,18 @@ String hashOf(List<int> bytes) => sha256.convert(bytes).toString();
 class FakeDocuments implements DocumentPickerPort {
   List<PickedDocument> documents = [];
   Exception? error;
-  final requests = <({int limit, int maxBytes})>[];
+  final requests = <({int limit, int maxBytes, int maxImageBytes})>[];
   @override
-  Future<List<PickedDocument>> pickPdfs({
+  Future<List<PickedDocument>> pickDocuments({
     required int limit,
     required int maxBytes,
+    required int maxImageBytes,
   }) async {
-    requests.add((limit: limit, maxBytes: maxBytes));
+    requests.add((
+      limit: limit,
+      maxBytes: maxBytes,
+      maxImageBytes: maxImageBytes,
+    ));
     if (error case final Exception thrown) {
       throw thrown;
     }
@@ -42,8 +48,22 @@ class FakeDocuments implements DocumentPickerPort {
   }
 }
 
-PickedDocument picked(String name, Uint8List bytes) =>
-    PickedDocument(name: name, size: bytes.length, bytes: bytes);
+PickedDocument picked(String name, Uint8List bytes) => PickedDocument(
+  mime: 'application/pdf',
+  name: name,
+  size: bytes.length,
+  bytes: bytes,
+);
+
+PickedDocument photo(int seed) {
+  final bytes = testJpeg(width: 3 + seed);
+  return PickedDocument(
+    mime: 'image/jpeg',
+    name: 'IMG_$seed.jpg',
+    size: bytes.length,
+    bytes: bytes,
+  );
+}
 
 void main() {
   group('pdf signature', () {
@@ -149,18 +169,26 @@ void main() {
       Future<String> fails(
         List<PickedDocument> picked, {
         List<ChatFile> attached = const [],
+        List<String> images = const [],
       }) async {
         documents.documents = picked;
-        final result = await h.session.files(attached: attached);
+        final result = await h.session.documents(
+          images: images,
+          files: attached,
+        );
         expect(await h.h.store.outbox('s'), isEmpty);
-        return (result as Failure<List<ChatFile>>).code;
+        return (result as Failure<ChatAttachments>).code;
       }
 
       expect(
         await fails([for (var i = 0; i < 5; i++) picked('$i.pdf', a)]),
         'chat_files_too_many',
       );
-      expect(documents.requests.last, (limit: 4, maxBytes: 10 * 1024 * 1024));
+      expect(documents.requests.last, (
+        limit: 12,
+        maxBytes: 10 * 1024 * 1024,
+        maxImageBytes: 64 * 1024 * 1024,
+      ));
       const old = ChatFile(sha256: 'f', name: 'old.pdf', bytes: 1);
       expect(
         await fails(
@@ -169,7 +197,7 @@ void main() {
         ),
         'chat_files_too_many',
       );
-      expect(documents.requests.last.limit, 1);
+      expect(documents.requests.last.limit, 9);
       expect(
         await fails([
           picked('ok.pdf', a),
@@ -196,6 +224,62 @@ void main() {
         await fails([picked('a.pdf', a)], attached: const [old, old, old, old]),
         'chat_files_too_many',
       );
+      // Photos count against the 8-image limit, the draft's included; a
+      // valid PDF in the same selection is not imported either.
+      expect(
+        await fails([picked('a.pdf', a), for (var i = 0; i < 9; i++) photo(i)]),
+        'chat_too_large',
+      );
+      expect(
+        await fails(
+          [photo(1), photo(2)],
+          images: const ['1', '2', '3', '4', '5', '6', '7'],
+        ),
+        'chat_too_large',
+      );
+      expect(documents.requests.last.limit, 5);
+      expect(
+        await fails([
+          const PickedDocument(
+            mime: 'image/png',
+            name: 'huge.png',
+            size: 70 * 1024 * 1024,
+          ),
+        ]),
+        'image_too_large',
+      );
+      expect(
+        await fails(
+          [picked('a.pdf', a)],
+          attached: const [old, old, old, old],
+          images: const ['1', '2', '3', '4', '5', '6', '7', '8'],
+        ),
+        'chat_too_large',
+      );
+    });
+
+    test('one selection routes photos and PDFs', () async {
+      documents.documents = [photo(1), picked('账单.pdf', pdf('bill')), photo(2)];
+      final result = await h.session.documents(images: const ['old']);
+      final value = (result as Ok<ChatAttachments>).value;
+      expect(value.images, hasLength(2));
+      expect(value.files.single.name, '账单.pdf');
+      final blobs = await h.h.store.blobs('s');
+      expect(blobs.where((blob) => blob['module'] == 'chat'), hasLength(2));
+      expect(
+        blobs.where((blob) => blob['module'] == chatFileModule),
+        hasLength(1),
+      );
+      for (final hash in value.images) {
+        expect(
+          blobs.singleWhere((blob) => blob['sha256'] == hash)['path'],
+          endsWith('.jpg'),
+        );
+      }
+      expect(
+        (await h.h.store.outbox('s')).map((op) => op.payload['module']),
+        containsAll(['chat', chatFileModule]),
+      );
     });
 
     test('pick imports and skips duplicates', () async {
@@ -205,13 +289,15 @@ void main() {
         picked('copy.pdf', a),
         picked('', pdf('b')),
       ];
-      final result = await h.session.files();
-      final files = (result as Ok<List<ChatFile>>).value;
+      final result = await h.session.documents();
+      final files = (result as Ok<ChatAttachments>).value.files;
       expect(files.map((file) => file.name), ['账单_十月.pdf', 'document.pdf']);
       expect(await h.h.store.outbox('s'), hasLength(2));
       documents.documents = [picked('again.pdf', a)];
       expect(
-        (await h.session.files(attached: files) as Ok<List<ChatFile>>).value,
+        (await h.session.documents(
+          files: files,
+        ) as Ok<ChatAttachments>).value.files,
         isEmpty,
       );
     });
@@ -219,13 +305,13 @@ void main() {
     test('unsupported platforms say so', () async {
       documents.error = const DocumentPickerUnavailable();
       expect(
-        (await h.session.files() as Failure<List<ChatFile>>).code,
+        (await h.session.documents() as Failure<ChatAttachments>).code,
         'chat_file_unsupported',
       );
       final bare = await ChatHarness.create();
       addTearDown(bare.close);
       expect(
-        (await bare.session.files() as Failure<List<ChatFile>>).code,
+        (await bare.session.documents() as Failure<ChatAttachments>).code,
         'chat_file_unsupported',
       );
     });

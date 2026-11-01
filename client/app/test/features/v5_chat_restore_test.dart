@@ -416,15 +416,17 @@ void main() {
       }
     });
 
-    testWidgets('files tab: PDFs, with the limits note', (tester) async {
+    testWidgets('files tab: images or PDFs, with the limits note', (
+      tester,
+    ) async {
       await pumpC3(tester, child: const C5Preview(state: 'attach_gallery'));
       await tester.tap(find.byKey(const ValueKey('paper-tab-1')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('chat-attach-files')), findsOneWidget);
       expect(find.byKey(const ValueKey('chat-attach-camera')), findsNothing);
-      expect(find.text('选择 PDF 文件'), findsOneWidget);
+      expect(find.text('选择图片或 PDF 文件'), findsOneWidget);
       expect(
-        find.text('支持 PDF：每条最多 4 个，每个不超过 10 MB，合计不超过 20 MB'),
+        find.text('可选图片或 PDF：每条最多 8 张图片、4 个 PDF，每个 PDF 不超过 10 MB，合计不超过 20 MB'),
         findsOneWidget,
       );
     });
@@ -459,7 +461,7 @@ void main() {
       });
     }
 
-    test('the 文件 tab asks Android for PDFs with names and sizes', () async {
+    test('the 文件 tab asks Android for images and PDFs', () async {
       TestWidgetsFlutterBinding.ensureInitialized();
       const channel = MethodChannel('jiabu/image_files');
       MethodCall? call;
@@ -468,27 +470,40 @@ void main() {
             call = request;
             return [
               {
+                'mime': 'application/pdf',
                 'name': '虚构发票.pdf',
                 'size': 3,
                 'bytes': Uint8List.fromList([1, 2, 3]),
               },
-              {'name': null, 'size': 11 * 1024 * 1024, 'bytes': null},
+              {
+                'mime': 'image/jpeg',
+                'name': null,
+                'size': 70 * 1024 * 1024,
+                'bytes': null,
+              },
             ];
           });
       addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, null),
       );
-      final picked = await PlatformDocumentPicker().pickPdfs(
+      final picked = await PlatformDocumentPicker().pickDocuments(
         limit: 3,
         maxBytes: 10 * 1024 * 1024,
+        maxImageBytes: 64 * 1024 * 1024,
       );
-      expect(call?.method, 'pickPdfs');
-      expect(call?.arguments, {'limit': 3, 'maxBytes': 10 * 1024 * 1024});
+      expect(call?.method, 'pickDocuments');
+      expect(call?.arguments, {
+        'limit': 3,
+        'maxBytes': 10 * 1024 * 1024,
+        'maxImageBytes': 64 * 1024 * 1024,
+      });
       expect(picked.first.name, '虚构发票.pdf');
+      expect(picked.first.isImage, isFalse);
       expect(picked.first.bytes, [1, 2, 3]);
+      expect(picked.last.isImage, isTrue);
       expect(picked.last.name, isNull);
-      expect(picked.last.size, 11 * 1024 * 1024);
+      expect(picked.last.size, 70 * 1024 * 1024);
       expect(picked.last.bytes, isNull);
     });
 
@@ -497,7 +512,7 @@ void main() {
       await expectLater(
         PlatformDocumentPicker(
           channel: const MethodChannel('jiabu/fictional_missing'),
-        ).pickPdfs(limit: 4, maxBytes: 1),
+        ).pickDocuments(limit: 4, maxBytes: 1, maxImageBytes: 1),
         throwsA(isA<DocumentPickerUnavailable>()),
       );
     });

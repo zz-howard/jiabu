@@ -3,7 +3,8 @@ import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 /// Where an attachment comes from: camera and gallery photos go through the
-/// JPEG pipeline; files are PDFs, uploaded as they are.
+/// JPEG pipeline; files are images (JPEG pipeline too) or PDFs, uploaded as
+/// they are.
 enum ChatAttachSource { camera, gallery, files }
 
 /// The composer's paperclip opens this sheet (design-spec 4.17c, modelled on

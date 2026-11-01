@@ -20,33 +20,38 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterFragmentActivity() {
     private var pendingImageFiles: MethodChannel.Result? = null
     private var imageFileLimit = 9
-    private var pendingPdfFiles: MethodChannel.Result? = null
-    private var pdfFileLimit = 4
-    private var pdfMaxBytes = 10L * 1024 * 1024
+    private var pendingDocuments: MethodChannel.Result? = null
+    private var documentLimit = 12
+    private var documentMaxBytes = 10L * 1024 * 1024
+    private var documentMaxImageBytes = 64L * 1024 * 1024
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // System document picker (Storage Access Framework, no storage
         // permission). "pick": image files, raw bytes that Dart normalises
-        // through the JPEG pipeline. "pickPdfs": the chat attachment sheet's
-        // 文件 tab; per PDF its display name, size and raw bytes.
+        // through the JPEG pipeline. "pickDocuments": the chat attachment
+        // sheet's 文件 tab, images and PDFs in one selection; per document
+        // its MIME type, display name, size and raw bytes.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "jiabu/image_files")
             .setMethodCallHandler { call, result ->
-                if (call.method != "pick" && call.method != "pickPdfs") {
+                if (call.method != "pick" && call.method != "pickDocuments") {
                     result.notImplemented()
-                } else if (pendingImageFiles != null || pendingPdfFiles != null) {
+                } else if (pendingImageFiles != null || pendingDocuments != null) {
                     result.error("image_selection_busy", null, null)
-                } else if (call.method == "pickPdfs") {
-                    pdfFileLimit = call.argument<Int>("limit") ?: 4
-                    pdfMaxBytes = call.argument<Number>("maxBytes")?.toLong()
+                } else if (call.method == "pickDocuments") {
+                    documentLimit = call.argument<Int>("limit") ?: 12
+                    documentMaxBytes = call.argument<Number>("maxBytes")?.toLong()
                         ?: (10L * 1024 * 1024)
-                    pendingPdfFiles = result
+                    documentMaxImageBytes = call.argument<Number>("maxImageBytes")?.toLong()
+                        ?: (64L * 1024 * 1024)
+                    pendingDocuments = result
                     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
                         .addCategory(Intent.CATEGORY_OPENABLE)
-                        .setType("application/pdf")
+                        .setType("*/*")
+                        .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "application/pdf"))
                         .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                     @Suppress("DEPRECATION")
-                    startActivityForResult(intent, PDF_FILES_REQUEST)
+                    startActivityForResult(intent, DOCUMENTS_REQUEST)
                 } else {
                     imageFileLimit = call.argument<Int>("limit") ?: 9
                     pendingImageFiles = result
@@ -100,10 +105,10 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == PDF_FILES_REQUEST) {
-            val pdfs = pendingPdfFiles ?: return
-            pendingPdfFiles = null
-            returnPdfs(pdfs, pickedUris(resultCode, data))
+        if (requestCode == DOCUMENTS_REQUEST) {
+            val documents = pendingDocuments ?: return
+            pendingDocuments = null
+            returnDocuments(documents, pickedUris(resultCode, data))
             return
         }
         if (requestCode != IMAGE_FILES_REQUEST) return
@@ -136,12 +141,14 @@ class MainActivity : FlutterFragmentActivity() {
         return uris
     }
 
-    // Every picked document reports its name and size so Dart can reject a
-    // selection over the limit; bytes are read only for the first `limit`
-    // documents and never beyond `maxBytes` (null bytes = too large).
-    private fun returnPdfs(result: MethodChannel.Result, uris: List<Uri>) {
-        val limit = pdfFileLimit
-        val maxBytes = pdfMaxBytes
+    // Every picked document reports its type, name and size so Dart can
+    // reject a selection over a limit; bytes are read only for the first
+    // `limit` documents and never beyond the per-type maximum (null bytes =
+    // too large).
+    private fun returnDocuments(result: MethodChannel.Result, uris: List<Uri>) {
+        val limit = documentLimit
+        val maxPdfBytes = documentMaxBytes
+        val maxImageBytes = documentMaxImageBytes
         Thread {
             try {
                 val files = uris.mapIndexed { index, uri ->
@@ -165,12 +172,19 @@ class MainActivity : FlutterFragmentActivity() {
                             }
                         }
                     }
+                    val mime = contentResolver.getType(uri)
+                    val maxBytes = if (mime?.startsWith("image/") == true) {
+                        maxImageBytes
+                    } else {
+                        maxPdfBytes
+                    }
                     val bytes = if (index < limit && size <= maxBytes) {
                         readAtMost(uri, maxBytes)
                     } else {
                         null
                     }
                     mapOf(
+                        "mime" to mime,
                         "name" to name,
                         "size" to (bytes?.size?.toLong() ?: size),
                         "bytes" to bytes,
@@ -207,6 +221,6 @@ class MainActivity : FlutterFragmentActivity() {
 
     private companion object {
         const val IMAGE_FILES_REQUEST = 7301
-        const val PDF_FILES_REQUEST = 7302
+        const val DOCUMENTS_REQUEST = 7302
     }
 }

@@ -58,7 +58,7 @@ final class ChatViewModelProvider
   }
 }
 
-String _$chatViewModelHash() => r'1688f3bf6915d8985a6c73f6ae147e9f61c6d966';
+String _$chatViewModelHash() => r'66a9cdaa19b8b5e408f6218879844f100f0b73cd';
 
 final class ChatViewModelFamily extends $Family
     with

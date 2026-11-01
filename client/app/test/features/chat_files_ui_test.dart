@@ -20,15 +20,17 @@ import 'package:jiabu/shared/chatweave/jiabu_chatweave_theme.dart';
 import 'package:jiabu/shared/chatweave/user_message_note.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
+import '../fixtures/jpeg_fixture.dart';
 import '../support/c3_harness.dart';
 import '../support/chat_harness.dart';
 
 class _Documents implements DocumentPickerPort {
   List<PickedDocument> documents = [];
   @override
-  Future<List<PickedDocument>> pickPdfs({
+  Future<List<PickedDocument>> pickDocuments({
     required int limit,
     required int maxBytes,
+    required int maxImageBytes,
   }) async => documents;
 }
 
@@ -202,6 +204,8 @@ void main() {
     expect(chatErrorLabel(zh, 'chat_files_too_large'), zh.chatFilesTooLarge);
     expect(chatErrorLabel(zh, 'chat_file_not_pdf'), zh.chatFileNotPdf);
     expect(chatErrorLabel(zh, 'chat_file_unsupported'), zh.chatFileUnsupported);
+    expect(chatErrorLabel(zh, 'image_too_large'), zh.chatImageTooLarge);
+    expect(chatErrorLabel(zh, 'chat_too_large'), zh.chatLimit);
   });
 
   test('view model attaches, removes and sends files', () async {
@@ -222,13 +226,22 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 5));
     }
     final vm = container.read(provider.notifier);
+    // One 文件-tab selection: a photo file and two PDFs.
     documents.documents = [
+      PickedDocument(
+        mime: 'image/jpeg',
+        size: 1,
+        name: 'a.jpg',
+        bytes: testJpeg(),
+      ),
       PickedDocument(name: 'a.pdf', size: 1, bytes: _pdf('a')),
       PickedDocument(name: 'b.pdf', size: 1, bytes: _pdf('b')),
     ];
-    await vm.attachFiles();
+    await vm.attachDocuments();
     var state = container.read(provider);
     expect(state.files.map((file) => file.name), ['a.pdf', 'b.pdf']);
+    expect(state.images, hasLength(1));
+    expect(h.session.draftImages, state.images);
     expect(state.error, isNull);
     expect(h.session.draftFiles, state.files);
     // Too many in total: nothing more is attached, the error says why.
@@ -236,7 +249,7 @@ void main() {
       for (final name in ['c', 'd', 'e'])
         PickedDocument(name: '$name.pdf', size: 1, bytes: _pdf(name)),
     ];
-    await vm.attachFiles();
+    await vm.attachDocuments();
     state = container.read(provider);
     expect(state.files, hasLength(2));
     expect(state.error, 'chat_files_too_many');
@@ -255,9 +268,10 @@ void main() {
     expect(send.payload['files'], [
       {'sha256': state.files.single.sha256, 'name': 'b.pdf'},
     ]);
+    expect(send.payload['images'], state.images);
     expect(
       (await h.h.store.outbox('s')).where((op) => op.kind == 'blob'),
-      hasLength(2),
+      hasLength(3),
     );
     subscription.close();
     container.dispose();

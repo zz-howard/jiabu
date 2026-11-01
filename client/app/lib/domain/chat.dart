@@ -51,9 +51,12 @@ abstract interface class ChatConversation {
     int limit = 8,
   });
 
-  /// PDFs from the 文件 tab, validated against the limits together with the
-  /// files [attached] to the draft already.
-  Future<Result<List<ChatFile>>> files({List<ChatFile> attached = const []});
+  /// Images and PDFs from the 文件 tab, validated against the limits
+  /// together with the [images] and [files] in the draft already.
+  Future<Result<ChatAttachments>> documents({
+    List<String> images = const [],
+    List<ChatFile> files = const [],
+  });
   Future<Result<void>> retry(String messageId);
   Future<Result<void>> retryUpload(String userMessageId);
   Future<Result<void>> stop(String messageId);

@@ -115,11 +115,11 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
     final days = _dayBreaks(session.conversationId);
     final now = ref.watch(ledgerClockProvider)();
     // The paperclip's sheet: camera or system photo picker (JPEG pipeline),
-    // or PDFs from the system document picker.
+    // or images and PDFs from the system document picker.
     Future<void> attach() async {
       final source = await showChatAttachmentSheet(context);
       if (source == ChatAttachSource.files) {
-        await vm.attachFiles();
+        await vm.attachDocuments();
       } else if (source != null) {
         await vm.photos(camera: source == ChatAttachSource.camera);
       }
@@ -255,5 +255,6 @@ String chatErrorLabel(AppLocalizations l, String? code) => switch (code) {
   'chat_files_too_large' => l.chatFilesTooLarge,
   'chat_file_not_pdf' => l.chatFileNotPdf,
   'chat_file_unsupported' => l.chatFileUnsupported,
+  'image_too_large' => l.chatImageTooLarge,
   _ => l.chatError,
 };
