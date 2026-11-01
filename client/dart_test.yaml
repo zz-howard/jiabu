@@ -2,3 +2,6 @@ tags:
   golden:
   server:
     skip: Run tool/server-it.sh
+  benchmark:
+    # Chat paging benchmark (#70): run with --run-skipped --tags benchmark.
+    skip: Run with --run-skipped --tags benchmark

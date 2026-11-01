@@ -55,4 +55,35 @@ void main() {
       await h.close();
     },
   );
+  test('chat_view_model_pages_history_through_the_session', () async {
+    final h = await ChatHarness.create();
+    await h.session.dispose();
+    await seedTimeline(h, 10);
+    final session = await h.open(pageSize: 4);
+    final container = ProviderContainer(
+      overrides: [
+        chatRepositoryProvider.overrideWithValue(_Repository(session)),
+      ],
+    );
+    final provider = chatViewModelProvider('s', 'zh');
+    final subscription = container.listen(provider, (_, _) {});
+    for (
+      var i = 0;
+      i < 100 && container.read(provider).conversation == null;
+      i++
+    ) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    final vm = container.read(provider.notifier);
+    await vm.loadOlder();
+    expect(session.blocks.snapshot.messages, hasLength(8));
+    expect(container.read(provider).error, isNull);
+    // The window reaches the latest message: nothing newer to load.
+    await vm.loadNewer();
+    expect(session.blocks.snapshot.messages, hasLength(8));
+    subscription.close();
+    container.dispose();
+    await session.dispose();
+    await h.close();
+  });
 }

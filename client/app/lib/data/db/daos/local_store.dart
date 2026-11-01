@@ -15,6 +15,27 @@ Variable<Object> _variable(Object? value) => switch (value) {
   _ => throw ArgumentError('Unsupported SQL parameter'),
 };
 
+/// A position in a member's chat timeline. Chat rows sort by (created_at, id),
+/// so messages created in the same instant keep one stable order.
+typedef ChatCursor = ({String createdAt, String id});
+
+ChatCursor chatCursorOf(Map<String, Object?> row) =>
+    (createdAt: row['created_at'] as String? ?? '', id: row['id']! as String);
+
+int compareChatCursors(ChatCursor a, ChatCursor b) {
+  final byTime = a.createdAt.compareTo(b.createdAt);
+  return byTime != 0 ? byTime : a.id.compareTo(b.id);
+}
+
+/// The chat columns a session reads; data_json and the server payload copy
+/// are left out because the message itself is in message_json.
+const _chatColumns =
+    'id, member_id, conversation_id, role, reply_to_id, stream_status, '
+    'created_at, sync_state, message_json, rev, last_seq, authoritative';
+
+/// SQLite allows 32766 variables; stay well below it per IN list.
+const _inListChunk = 500;
+
 /// All space content SQL lives here. Callers never pass table names or SQL.
 /// Runtime is the only partition-wide table; its space index avoids unscoped
 /// enumeration/counting of business tables, including outbox.
@@ -407,8 +428,21 @@ final class LocalStore {
       'message_json': ?message,
     };
     await _putEntity(spaceId, 'chat_entry', payload, state: state);
+    await _stampRevision(
+      'UPDATE chat_entries SET local_revision = (SELECT change_revision FROM '
+      'sync_runtime WHERE id = 1) WHERE space_id = ? AND id = ?',
+      [spaceId, id],
+    );
     return true;
   });
+
+  /// Tags a row with the change revision of the write that just bumped it,
+  /// so an open chat reads only rows changed since its watermark. Runs inside
+  /// the writer's transaction; the write itself already notified watchers.
+  Future<void> _stampRevision(String sql, List<Object?> args) async {
+    DaoScope.verify(sql);
+    await db.customStatement(sql, args);
+  }
 
   Future<Map<String, Object?>?> chatEntry(String spaceId, String id) async =>
       (await _read('SELECT * FROM chat_entries WHERE space_id = ? AND id = ?', [
@@ -425,6 +459,117 @@ final class LocalStore {
     'conversation_id = ? ORDER BY created_at, id',
     [spaceId, memberId, conversationId],
   );
+
+  /// One page of [memberId]'s chat timeline, oldest first: the latest
+  /// [limit] rows, the [limit] rows just before [before], or the [limit] rows
+  /// just after [after]. One indexed query per page.
+  Future<List<Map<String, Object?>>> chatPage(
+    String spaceId,
+    String memberId, {
+    required int limit,
+    ChatCursor? before,
+    ChatCursor? after,
+  }) async {
+    if (before != null && after != null) {
+      throw ArgumentError('Page before or after a cursor, not both');
+    }
+    final order = after == null ? 'DESC' : 'ASC';
+    final rows = await _read(
+      'SELECT $_chatColumns FROM chat_entries WHERE space_id = ? AND '
+      'member_id = ?'
+      '${before == null ? '' : ' AND (created_at, id) < (?, ?)'}'
+      '${after == null ? '' : ' AND (created_at, id) > (?, ?)'}'
+      ' ORDER BY created_at $order, id $order LIMIT ?',
+      [
+        spaceId,
+        memberId,
+        if (before != null) ...[before.createdAt, before.id],
+        if (after != null) ...[after.createdAt, after.id],
+        limit,
+      ],
+    );
+    return after == null ? rows.reversed.toList() : rows;
+  }
+
+  /// [memberId]'s chat rows written after change revision [since], oldest
+  /// first. The caller keeps the rows its window holds.
+  Future<List<Map<String, Object?>>> chatEntriesChangedSince(
+    String spaceId,
+    String memberId,
+    int since,
+  ) => _read(
+    'SELECT $_chatColumns FROM chat_entries WHERE space_id = ? AND '
+    'local_revision > ? AND member_id = ? ORDER BY created_at, id',
+    [spaceId, since, memberId],
+  );
+
+  /// Replies still being produced or waiting for an answer, wherever they sit
+  /// in the timeline.
+  Future<List<Map<String, Object?>>> chatEntriesInFlight(
+    String spaceId,
+    String memberId,
+  ) => _read(
+    'SELECT $_chatColumns FROM chat_entries WHERE space_id = ? AND '
+    "member_id = ? AND stream_status IN ('streaming', 'paused') "
+    'ORDER BY created_at, id',
+    [spaceId, memberId],
+  );
+
+  /// Rows answering one of [userIds] (by reply_to_id) or listed in [ids],
+  /// oldest first, without their message bodies.
+  Future<List<Map<String, Object?>>> chatReplies(
+    String spaceId,
+    String memberId,
+    Iterable<String> userIds,
+    Iterable<String> ids,
+  ) async {
+    final rows = <Map<String, Object?>>[];
+    for (final (column, values) in [
+      ('reply_to_id', userIds.toSet().toList()),
+      ('id', ids.toSet().toList()),
+    ]) {
+      for (var i = 0; i < values.length; i += _inListChunk) {
+        final chunk = values.skip(i).take(_inListChunk).toList();
+        rows.addAll(
+          await _read(
+            'SELECT id, reply_to_id, stream_status, created_at FROM '
+            'chat_entries WHERE space_id = ? AND member_id = ? AND $column IN '
+            '(${chunk.map((_) => '?').join(',')})',
+            [spaceId, memberId, ...chunk],
+          ),
+        );
+      }
+    }
+    return {for (final row in rows) row['id']: row}.values.toList()
+      ..sort((a, b) => compareChatCursors(chatCursorOf(a), chatCursorOf(b)));
+  }
+
+  /// The member's server conversation, if it has been pulled.
+  Future<String?> chatConversationId(String spaceId, String memberId) async =>
+      (await _read(
+            'SELECT id FROM conversations WHERE space_id = ? AND '
+            'member_id = ? LIMIT 1',
+            [spaceId, memberId],
+          )).firstOrNull?['id']
+          as String?;
+
+  /// The conversation a synced message of the member belongs to, before the
+  /// conversation row itself arrives.
+  Future<String?> chatSyncedConversationId(
+    String spaceId,
+    String memberId,
+  ) async =>
+      (await _read(
+            'SELECT conversation_id FROM chat_entries WHERE space_id = ? AND '
+            "member_id = ? AND sync_state = 'synced' AND "
+            "substr(conversation_id, 1, 6) <> 'local:' LIMIT 1",
+            [spaceId, memberId],
+          )).firstOrNull?['conversation_id']
+          as String?;
+
+  /// The current change revision: the watermark for chat reads.
+  Future<int> chatRevision() async =>
+      requireValue<int>((await runtime())['change_revision']);
 
   Stream<void> watchChatChanges(String spaceId) {
     const sql =
@@ -465,6 +610,49 @@ final class LocalStore {
         : (jsonDecode(row['state_json']! as String) as Map<String, Object?>);
   }
 
+  /// Client state of every message in [messageIds] that has one, batched.
+  Future<Map<String, Map<String, Object?>>> chatClientStates(
+    String spaceId,
+    Iterable<String> messageIds,
+  ) async {
+    final ids = messageIds.toSet().toList();
+    final states = <String, Map<String, Object?>>{};
+    for (var i = 0; i < ids.length; i += _inListChunk) {
+      final chunk = ids.skip(i).take(_inListChunk).toList();
+      states.addAll(
+        _decodeStates(
+          await _read(
+            'SELECT message_id, state_json FROM chat_client_states WHERE '
+            'space_id = ? AND message_id IN '
+            '(${chunk.map((_) => '?').join(',')})',
+            [spaceId, ...chunk],
+          ),
+        ),
+      );
+    }
+    return states;
+  }
+
+  /// Client states written after change revision [since].
+  Future<Map<String, Map<String, Object?>>> chatClientStatesChangedSince(
+    String spaceId,
+    int since,
+  ) async => _decodeStates(
+    await _read(
+      'SELECT message_id, state_json FROM chat_client_states WHERE '
+      'space_id = ? AND local_revision > ?',
+      [spaceId, since],
+    ),
+  );
+
+  Map<String, Map<String, Object?>> _decodeStates(
+    List<Map<String, Object?>> rows,
+  ) => {
+    for (final row in rows)
+      row['message_id']! as String:
+          jsonDecode(row['state_json']! as String) as Map<String, Object?>,
+  };
+
   Future<void> updateChatClientState(
     String spaceId,
     String messageId,
@@ -474,9 +662,13 @@ final class LocalStore {
     final next = update(await chatClientState(spaceId, messageId));
     await _write(
       'chat_client_states',
-      'INSERT INTO chat_client_states (space_id, message_id, state_json) '
-          'VALUES (?, ?, ?) ON CONFLICT (space_id, message_id) DO UPDATE SET '
-          'state_json = excluded.state_json',
+      // _write bumps change_revision after this statement: + 1 is the
+      // revision of this write, matching the chat_entries stamp.
+      'INSERT INTO chat_client_states (space_id, message_id, state_json, '
+          'local_revision) VALUES (?, ?, ?, (SELECT change_revision + 1 FROM '
+          'sync_runtime WHERE id = 1)) ON CONFLICT (space_id, message_id) DO '
+          'UPDATE SET state_json = excluded.state_json, local_revision = '
+          'excluded.local_revision',
       [spaceId, messageId, jsonEncode(next)],
     );
   });

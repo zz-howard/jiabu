@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -31,6 +32,15 @@ final class _Refresh implements AuthoritativeRefresh {
   }
 }
 
+/// What the session keeps of a loaded chat row besides its message.
+typedef _ChatRow = ({
+  ChatCursor at,
+  String? role,
+  String? replyTo,
+  String? status,
+  bool message,
+});
+
 final class LocalChatSession implements ChatConversation {
   LocalChatSession({
     required this.dao,
@@ -41,6 +51,7 @@ final class LocalChatSession implements ChatConversation {
     required this.sync,
     required this.media,
     this.onEnqueued,
+    this.pageSize = defaultPageSize,
   }) {
     persistence = JiabuChatWeaveStore(dao, fence, memberId);
     transport = JiabuStreamTransport(api, dao, fence);
@@ -55,6 +66,13 @@ final class LocalChatSession implements ChatConversation {
   final Future<void> Function() sync;
   final MediaService media;
   final void Function()? onEnqueued;
+
+  /// Messages per page. 40 fill two to four phone screens, inside the 30–50
+  /// the owner asked for: the first screen is full on open and the first
+  /// scroll up still has content while the next page loads. Opening reads
+  /// one page, so its cost no longer grows with the history.
+  static const defaultPageSize = 40;
+  final int pageSize;
   late final JiabuChatWeaveStore persistence;
   late final JiabuStreamTransport transport;
   @override
@@ -124,8 +142,24 @@ final class LocalChatSession implements ChatConversation {
   StreamSubscription<StoreSnapshot>? _projection;
   StreamSubscription<void>? _actions;
   bool _closed = false;
-  bool _reading = false;
-  bool _readAgain = false;
+  Future<void> _work = Future<void>.value();
+  Future<void>? _pendingReload;
+  bool _fullPending = false;
+
+  /// The window's lower bound while older messages exist before it.
+  ChatCursor? _oldest;
+
+  /// The window's upper bound while it stops short of the latest message.
+  ChatCursor? _newest;
+  String? _precedingCreatedAt;
+  bool _loadingOlder = false;
+  bool _loadingNewer = false;
+
+  /// Rows written up to this change revision are reflected in the window.
+  int _watermark = 0;
+  final _rows = <String, _ChatRow>{};
+  final _states = <String, Map<String, Object?>>{};
+  final _paged = <String>{};
   Future<void>? _recovery;
   bool _attached = true;
   bool _foreground = true;
@@ -202,7 +236,7 @@ final class LocalChatSession implements ChatConversation {
       for (final file in saved['files'] as List<Object?>? ?? const [])
         ?ChatFile.fromJson(file),
     ];
-    await _reload();
+    await _reload(full: true);
     _database = dao
         .watchChatChanges(spaceId)
         .listen(
@@ -231,21 +265,37 @@ final class LocalChatSession implements ChatConversation {
     _receipts.clear();
     _discovered.clear();
     _checkpointSeq.clear();
+    _rows.clear();
+    _states.clear();
+    _paged.clear();
     _makeControllers();
   }
 
-  Future<void> _reload() async {
-    if (_reading) {
-      _readAgain = true;
-      return;
-    }
-    _reading = true;
+  /// Runs reads and page loads one at a time, in call order.
+  Future<T> _serial<T>(Future<T> Function() task) {
+    final run = _work.then((_) => task());
+    _work = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  /// Brings the window up to date. A full read reopens it on the latest page;
+  /// otherwise only rows and client states written since the watermark are
+  /// read. Calls made while a read is queued join that read.
+  Future<void> _reload({bool full = false}) {
+    _fullPending = _fullPending || full;
+    return _pendingReload ??= _serial(() async {
+      _pendingReload = null;
+      final reopen = _fullPending;
+      _fullPending = false;
+      await _read(full: reopen);
+    });
+  }
+
+  Future<void> _read({required bool full}) async {
+    var reopen = full;
     try {
-      do {
-        _readAgain = false;
-        if (_closed) {
-          return;
-        }
+      for (var again = true; again && !_closed;) {
+        again = false;
         if (!await dao.accepts(fence)) {
           await _reset(conversationId);
           draft = '';
@@ -258,31 +308,13 @@ final class LocalChatSession implements ChatConversation {
           _notify();
           return;
         }
-        final conversations = await dao.entities(spaceId, 'conversation');
-        final actual =
-            conversations
-                    .where((row) => row.data['member_id'] == memberId)
-                    .firstOrNull
-                    ?.data['id']
-                as String?;
-        final all = await dao.entities(spaceId, 'chat_entry');
-        final own = all
-            .where((row) => row.data['member_id'] == memberId)
-            .toList();
-        final inferred =
-            own
-                    .where(
-                      (row) =>
-                          row.syncState == 'synced' &&
-                          !(row.data['conversation_id'] as String? ?? '')
-                              .startsWith('local:'),
-                    )
-                    .firstOrNull
-                    ?.data['conversation_id']
-                as String?;
-        final id = actual ?? inferred ?? conversationId;
+        final id =
+            await dao.chatConversationId(spaceId, memberId) ??
+            await dao.chatSyncedConversationId(spaceId, memberId) ??
+            conversationId;
         if (id != conversationId) {
           await _reset(id);
+          reopen = true;
         }
         final queue = await dao.outbox(spaceId);
         if (queue.any(
@@ -292,141 +324,417 @@ final class LocalChatSession implements ChatConversation {
         } else if (error == 'chat_action_failed') {
           error = null;
         }
-        final nextDelivery = <String, ChatDelivery>{};
-        final nextStops = <String>{};
-        for (final row in own) {
-          final messageId = row.data['id']! as String;
-          final raw = await dao.chatEntry(spaceId, messageId);
-          if (raw == null) {
-            continue;
-          }
-          var message = JiabuChatWeaveStore.decode(raw);
-          if (message == null) {
-            continue;
-          }
-          if ((message['conversationId'] as String? ?? '').startsWith(
-            'local:',
-          )) {
-            message = Message.fromJson({
-              ...message.json,
-              'conversationId': conversationId,
-            });
-          }
-          final old = blocks.snapshot.messages[messageId];
-          if (raw['authoritative'] == 1 &&
-              old != null &&
-              message.rev < old.rev) {
-            await _reset(conversationId);
-            _readAgain = true;
-            break;
-          }
-          // Keep fresher in-memory deltas during disk throttling.
-          if (raw['authoritative'] == 1 ||
-              (raw['last_seq']! as int) >=
-                  (blocks.snapshot.cursors[messageId] ?? 0)) {
-            final checkpoint = Message.fromJson({
-              ...message.json,
-              'lastSeq': raw['last_seq'],
-            });
-            blocks.apply(SyncMessage(checkpoint));
-            if (_attached &&
-                _foreground &&
-                old?.status == 'paused' &&
-                checkpoint.status != 'paused') {
-              unawaited(_subscribe(messageId, ResumeTrigger.checkpoint));
-            }
-          }
-          final local = await dao.chatClientState(spaceId, messageId);
-          if (local['stopRequested'] == true) {
-            nextStops.add(messageId);
-          }
-          final assistantId = local['assistantId'] as String?;
-          if (_attached &&
-              _foreground &&
-              assistantId != null &&
-              _discovered.add(assistantId)) {
-            unawaited(_subscribe(assistantId, ResumeTrigger.conversation));
-          }
-          final retryId = local['retryMessageId'] as String?;
-          if (_attached &&
-              _foreground &&
-              retryId != null &&
-              _discovered.add(retryId)) {
-            unawaited(_subscribe(retryId, ResumeTrigger.conversation));
-          }
-          if (message['role'] == 'user') {
-            final op = queue
-                .where((op) => op.kind == 'chat_send' && op.id == messageId)
-                .firstOrNull;
-            // A streamed reply carries no replyTo until the next pull, so the
-            // send/retry response ids saved on this message count as links too.
-            final replyIds = {
-              if (local['assistantId'] case final String id) id,
-              if (local['retryMessageId'] case final String id) id,
-            };
-            final assistant = own
-                .where(
-                  (row) =>
-                      row.data['reply_to_id'] == messageId ||
-                      replyIds.contains(row.data['id']),
-                )
-                .lastOrNull;
-            nextDelivery[messageId] = local['manual'] == true
-                ? ChatDelivery.manual
-                : op != null
-                ? (op.state == 'failed' ||
-                          queue.any(
-                            (dependency) =>
-                                dependency.state == 'failed' &&
-                                dependency.references
-                                    .intersection(op.dependsOn)
-                                    .isNotEmpty,
-                          )
-                      ? ChatDelivery.failed
-                      : ChatDelivery.pending)
-                : assistant != null &&
-                      const {
-                        'complete',
-                        'interrupted',
-                        'error',
-                      }.contains(assistant.data['stream_status'])
-                ? ChatDelivery.complete
-                : ChatDelivery.waitingAi;
-          }
-          if (_restored.add(messageId)) {
-            await interactions.restore(messageId);
-          }
-          final receipts = local['receipts'] as Map<String, Object?>? ?? {};
-          for (final receipt in receipts.entries) {
-            if (_receipts.add(receipt.key)) {
-              await interactions.retryPending(messageId);
-              final result = receipt.value! as Map<String, Object?>;
-              if (result['resume'] case final Map<String, Object?> resume) {
-                if (_attached && _foreground) {
-                  unawaited(
-                    _subscribe(
-                      resume['messageId']! as String,
-                      ResumeTrigger.action,
-                    ),
-                  );
-                }
-              }
-              if (local['action_refresh'] == true) {
-                unawaited(_refreshAfterRejected());
-              }
-            }
-          }
+        // Read before the rows: a write landing in between is read again on
+        // the next pass, never missed.
+        final watermark = await dao.chatRevision();
+        final List<Map<String, Object?>> rows;
+        final Map<String, Map<String, Object?>> states;
+        if (reopen) {
+          rows = await _openLatest();
+          states = await dao.chatClientStates(spaceId, rows.map(_idOf));
+        } else {
+          rows =
+              (await dao.chatEntriesChangedSince(spaceId, memberId, _watermark))
+                  .where(
+                    (row) => _rows.containsKey(_idOf(row)) || _inWindow(row),
+                  )
+                  .toList();
+          final ids = {..._rows.keys, ...rows.map(_idOf)};
+          final changed = await dao.chatClientStatesChangedSince(
+            spaceId,
+            _watermark,
+          );
+          states = {
+            for (final entry in changed.entries)
+              if (ids.contains(entry.key)) entry.key: entry.value,
+            ...await dao.chatClientStates(
+              spaceId,
+              rows
+                  .map(_idOf)
+                  .where(
+                    (id) => !_rows.containsKey(id) && !changed.containsKey(id),
+                  ),
+            ),
+          };
         }
-        delivery = Map.unmodifiable(nextDelivery);
-        stopRequested = Set.unmodifiable(nextStops);
+        _watermark = watermark;
+        if (!await _apply(rows, states, paged: false)) {
+          await _reset(conversationId);
+          reopen = true;
+          again = true;
+          continue;
+        }
+        reopen = false;
+        await _settle(queue);
         _notify();
-      } while (_readAgain && !_closed);
+      }
     } on Object {
       error = 'local_read_failed';
       _log(error!);
       _notify();
+    }
+  }
+
+  static String _idOf(Map<String, Object?> row) => row['id']! as String;
+
+  /// Inside the window's bounds; rows older than the window are read with
+  /// their page, rows newer than a jumped window with theirs.
+  bool _inWindow(Map<String, Object?> row) {
+    final at = chatCursorOf(row);
+    final oldest = _oldest;
+    final newest = _newest;
+    return (oldest == null || compareChatCursors(at, oldest) >= 0) &&
+        (newest == null || compareChatCursors(at, newest) <= 0);
+  }
+
+  /// The latest page plus every reply still streaming or waiting for an
+  /// answer, so stop, resume and answering work for those outside the page.
+  Future<List<Map<String, Object?>>> _openLatest() async {
+    _rows.clear();
+    _states.clear();
+    _paged.clear();
+    _newest = null;
+    final page = await dao.chatPage(spaceId, memberId, limit: pageSize + 1);
+    _bound(page, older: true, limit: pageSize);
+    return await _withInFlight(page);
+  }
+
+  Future<List<Map<String, Object?>>> _withInFlight(
+    List<Map<String, Object?>> page,
+  ) async {
+    final ids = page.map(_idOf).toSet();
+    return [
+      for (final row in await dao.chatEntriesInFlight(spaceId, memberId))
+        if (!ids.contains(_idOf(row))) row,
+      ...page,
+    ];
+  }
+
+  /// Trims the look-ahead row a page query fetched past [limit] and moves the
+  /// window's bound: none left means the window reaches that end.
+  void _bound(
+    List<Map<String, Object?>> page, {
+    required bool older,
+    required int limit,
+  }) {
+    final more = page.length > limit;
+    if (older) {
+      _precedingCreatedAt = more
+          ? page.removeAt(0)['created_at'] as String?
+          : null;
+      _oldest = more ? chatCursorOf(page.first) : null;
+    } else {
+      if (more) {
+        page.removeLast();
+      }
+      _newest = more ? chatCursorOf(page.last) : null;
+    }
+  }
+
+  /// Applies [rows] to [blocks] and caches their client states. False when an
+  /// authoritative row went back a revision, which needs a fresh store.
+  Future<bool> _apply(
+    List<Map<String, Object?>> rows,
+    Map<String, Map<String, Object?>> states, {
+    required bool paged,
+  }) async {
+    _states.addAll(states);
+    for (final raw in rows) {
+      final messageId = _idOf(raw);
+      var message = JiabuChatWeaveStore.decode(raw);
+      _rows[messageId] = (
+        at: chatCursorOf(raw),
+        role: raw['role'] as String?,
+        replyTo: raw['reply_to_id'] as String?,
+        status: raw['stream_status'] as String?,
+        message: message != null,
+      );
+      if (message == null) {
+        continue;
+      }
+      if ((message['conversationId'] as String? ?? '').startsWith('local:')) {
+        message = Message.fromJson({
+          ...message.json,
+          'conversationId': conversationId,
+        });
+      }
+      final old = blocks.snapshot.messages[messageId];
+      if (raw['authoritative'] == 1 && old != null && message.rev < old.rev) {
+        return false;
+      }
+      // Keep fresher in-memory deltas during disk throttling.
+      if (raw['authoritative'] == 1 ||
+          (raw['last_seq']! as int) >=
+              (blocks.snapshot.cursors[messageId] ?? 0)) {
+        final checkpoint = Message.fromJson({
+          ...message.json,
+          'lastSeq': raw['last_seq'],
+        });
+        if (paged && old == null) {
+          // Before apply: the list hears of the message synchronously.
+          _paged.add(messageId);
+        }
+        blocks.apply(SyncMessage(checkpoint));
+        if (_attached &&
+            _foreground &&
+            old?.status == 'paused' &&
+            checkpoint.status != 'paused') {
+          unawaited(_subscribe(messageId, ResumeTrigger.checkpoint));
+        }
+      }
+    }
+    return true;
+  }
+
+  /// Derives stop, delivery, resume subscriptions and action receipts for the
+  /// messages in the window from their cached rows and client states.
+  Future<void> _settle(List<OutboxOperation> queue) async {
+    final nextDelivery = <String, ChatDelivery>{};
+    final nextStops = <String>{};
+    // The latest reply linked to each user message by reply_to_id.
+    final linked = <String, String>{};
+    for (final MapEntry(key: id, value: row) in _rows.entries) {
+      final to = row.replyTo;
+      if (to != null) {
+        final current = linked[to];
+        if (current == null ||
+            compareChatCursors(row.at, _rows[current]!.at) > 0) {
+          linked[to] = id;
+        }
+      }
+    }
+    final unresolved = <String, Set<String>>{};
+    final ids = _rows.entries
+        .where((entry) => entry.value.message)
+        .map((entry) => entry.key)
+        .toList();
+    for (final messageId in ids) {
+      final row = _rows[messageId]!;
+      final local = _states[messageId] ?? const <String, Object?>{};
+      if (local['stopRequested'] == true) {
+        nextStops.add(messageId);
+      }
+      final assistantId = local['assistantId'] as String?;
+      if (_attached &&
+          _foreground &&
+          assistantId != null &&
+          _discovered.add(assistantId)) {
+        unawaited(_subscribe(assistantId, ResumeTrigger.conversation));
+      }
+      final retryId = local['retryMessageId'] as String?;
+      if (_attached &&
+          _foreground &&
+          retryId != null &&
+          _discovered.add(retryId)) {
+        unawaited(_subscribe(retryId, ResumeTrigger.conversation));
+      }
+      if (row.role == 'user') {
+        final op = queue
+            .where((op) => op.kind == 'chat_send' && op.id == messageId)
+            .firstOrNull;
+        // A streamed reply carries no replyTo until the next pull, so the
+        // send/retry response ids saved on this message count as links too.
+        final replyIds = {?assistantId, ?retryId};
+        if (local['manual'] == true) {
+          nextDelivery[messageId] = ChatDelivery.manual;
+        } else if (op != null) {
+          nextDelivery[messageId] =
+              op.state == 'failed' ||
+                  queue.any(
+                    (dependency) =>
+                        dependency.state == 'failed' &&
+                        dependency.references
+                            .intersection(op.dependsOn)
+                            .isNotEmpty,
+                  )
+              ? ChatDelivery.failed
+              : ChatDelivery.pending;
+        } else {
+          final candidates = [
+            ?linked[messageId],
+            ...replyIds.where(_rows.containsKey),
+          ]..sort((a, b) => compareChatCursors(_rows[a]!.at, _rows[b]!.at));
+          // A reply may be newer than a jumped window, or have no reply_to_id
+          // row in memory yet: look those up in one query below.
+          if (candidates.isEmpty || _newest != null) {
+            unresolved[messageId] = replyIds;
+          } else {
+            nextDelivery[messageId] = _deliveryFor(
+              _rows[candidates.last]!.status,
+            );
+          }
+        }
+      }
+      if (_restored.add(messageId) &&
+          (local['intents'] as Map<String, Object?>? ?? const {}).isNotEmpty) {
+        // Only saved intents need restoring; the others have nothing to retry.
+        await interactions.restore(messageId);
+      }
+      final receipts = local['receipts'] as Map<String, Object?>? ?? {};
+      for (final receipt in receipts.entries) {
+        if (_receipts.add(receipt.key)) {
+          await interactions.retryPending(messageId);
+          final result = receipt.value! as Map<String, Object?>;
+          if (result['resume'] case final Map<String, Object?> resume) {
+            if (_attached && _foreground) {
+              unawaited(
+                _subscribe(
+                  resume['messageId']! as String,
+                  ResumeTrigger.action,
+                ),
+              );
+            }
+          }
+          if (local['action_refresh'] == true) {
+            unawaited(_refreshAfterRejected());
+          }
+        }
+      }
+    }
+    if (unresolved.isNotEmpty) {
+      final replies = await dao.chatReplies(
+        spaceId,
+        memberId,
+        unresolved.keys,
+        unresolved.values.expand((ids) => ids),
+      );
+      for (final MapEntry(key: userId, value: replyIds) in unresolved.entries) {
+        final reply = replies
+            .where(
+              (row) =>
+                  row['reply_to_id'] == userId || replyIds.contains(row['id']),
+            )
+            .lastOrNull;
+        nextDelivery[userId] = _deliveryFor(reply?['stream_status'] as String?);
+      }
+    }
+    delivery = Map.unmodifiable(nextDelivery);
+    stopRequested = Set.unmodifiable(nextStops);
+  }
+
+  static ChatDelivery _deliveryFor(String? replyStatus) =>
+      const {'complete', 'interrupted', 'error'}.contains(replyStatus)
+      ? ChatDelivery.complete
+      : ChatDelivery.waitingAi;
+
+  @override
+  ChatHistory get history => ChatHistory(
+    hasOlder: _oldest != null,
+    hasNewer: _newest != null,
+    loadingOlder: _loadingOlder,
+    loadingNewer: _loadingNewer,
+    oldestId: _oldest?.id,
+    precedingCreatedAt: _precedingCreatedAt,
+    paged: UnmodifiableSetView(_paged),
+  );
+
+  @override
+  Future<Result<void>> loadOlder() => _page(older: true);
+
+  @override
+  Future<Result<void>> loadNewer() => _page(older: false);
+
+  Future<Result<void>> _page({required bool older}) async {
+    if (_closed ||
+        (older
+            ? _oldest == null || _loadingOlder
+            : _newest == null || _loadingNewer)) {
+      return const Ok(null);
+    }
+    if (older) {
+      _loadingOlder = true;
+    } else {
+      _loadingNewer = true;
+    }
+    _notify();
+    try {
+      return await _serial<Result<void>>(() async {
+        if (_closed || !await dao.accepts(fence)) {
+          return const Failure<void>('stale_response');
+        }
+        final bound = older ? _oldest : _newest;
+        if (bound == null) {
+          return const Ok(null);
+        }
+        final queue = await dao.outbox(spaceId);
+        final page = await dao.chatPage(
+          spaceId,
+          memberId,
+          limit: pageSize + 1,
+          before: older ? bound : null,
+          after: older ? null : bound,
+        );
+        _bound(page, older: older, limit: pageSize);
+        final states = await dao.chatClientStates(spaceId, page.map(_idOf));
+        if (!await _apply(page, states, paged: true)) {
+          unawaited(_reopen());
+          return const Ok(null);
+        }
+        await _settle(queue);
+        return const Ok(null);
+      });
+    } on Object {
+      _log('local_read_failed');
+      return const Failure('local_read_failed');
     } finally {
-      _reading = false;
+      if (older) {
+        _loadingOlder = false;
+      } else {
+        _loadingNewer = false;
+      }
+      _notify();
+    }
+  }
+
+  /// Starts over on a fresh store with the latest page.
+  Future<void> _reopen() => _serial(() async {
+    await _reset(conversationId);
+    await _read(full: true);
+  });
+
+  /// Reopens the window around [messageId] (for a deep link; the list has no
+  /// jump of its own yet). The list then pages newer messages back in as it
+  /// scrolls down, and a send returns to the latest page first.
+  Future<Result<void>> jumpTo(String messageId) async {
+    try {
+      return await _serial<Result<void>>(() async {
+        if (_closed || !await dao.accepts(fence)) {
+          return const Failure<void>('stale_response');
+        }
+        final target = await dao.chatEntry(spaceId, messageId);
+        if (target == null || target['member_id'] != memberId) {
+          return const Failure<void>('chat_message_missing');
+        }
+        await _reset(conversationId);
+        final watermark = await dao.chatRevision();
+        final queue = await dao.outbox(spaceId);
+        final at = chatCursorOf(target);
+        final older = pageSize ~/ 2;
+        final before = await dao.chatPage(
+          spaceId,
+          memberId,
+          limit: older + 1,
+          before: at,
+        );
+        _bound(before, older: true, limit: older);
+        final after = await dao.chatPage(
+          spaceId,
+          memberId,
+          limit: pageSize - older,
+          after: at,
+        );
+        _bound(after, older: false, limit: pageSize - older - 1);
+        final rows = await _withInFlight([...before, target, ...after]);
+        final states = await dao.chatClientStates(spaceId, rows.map(_idOf));
+        _watermark = watermark;
+        await _apply(rows, states, paged: false);
+        await _settle(queue);
+        _notify();
+        return const Ok(null);
+      });
+    } on Object {
+      _log('local_read_failed');
+      return const Failure('local_read_failed');
     }
   }
 
@@ -544,6 +852,10 @@ final class LocalChatSession implements ChatConversation {
     if (files.fold<int>(0, (sum, file) => sum + file.bytes) >
         ChatFileLimits.maxCombinedBytes) {
       throw const ApiError('chat_files_too_large');
+    }
+    if (_newest != null) {
+      // A jumped window would not show the new message: go back to the latest.
+      await _reopen();
     }
     final id = const Uuid().v7();
     await dao.transaction(() async {
@@ -774,10 +1086,9 @@ final class LocalChatSession implements ChatConversation {
           final local = await dao.chatClientState(spaceId, userMessageId);
           var assistant = local['assistantId'] as String?;
           assistant ??=
-              (await dao.entities(spaceId, 'chat_entry'))
-                      .where((row) => row.data['reply_to_id'] == userMessageId)
-                      .lastOrNull
-                      ?.data['id']
+              (await dao.chatReplies(spaceId, memberId, [
+                    userMessageId,
+                  ], const [])).lastOrNull?['id']
                   as String?;
           if (assistant == null) {
             throw const ApiError('chat_wait_upload');

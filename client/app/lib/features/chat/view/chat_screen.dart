@@ -14,8 +14,10 @@ import 'package:jiabu/shared/chatweave/chat_attachment_sheet.dart';
 import 'package:jiabu/shared/chatweave/chat_block_revealer.dart';
 import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
 import 'package:jiabu/shared/chatweave/chat_file_chip.dart';
+import 'package:jiabu/shared/chatweave/chat_history_store.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chatweave_theme.dart';
 import 'package:jiabu/shared/chatweave/jiabu_message_view.dart';
+import 'package:jiabu/shared/chatweave/jiabu_thinking_indicator.dart';
 import 'package:jiabu/shared/ledger/ledger_forms.dart';
 import 'package:jiabu/shared/ledger/ledger_view_model.dart';
 import 'package:jiabu_design/jiabu_design.dart';
@@ -48,6 +50,46 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
       return current;
     }
     return _days = ChatDayBreaks(conversationId);
+  }
+
+  ChatHistoryStore? _store;
+  ChatHistoryStore _listStore(ChatConversation session) {
+    final current = _store;
+    if (current != null && identical(current.source, session.blocks)) {
+      return current;
+    }
+    return _store = ChatHistoryStore(
+      session.blocks,
+      () => session.history.paged,
+    );
+  }
+
+  /// Asks for the next page once the list is within a screen of the
+  /// window's end: older pages toward the top (the list is reversed, so that
+  /// is extentAfter), newer ones toward the bottom after a jump. Pages land
+  /// beyond the visible part, so the position the reader sees stays put.
+  bool _nearEdge(
+    ScrollMetrics metrics,
+    int depth,
+    ChatConversation session,
+    ChatViewModel vm,
+  ) {
+    if (depth != 0 || metrics.axis != Axis.vertical) {
+      return false;
+    }
+    final history = session.history;
+    final reach = metrics.viewportDimension;
+    if (history.hasOlder &&
+        !history.loadingOlder &&
+        metrics.extentAfter < reach) {
+      unawaited(vm.loadOlder());
+    }
+    if (history.hasNewer &&
+        !history.loadingNewer &&
+        metrics.extentBefore < reach) {
+      unawaited(vm.loadNewer());
+    }
+    return false;
   }
 
   @override
@@ -132,6 +174,39 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
       }
     }
 
+    final history = session.history;
+    Widget list() => ChatWeaveList(
+      key: ObjectKey(session.blocks),
+      store: _listStore(session),
+      registry: registry,
+      conversationId: session.conversationId,
+      interactions: session.interactions,
+      composer: session.composer,
+      stopRequested: session.stopRequested,
+      userMessageBuilder: (context, message) => UserMessageNote(
+        message: message,
+        delivery: session.delivery[message.id] ?? ChatDelivery.waitingAi,
+        online: session.online,
+        image: session.image,
+        onRetry: () =>
+            unawaited(vm.command(() => session.retryUpload(message.id))),
+        onManual: ledger?.writable == true
+            ? () => unawaited(manual(message.id))
+            : null,
+      ),
+      // The list rebuilds itself on store changes: read the window live.
+      messageFrameBuilder: (context, message, child) => ChatDayFrame(
+        day: days.dayStartedBy(
+          session.blocks.snapshot.messages,
+          message.id,
+          continuedId: session.history.oldestId,
+          continuesFrom: session.history.precedingCreatedAt,
+        ),
+        now: now,
+        child: frame(context, message, child),
+      ),
+    );
+
     return JiabuChatWeaveTheme(
       child: Column(
         children: [
@@ -180,37 +255,37 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
                       ),
                     ),
                   )
-                : ChatWeaveList(
-                    key: ObjectKey(session.blocks),
-                    store: session.blocks,
-                    registry: registry,
-                    conversationId: session.conversationId,
-                    interactions: session.interactions,
-                    composer: session.composer,
-                    stopRequested: session.stopRequested,
-                    userMessageBuilder: (context, message) => UserMessageNote(
-                      message: message,
-                      delivery:
-                          session.delivery[message.id] ??
-                          ChatDelivery.waitingAi,
-                      online: session.online,
-                      image: session.image,
-                      onRetry: () => unawaited(
-                        vm.command(() => session.retryUpload(message.id)),
-                      ),
-                      onManual: ledger?.writable == true
-                          ? () => unawaited(manual(message.id))
-                          : null,
-                    ),
-                    messageFrameBuilder: (context, message, child) =>
-                        ChatDayFrame(
-                          day: days.dayStartedBy(
-                            session.blocks.snapshot.messages,
-                            message.id,
-                          ),
-                          now: now,
-                          child: frame(context, message, child),
+                : Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      NotificationListener<ScrollMetricsNotification>(
+                        onNotification: (notification) => _nearEdge(
+                          notification.metrics,
+                          notification.depth,
+                          session,
+                          vm,
                         ),
+                        child: NotificationListener<ScrollUpdateNotification>(
+                          onNotification: (notification) => _nearEdge(
+                            notification.metrics,
+                            notification.depth,
+                            session,
+                            vm,
+                          ),
+                          child: list(),
+                        ),
+                      ),
+                      if (history.loadingOlder)
+                        const Align(
+                          alignment: Alignment.topCenter,
+                          child: _HistoryLoading(),
+                        ),
+                      if (history.loadingNewer)
+                        const Align(
+                          alignment: Alignment.bottomCenter,
+                          child: _HistoryLoading(),
+                        ),
+                    ],
                   ),
           ),
           if (state.images.isNotEmpty || state.files.isNotEmpty)
@@ -259,3 +334,20 @@ String chatErrorLabel(AppLocalizations l, String? code) => switch (code) {
   'invalid_image' || 'file_selection_failed' => l.chatFileUnreadable,
   _ => l.chatError,
 };
+
+/// The inline row while a history page loads: the thinking dots, which hold
+/// still when animations are off.
+class _HistoryLoading extends StatelessWidget {
+  const _HistoryLoading();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(JiabuChatMetrics.gap),
+    child: Semantics(
+      key: const Key('chat-history-loading'),
+      liveRegion: true,
+      label: AppLocalizations.of(context).chatLoadingHistory,
+      child: const JiabuThinkingDots(),
+    ),
+  );
+}

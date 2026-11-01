@@ -10220,6 +10220,18 @@ class ChatEntries extends Table with TableInfo<ChatEntries, ChatEntry> {
         requiredDuringInsert: false,
         $customConstraints: '',
       );
+  static const VerificationMeta _localRevisionMeta = const VerificationMeta(
+    'localRevision',
+  );
+  late final GeneratedColumn<int> localRevision = GeneratedColumn<int>(
+    'local_revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -10242,6 +10254,7 @@ class ChatEntries extends Table with TableInfo<ChatEntries, ChatEntry> {
     lastSeq,
     authoritative,
     serverPayloadJson,
+    localRevision,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -10398,6 +10411,15 @@ class ChatEntries extends Table with TableInfo<ChatEntries, ChatEntry> {
         ),
       );
     }
+    if (data.containsKey('local_revision')) {
+      context.handle(
+        _localRevisionMeta,
+        localRevision.isAcceptableOrUnknown(
+          data['local_revision']!,
+          _localRevisionMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -10487,6 +10509,10 @@ class ChatEntries extends Table with TableInfo<ChatEntries, ChatEntry> {
         DriftSqlType.string,
         data['${effectivePrefix}server_payload_json'],
       ),
+      localRevision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}local_revision'],
+      )!,
     );
   }
 
@@ -10522,6 +10548,7 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
   final int lastSeq;
   final int authoritative;
   final String? serverPayloadJson;
+  final int localRevision;
   const ChatEntry({
     this.id,
     required this.spaceId,
@@ -10543,6 +10570,7 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     required this.lastSeq,
     required this.authoritative,
     this.serverPayloadJson,
+    required this.localRevision,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -10595,6 +10623,7 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     if (!nullToAbsent || serverPayloadJson != null) {
       map['server_payload_json'] = Variable<String>(serverPayloadJson);
     }
+    map['local_revision'] = Variable<int>(localRevision);
     return map;
   }
 
@@ -10644,6 +10673,7 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
       serverPayloadJson: serverPayloadJson == null && nullToAbsent
           ? const Value.absent()
           : Value(serverPayloadJson),
+      localRevision: Value(localRevision),
     );
   }
 
@@ -10675,6 +10705,7 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
       serverPayloadJson: serializer.fromJson<String?>(
         json['server_payload_json'],
       ),
+      localRevision: serializer.fromJson<int>(json['local_revision']),
     );
   }
   @override
@@ -10701,6 +10732,7 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
       'last_seq': serializer.toJson<int>(lastSeq),
       'authoritative': serializer.toJson<int>(authoritative),
       'server_payload_json': serializer.toJson<String?>(serverPayloadJson),
+      'local_revision': serializer.toJson<int>(localRevision),
     };
   }
 
@@ -10725,6 +10757,7 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     int? lastSeq,
     int? authoritative,
     Value<String?> serverPayloadJson = const Value.absent(),
+    int? localRevision,
   }) => ChatEntry(
     id: id.present ? id.value : this.id,
     spaceId: spaceId ?? this.spaceId,
@@ -10752,6 +10785,7 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     serverPayloadJson: serverPayloadJson.present
         ? serverPayloadJson.value
         : this.serverPayloadJson,
+    localRevision: localRevision ?? this.localRevision,
   );
   ChatEntry copyWithCompanion(ChatEntriesCompanion data) {
     return ChatEntry(
@@ -10791,6 +10825,9 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
       serverPayloadJson: data.serverPayloadJson.present
           ? data.serverPayloadJson.value
           : this.serverPayloadJson,
+      localRevision: data.localRevision.present
+          ? data.localRevision.value
+          : this.localRevision,
     );
   }
 
@@ -10816,13 +10853,14 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
           ..write('rev: $rev, ')
           ..write('lastSeq: $lastSeq, ')
           ..write('authoritative: $authoritative, ')
-          ..write('serverPayloadJson: $serverPayloadJson')
+          ..write('serverPayloadJson: $serverPayloadJson, ')
+          ..write('localRevision: $localRevision')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     spaceId,
     syncState,
@@ -10843,7 +10881,8 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
     lastSeq,
     authoritative,
     serverPayloadJson,
-  );
+    localRevision,
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -10867,7 +10906,8 @@ class ChatEntry extends DataClass implements Insertable<ChatEntry> {
           other.rev == this.rev &&
           other.lastSeq == this.lastSeq &&
           other.authoritative == this.authoritative &&
-          other.serverPayloadJson == this.serverPayloadJson);
+          other.serverPayloadJson == this.serverPayloadJson &&
+          other.localRevision == this.localRevision);
 }
 
 class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
@@ -10891,6 +10931,7 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
   final Value<int> lastSeq;
   final Value<int> authoritative;
   final Value<String?> serverPayloadJson;
+  final Value<int> localRevision;
   final Value<int> rowid;
   const ChatEntriesCompanion({
     this.id = const Value.absent(),
@@ -10913,6 +10954,7 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     this.lastSeq = const Value.absent(),
     this.authoritative = const Value.absent(),
     this.serverPayloadJson = const Value.absent(),
+    this.localRevision = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ChatEntriesCompanion.insert({
@@ -10936,6 +10978,7 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     this.lastSeq = const Value.absent(),
     this.authoritative = const Value.absent(),
     this.serverPayloadJson = const Value.absent(),
+    this.localRevision = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : spaceId = Value(spaceId);
   static Insertable<ChatEntry> custom({
@@ -10959,6 +11002,7 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     Expression<int>? lastSeq,
     Expression<int>? authoritative,
     Expression<String>? serverPayloadJson,
+    Expression<int>? localRevision,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -10982,6 +11026,7 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
       if (lastSeq != null) 'last_seq': lastSeq,
       if (authoritative != null) 'authoritative': authoritative,
       if (serverPayloadJson != null) 'server_payload_json': serverPayloadJson,
+      if (localRevision != null) 'local_revision': localRevision,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -11007,6 +11052,7 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     Value<int>? lastSeq,
     Value<int>? authoritative,
     Value<String?>? serverPayloadJson,
+    Value<int>? localRevision,
     Value<int>? rowid,
   }) {
     return ChatEntriesCompanion(
@@ -11030,6 +11076,7 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
       lastSeq: lastSeq ?? this.lastSeq,
       authoritative: authoritative ?? this.authoritative,
       serverPayloadJson: serverPayloadJson ?? this.serverPayloadJson,
+      localRevision: localRevision ?? this.localRevision,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -11097,6 +11144,9 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
     if (serverPayloadJson.present) {
       map['server_payload_json'] = Variable<String>(serverPayloadJson.value);
     }
+    if (localRevision.present) {
+      map['local_revision'] = Variable<int>(localRevision.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -11126,6 +11176,7 @@ class ChatEntriesCompanion extends UpdateCompanion<ChatEntry> {
           ..write('lastSeq: $lastSeq, ')
           ..write('authoritative: $authoritative, ')
           ..write('serverPayloadJson: $serverPayloadJson, ')
+          ..write('localRevision: $localRevision, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -11172,8 +11223,25 @@ class ChatClientStates extends Table
     $customConstraints: 'NOT NULL DEFAULT \'{}\'',
     defaultValue: const CustomExpression('\'{}\''),
   );
+  static const VerificationMeta _localRevisionMeta = const VerificationMeta(
+    'localRevision',
+  );
+  late final GeneratedColumn<int> localRevision = GeneratedColumn<int>(
+    'local_revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL DEFAULT 0',
+    defaultValue: const CustomExpression('0'),
+  );
   @override
-  List<GeneratedColumn> get $columns => [spaceId, messageId, stateJson];
+  List<GeneratedColumn> get $columns => [
+    spaceId,
+    messageId,
+    stateJson,
+    localRevision,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -11208,6 +11276,15 @@ class ChatClientStates extends Table
         stateJson.isAcceptableOrUnknown(data['state_json']!, _stateJsonMeta),
       );
     }
+    if (data.containsKey('local_revision')) {
+      context.handle(
+        _localRevisionMeta,
+        localRevision.isAcceptableOrUnknown(
+          data['local_revision']!,
+          _localRevisionMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -11229,6 +11306,10 @@ class ChatClientStates extends Table
         DriftSqlType.string,
         data['${effectivePrefix}state_json'],
       )!,
+      localRevision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}local_revision'],
+      )!,
     );
   }
 
@@ -11249,10 +11330,12 @@ class ChatClientState extends DataClass implements Insertable<ChatClientState> {
   final String spaceId;
   final String messageId;
   final String stateJson;
+  final int localRevision;
   const ChatClientState({
     required this.spaceId,
     required this.messageId,
     required this.stateJson,
+    required this.localRevision,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -11260,6 +11343,7 @@ class ChatClientState extends DataClass implements Insertable<ChatClientState> {
     map['space_id'] = Variable<String>(spaceId);
     map['message_id'] = Variable<String>(messageId);
     map['state_json'] = Variable<String>(stateJson);
+    map['local_revision'] = Variable<int>(localRevision);
     return map;
   }
 
@@ -11268,6 +11352,7 @@ class ChatClientState extends DataClass implements Insertable<ChatClientState> {
       spaceId: Value(spaceId),
       messageId: Value(messageId),
       stateJson: Value(stateJson),
+      localRevision: Value(localRevision),
     );
   }
 
@@ -11280,6 +11365,7 @@ class ChatClientState extends DataClass implements Insertable<ChatClientState> {
       spaceId: serializer.fromJson<String>(json['space_id']),
       messageId: serializer.fromJson<String>(json['message_id']),
       stateJson: serializer.fromJson<String>(json['state_json']),
+      localRevision: serializer.fromJson<int>(json['local_revision']),
     );
   }
   @override
@@ -11289,6 +11375,7 @@ class ChatClientState extends DataClass implements Insertable<ChatClientState> {
       'space_id': serializer.toJson<String>(spaceId),
       'message_id': serializer.toJson<String>(messageId),
       'state_json': serializer.toJson<String>(stateJson),
+      'local_revision': serializer.toJson<int>(localRevision),
     };
   }
 
@@ -11296,16 +11383,21 @@ class ChatClientState extends DataClass implements Insertable<ChatClientState> {
     String? spaceId,
     String? messageId,
     String? stateJson,
+    int? localRevision,
   }) => ChatClientState(
     spaceId: spaceId ?? this.spaceId,
     messageId: messageId ?? this.messageId,
     stateJson: stateJson ?? this.stateJson,
+    localRevision: localRevision ?? this.localRevision,
   );
   ChatClientState copyWithCompanion(ChatClientStatesCompanion data) {
     return ChatClientState(
       spaceId: data.spaceId.present ? data.spaceId.value : this.spaceId,
       messageId: data.messageId.present ? data.messageId.value : this.messageId,
       stateJson: data.stateJson.present ? data.stateJson.value : this.stateJson,
+      localRevision: data.localRevision.present
+          ? data.localRevision.value
+          : this.localRevision,
     );
   }
 
@@ -11314,37 +11406,42 @@ class ChatClientState extends DataClass implements Insertable<ChatClientState> {
     return (StringBuffer('ChatClientState(')
           ..write('spaceId: $spaceId, ')
           ..write('messageId: $messageId, ')
-          ..write('stateJson: $stateJson')
+          ..write('stateJson: $stateJson, ')
+          ..write('localRevision: $localRevision')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(spaceId, messageId, stateJson);
+  int get hashCode => Object.hash(spaceId, messageId, stateJson, localRevision);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is ChatClientState &&
           other.spaceId == this.spaceId &&
           other.messageId == this.messageId &&
-          other.stateJson == this.stateJson);
+          other.stateJson == this.stateJson &&
+          other.localRevision == this.localRevision);
 }
 
 class ChatClientStatesCompanion extends UpdateCompanion<ChatClientState> {
   final Value<String> spaceId;
   final Value<String> messageId;
   final Value<String> stateJson;
+  final Value<int> localRevision;
   final Value<int> rowid;
   const ChatClientStatesCompanion({
     this.spaceId = const Value.absent(),
     this.messageId = const Value.absent(),
     this.stateJson = const Value.absent(),
+    this.localRevision = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ChatClientStatesCompanion.insert({
     required String spaceId,
     required String messageId,
     this.stateJson = const Value.absent(),
+    this.localRevision = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : spaceId = Value(spaceId),
        messageId = Value(messageId);
@@ -11352,12 +11449,14 @@ class ChatClientStatesCompanion extends UpdateCompanion<ChatClientState> {
     Expression<String>? spaceId,
     Expression<String>? messageId,
     Expression<String>? stateJson,
+    Expression<int>? localRevision,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (spaceId != null) 'space_id': spaceId,
       if (messageId != null) 'message_id': messageId,
       if (stateJson != null) 'state_json': stateJson,
+      if (localRevision != null) 'local_revision': localRevision,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -11366,12 +11465,14 @@ class ChatClientStatesCompanion extends UpdateCompanion<ChatClientState> {
     Value<String>? spaceId,
     Value<String>? messageId,
     Value<String>? stateJson,
+    Value<int>? localRevision,
     Value<int>? rowid,
   }) {
     return ChatClientStatesCompanion(
       spaceId: spaceId ?? this.spaceId,
       messageId: messageId ?? this.messageId,
       stateJson: stateJson ?? this.stateJson,
+      localRevision: localRevision ?? this.localRevision,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -11388,6 +11489,9 @@ class ChatClientStatesCompanion extends UpdateCompanion<ChatClientState> {
     if (stateJson.present) {
       map['state_json'] = Variable<String>(stateJson.value);
     }
+    if (localRevision.present) {
+      map['local_revision'] = Variable<int>(localRevision.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -11400,6 +11504,7 @@ class ChatClientStatesCompanion extends UpdateCompanion<ChatClientState> {
           ..write('spaceId: $spaceId, ')
           ..write('messageId: $messageId, ')
           ..write('stateJson: $stateJson, ')
+          ..write('localRevision: $localRevision, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -14135,7 +14240,27 @@ abstract class _$JiabuDatabase extends GeneratedDatabase {
     'chat_entries_conversation',
     'CREATE INDEX chat_entries_conversation ON chat_entries (space_id, member_id, conversation_id, created_at, id)',
   );
+  late final Index chatEntriesTimeline = Index(
+    'chat_entries_timeline',
+    'CREATE INDEX chat_entries_timeline ON chat_entries (space_id, member_id, created_at, id)',
+  );
+  late final Index chatEntriesRevision = Index(
+    'chat_entries_revision',
+    'CREATE INDEX chat_entries_revision ON chat_entries (space_id, local_revision)',
+  );
+  late final Index chatEntriesReply = Index(
+    'chat_entries_reply',
+    'CREATE INDEX chat_entries_reply ON chat_entries (space_id, reply_to_id)',
+  );
+  late final Index chatEntriesStream = Index(
+    'chat_entries_stream',
+    'CREATE INDEX chat_entries_stream ON chat_entries (space_id, member_id, stream_status)',
+  );
   late final ChatClientStates chatClientStates = ChatClientStates(this);
+  late final Index chatClientStatesRevision = Index(
+    'chat_client_states_revision',
+    'CREATE INDEX chat_client_states_revision ON chat_client_states (space_id, local_revision)',
+  );
   late final Outbox outbox = Outbox(this);
   late final Index outboxFifo = Index(
     'outbox_fifo',
@@ -14175,7 +14300,12 @@ abstract class _$JiabuDatabase extends GeneratedDatabase {
     chatEntries,
     chatEntriesSpace,
     chatEntriesConversation,
+    chatEntriesTimeline,
+    chatEntriesRevision,
+    chatEntriesReply,
+    chatEntriesStream,
     chatClientStates,
+    chatClientStatesRevision,
     outbox,
     outboxFifo,
     syncCursors,
@@ -18745,6 +18875,7 @@ typedef $ChatEntriesCreateCompanionBuilder = ChatEntriesCompanion Function({
   Value<int> lastSeq,
   Value<int> authoritative,
   Value<String?> serverPayloadJson,
+  Value<int> localRevision,
   Value<int> rowid,
 });
 typedef $ChatEntriesUpdateCompanionBuilder = ChatEntriesCompanion Function({
@@ -18768,6 +18899,7 @@ typedef $ChatEntriesUpdateCompanionBuilder = ChatEntriesCompanion Function({
   Value<int> lastSeq,
   Value<int> authoritative,
   Value<String?> serverPayloadJson,
+  Value<int> localRevision,
   Value<int> rowid,
 });
 
@@ -18877,6 +19009,11 @@ class $ChatEntriesFilterComposer
 
   ColumnFilters<String> get serverPayloadJson => $composableBuilder(
     column: $table.serverPayloadJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get localRevision => $composableBuilder(
+    column: $table.localRevision,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -18989,6 +19126,11 @@ class $ChatEntriesOrderingComposer
     column: $table.serverPayloadJson,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get localRevision => $composableBuilder(
+    column: $table.localRevision,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $ChatEntriesAnnotationComposer
@@ -19075,6 +19217,11 @@ class $ChatEntriesAnnotationComposer
     column: $table.serverPayloadJson,
     builder: (column) => column,
   );
+
+  GeneratedColumn<int> get localRevision => $composableBuilder(
+    column: $table.localRevision,
+    builder: (column) => column,
+  );
 }
 
 class $ChatEntriesTableManager
@@ -19125,6 +19272,7 @@ class $ChatEntriesTableManager
                 Value<int> lastSeq = const Value.absent(),
                 Value<int> authoritative = const Value.absent(),
                 Value<String?> serverPayloadJson = const Value.absent(),
+                Value<int> localRevision = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatEntriesCompanion(
                 id: id,
@@ -19147,6 +19295,7 @@ class $ChatEntriesTableManager
                 lastSeq: lastSeq,
                 authoritative: authoritative,
                 serverPayloadJson: serverPayloadJson,
+                localRevision: localRevision,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -19171,6 +19320,7 @@ class $ChatEntriesTableManager
                 Value<int> lastSeq = const Value.absent(),
                 Value<int> authoritative = const Value.absent(),
                 Value<String?> serverPayloadJson = const Value.absent(),
+                Value<int> localRevision = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatEntriesCompanion.insert(
                 id: id,
@@ -19193,6 +19343,7 @@ class $ChatEntriesTableManager
                 lastSeq: lastSeq,
                 authoritative: authoritative,
                 serverPayloadJson: serverPayloadJson,
+                localRevision: localRevision,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -19231,6 +19382,7 @@ typedef $ChatClientStatesCreateCompanionBuilder =
       required String spaceId,
       required String messageId,
       Value<String> stateJson,
+      Value<int> localRevision,
       Value<int> rowid,
     });
 typedef $ChatClientStatesUpdateCompanionBuilder =
@@ -19238,6 +19390,7 @@ typedef $ChatClientStatesUpdateCompanionBuilder =
       Value<String> spaceId,
       Value<String> messageId,
       Value<String> stateJson,
+      Value<int> localRevision,
       Value<int> rowid,
     });
 
@@ -19262,6 +19415,11 @@ class $ChatClientStatesFilterComposer
 
   ColumnFilters<String> get stateJson => $composableBuilder(
     column: $table.stateJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get localRevision => $composableBuilder(
+    column: $table.localRevision,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -19289,6 +19447,11 @@ class $ChatClientStatesOrderingComposer
     column: $table.stateJson,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get localRevision => $composableBuilder(
+    column: $table.localRevision,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $ChatClientStatesAnnotationComposer
@@ -19308,6 +19471,11 @@ class $ChatClientStatesAnnotationComposer
 
   GeneratedColumn<String> get stateJson =>
       $composableBuilder(column: $table.stateJson, builder: (column) => column);
+
+  GeneratedColumn<int> get localRevision => $composableBuilder(
+    column: $table.localRevision,
+    builder: (column) => column,
+  );
 }
 
 class $ChatClientStatesTableManager
@@ -19344,11 +19512,13 @@ class $ChatClientStatesTableManager
                 Value<String> spaceId = const Value.absent(),
                 Value<String> messageId = const Value.absent(),
                 Value<String> stateJson = const Value.absent(),
+                Value<int> localRevision = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatClientStatesCompanion(
                 spaceId: spaceId,
                 messageId: messageId,
                 stateJson: stateJson,
+                localRevision: localRevision,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -19356,11 +19526,13 @@ class $ChatClientStatesTableManager
                 required String spaceId,
                 required String messageId,
                 Value<String> stateJson = const Value.absent(),
+                Value<int> localRevision = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatClientStatesCompanion.insert(
                 spaceId: spaceId,
                 messageId: messageId,
                 stateJson: stateJson,
+                localRevision: localRevision,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

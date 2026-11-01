@@ -16,4 +16,13 @@ void main() {
     addTearDown(database.close);
     await verifier.migrateAndValidate(database, 2);
   });
+  for (final from in [1, 2]) {
+    test('drift_schema_verifier_validates_v${from}_to_v3', () async {
+      final verifier = SchemaVerifier(GeneratedHelper());
+      final schema = await verifier.schemaAt(from);
+      final database = JiabuDatabase(schema.newConnection());
+      addTearDown(database.close);
+      await verifier.migrateAndValidate(database, 3);
+    });
+  }
 }
