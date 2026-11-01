@@ -824,6 +824,8 @@ fn judge_report_allowlist_excludes_request_prose_and_usage() -> Result<()> {
         &Identities::default(),
         &observation(json!([]), json!([])),
     );
+    row.tested_models.insert("synthetic/candidate-z".into());
+    row.tested_models.insert("synthetic/candidate-a".into());
     let vote = JudgeVote {
         intent_satisfaction: true,
         reasonable_display: true,
@@ -855,6 +857,7 @@ fn judge_report_allowlist_excludes_request_prose_and_usage() -> Result<()> {
     ));
     ai_eval::report::write(&dir, &[row])?;
     let results = std::fs::read_to_string(dir.join("results.csv"))?;
+    let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
     for forbidden in [
         "raw-user-request-sentinel",
         "raw-visible-prose-sentinel",
@@ -864,6 +867,7 @@ fn judge_report_allowlist_excludes_request_prose_and_usage() -> Result<()> {
         "111111",
     ] {
         assert!(!results.contains(forbidden));
+        assert!(!summary.contains(forbidden));
     }
     let judge_columns = ai_eval::report::RESULTS_HEADER
         .iter()
@@ -880,6 +884,88 @@ fn judge_report_allowlist_excludes_request_prose_and_usage() -> Result<()> {
             "judge_votes_json",
         ]
     );
+    for expected in [
+        "judge.core.pass_rate",
+        "judge.pass_votes",
+        "judge.fail_votes",
+        "judge.total_votes",
+        "judge.self_judge_count",
+        "judge.tested_models_json",
+        "judge.ranking_models_json",
+        "synthetic/candidate-a",
+        "synthetic/candidate-z",
+        "synthetic/model@00000000-0000-0000-0000-000000000000",
+    ] {
+        assert!(summary.contains(expected));
+    }
+    assert!(summary.contains("\"judge.core.pass_rate\",\"1\",\"1\",\"1\""));
+    assert!(summary.contains("\"judge.pass_votes\",\"3\""));
+    assert!(summary.contains("\"judge.fail_votes\",\"0\""));
+    assert!(summary.contains("\"judge.total_votes\",\"3\""));
+    assert!(summary.contains("\"judge.self_judge_count\",\"0\""));
+    assert!(summary.contains(
+        "\"judge.tested_models_json\",\"[\"\"synthetic/candidate-a\"\",\"\"synthetic/candidate-z\"\"]\""
+    ));
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[test]
+fn judge_failure_preserves_the_deterministic_hard_gate() -> Result<()> {
+    let entry = display_entry("display-003.yaml");
+    let message = json!({"fallbackText":"ok","blocks":[{
+        "type":"metric",
+        "data":{"label":"2026年10月支出","value":9900},
+        "fallbackText":"2026年10月支出：99.00 元"
+    }]});
+    let mut row = scoring::score(
+        &entry,
+        &Identities::default(),
+        &display_observation(&entry, message),
+    );
+    assert!(row.hard_pass);
+    assert!(row.display_pass);
+    let fail_vote = JudgeVote {
+        intent_satisfaction: false,
+        reasonable_display: false,
+        clear_natural_expression: false,
+        no_misleading_redundancy: false,
+        verdict: false,
+        reason_code: ReasonCode::IntentMiss,
+    };
+    let pass_vote = JudgeVote {
+        intent_satisfaction: true,
+        reasonable_display: true,
+        clear_natural_expression: true,
+        no_misleading_redundancy: true,
+        verdict: true,
+        reason_code: ReasonCode::Pass,
+    };
+    judge::apply(
+        &mut row,
+        JudgeOutcome {
+            model_snapshot: "synthetic/judge@1".into(),
+            self_judge: false,
+            votes: vec![fail_vote.clone(), fail_vote, pass_vote],
+            pass_votes: 1,
+            fail_votes: 2,
+            pass: false,
+            usage: vec![],
+        },
+    )?;
+    assert!(row.hard_pass);
+    assert!(!row.display_pass);
+    assert!(!row.overall_pass());
+    assert_eq!(scoring::exit_code(std::slice::from_ref(&row)), 1);
+    let dir = std::env::temp_dir().join(format!(
+        "jiabu-eval-judge-layering-{}",
+        uuid::Uuid::now_v7()
+    ));
+    ai_eval::report::write(&dir, &[row])?;
+    let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
+    assert!(summary.contains("\"tier.core.hard_pass\",\"1\",\"1\",\"1\""));
+    assert!(summary.contains("\"judge.core.pass_rate\",\"0\",\"0\",\"1\""));
+    assert!(summary.contains("\"hard_failure_count\",\"0\""));
     std::fs::remove_dir_all(dir)?;
     Ok(())
 }
@@ -1032,9 +1118,20 @@ fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutat
         &account,
         json!({"fallbackText":"虚构银行卡：-¥68.00","blocks":[{
             "type":"x-jiabu.account_card",
-            "data":{"accountId":account_id,"versionAtReply":1,"nameSnapshot":"虚构银行卡"},
+            "data":{"accountId":account_id,"versionAtReply":1,"nameSnapshot":"虚构银行卡","balanceMinor":-6800,"currency":"CNY"},
             "fallbackText":"虚构银行卡：-¥68.00"
         }]}),
+    );
+    let judge_input = judge::JudgeInput::from_observation(&account, &account_observation)
+        .expect("display-007 judge input");
+    assert_eq!(
+        judge_input.normalized_blocks[0],
+        json!({
+            "type":"x-jiabu.account_card",
+            "name":"虚构银行卡",
+            "balance_minor":-6800,
+            "currency":"CNY"
+        })
     );
     account_observation.tool_calls[0]["args"]["account_id"] = json!(account_id);
     account_observation.server_fallbacks = vec!["虚构银行卡：-¥68.00".into()];
