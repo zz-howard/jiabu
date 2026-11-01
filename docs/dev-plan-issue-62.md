@@ -117,7 +117,7 @@ Presentation flexibility never weakens tool validation. An alternative is invali
 - [ ] Client capability is transport metadata, not something ordinary users should state. The fixture already carries `client_capabilities`; integration prompts must not repeat it.
 - [ ] A prose-only answer must still have evidence. The production loop records read tool calls and results; the evaluator can require a successful normalized read and add a sanitized balance-result projection for `query_balance` without reporting raw tool output.
 - [ ] Stress cases are useful but not representative. Reports keep their hard safety/protocol verdict while preventing them from being described as ordinary human-use selection misses.
-- [ ] The current canonical query layer correctly equates direct display queries with successful `query_stats/search_records -> from_call`; this change reuses it rather than inventing a second query normalizer.
+- [ ] The current canonical query layer correctly equates direct display queries with successful `query_stats/search_records -> from_call`; this change reuses that mechanism and adds a balance family for successful `query_balance` evidence rather than inventing a second normalizer.
 
 ## Acceptance Checklist
 
