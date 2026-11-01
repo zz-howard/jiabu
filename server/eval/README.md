@@ -202,6 +202,19 @@ cargo run -p ai-eval --features live -- \
 # 不在 shell 历史或报告中粘贴真实凭据。--dataset 可指定另一份格式兼容的数据目录。
 ```
 
+需要单独补齐未完成样例时，使用新的输出目录并显式选 ID，例如：
+
+```bash
+cargo run -p ai-eval --features live -- --provider live \
+  --judge-model gpt-6.1-sol --category display \
+  --case-ids display-014,display-017,display-018,display-019,display-020 \
+  --jobs 2 --out eval/results/expectation-recovery
+```
+
+`--case-ids` 在完整语料加载和校验、category 筛选之后生效，始终保留语料原顺序。
+拒绝空项、重复、未知或被 category 排除的 ID。不会重跑其他已完成样例，也不改变 Judge
+或请求内重试策略。补跑是独立批次：保留原始结果、未完成票据和两个源码版本，不能冒充一次完整运行。
+
 凭据、连接 URL、原始请求、模型文字和上游错误正文均不写 CSV 或日志。
 CLI 仅输出样例 ID 和固定错误码；配置/数据错误也不格式化底层异常。
 

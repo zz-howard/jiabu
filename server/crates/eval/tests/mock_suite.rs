@@ -132,3 +132,61 @@ async fn binary_mock_entry_point_emits_csv_and_success_exit_status() -> Result<(
     std::fs::remove_dir_all(dir)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn binary_case_selection_runs_only_requested_cases_and_rejects_bad_ids() -> Result<()> {
+    let dir = std::env::temp_dir().join(format!("jiabu-eval-selected-{}", uuid::Uuid::now_v7()));
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ai-eval"))
+        .args([
+            "--provider",
+            "mock",
+            "--category",
+            "display",
+            "--case-ids",
+            "display-020,display-014",
+            "--out",
+        ])
+        .arg(&dir)
+        .output()
+        .await?;
+    assert!(
+        output.status.success(),
+        "selected Mock CLI failed (output suppressed)"
+    );
+    let results = std::fs::read_to_string(dir.join("results.csv"))?;
+    let ids = results
+        .lines()
+        .skip(1)
+        .map(|line| line.split(',').next().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["\"display-014\"", "\"display-020\""]);
+    assert_eq!(std::fs::read_dir(dir.join("evidence"))?.count(), 4);
+    for invalid in [
+        "",
+        "display-014,display-014",
+        "display-014,unknown",
+        "display-014,",
+    ] {
+        let bad_dir = dir.join(uuid::Uuid::now_v7().to_string());
+        let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ai-eval"))
+            .args([
+                "--provider",
+                "mock",
+                "--category",
+                "display",
+                "--case-ids",
+                invalid,
+                "--out",
+            ])
+            .arg(&bad_dir)
+            .output()
+            .await?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(
+            !bad_dir.exists(),
+            "bad selector must fail before evaluation/reporting"
+        );
+    }
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}

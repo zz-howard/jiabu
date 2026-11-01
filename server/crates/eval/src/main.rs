@@ -8,6 +8,7 @@ use ai_eval::{
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use std::{
+    collections::BTreeSet,
     path::{Path, PathBuf},
     process::ExitCode,
     sync::Arc,
@@ -35,6 +36,9 @@ struct Args {
     /// Run only entries in this category after loading and validating the complete corpus.
     #[arg(long)]
     category: Option<String>,
+    /// Exact comma-separated IDs, selected after full corpus validation and category filtering.
+    #[arg(long)]
+    case_ids: Option<String>,
     /// Exact enabled model name or model UUID used for the live display Judge.
     #[arg(long)]
     judge_model: Option<String>,
@@ -56,9 +60,29 @@ fn filter_entries(entries: Vec<Entry>, category: Option<&str>) -> Result<Vec<Ent
     anyhow::ensure!(!filtered.is_empty(), "category matched no entries");
     Ok(filtered)
 }
+fn filter_case_ids(entries: Vec<Entry>, requested: Option<&str>) -> Result<Vec<Entry>> {
+    let Some(requested) = requested else {
+        return Ok(entries);
+    };
+    let mut ids = BTreeSet::new();
+    for id in requested.split(',').map(str::trim) {
+        anyhow::ensure!(!id.is_empty(), "case IDs must not be empty");
+        anyhow::ensure!(ids.insert(id), "case IDs must not repeat");
+    }
+    anyhow::ensure!(
+        ids.iter()
+            .all(|id| entries.iter().any(|entry| entry.id == *id)),
+        "case ID is unknown or excluded by category"
+    );
+    Ok(entries
+        .into_iter()
+        .filter(|entry| ids.contains(entry.id.as_str()))
+        .collect())
+}
 async fn run(args: Args) -> Result<u8> {
     let root = args.dataset.unwrap_or_else(ai_eval::dataset_root);
     let entries = filter_entries(dataset::load(&root)?, args.category.as_deref())?;
+    let entries = filter_case_ids(entries, args.case_ids.as_deref())?;
     let mock = matches!(args.provider, Provider::Mock);
     let expected_ids = entries
         .iter()
@@ -358,6 +382,47 @@ mod tests {
         }
         for value in ["0", "3"] {
             assert!(Args::try_parse_from(["ai-eval", "--out", "unused", "--jobs", value]).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn case_ids_select_exact_cases_in_corpus_order_after_category() -> Result<()> {
+        let args = Args::try_parse_from([
+            "ai-eval",
+            "--out",
+            "unused",
+            "--category",
+            "display",
+            "--case-ids",
+            "display-020, display-014",
+        ])?;
+        let entries = dataset::load(&ai_eval::dataset_root())?;
+        let category = filter_entries(entries, args.category.as_deref())?;
+        let selected = filter_case_ids(category.clone(), args.case_ids.as_deref())?;
+        assert_eq!(
+            selected
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            ["display-014", "display-020"]
+        );
+        assert_eq!(filter_case_ids(category.clone(), None)?.len(), 20);
+        for invalid in [
+            "",
+            ",",
+            "display-014,",
+            "display-014,,display-020",
+            "display-014,display-014",
+            "display-014, display-014",
+            "unknown",
+            "display-014,unknown",
+            "zh-ambiguous-001",
+        ] {
+            assert!(
+                filter_case_ids(category.clone(), Some(invalid)).is_err(),
+                "{invalid}"
+            );
         }
         Ok(())
     }
