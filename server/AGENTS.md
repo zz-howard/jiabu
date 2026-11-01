@@ -6,6 +6,12 @@ x86_64 Linux build host; release CI also uses a native ARM runner.
 - Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo nextest run --workspace`, `cargo deny check`, `cargo audit`, and all three
   `tool/check-*.sh` scripts. Tests require `DATABASE_URL` and real PostgreSQL 18.
+- For evaluation, prompt, or tool-schema optimization, use a fast effect loop first:
+  run only the isolated evaluation slice changed by the candidate and report its
+  before/after result. Do not block that effect check on full-workspace gates,
+  unrelated test matrices, or extra review rounds. When the isolated test passes
+  and the effect meets the agreed target, promote the candidate into product code;
+  run the normal full server gates afterward, before merge or deployment.
 - Mutating requests require idempotency keys. Check identity, active membership,
   join epoch, and authorization before any idempotency replay.
 - Access space data only through `SpaceTx`; never expose raw connection pools.
