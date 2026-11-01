@@ -52,6 +52,11 @@ pub const RESULTS_HEADER: &[&str] = &[
     "display_argument_total",
     "display_audit_complete",
     "display_audit_discarded",
+    "judge_model",
+    "judge_self",
+    "judge_pass_votes",
+    "judge_fail_votes",
+    "judge_votes_json",
 ];
 /// RFC 4180; always quote cells to preserve empty fields and embedded JSON.
 pub fn csv_row(cells: &[String]) -> String {
@@ -132,6 +137,11 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
                 r.display_arguments.total.to_string(),
                 r.display_audit_complete.to_string(),
                 r.display_audit_discarded.to_string(),
+                r.judge_model.clone(),
+                opt(r.judge_self),
+                opt(r.judge_pass_votes),
+                opt(r.judge_fail_votes),
+                r.judge_votes.clone(),
             ])
             .as_bytes(),
         )?;
