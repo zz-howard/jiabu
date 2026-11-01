@@ -6,6 +6,13 @@ only on the x86_64 Linux build host.
 Commands: `flutter pub get`, `dart format --set-exit-if-changed .`,
 `flutter analyze --fatal-infos`, `dart run tool/check_rules.dart`.
 Run `flutter test` separately at workspace root, app, and packages/jiabu_design.
+Test scope per round: while developing or fixing, run format, analyze, and
+check_rules plus only the tests that cover the changed code (for example
+`flutter test test/data/chat_outbox_test.dart`); skip unrelated suites. The full
+suites run on GitHub CI before merge; do not repeat them locally each round.
+Exception: changes to shared foundations (drift schema/migrations, sync, auth,
+runtime, design tokens) also need one full local app run before pushing. Build
+the release APK only when Android/native code or build config changed.
 Use `tool/golden.sh` for goldens. Keep Flutter fixed by `.fvmrc`.
 Run code generation and parity reporting when those tools are introduced.
 

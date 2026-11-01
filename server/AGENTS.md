@@ -6,6 +6,11 @@ x86_64 Linux build host; release CI also uses a native ARM runner.
 - Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo nextest run --workspace`, `cargo deny check`, `cargo audit`, and all three
   `tool/check-*.sh` scripts. Tests require `DATABASE_URL` and real PostgreSQL 18.
+- Test scope per round: while developing or fixing, run fmt, clippy, and only the
+  tests for the changed crates or modules (for example `cargo nextest run -p <crate>`).
+  The full gates above run on GitHub CI before merge; do not repeat them locally
+  each round. Exception: migrations, auth/authorization, sync, or other shared
+  foundations also need one full local `cargo nextest run --workspace`.
 - For evaluation, prompt, or tool-schema optimization, use a fast effect loop first:
   run only the isolated evaluation slice changed by the candidate and report its
   before/after result. Do not block that effect check on full-workspace gates,
