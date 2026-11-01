@@ -66,6 +66,8 @@ fn classified_provider(error: &ProviderError) -> anyhow::Error {
             stage: jiabu_ai::siwc::TransportDiagnosticStage::CredentialOrPreflight,
             status: jiabu_ai::siwc::TransportStatusClass::None,
             received_headers: false,
+            provenance: None,
+            variant: None,
         })
     });
     anyhow::Error::new(ClassifiedFailure { class, transport })
@@ -460,12 +462,22 @@ impl Judge {
                     );
                     if let Some(transport) = failure_transport(&error) {
                         eprintln!(
-                            "judge_calibration_case_{}_transport_subclass={}_stage={}_status={}_headers={}",
+                            "judge_calibration_case_{}_transport_subclass={}_stage={}_status={}_headers={}_provenance={}_variant={}",
                             index + 1,
                             transport.class,
                             transport.stage,
                             transport.status,
-                            transport.received_headers
+                            transport.received_headers,
+                            transport
+                                .provenance
+                                .map(|value| value.to_string())
+                                .as_deref()
+                                .unwrap_or("none"),
+                            transport
+                                .variant
+                                .map(|value| value.to_string())
+                                .as_deref()
+                                .unwrap_or("none")
                         );
                     }
                     return Err(error);
@@ -855,6 +867,8 @@ mod tests {
         );
         assert_eq!(detail.status, jiabu_ai::siwc::TransportStatusClass::None);
         assert!(!detail.received_headers);
+        assert_eq!(detail.provenance, None);
+        assert_eq!(detail.variant, None);
     }
 
     #[tokio::test]

@@ -61,6 +61,42 @@ pub enum TransportStatusClass {
     Other,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportDiagnosticProvenance {
+    CredentialResolution,
+    ResponseStream,
+}
+
+impl std::fmt::Display for TransportDiagnosticProvenance {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::CredentialResolution => "credential-resolution",
+            Self::ResponseStream => "response-stream",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportDiagnosticVariant {
+    Auth,
+    Transport,
+    QuotaExhausted,
+    BlobRejected,
+    RateLimited,
+}
+
+impl std::fmt::Display for TransportDiagnosticVariant {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Auth => "auth",
+            Self::Transport => "transport",
+            Self::QuotaExhausted => "quota-exhausted",
+            Self::BlobRejected => "blob-rejected",
+            Self::RateLimited => "rate-limited",
+        })
+    }
+}
+
 impl std::fmt::Display for TransportStatusClass {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
@@ -78,6 +114,8 @@ pub struct TransportDiagnostic {
     pub stage: TransportDiagnosticStage,
     pub status: TransportStatusClass,
     pub received_headers: bool,
+    pub provenance: Option<TransportDiagnosticProvenance>,
+    pub variant: Option<TransportDiagnosticVariant>,
 }
 
 static TRANSPORT_DIAGNOSTIC: Mutex<Option<TransportDiagnostic>> = Mutex::new(None);
@@ -96,6 +134,40 @@ fn record_transport_diagnostic(diagnostic: TransportDiagnostic) {
     if let Ok(mut slot) = TRANSPORT_DIAGNOSTIC.lock() {
         *slot = Some(diagnostic);
     }
+}
+
+fn credential_resolution_diagnostic(error: &ProviderError) -> Option<TransportDiagnostic> {
+    let variant = match error {
+        ProviderError::Auth => TransportDiagnosticVariant::Auth,
+        ProviderError::Transport => TransportDiagnosticVariant::Transport,
+        _ => return None,
+    };
+    Some(TransportDiagnostic {
+        class: TransportDiagnosticClass::OtherTransport,
+        stage: TransportDiagnosticStage::CredentialOrPreflight,
+        status: TransportStatusClass::None,
+        received_headers: false,
+        provenance: Some(TransportDiagnosticProvenance::CredentialResolution),
+        variant: Some(variant),
+    })
+}
+
+fn response_stream_diagnostic(error: &ProviderError) -> Option<TransportDiagnostic> {
+    let variant = match error {
+        ProviderError::QuotaExhausted => TransportDiagnosticVariant::QuotaExhausted,
+        ProviderError::Auth => TransportDiagnosticVariant::Auth,
+        ProviderError::BlobRejected => TransportDiagnosticVariant::BlobRejected,
+        ProviderError::RateLimited { .. } => TransportDiagnosticVariant::RateLimited,
+        _ => return None,
+    };
+    Some(TransportDiagnostic {
+        class: TransportDiagnosticClass::OtherTransport,
+        stage: TransportDiagnosticStage::ResponseStream,
+        status: TransportStatusClass::None,
+        received_headers: true,
+        provenance: Some(TransportDiagnosticProvenance::ResponseStream),
+        variant: Some(variant),
+    })
 }
 
 fn status_class(status: reqwest::StatusCode) -> TransportStatusClass {
@@ -253,7 +325,12 @@ impl ModelProvider for SiwcProvider {
         req: &TurnRequest,
         sink: &mut dyn TurnSink,
     ) -> Result<(), ProviderError> {
-        let mut creds = self.credentials.access().await?;
+        let mut creds = self.credentials.access().await.map_err(|error| {
+            if let Some(diagnostic) = credential_resolution_diagnostic(&error) {
+                record_transport_diagnostic(diagnostic);
+            }
+            error
+        })?;
         let mut output = crate::router::OutputSink {
             inner: sink,
             visible: false,
@@ -299,6 +376,8 @@ impl SiwcProvider {
                         stage: TransportDiagnosticStage::RequestSend,
                         status: TransportStatusClass::None,
                         received_headers: false,
+                        provenance: None,
+                        variant: None,
                     });
                     ProviderError::Transport
                 }
@@ -310,6 +389,8 @@ impl SiwcProvider {
                 stage: TransportDiagnosticStage::ResponseStatus,
                 status: status_class(status),
                 received_headers: true,
+                provenance: None,
+                variant: None,
             });
             if status.is_server_error() {
                 return Err(ProviderError::Transport);
@@ -360,13 +441,17 @@ impl SiwcProvider {
                         stage: TransportDiagnosticStage::ResponseStream,
                         status: TransportStatusClass::None,
                         received_headers: true,
+                        provenance: None,
+                        variant: None,
                     });
                     ProviderError::Transport
                 }
             })?;
             for event in decoder.push(&chunk)? {
                 if let Err(error) = turn.accept(event, sink).await {
-                    if matches!(
+                    if let Some(diagnostic) = response_stream_diagnostic(&error) {
+                        record_transport_diagnostic(diagnostic);
+                    } else if matches!(
                         &error,
                         ProviderError::Incomplete { .. } | ProviderError::UpstreamFailed { .. }
                     ) {
@@ -375,6 +460,8 @@ impl SiwcProvider {
                             stage: TransportDiagnosticStage::ResponseStream,
                             status: TransportStatusClass::None,
                             received_headers: true,
+                            provenance: None,
+                            variant: None,
                         });
                     }
                     return Err(error);
@@ -392,6 +479,8 @@ impl SiwcProvider {
                             stage: TransportDiagnosticStage::ResponseStream,
                             status: TransportStatusClass::None,
                             received_headers: true,
+                            provenance: None,
+                            variant: None,
                         });
                     }
                     return result;
@@ -445,9 +534,63 @@ mod diagnostic_tests {
             stage: TransportDiagnosticStage::ResponseStatus,
             status: TransportStatusClass::FiveXx,
             received_headers: true,
+            provenance: None,
+            variant: None,
         };
         record_transport_diagnostic(diagnostic);
         assert_eq!(take_transport_diagnostic(), Some(diagnostic));
         assert_eq!(take_transport_diagnostic(), None);
+    }
+
+    #[test]
+    fn credential_resolution_diagnostic_records_provenance_and_closed_variant() {
+        assert_eq!(
+            credential_resolution_diagnostic(&ProviderError::Auth),
+            Some(TransportDiagnostic {
+                class: TransportDiagnosticClass::OtherTransport,
+                stage: TransportDiagnosticStage::CredentialOrPreflight,
+                status: TransportStatusClass::None,
+                received_headers: false,
+                provenance: Some(TransportDiagnosticProvenance::CredentialResolution),
+                variant: Some(TransportDiagnosticVariant::Auth),
+            })
+        );
+        assert_eq!(
+            credential_resolution_diagnostic(&ProviderError::Transport)
+                .and_then(|diagnostic| diagnostic.variant),
+            Some(TransportDiagnosticVariant::Transport)
+        );
+        assert_eq!(
+            credential_resolution_diagnostic(&ProviderError::Timeout),
+            None
+        );
+    }
+
+    #[test]
+    fn response_stream_diagnostic_records_provenance_and_closed_variants() {
+        for (error, expected) in [
+            (
+                ProviderError::QuotaExhausted,
+                TransportDiagnosticVariant::QuotaExhausted,
+            ),
+            (ProviderError::Auth, TransportDiagnosticVariant::Auth),
+            (
+                ProviderError::BlobRejected,
+                TransportDiagnosticVariant::BlobRejected,
+            ),
+            (
+                ProviderError::RateLimited { retry_after: None },
+                TransportDiagnosticVariant::RateLimited,
+            ),
+        ] {
+            let diagnostic = response_stream_diagnostic(&error).expect("closed stream variant");
+            assert_eq!(
+                diagnostic.provenance,
+                Some(TransportDiagnosticProvenance::ResponseStream)
+            );
+            assert_eq!(diagnostic.variant, Some(expected));
+            assert!(diagnostic.received_headers);
+        }
+        assert_eq!(response_stream_diagnostic(&ProviderError::Transport), None);
     }
 }
