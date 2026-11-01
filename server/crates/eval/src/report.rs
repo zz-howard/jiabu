@@ -1,6 +1,6 @@
 use crate::scoring::{Count, Questions, ResultRow, percentile};
 use anyhow::Result;
-use std::{io::Write, path::Path};
+use std::{collections::BTreeSet, fs::File, io::Write, path::Path};
 pub const RESULTS_HEADER: &[&str] = &[
     "id",
     "category",
@@ -42,6 +42,8 @@ pub const RESULTS_HEADER: &[&str] = &[
     "tier",
     "display_expected_selection",
     "display_actual_selection",
+    "display_acceptable_alternatives",
+    "display_selected_alternative",
     "display_query_summary",
     "display_query_correct",
     "display_query_total",
@@ -50,6 +52,11 @@ pub const RESULTS_HEADER: &[&str] = &[
     "display_argument_total",
     "display_audit_complete",
     "display_audit_discarded",
+    "judge_model",
+    "judge_self",
+    "judge_pass_votes",
+    "judge_fail_votes",
+    "judge_votes_json",
 ];
 /// RFC 4180; always quote cells to preserve empty fields and embedded JSON.
 pub fn csv_row(cells: &[String]) -> String {
@@ -120,6 +127,8 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
                 r.tier.clone(),
                 r.display_expected.clone(),
                 r.display_actual.clone(),
+                r.display_acceptable.clone(),
+                r.display_selected.clone(),
                 r.display_query_summary.clone(),
                 r.display_queries.correct.to_string(),
                 r.display_queries.total.to_string(),
@@ -128,6 +137,11 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
                 r.display_arguments.total.to_string(),
                 r.display_audit_complete.to_string(),
                 r.display_audit_discarded.to_string(),
+                r.judge_model.clone(),
+                opt(r.judge_self),
+                opt(r.judge_pass_votes),
+                opt(r.judge_fail_votes),
+                r.judge_votes.clone(),
             ])
             .as_bytes(),
         )?;
@@ -244,6 +258,80 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
             .as_bytes(),
         )?;
     }
+    let judged = rows
+        .iter()
+        .filter(|row| row.tier == "core" && row.judge_self.is_some())
+        .collect::<Vec<_>>();
+    let judge_passed = judged
+        .iter()
+        .filter(|row| row.judge_pass_votes.is_some_and(|votes| votes >= 2))
+        .count();
+    let judge_pass_votes = judged
+        .iter()
+        .filter_map(|row| row.judge_pass_votes)
+        .sum::<usize>();
+    let judge_fail_votes = judged
+        .iter()
+        .filter_map(|row| row.judge_fail_votes)
+        .sum::<usize>();
+    let judge_self_count = judged
+        .iter()
+        .filter(|row| row.judge_self == Some(true))
+        .count();
+    let judge_models = judged
+        .iter()
+        .map(|row| row.judge_model.clone())
+        .collect::<BTreeSet<_>>();
+    let tested_models = rows
+        .iter()
+        .flat_map(|row| row.tested_models.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    for (name, value, numerator, denominator) in [
+        (
+            "judge.core.pass_rate",
+            opt((!judged.is_empty()).then_some(judge_passed as f64 / judged.len() as f64)),
+            judge_passed.to_string(),
+            judged.len().to_string(),
+        ),
+        (
+            "judge.pass_votes",
+            judge_pass_votes.to_string(),
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.fail_votes",
+            judge_fail_votes.to_string(),
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.total_votes",
+            (judge_pass_votes + judge_fail_votes).to_string(),
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.self_judge_count",
+            judge_self_count.to_string(),
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.tested_models_json",
+            serde_json::to_string(&tested_models)?,
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.ranking_models_json",
+            serde_json::to_string(&judge_models)?,
+            String::new(),
+            String::new(),
+        ),
+    ] {
+        file.write_all(csv_row(&[name.into(), value, numerator, denominator]).as_bytes())?;
+    }
     let latency: Vec<_> = rows.iter().map(|r| r.elapsed_ms).collect();
     let known: Vec<_> = rows.iter().filter_map(|r| r.cost_usd).collect();
     // A suite mean is unknown if any entry has unknown usage or tariff.
@@ -276,4 +364,212 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
         file.write_all(csv_row(&[name.into(), value, String::new(), String::new()]).as_bytes())?;
     }
     Ok(())
+}
+
+/// Binary expectation contract. Mock rows validate only the pipeline, never model effect.
+pub const EXPECTATION_VERSION: &str = "expectation-v1";
+pub fn write_expectations(
+    out: &Path,
+    rows: &[ResultRow],
+    expected_ids: &[String],
+    mock: bool,
+    finished: bool,
+    infrastructure_failed: bool,
+) -> Result<()> {
+    std::fs::create_dir_all(out)?;
+    let mut file = File::create(out.join("results.csv"))?;
+    file.write_all(
+        csv_row(
+            &[
+                "id",
+                "assessment_version",
+                "mode",
+                "execution_status",
+                "expectation_met",
+                "judgment_source",
+                "rule_decision",
+                "rule_reason_codes",
+                "judge_model",
+                "judge_self",
+                "judge_true_votes",
+                "judge_false_votes",
+                "judge_votes_json",
+            ]
+            .map(str::to_owned),
+        )
+        .as_bytes(),
+    )?;
+    for id in expected_ids {
+        let row = rows.iter().find(|row| row.id == *id);
+        let execution = if row.is_some_and(|row| mock || row.expectation_met.is_some()) {
+            if mock {
+                "mock_pipeline_completed"
+            } else {
+                "completed"
+            }
+        } else if finished {
+            "unfinished_infrastructure"
+        } else {
+            "pending"
+        };
+        let rule = row
+            .map(|row| match row.rule_decision {
+                crate::scoring::RuleDecision::Pass => "pass",
+                crate::scoring::RuleDecision::Fail => "fail",
+                crate::scoring::RuleDecision::NeedsJudge => "needs_judge",
+            })
+            .unwrap_or("");
+        file.write_all(
+            csv_row(&[
+                id.clone(),
+                EXPECTATION_VERSION.into(),
+                if mock { "mock_pipeline" } else { "live" }.into(),
+                execution.into(),
+                if mock {
+                    String::new()
+                } else {
+                    row.and_then(|r| r.expectation_met)
+                        .map(|v| v.to_string())
+                        .unwrap_or_default()
+                },
+                if mock {
+                    "not_judged_mock".into()
+                } else {
+                    row.map(|r| r.judgment_source.clone()).unwrap_or_default()
+                },
+                rule.into(),
+                row.map(|r| r.reasons.join(";")).unwrap_or_default(),
+                row.map(|r| r.judge_model.clone()).unwrap_or_default(),
+                row.and_then(|r| r.judge_self)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                row.and_then(|r| r.judge_pass_votes)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                row.and_then(|r| r.judge_fail_votes)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+                row.map(|r| r.judge_votes.clone()).unwrap_or_default(),
+            ])
+            .as_bytes(),
+        )?;
+    }
+    let met = if mock {
+        0
+    } else {
+        rows.iter()
+            .filter(|r| r.expectation_met == Some(true))
+            .count()
+    };
+    let not_met = if mock {
+        0
+    } else {
+        rows.iter()
+            .filter(|r| r.expectation_met == Some(false))
+            .count()
+    };
+    let incomplete = if finished {
+        expected_ids
+            .len()
+            .saturating_sub(if mock { rows.len() } else { met + not_met })
+    } else {
+        0
+    };
+    let infrastructure_failed = infrastructure_failed || incomplete > 0;
+    let mut summary = File::create(out.join("summary.csv"))?;
+    summary.write_all(csv_row(&["metric".into(), "value".into()]).as_bytes())?;
+    for (metric, value) in [
+        ("assessment_version", EXPECTATION_VERSION.to_owned()),
+        ("mode", if mock { "mock_pipeline" } else { "live" }.into()),
+        (
+            "execution_status",
+            if !finished {
+                "running"
+            } else if infrastructure_failed {
+                "infrastructure_incomplete"
+            } else {
+                "completed"
+            }
+            .into(),
+        ),
+        ("expected_cases", expected_ids.len().to_string()),
+        ("completed_cases", rows.len().to_string()),
+        ("expectation_met", met.to_string()),
+        ("expectation_not_met", not_met.to_string()),
+        ("unfinished_infrastructure", incomplete.to_string()),
+        (
+            "rule_decisions",
+            if mock {
+                0
+            } else {
+                rows.iter().filter(|r| r.judgment_source == "rule").count()
+            }
+            .to_string(),
+        ),
+        (
+            "judge_decisions",
+            if mock {
+                0
+            } else {
+                rows.iter().filter(|r| r.judgment_source == "judge").count()
+            }
+            .to_string(),
+        ),
+        (
+            "needs_judge",
+            rows.iter()
+                .filter(|r| r.rule_decision == crate::scoring::RuleDecision::NeedsJudge)
+                .count()
+                .to_string(),
+        ),
+        (
+            "mock_proven_rule_failures",
+            if mock {
+                rows.iter()
+                    .filter(|r| r.rule_decision == crate::scoring::RuleDecision::Fail)
+                    .count()
+            } else {
+                0
+            }
+            .to_string(),
+        ),
+        (
+            "judge_valid_votes",
+            rows.iter()
+                .map(|r| r.judge_pass_votes.unwrap_or(0) + r.judge_fail_votes.unwrap_or(0))
+                .sum::<usize>()
+                .to_string(),
+        ),
+    ] {
+        summary.write_all(csv_row(&[metric.into(), value]).as_bytes())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod expectation_tests {
+    use super::*;
+
+    #[test]
+    fn empty_finished_report_is_unfinished_infrastructure_with_no_quality_score() -> Result<()> {
+        let out =
+            std::env::temp_dir().join(format!("jiabu-expectation-report-{}", uuid::Uuid::now_v7()));
+        write_expectations(
+            &out,
+            &[],
+            &["display-001".into(), "display-002".into()],
+            false,
+            true,
+            true,
+        )?;
+        let results = std::fs::read_to_string(out.join("results.csv"))?;
+        let summary = std::fs::read_to_string(out.join("summary.csv"))?;
+        assert_eq!(results.matches("unfinished_infrastructure").count(), 2);
+        assert!(!results.contains("display_prose_pass"));
+        assert!(!results.contains("overall_pass"));
+        assert!(summary.contains("\"expectation_met\",\"0\""));
+        assert!(summary.contains("\"expectation_not_met\",\"0\""));
+        assert!(summary.contains("\"unfinished_infrastructure\",\"2\""));
+        Ok(())
+    }
 }

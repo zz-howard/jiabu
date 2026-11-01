@@ -1,21 +1,68 @@
+---
 schema_version: 2
-id: "display-010"
-locale: "zh-Hans"
-category: "display"
-today: "2026-10-21"
-timezone: "Asia/Shanghai"
-input: {text: "demo 一下支出占比图。"}
-setup: {currency: "CNY", accounts: [], records: []}
+id: display-010
+locale: zh-Hans
+category: display
+today: '2026-10-21'
+timezone: Asia/Shanghai
+input:
+  text: demo 一下支出占比图。
+setup:
+  currency: CNY
+  accounts: []
+  records: []
 expect:
-  behavior: "no_write"
+  behavior: no_write
   hard: false
   records: []
   display:
     hard: true
-    calls:
-      - {tool: "show_breakdown", args: {source: {query: null, from_call: null, demo: "monthly_spending"}}}
-    blocks:
-      - {kind: "breakdown", labels: ["餐饮", "居家", "购物", "交通", "其他（2 项）"], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
-    fallback_contains: []
-    server_fallback_contains: ["【演示数据】"]
-    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}
+    alternatives:
+    - id: exact
+      calls:
+      - tool: show_breakdown
+        args:
+          source:
+            query:
+            from_call:
+            demo: monthly_spending
+      blocks:
+      - kind: breakdown
+        labels:
+        - 餐饮
+        - 居家
+        - 购物
+        - 交通
+        - 其他（2 项）
+        values_minor:
+        - 142000
+        - 98000
+        - 75000
+        - 41000
+        - 72600
+        account:
+        demo: true
+      fallback_contains: []
+      server_fallback_contains:
+      - "【演示数据】"
+      facts:
+      - kind: aggregate
+        label: 餐饮
+        value_minor: 142000
+      - kind: aggregate
+        label: 居家
+        value_minor: 98000
+      - kind: aggregate
+        label: 购物
+        value_minor: 75000
+      - kind: aggregate
+        label: 交通
+        value_minor: 41000
+      - kind: aggregate
+        label: 其他（2 项）
+        value_minor: 72600
+    prose:
+      max_sentences: 2
+      forbid_mermaid: true
+      forbid_ascii_chart: true
+      max_table_rows: 5

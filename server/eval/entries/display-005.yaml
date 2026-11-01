@@ -1,32 +1,160 @@
+---
 schema_version: 2
-id: "display-005"
-locale: "zh-Hans"
-category: "display"
-today: "2026-10-21"
-timezone: "Asia/Shanghai"
-input: {text: "列出本月最近三笔支出明细。"}
+id: display-005
+locale: zh-Hans
+category: display
+today: '2026-10-21'
+timezone: Asia/Shanghai
+input:
+  text: 列出本月最近三笔支出明细。
 setup:
-  currency: "CNY"
+  currency: CNY
   accounts:
-    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
-    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+  - key: bank
+    kind: real
+    name: 虚构银行卡
+    opening_on: '2026-01-01'
+  - key: daily
+    kind: purpose
+    name: 虚构日常
+    opening_on: '2026-01-01'
   records:
-    - key: "one"
-      record: {operation: "create", kind: "expense", amount_minor: 1000, currency: "CNY", occurred_on: "2026-10-01", account: "bank", purpose: "daily", preset_key: "dining"}
-    - key: "two"
-      record: {operation: "create", kind: "expense", amount_minor: 2000, currency: "CNY", occurred_on: "2026-10-02", account: "bank", purpose: "daily", preset_key: "transport"}
-    - key: "three"
-      record: {operation: "create", kind: "expense", amount_minor: 3000, currency: "CNY", occurred_on: "2026-10-03", account: "bank", purpose: "daily", preset_key: "shopping"}
+  - key: one
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 1000
+      currency: CNY
+      occurred_on: '2026-10-01'
+      account: bank
+      purpose: daily
+      preset_key: dining
+  - key: two
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 2000
+      currency: CNY
+      occurred_on: '2026-10-02'
+      account: bank
+      purpose: daily
+      preset_key: transport
+  - key: three
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 3000
+      currency: CNY
+      occurred_on: '2026-10-03'
+      account: bank
+      purpose: daily
+      preset_key: shopping
 expect:
-  behavior: "no_write"
+  behavior: no_write
   hard: false
   records: []
   display:
     hard: true
-    calls:
-      - tool: "show_records"
-        args: {source: {query: {kinds: ["expense"], period: {from: "2026-10-01", through: "2026-10-31"}, account_id: null, purpose_id: null, tag_id: null, member_id: null, text: null, limit: 3}, from_call: null, demo: null}}
-    blocks:
-      - {kind: "dataset", labels: ["2026-10-03", "2026-10-02", "2026-10-01"], values_minor: [3000, 2000, 1000], account: null, demo: false}
-    fallback_contains: []
-    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}
+    alternatives:
+    - id: records
+      calls:
+      - tool: show_records
+        args:
+          source:
+            query:
+              kinds:
+              - expense
+              period:
+                from: '2026-10-01'
+                through: '2026-10-31'
+              account_id:
+              purpose_id:
+              tag_id:
+              member_id:
+              text:
+              limit: 3
+            from_call:
+            demo:
+      blocks:
+      - kind: dataset
+        labels:
+        - '2026-10-03'
+        - '2026-10-02'
+        - '2026-10-01'
+        values_minor:
+        - 3000
+        - 2000
+        - 1000
+        account:
+        demo: false
+      fallback_contains: []
+      facts:
+      - kind: record
+        date: '2026-10-03'
+        record_kind: expense
+        amount_minor: 3000
+        account: bank
+        purpose: daily
+        note:
+      - kind: record
+        date: '2026-10-02'
+        record_kind: expense
+        amount_minor: 2000
+        account: bank
+        purpose: daily
+        note:
+      - kind: record
+        date: '2026-10-01'
+        record_kind: expense
+        amount_minor: 1000
+        account: bank
+        purpose: daily
+        note:
+    - id: prose
+      source_calls:
+      - tool: search_records
+        args:
+          filters:
+            kinds:
+            - expense
+            from: '2026-10-01'
+            through: '2026-10-31'
+            account_id:
+            purpose_id:
+            tag_id:
+            member_id:
+            text:
+            status: active
+          page:
+            limit: 3
+            offset: 0
+      calls: []
+      blocks: []
+      fallback_contains: []
+      facts:
+      - kind: record
+        date: '2026-10-03'
+        record_kind: expense
+        amount_minor: 3000
+        account: bank
+        purpose: daily
+        note:
+      - kind: record
+        date: '2026-10-02'
+        record_kind: expense
+        amount_minor: 2000
+        account: bank
+        purpose: daily
+        note:
+      - kind: record
+        date: '2026-10-01'
+        record_kind: expense
+        amount_minor: 1000
+        account: bank
+        purpose: daily
+        note:
+    prose:
+      max_sentences: 2
+      forbid_mermaid: true
+      forbid_ascii_chart: true
+      max_table_rows: 5

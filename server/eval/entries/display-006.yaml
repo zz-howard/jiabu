@@ -1,32 +1,150 @@
+---
 schema_version: 2
-id: "display-006"
-locale: "zh-Hans"
-category: "display"
-today: "2026-10-21"
-timezone: "Asia/Shanghai"
-input: {text: "2026年5月到10月每个月分别花了多少？请用柱状图比较。"}
+id: display-006
+locale: zh-Hans
+category: display
+today: '2026-10-21'
+timezone: Asia/Shanghai
+input:
+  text: 2026年5月到10月每个月分别花了多少？请用柱状图比较。
 setup:
-  currency: "CNY"
+  currency: CNY
   accounts:
-    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
-    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+  - key: bank
+    kind: real
+    name: 虚构银行卡
+    opening_on: '2026-01-01'
+  - key: daily
+    kind: purpose
+    name: 虚构日常
+    opening_on: '2026-01-01'
   records:
-    - {key: "may", record: {operation: "create", kind: "expense", amount_minor: 1000, currency: "CNY", occurred_on: "2026-05-03", account: "bank", purpose: "daily", preset_key: "dining"}}
-    - {key: "june", record: {operation: "create", kind: "expense", amount_minor: 2000, currency: "CNY", occurred_on: "2026-06-03", account: "bank", purpose: "daily", preset_key: "dining"}}
-    - {key: "july", record: {operation: "create", kind: "expense", amount_minor: 3000, currency: "CNY", occurred_on: "2026-07-03", account: "bank", purpose: "daily", preset_key: "dining"}}
-    - {key: "august", record: {operation: "create", kind: "expense", amount_minor: 4000, currency: "CNY", occurred_on: "2026-08-03", account: "bank", purpose: "daily", preset_key: "dining"}}
-    - {key: "september", record: {operation: "create", kind: "expense", amount_minor: 5000, currency: "CNY", occurred_on: "2026-09-03", account: "bank", purpose: "daily", preset_key: "dining"}}
-    - {key: "october", record: {operation: "create", kind: "expense", amount_minor: 6000, currency: "CNY", occurred_on: "2026-10-03", account: "bank", purpose: "daily", preset_key: "dining"}}
+  - key: may
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 1000
+      currency: CNY
+      occurred_on: '2026-05-03'
+      account: bank
+      purpose: daily
+      preset_key: dining
+  - key: june
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 2000
+      currency: CNY
+      occurred_on: '2026-06-03'
+      account: bank
+      purpose: daily
+      preset_key: dining
+  - key: july
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 3000
+      currency: CNY
+      occurred_on: '2026-07-03'
+      account: bank
+      purpose: daily
+      preset_key: dining
+  - key: august
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 4000
+      currency: CNY
+      occurred_on: '2026-08-03'
+      account: bank
+      purpose: daily
+      preset_key: dining
+  - key: september
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 5000
+      currency: CNY
+      occurred_on: '2026-09-03'
+      account: bank
+      purpose: daily
+      preset_key: dining
+  - key: october
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 6000
+      currency: CNY
+      occurred_on: '2026-10-03'
+      account: bank
+      purpose: daily
+      preset_key: dining
 expect:
-  behavior: "no_write"
+  behavior: no_write
   hard: false
   records: []
   display:
     hard: true
-    calls:
-      - tool: "show_bar_chart"
-        args: {source: {query: {measure: "sum", kinds: ["expense"], period: {from: "2026-05-01", through: "2026-10-31"}, group_by: "month", account_id: null, purpose_id: null, tag_id: null, member_id: null}, from_call: null, demo: null}}
-    blocks:
-      - {kind: "category_series", labels: ["5月", "6月", "7月", "8月", "9月", "10月"], values_minor: [1000, 2000, 3000, 4000, 5000, 6000], account: null, demo: false}
-    fallback_contains: []
-    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}
+    alternatives:
+    - id: exact
+      calls:
+      - tool: show_bar_chart
+        args:
+          source:
+            query:
+              measure: sum
+              kinds:
+              - expense
+              period:
+                from: '2026-05-01'
+                through: '2026-10-31'
+              group_by: month
+              account_id:
+              purpose_id:
+              tag_id:
+              member_id:
+            from_call:
+            demo:
+      blocks:
+      - kind: category_series
+        labels:
+        - 5月
+        - 6月
+        - 7月
+        - 8月
+        - 9月
+        - 10月
+        values_minor:
+        - 1000
+        - 2000
+        - 3000
+        - 4000
+        - 5000
+        - 6000
+        account:
+        demo: false
+      fallback_contains: []
+      facts:
+      - kind: aggregate
+        label: 5月
+        value_minor: 1000
+      - kind: aggregate
+        label: 6月
+        value_minor: 2000
+      - kind: aggregate
+        label: 7月
+        value_minor: 3000
+      - kind: aggregate
+        label: 8月
+        value_minor: 4000
+      - kind: aggregate
+        label: 9月
+        value_minor: 5000
+      - kind: aggregate
+        label: 10月
+        value_minor: 6000
+    prose:
+      max_sentences: 2
+      forbid_mermaid: true
+      forbid_ascii_chart: true
+      max_table_rows: 5

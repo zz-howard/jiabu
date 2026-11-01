@@ -1,11 +1,11 @@
 use crate::{
     audit::DisplayAuditCall,
-    dataset::{Behavior, Entry, RecordSpec},
+    dataset::{Behavior, DisplayAlternative, DisplayExpect, DisplayFact, Entry, RecordSpec},
     mock::Identities,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Count {
     pub correct: usize,
@@ -54,6 +54,11 @@ impl Questions {
     }
 }
 #[derive(Clone, Debug)]
+pub struct BalanceResult {
+    pub currency: String,
+    pub balances: Vec<(String, i64)>,
+}
+#[derive(Clone, Debug)]
 pub struct Observation {
     pub status: String,
     pub asked: bool,
@@ -66,17 +71,28 @@ pub struct Observation {
     pub message: Value,
     pub tool_calls: Vec<Value>,
     pub tool_results: BTreeMap<String, bool>,
+    pub balance_results: BTreeMap<String, BalanceResult>,
     pub display_audit: Vec<DisplayAuditCall>,
     pub display_audit_total: usize,
     pub display_audit_valid: usize,
     pub display_audit_discarded: usize,
     pub server_fallbacks: Vec<String>,
     pub calls: Vec<Value>,
+    pub tested_models: BTreeSet<String>,
     pub tool_total: usize,
     pub tool_valid: usize,
     pub business_errors: usize,
     pub elapsed_ms: u64,
 }
+/// A rule decides the whole expectation only when its contract is completely deterministic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuleDecision {
+    Pass,
+    Fail,
+    NeedsJudge,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct ResultRow {
     pub id: String,
@@ -88,6 +104,9 @@ pub struct ResultRow {
     pub status: String,
     pub hard: bool,
     pub hard_pass: bool,
+    pub rule_decision: RuleDecision,
+    pub expectation_met: Option<bool>,
+    pub judgment_source: String,
     pub behavior_pass: bool,
     pub records_pass: bool,
     pub display_hard: bool,
@@ -98,6 +117,8 @@ pub struct ResultRow {
     pub display_arguments: Count,
     pub display_expected: String,
     pub display_actual: String,
+    pub display_acceptable: String,
+    pub display_selected: String,
     pub display_query_summary: String,
     pub display_audit_complete: bool,
     pub display_audit_discarded: usize,
@@ -116,6 +137,25 @@ pub struct ResultRow {
     pub calls: Vec<Value>,
     pub cost_usd: Option<f64>,
     pub reasons: Vec<String>,
+    #[serde(skip)]
+    pub tested_models: BTreeSet<String>,
+    pub judge_model: String,
+    pub judge_self: Option<bool>,
+    pub judge_pass_votes: Option<usize>,
+    pub judge_fail_votes: Option<usize>,
+    pub judge_votes: String,
+}
+impl ResultRow {
+    pub fn overall_pass(&self) -> bool {
+        if self.category == "display" {
+            return self.expectation_met == Some(true);
+        }
+        self.hard_pass
+            && self
+                .judge_pass_votes
+                .map(|votes| votes >= 2)
+                .unwrap_or(true)
+    }
 }
 #[derive(Default)]
 struct DisplayScore {
@@ -127,6 +167,8 @@ struct DisplayScore {
     arguments: Count,
     expected: String,
     actual: String,
+    acceptable: String,
+    selected: String,
     query_summary: String,
     audit_complete: bool,
     audit_discarded: usize,
@@ -364,6 +406,12 @@ fn source_query(tool: &str, args: &Value, ids: &Identities) -> Option<CanonicalQ
     match tool {
         "query_stats" => Some(canonical_stats(args, ids, false)),
         "search_records" => Some(canonical_records(args, ids, true)),
+        "query_balance" if args.as_object().is_some_and(|args| args.is_empty()) => {
+            Some(CanonicalQuery {
+                value: json!({"family":"balance"}),
+                text: None,
+            })
+        }
         _ => None,
     }
 }
@@ -532,15 +580,386 @@ fn contains_number(prose: &str, needle: &str) -> bool {
             && !after.is_some_and(|character| character.is_ascii_digit() || character == '.')
     })
 }
-fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
-    let Some(expect) = &e.expect.display else {
-        return DisplayScore {
-            pass: true,
-            prose_pass: true,
-            audit_complete: true,
-            ..Default::default()
-        };
+fn money_variants(value_minor: i64) -> Vec<String> {
+    let sign = if value_minor < 0 { "-" } else { "" };
+    let absolute = value_minor.unsigned_abs();
+    let yuan = absolute / 100;
+    let fen = absolute % 100;
+    let mut variants = vec![
+        format!("{sign}{yuan}.{fen:02}"),
+        format!("{sign}{absolute} 分"),
+        format!("{sign}{absolute}分"),
+    ];
+    if fen != 0 && fen.is_multiple_of(10) {
+        variants.push(format!("{sign}{yuan}.{}", fen / 10));
+    }
+    if fen == 0 {
+        variants.extend([
+            format!("{sign}{yuan} 元"),
+            format!("{sign}{yuan}元"),
+            format!("¥{sign}{yuan}"),
+            format!("￥{sign}{yuan}"),
+        ]);
+    }
+    variants
+}
+fn prose_money_values(prose: &str) -> Vec<i64> {
+    let mut values = BTreeMap::new();
+    let chars = prose.chars().collect::<Vec<_>>();
+    let numeric = |character: char| character.is_ascii_digit() || matches!(character, '.' | '-');
+    for (index, character) in chars.iter().enumerate() {
+        if matches!(*character, '¥' | '￥') {
+            let token = chars[index + 1..]
+                .iter()
+                .take_while(|character| numeric(**character))
+                .collect::<String>();
+            if let Ok(value) = token.parse::<f64>() {
+                values.insert(
+                    (index + 1, index + 1 + token.chars().count()),
+                    (value * 100.0).round() as i64,
+                );
+            }
+        }
+        if matches!(*character, '元' | '分') {
+            let raw = chars[..index]
+                .iter()
+                .rev()
+                .take_while(|character| numeric(**character) || character.is_whitespace())
+                .copied()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>();
+            let leading = raw
+                .iter()
+                .take_while(|character| character.is_whitespace())
+                .count();
+            let trailing = raw
+                .iter()
+                .rev()
+                .take_while(|character| character.is_whitespace())
+                .count();
+            let start = index - raw.len() + leading;
+            let end = index - trailing;
+            let token = chars[start..end].iter().collect::<String>();
+            if let Ok(value) = token.parse::<f64>() {
+                values.insert(
+                    (start, end),
+                    if *character == '元' {
+                        (value * 100.0).round() as i64
+                    } else {
+                        value.round() as i64
+                    },
+                );
+            }
+        }
+    }
+    let mut values = values.into_values().collect::<Vec<_>>();
+    values.sort_unstable();
+    values
+}
+fn prose_money_values_pass(
+    alternative: &DisplayAlternative,
+    prose: &str,
+    allow_aggregate_total: bool,
+) -> bool {
+    let mut expected = alternative
+        .facts
+        .iter()
+        .filter_map(|fact| match fact {
+            DisplayFact::Aggregate { value_minor, .. }
+            | DisplayFact::Record {
+                amount_minor: value_minor,
+                ..
+            }
+            | DisplayFact::AccountBalance {
+                balance_minor: value_minor,
+                ..
+            } => Some(*value_minor),
+            DisplayFact::NoData => None,
+        })
+        .collect::<Vec<_>>();
+    expected.sort_unstable();
+    let actual = prose_money_values(prose);
+    if !alternative.facts.is_empty()
+        && alternative
+            .facts
+            .iter()
+            .all(|fact| matches!(fact, DisplayFact::NoData))
+    {
+        return actual.into_iter().all(|value| value == 0);
+    }
+    if actual == expected {
+        return true;
+    }
+    if !allow_aggregate_total || expected.len() < 2 {
+        return false;
+    }
+    let aggregate_values = alternative
+        .facts
+        .iter()
+        .map(|fact| match fact {
+            DisplayFact::Aggregate { value_minor, .. } => Some(*value_minor),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(total) = aggregate_values.and_then(|values| {
+        values
+            .into_iter()
+            .try_fold(0_i64, |total, value| total.checked_add(value))
+    }) else {
+        return false;
     };
+    expected.push(total);
+    expected.sort_unstable();
+    actual == expected
+}
+fn kind_terms(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "expense" => &["expense", "支出", "消费"],
+        "income" => &["income", "收入"],
+        "transfer" => &["transfer", "转账"],
+        "reallocation" => &["reallocation", "调拨"],
+        "refund" => &["refund", "退款"],
+        _ => &[],
+    }
+}
+fn segment_kind_pass(segment: &str, expected: &str) -> bool {
+    let lower = segment.to_lowercase();
+    kind_terms(expected).iter().any(|term| lower.contains(term))
+        && ["expense", "income", "transfer", "reallocation", "refund"]
+            .into_iter()
+            .filter(|kind| *kind != expected)
+            .all(|kind| !kind_terms(kind).iter().any(|term| lower.contains(term)))
+}
+fn setup_name<'a>(e: &'a Entry, alias: &str) -> Option<&'a str> {
+    e.setup
+        .accounts
+        .iter()
+        .find(|candidate| candidate.key == alias)
+        .map(|candidate| candidate.name.as_str())
+}
+fn rich_block_facts_pass(e: &Entry, alternative: &DisplayAlternative, actual: &[&Value]) -> bool {
+    let records = alternative
+        .facts
+        .iter()
+        .filter_map(|fact| match fact {
+            DisplayFact::Record {
+                date,
+                record_kind,
+                amount_minor,
+                account,
+                purpose,
+                note,
+            } => Some((date, record_kind, amount_minor, account, purpose, note)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if records.is_empty() {
+        return true;
+    }
+    let rows = actual
+        .iter()
+        .filter(|block| block["type"] == "dataset")
+        .flat_map(|block| {
+            block["data"]["rows"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+        })
+        .collect::<Vec<_>>();
+    rows.len() == records.len()
+        && rows.iter().zip(records).all(|(row, fact)| {
+            let (date, record_kind, amount_minor, account, purpose, note) = fact;
+            row["date"] == json!(date)
+                && row["amount"] == json!(amount_minor)
+                && row["kind"]
+                    .as_str()
+                    .is_some_and(|kind| segment_kind_pass(kind, record_kind))
+                && account.as_ref().is_none_or(|alias| {
+                    setup_name(e, alias).is_some_and(|name| row["account"] == name)
+                })
+                && purpose.as_ref().is_none_or(|alias| {
+                    setup_name(e, alias).is_some_and(|name| row["purpose"] == name)
+                })
+                && note.as_ref().map_or(row["note"].is_null(), |note| {
+                    row["note"].as_str() == Some(note.as_str())
+                })
+        })
+}
+fn supplemental_prose_pass(alternative: &DisplayAlternative, prose: &str) -> bool {
+    if prose.is_empty() {
+        return true;
+    }
+    let mut expected_money = BTreeMap::<i64, usize>::new();
+    let mut expected_kinds = BTreeSet::new();
+    for fact in &alternative.facts {
+        match fact {
+            DisplayFact::Aggregate { value_minor, .. }
+            | DisplayFact::Record {
+                amount_minor: value_minor,
+                ..
+            }
+            | DisplayFact::AccountBalance {
+                balance_minor: value_minor,
+                ..
+            } => *expected_money.entry(*value_minor).or_default() += 1,
+            DisplayFact::NoData => {}
+        }
+        if let DisplayFact::Record { record_kind, .. } = fact {
+            expected_kinds.insert(record_kind.as_str());
+        }
+    }
+    for value in prose_money_values(prose) {
+        let Some(remaining) = expected_money.get_mut(&value) else {
+            return false;
+        };
+        if *remaining == 0 {
+            return false;
+        }
+        *remaining -= 1;
+    }
+    ["expense", "income", "transfer", "reallocation", "refund"]
+        .into_iter()
+        .all(|kind| {
+            expected_kinds.contains(kind)
+                || !kind_terms(kind)
+                    .iter()
+                    .any(|term| prose.to_lowercase().contains(&term.to_lowercase()))
+        })
+}
+fn prose_facts_pass(
+    e: &Entry,
+    alternative: &DisplayAlternative,
+    prose: &str,
+    o: &Observation,
+    ids: &Identities,
+    allow_aggregate_total: bool,
+) -> bool {
+    if alternative.facts.is_empty() {
+        return true;
+    }
+    let lower = prose.to_lowercase();
+    let segments = prose
+        .split(['\n', '；', '。', '，', ','])
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    if !prose_money_values_pass(alternative, prose, allow_aggregate_total) {
+        return false;
+    }
+    alternative.facts.iter().all(|fact| match fact {
+        DisplayFact::Aggregate { label, value_minor } => segments.iter().any(|segment| {
+            segment.contains(label)
+                && money_variants(*value_minor)
+                    .iter()
+                    .any(|value| contains_number(segment, value))
+        }),
+        DisplayFact::Record {
+            date,
+            record_kind,
+            amount_minor,
+            account,
+            purpose,
+            note,
+            ..
+        } => segments.iter().any(|segment| {
+            segment.contains(&date.to_string())
+                && segment_kind_pass(segment, record_kind)
+                && money_variants(*amount_minor)
+                    .iter()
+                    .any(|value| contains_number(segment, value))
+                && [account, purpose].into_iter().flatten().all(|alias| {
+                    e.setup
+                        .accounts
+                        .iter()
+                        .find(|account| account.key == *alias)
+                        .is_some_and(|account| segment.contains(&account.name))
+                })
+                && note.as_ref().is_none_or(|note| segment.contains(note))
+        }),
+        DisplayFact::AccountBalance {
+            account,
+            currency,
+            balance_minor,
+        } => {
+            let Some(account_id) = ids.accounts.get(account).map(ToString::to_string) else {
+                return false;
+            };
+            let account_name = e
+                .setup
+                .accounts
+                .iter()
+                .find(|candidate| candidate.key == *account)
+                .map(|candidate| candidate.name.as_str());
+            segments.iter().any(|segment| {
+                account_name.is_some_and(|name| segment.contains(name))
+                    && (segment.contains(currency)
+                        || (currency == "CNY" && (segment.contains('元') || segment.contains('¥'))))
+                    && money_variants(*balance_minor)
+                        .iter()
+                        .any(|value| contains_number(segment, value))
+            }) && alternative.source_calls.iter().any(|source| {
+                source.tool == "query_balance"
+                    && o.tool_calls.iter().any(|call| {
+                        call["tool"] == "query_balance"
+                            && call["args"].as_object().is_some_and(|args| args.is_empty())
+                            && call["call_id"].as_str().is_some_and(|call_id| {
+                                o.tool_results.get(call_id) == Some(&true)
+                                    && o.balance_results.get(call_id).is_some_and(|result| {
+                                        result.currency == currency.as_str()
+                                            && result
+                                                .balances
+                                                .contains(&(account_id.clone(), *balance_minor))
+                                    })
+                            })
+                    })
+            })
+        }
+        DisplayFact::NoData => {
+            let money = prose_money_values(prose);
+            let has_nonzero_money = money.iter().any(|value| *value != 0);
+            let claims_records_exist = lower.contains("records exist")
+                || prose.contains("存在记录")
+                || prose.contains("查到记录")
+                || prose.contains("已有记录");
+            let claims_demo_or_chart = lower.contains("demo")
+                || lower.contains("example")
+                || lower.contains("chart")
+                || prose.contains("演示")
+                || prose.contains("示例")
+                || prose.contains("样例")
+                || prose.contains("图表")
+                || prose.contains("假数据")
+                || prose.contains("模拟数据");
+            let explicit_no_data = lower.contains("no data")
+                || lower.contains("no records")
+                || prose.contains("没有记录")
+                || prose.contains("暂无记录")
+                || prose.contains("无记录")
+                || prose.contains("暂无数据")
+                || prose.contains("没有数据");
+            let natural_zero_expense = !money.is_empty()
+                && money.iter().all(|value| *value == 0)
+                && (lower.contains("expense")
+                    || prose.contains("支出")
+                    || prose.contains("消费")
+                    || prose.contains("花了"))
+                && (lower.contains("month") || prose.contains('月'));
+            !has_nonzero_money
+                && !claims_records_exist
+                && !claims_demo_or_chart
+                && (explicit_no_data || natural_zero_expense)
+        }
+    })
+}
+fn display_alternative_score(
+    e: &Entry,
+    expect: &DisplayExpect,
+    alternative: &DisplayAlternative,
+    ids: &Identities,
+    o: &Observation,
+) -> DisplayScore {
     let actual_calls: Vec<_> = o
         .tool_calls
         .iter()
@@ -553,13 +972,13 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
     let mut expected_sources = Vec::new();
     let mut call_aliases = BTreeMap::new();
     let mut expected_results = BTreeMap::new();
-    for (index, call) in expect.source_calls.iter().enumerate() {
+    for (index, call) in alternative.source_calls.iter().enumerate() {
         let id = format!("expected-source-{index}");
         call_aliases.insert(format!("$call:source-{index}"), id.clone());
         expected_results.insert(id.clone(), true);
         expected_sources.push(json!({"tool":call.tool,"args":ids.display_args(&call.args).unwrap_or_else(|_|call.args.clone()),"call_id":id}));
     }
-    let expected_calls: Vec<_> = expect.calls.iter().map(|call| json!({"tool":call.tool,"args":ids.display_args_with_calls(&call.args,&call_aliases).unwrap_or_else(|_|call.args.clone())})).collect();
+    let expected_calls: Vec<_> = alternative.calls.iter().map(|call| json!({"tool":call.tool,"args":ids.display_args_with_calls(&call.args,&call_aliases).unwrap_or_else(|_|call.args.clone())})).collect();
     let expected_selection: Vec<_> = expected_calls
         .iter()
         .filter_map(|call| call["tool"].as_str())
@@ -607,6 +1026,7 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         },
         expected: expected_selection.join(","),
         actual: actual_selection.join(","),
+        selected: alternative.id.clone(),
         audit_complete: o.display_audit_discarded == 0
             && o.display_audit.iter().all(|call| !call.truncated),
         audit_discarded: o.display_audit_discarded
@@ -682,6 +1102,56 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
             }
         }
     }
+    if expected_calls.is_empty() && !alternative.source_calls.is_empty() {
+        let actual_sources = o
+            .tool_calls
+            .iter()
+            .filter(|call| {
+                matches!(
+                    call["tool"].as_str(),
+                    Some("query_stats" | "search_records" | "query_balance")
+                )
+            })
+            .collect::<Vec<_>>();
+        for (index, expected) in alternative.source_calls.iter().enumerate() {
+            let expected_query = source_query(
+                &expected.tool,
+                &ids.display_args(&expected.args)
+                    .unwrap_or_else(|_| expected.args.clone()),
+                ids,
+            );
+            let actual = actual_sources.get(index).copied();
+            let actual_query = actual.and_then(|call| {
+                let call_id = call["call_id"].as_str()?;
+                o.tool_results
+                    .get(call_id)
+                    .copied()
+                    .unwrap_or(false)
+                    .then(|| {
+                        source_query(
+                            call["tool"].as_str().unwrap_or_default(),
+                            &call["args"],
+                            ids,
+                        )
+                    })
+                    .flatten()
+            });
+            match (expected_query, actual_query) {
+                (Some(expected), Some(actual)) => {
+                    result.queries.total += 1;
+                    result.queries.correct += usize::from(expected == actual);
+                    summaries.push(actual.summary());
+                }
+                _ => {
+                    result.query_not_assessable += 1;
+                    summaries.push(json!({"state":"not_assessable"}));
+                }
+            }
+        }
+        result.queries.total += actual_sources
+            .len()
+            .saturating_sub(alternative.source_calls.len());
+    }
     result.query_summary = summary_string(&summaries);
     let blocks = o.message["blocks"]
         .as_array()
@@ -691,8 +1161,8 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         .iter()
         .filter(|block| block["type"] != "markdown")
         .collect();
-    result.blocks.total = expect.blocks.len().max(actual.len());
-    for (index, expected) in expect.blocks.iter().enumerate() {
+    result.blocks.total = alternative.blocks.len().max(actual.len());
+    for (index, expected) in alternative.blocks.iter().enumerate() {
         let Some(block) = actual.get(index) else {
             continue;
         };
@@ -833,21 +1303,51 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         }
     }
     let fallback = o.message["fallbackText"].as_str().unwrap_or_default();
-    for required in &expect.fallback_contains {
+    for required in &alternative.fallback_contains {
         result.values.total += 1;
         result.values.correct += usize::from(fallback.contains(required));
     }
     let server_fallback = o.server_fallbacks.join("\n");
-    for required in &expect.server_fallback_contains {
+    for required in &alternative.server_fallback_contains {
         result.values.total += 1;
         result.values.correct += usize::from(server_fallback.contains(required));
     }
-    let prose = blocks
+    let mut prose = blocks
         .iter()
         .filter(|block| block["type"] == "markdown")
         .filter_map(|block| block["fallbackText"].as_str())
         .collect::<Vec<_>>()
         .join("\n");
+    if prose.is_empty() {
+        prose = fallback.to_owned();
+    }
+    if alternative.blocks.is_empty() && !alternative.facts.is_empty() {
+        let server_fact_text = !alternative.calls.is_empty() && !server_fallback.is_empty();
+        let fact_text = if alternative.calls.is_empty() {
+            prose.as_str()
+        } else if server_fact_text {
+            server_fallback.as_str()
+        } else {
+            fallback
+        };
+        result.values.total += 1;
+        result.values.correct += usize::from(
+            actual.is_empty()
+                && prose_facts_pass(e, alternative, fact_text, o, ids, server_fact_text),
+        );
+    } else if !alternative.facts.is_empty() {
+        let supplemental = blocks
+            .iter()
+            .filter(|block| block["type"] == "markdown")
+            .filter_map(|block| block["fallbackText"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        result.values.total += 1;
+        result.values.correct += usize::from(
+            rich_block_facts_pass(e, alternative, &actual)
+                && supplemental_prose_pass(alternative, &supplemental),
+        );
+    }
     if expect.prose.forbid_mermaid && prose.to_ascii_lowercase().contains("```mermaid") {
         result.prose_pass = false;
     }
@@ -865,7 +1365,7 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         style_pass &= sentence_count(&prose) <= max;
     }
     if expect.prose.forbid_numeric_restatement {
-        let repeated = expect
+        let repeated = alternative
             .blocks
             .iter()
             .flat_map(|block| &block.values_minor)
@@ -920,10 +1420,10 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
     if !style_pass {
         result.reasons.push("display_style_preference".into());
     }
-    if o.tool_total.saturating_sub(o.tool_valid) != expect.expected_invalid_calls {
+    if o.tool_total.saturating_sub(o.tool_valid) != alternative.expected_invalid_calls {
         result.reasons.push("display_invalid_call_mismatch".into());
     }
-    if o.business_errors != expect.expected_business_errors {
+    if o.business_errors != alternative.expected_business_errors {
         result
             .reasons
             .push("display_business_error_mismatch".into());
@@ -932,6 +1432,50 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         .reasons
         .iter()
         .all(|reason| reason == "display_style_preference");
+    result
+}
+
+fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
+    let Some(expect) = &e.expect.display else {
+        return DisplayScore {
+            pass: true,
+            prose_pass: true,
+            audit_complete: true,
+            ..Default::default()
+        };
+    };
+    let acceptable = expect
+        .alternatives
+        .iter()
+        .map(|alternative| alternative.id.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut scored = expect
+        .alternatives
+        .iter()
+        .map(|alternative| display_alternative_score(e, expect, alternative, ids, o))
+        .collect::<Vec<_>>();
+    let selected = scored
+        .iter()
+        .position(|score| score.pass)
+        .unwrap_or_else(|| {
+            scored
+                .iter()
+                .enumerate()
+                .min_by_key(|(index, score)| {
+                    let hard_reasons = score
+                        .reasons
+                        .iter()
+                        .filter(|reason| reason.as_str() != "display_style_preference")
+                        .collect::<BTreeSet<_>>()
+                        .len();
+                    (hard_reasons, *index)
+                })
+                .map(|(index, _)| index)
+                .unwrap_or(0)
+        });
+    let mut result = scored.swap_remove(selected);
+    result.acceptable = acceptable;
     result
 }
 fn expected_value(r: &RecordSpec, ids: &Identities) -> Value {
@@ -1076,6 +1620,115 @@ pub fn pairing(expected: &[Value], actual: &[Value]) -> Vec<Option<usize>> {
     }
     out
 }
+/// Complete decision for the narrow protocol contract "persist only supported block kinds".
+/// Its Pass must not be promoted to a Pass for a user's broader display request.
+pub fn capability_contract(
+    capabilities: &jiabu_chat::ClientCapabilities,
+    message: &Value,
+) -> RuleDecision {
+    let Some(blocks) = message["blocks"].as_array() else {
+        return RuleDecision::NeedsJudge;
+    };
+    let mut incomplete = false;
+    for block in blocks {
+        match block["type"].as_str() {
+            Some(kind) if !capabilities.supports(kind, 1) => return RuleDecision::Fail,
+            Some(_) => {}
+            None => incomplete = true,
+        }
+    }
+    if incomplete {
+        RuleDecision::NeedsJudge
+    } else {
+        RuleDecision::Pass
+    }
+}
+
+/// Only facts whose contradiction independently disproves these read-only requests.
+/// The existing cases also require natural-language intent/content, so passing these
+/// necessary checks never proves the complete user expectation.
+fn display_rule_decision(
+    e: &Entry,
+    _ids: &Identities,
+    o: &Observation,
+) -> (RuleDecision, Vec<String>) {
+    let mut reasons = Vec::new();
+    if e.expect.behavior == Behavior::NoWrite {
+        // A missing observation is not an empty ledger. Compare only independently
+        // present snapshots; a change in either ledger records or events proves a write.
+        let changed = ["records", "events"].into_iter().any(|key| {
+            match (o.baseline[key].as_array(), o.final_state[key].as_array()) {
+                (Some(before), Some(after)) => before != after,
+                _ => false,
+            }
+        }) || matches!((o.baseline["currency"].as_str(), o.final_state["currency"].as_str()), (Some(before),Some(after)) if before != after);
+        if changed {
+            reasons.push("rule_ledger_write".into());
+        }
+    }
+    if o.tool_valid < o.tool_total || o.display_audit.iter().any(|call| !call.valid) {
+        reasons.push("rule_invalid_tool_arguments".into());
+    }
+    let registry = jiabu_tools::builtin_registry();
+    for call in &o.tool_calls {
+        let (Some(name), Some(args)) = (call["tool"].as_str(), call.get("args")) else {
+            continue;
+        };
+        let Ok(tool) = registry.get(name) else {
+            continue;
+        };
+        if tool.exposure() == jiabu_tools::Exposure::ApiOnly || tool.validate(args.clone()).is_err()
+        {
+            reasons.push("rule_invalid_tool_arguments".into());
+        }
+        if e.expect.behavior == Behavior::NoWrite
+            && tool.effect() == jiabu_tools::Effect::LocalWrite
+        {
+            reasons.push("rule_forbidden_write_tool".into());
+        }
+    }
+    let capabilities = crate::fixture::capabilities(e);
+    if capability_contract(&capabilities, &o.message) == RuleDecision::Fail {
+        reasons.push("rule_unsupported_block".into());
+    }
+    // The account-card reference has an actual object identity. Generic chart
+    // labels and scalar values do not, and are deliberately left to the Judge.
+    if let Some(blocks) = o.message["blocks"].as_array() {
+        let requested_accounts = o
+            .tool_calls
+            .iter()
+            .filter_map(|call| {
+                if call["tool"] != "show_account_card"
+                    || !call["call_id"]
+                        .as_str()
+                        .is_some_and(|id| o.tool_results.get(id) == Some(&true))
+                {
+                    return None;
+                }
+                call["args"]["account_id"].as_str()
+            })
+            .collect::<BTreeSet<_>>();
+        for block in blocks
+            .iter()
+            .filter(|block| block["type"] == "x-jiabu.account_card")
+        {
+            if let Some(account) = block["data"]["accountId"].as_str()
+                && !requested_accounts.is_empty()
+                && !requested_accounts.contains(account)
+            {
+                reasons.push("rule_object_reference_mismatch".into());
+            }
+        }
+    }
+    reasons.sort();
+    reasons.dedup();
+    if reasons.is_empty() {
+        (RuleDecision::NeedsJudge, reasons)
+    } else {
+        (RuleDecision::Fail, reasons)
+    }
+}
+
 pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
     let baseline_events = o.baseline["events"]
         .as_array()
@@ -1146,9 +1799,32 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         }
     };
     let display = display_score(e, ids, o);
-    let hard_pass = (!e.expect.hard
+    let legacy_hard_pass = (!e.expect.hard
         || (behavior_pass && (e.expect.behavior != Behavior::ConfirmThenWrite || records_pass)))
         && (!display.hard || (behavior_pass && display.pass));
+    let (rule_decision, rule_reasons) = if e.category == "display" {
+        display_rule_decision(e, ids, o)
+    } else if legacy_hard_pass {
+        (RuleDecision::Pass, Vec::new())
+    } else {
+        (RuleDecision::Fail, Vec::new())
+    };
+    let hard_pass = if e.category == "display" {
+        rule_decision != RuleDecision::Fail
+    } else {
+        legacy_hard_pass
+    };
+    let expectation_met = match rule_decision {
+        RuleDecision::Pass => Some(true),
+        RuleDecision::Fail => Some(false),
+        RuleDecision::NeedsJudge => None,
+    };
+    let judgment_source = if rule_decision == RuleDecision::NeedsJudge {
+        "needs_judge"
+    } else {
+        "rule"
+    }
+    .to_owned();
     let actual_behavior = if o.confirmation {
         "confirm_then_write"
     } else if o.asked {
@@ -1199,14 +1875,20 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         reasons.push("record_mismatch".into());
     }
     if o.tool_total != o.tool_valid
-        && e.expect
-            .display
-            .as_ref()
-            .is_none_or(|display| display.expected_invalid_calls == 0)
+        && e.expect.display.as_ref().is_none_or(|display| {
+            display
+                .alternatives
+                .iter()
+                .all(|alternative| alternative.expected_invalid_calls == 0)
+        })
     {
         reasons.push("invalid_tool_arguments".into());
     }
     reasons.extend(display.reasons.clone());
+    if e.category == "display" {
+        // Legacy exact-path/style diagnostics do not decide user expectations.
+        reasons = rule_reasons;
+    }
     ResultRow {
         id: e.id.clone(),
         category: e.category.clone(),
@@ -1217,6 +1899,9 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         status: o.status.clone(),
         hard: e.expect.hard || display.hard,
         hard_pass,
+        rule_decision,
+        expectation_met,
+        judgment_source,
         behavior_pass,
         records_pass,
         display_hard: display.hard,
@@ -1227,6 +1912,8 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         display_arguments: display.arguments,
         display_expected: display.expected,
         display_actual: display.actual,
+        display_acceptable: display.acceptable,
+        display_selected: display.selected,
         display_query_summary: display.query_summary,
         display_audit_complete: display.audit_complete,
         display_audit_discarded: display.audit_discarded,
@@ -1248,10 +1935,22 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         calls: o.calls.clone(),
         cost_usd,
         reasons,
+        tested_models: o.tested_models.clone(),
+        judge_model: String::new(),
+        judge_self: None,
+        judge_pass_votes: None,
+        judge_fail_votes: None,
+        judge_votes: String::new(),
     }
 }
 pub fn exit_code(rows: &[ResultRow]) -> u8 {
-    if rows.iter().any(|r| !r.hard_pass) {
+    if rows
+        .iter()
+        .any(|r| r.category == "display" && r.expectation_met.is_none())
+    {
+        return 2;
+    }
+    if rows.iter().any(|r| !r.overall_pass()) {
         1
     } else {
         0
@@ -1287,5 +1986,213 @@ mod tests {
         assert_eq!(family.chars().count(), 21);
         assert_eq!(summary["truncated"], true);
         assert_eq!(summary["discarded"], 3);
+    }
+}
+
+#[cfg(test)]
+mod reliable_rule_tests {
+    use super::*;
+
+    fn entry(id: &str) -> Entry {
+        crate::dataset::load(&crate::dataset_root())
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .unwrap()
+    }
+    fn observed(message: Value) -> Observation {
+        let state = json!({"currency":"CNY","records":[],"events":[]});
+        Observation {
+            status: "completed".into(),
+            asked: false,
+            confirmation: false,
+            confirmation_calls: vec![],
+            confirmed: false,
+            before_confirm: None,
+            baseline: state.clone(),
+            final_state: state,
+            message,
+            tool_calls: vec![],
+            tool_results: Default::default(),
+            balance_results: Default::default(),
+            display_audit: vec![],
+            display_audit_total: 0,
+            display_audit_valid: 0,
+            display_audit_discarded: 0,
+            server_fallbacks: vec![],
+            calls: vec![],
+            tested_models: Default::default(),
+            tool_total: 0,
+            tool_valid: 0,
+            business_errors: 0,
+            elapsed_ms: 1,
+        }
+    }
+    fn prose(text: &str) -> Value {
+        json!({"fallbackText":text,"blocks":[{"type":"markdown","data":{"text":text},"fallbackText":text}]})
+    }
+    fn with_call(mut observation: Observation, tool: &str, args: Value) -> Observation {
+        observation.tool_calls = vec![json!({"tool":tool,"args":args,"call_id":"synthetic-call"})];
+        observation
+            .tool_results
+            .insert("synthetic-call".into(), true);
+        observation.tool_total = 1;
+        observation.tool_valid = 1;
+        observation
+    }
+    #[test]
+    fn correct_extra_arithmetic_and_natural_wording_are_never_rule_fail_or_automatic_pass() {
+        let e = entry("display-020");
+        for text in [
+            "餐饮100元，购物68元，餐饮比购物多32元，约高47.1%。",
+            "餐饮一百元；购物六十八元。",
+            "餐饮支出是100元，购物是68元；两类标签可能重叠，不能当作总支出相加。",
+        ] {
+            let row = score(&e, &Identities::default(), &observed(prose(text)));
+            assert_eq!(row.rule_decision, RuleDecision::NeedsJudge);
+            assert!(row.hard_pass);
+            assert_eq!(row.expectation_met, None);
+            assert_eq!(row.judgment_source, "needs_judge");
+            assert!(!row.overall_pass());
+            assert_eq!(exit_code(&[row]), 2);
+        }
+    }
+    #[test]
+    fn natural_query_scope_and_component_choice_are_judged_not_exact_matched() {
+        let e = entry("display-008");
+        let o = with_call(
+            observed(prose("10月净支出0元，口径为支出减退款。")),
+            "query_stats",
+            json!({"kinds":["expense","refund"],"measure":"sum","period":{"from":"2026-10-01","through":"2026-10-31"}}),
+        );
+        assert_eq!(
+            score(&e, &Identities::default(), &o).rule_decision,
+            RuleDecision::NeedsJudge
+        );
+        let o = observed(
+            json!({"blocks":[{"type":"metric","data":{"label":"本月","value":999,"format":{"style":"currency","currency":"CNY","minorUnits":true}}}]}),
+        );
+        let row = score(&e, &Identities::default(), &o);
+        // The generic label does not identify a ground-truth object/measure. It must
+        // be judged, not treated as a verified amount or silently passed.
+        assert_eq!(row.rule_decision, RuleDecision::NeedsJudge);
+        assert_eq!(row.expectation_met, None);
+    }
+    #[test]
+    fn actual_ledger_write_and_forbidden_write_tool_are_rule_failures() {
+        let e = entry("display-001");
+        let mut o = observed(prose("好了"));
+        o.final_state["records"] = json!([{"id":"synthetic-record","amount_minor":100}]);
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert_eq!(row.expectation_met, Some(false));
+        assert!(row.reasons.contains(&"rule_ledger_write".into()));
+        let o = with_call(
+            observed(prose("好了")),
+            "create_account",
+            json!({"kind":"real","name":"虚构账户","opening_on":"2026-01-01"}),
+        );
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert!(row.reasons.contains(&"rule_forbidden_write_tool".into()));
+    }
+    #[test]
+    fn real_registry_schema_violation_is_a_rule_failure() {
+        let e = entry("display-001");
+        let o = with_call(
+            observed(prose("好了")),
+            "query_stats",
+            json!({"unknown_parameter":"not_allowed"}),
+        );
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert!(row.reasons.contains(&"rule_invalid_tool_arguments".into()));
+    }
+    #[test]
+    fn capability_only_contract_has_a_real_rule_pass_without_passing_the_user_request() {
+        let mut capabilities = jiabu_chat::ClientCapabilities::current_jiabu();
+        capabilities.blocks.retain(|kind, _| kind == "markdown");
+        let supported = prose("已展示");
+        assert_eq!(
+            capability_contract(&capabilities, &supported),
+            RuleDecision::Pass
+        );
+        assert_eq!(
+            capability_contract(
+                &capabilities,
+                &json!({"blocks":[{"type":"metric","data":{"value":100}}]})
+            ),
+            RuleDecision::Fail
+        );
+        assert_eq!(
+            capability_contract(&capabilities, &json!({})),
+            RuleDecision::NeedsJudge
+        );
+        let e = entry("display-016");
+        let row = score(&e, &Identities::default(), &observed(supported));
+        assert_eq!(row.rule_decision, RuleDecision::NeedsJudge);
+        let row = score(
+            &e,
+            &Identities::default(),
+            &observed(json!({"blocks":[{"type":"metric","data":{"value":100}}]})),
+        );
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert!(row.reasons.contains(&"rule_unsupported_block".into()));
+    }
+    #[test]
+    fn actual_account_reference_must_match_the_successful_source_call() {
+        let e = entry("display-007");
+        let requested = uuid::Uuid::now_v7();
+        let displayed = uuid::Uuid::now_v7();
+        let o = with_call(
+            observed(
+                json!({"blocks":[{"type":"x-jiabu.account_card","data":{"accountId":displayed,"versionAtReply":1,"nameSnapshot":"虚构银行卡"}}]}),
+            ),
+            "show_account_card",
+            json!({"account_id":requested}),
+        );
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::Fail);
+        assert!(
+            row.reasons
+                .contains(&"rule_object_reference_mismatch".into())
+        );
+    }
+    #[test]
+    fn absent_observations_do_not_become_an_empty_successful_ledger() {
+        let e = entry("display-001");
+        let mut o = observed(Value::Null);
+        o.baseline = Value::Null;
+        o.final_state = Value::Null;
+        let row = score(&e, &Identities::default(), &o);
+        assert_eq!(row.rule_decision, RuleDecision::NeedsJudge);
+        assert_eq!(row.expectation_met, None);
+        assert!(!row.overall_pass());
+    }
+    #[test]
+    fn every_existing_display_request_requires_more_than_its_protocol_checks() {
+        for e in crate::dataset::load(&crate::dataset_root())
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.category == "display")
+        {
+            let row = score(&e, &Identities::default(), &observed(prose("待判断")));
+            assert_eq!(row.rule_decision, RuleDecision::NeedsJudge, "{}", e.id);
+        }
+    }
+    #[test]
+    fn live_exit_distinguishes_unfinished_from_expectation_false() {
+        let e = entry("display-001");
+        let mut row = score(&e, &Identities::default(), &observed(prose("待判断")));
+        assert_eq!(exit_code(&[row.clone()]), 2);
+        row.expectation_met = Some(false);
+        row.judgment_source = "judge".into();
+        assert_eq!(exit_code(&[row.clone()]), 1);
+        row.expectation_met = Some(true);
+        assert_eq!(exit_code(&[row]), 0);
+        assert_eq!(
+            serde_json::to_value(RuleDecision::NeedsJudge).unwrap(),
+            json!("needs_judge")
+        );
     }
 }

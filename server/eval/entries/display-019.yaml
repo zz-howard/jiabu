@@ -1,25 +1,65 @@
+---
 schema_version: 2
-id: "display-019"
-locale: "zh-Hans"
-category: "display"
-today: "2026-10-21"
-timezone: "Asia/Shanghai"
-input: {text: "只用一句话告诉我本月总支出，不要用卡片或图表。"}
+id: display-019
+locale: zh-Hans
+category: display
+today: '2026-10-21'
+timezone: Asia/Shanghai
+input:
+  text: 只用一句话告诉我本月总支出，不要用卡片或图表。
 setup:
-  currency: "CNY"
+  currency: CNY
   accounts:
-    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
-    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+  - key: bank
+    kind: real
+    name: 虚构银行卡
+    opening_on: '2026-01-01'
+  - key: daily
+    kind: purpose
+    name: 虚构日常
+    opening_on: '2026-01-01'
   records:
-    - key: "expense"
-      record: {operation: "create", kind: "expense", amount_minor: 6800, currency: "CNY", occurred_on: "2026-10-01", account: "bank", purpose: "daily", preset_key: "dining"}
+  - key: expense
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 6800
+      currency: CNY
+      occurred_on: '2026-10-01'
+      account: bank
+      purpose: daily
+      preset_key: dining
 expect:
-  behavior: "no_write"
+  behavior: no_write
   hard: false
   records: []
   display:
     hard: true
-    calls: []
-    blocks: []
-    fallback_contains: ["本月总支出 68.00 元"]
-    prose: {max_sentences: 1, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}
+    alternatives:
+    - id: prose
+      calls: []
+      blocks: []
+      facts:
+      - kind: aggregate
+        label: 本月总支出
+        value_minor: 6800
+      source_calls:
+      - tool: query_stats
+        args:
+          measure: sum
+          kinds:
+          - expense
+          period:
+            from: '2026-10-01'
+            through: '2026-10-31'
+          group_by:
+          filters:
+            account_id:
+            purpose_id:
+            tag_id:
+            member_id:
+    prose:
+      max_sentences: 1
+      forbid_mermaid: true
+      forbid_ascii_chart: true
+      max_table_rows: 5

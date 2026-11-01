@@ -1,7 +1,8 @@
 use ai_eval::{dataset, fixture::Scenario, report, scoring};
 use anyhow::{Context, Result};
 #[tokio::test]
-async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percent() -> Result<()> {
+async fn full_mock_suite_uses_real_pg_agent_worker_without_claiming_model_expectations()
+-> Result<()> {
     let root = ai_eval::dataset_root();
     let entries = dataset::load(&root)?;
     let scratch = std::env::var("DATABASE_URL").context("DATABASE_URL")?;
@@ -9,7 +10,7 @@ async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percen
     for e in entries {
         let scenario = Scenario::new(&e, &root, &scratch, None, None).await?;
         let name = scenario.f.test.name.clone();
-        let row = scenario.evaluate(&e).await?;
+        let (row, input) = scenario.evaluate_with_judge_input(&e).await?;
         assert!(
             row.hard_pass && row.behavior_pass && row.records_pass,
             "{} {:?}",
@@ -17,12 +18,13 @@ async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percen
             row.reasons
         );
         if e.expect.display.is_some() {
-            assert!(
-                row.display_pass && row.prose_pass,
-                "{} {:?}",
-                row.id,
-                row.reasons
+            let input = input.context("complete display evidence")?;
+            assert_eq!(
+                input.test_reference["fixture_identities"]["accounts"],
+                serde_json::to_value(&scenario.ids.accounts)?
             );
+            assert_eq!(row.expectation_met, None);
+            assert_eq!(row.rule_decision, scoring::RuleDecision::NeedsJudge);
         }
         for c in [&row.amount, &row.date, &row.category_accuracy] {
             if c.total > 0 {
@@ -33,18 +35,16 @@ async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percen
             .expect
             .display
             .as_ref()
-            .map_or(0, |display| display.expected_invalid_calls);
+            .map_or(0, |display| display.alternatives[0].expected_invalid_calls);
         assert_eq!(
             row.tools.total - row.tools.correct,
             expected_invalid,
             "{}",
             row.id
         );
-        let expected_business_errors = e
-            .expect
-            .display
-            .as_ref()
-            .map_or(0, |display| display.expected_business_errors);
+        let expected_business_errors = e.expect.display.as_ref().map_or(0, |display| {
+            display.alternatives[0].expected_business_errors
+        });
         assert_eq!(row.business_errors, expected_business_errors, "{}", row.id);
         rows.push(row);
         drop(scenario);
@@ -57,9 +57,39 @@ async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percen
         assert!(!exists, "temporary database leaked");
         pool.close().await;
     }
-    assert_eq!(scoring::exit_code(&rows), 0);
+    assert_eq!(
+        scoring::exit_code(&rows),
+        2,
+        "unjudged model expectations remain unfinished"
+    );
+    let non_display = rows
+        .iter()
+        .filter(|row| row.category != "display")
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(scoring::exit_code(&non_display), 0);
     let dir = std::env::temp_dir().join(format!("jiabu-eval-report-{}", uuid::Uuid::now_v7()));
-    report::write(&dir, &rows)?;
+    report::write(&dir, &non_display)?;
+    let display_rows = rows
+        .iter()
+        .filter(|row| row.category == "display")
+        .cloned()
+        .collect::<Vec<_>>();
+    let ids = display_rows
+        .iter()
+        .map(|row| row.id.clone())
+        .collect::<Vec<_>>();
+    report::write_expectations(
+        &dir.join("display-expectations"),
+        &display_rows,
+        &ids,
+        true,
+        true,
+        false,
+    )?;
+    let display_summary = std::fs::read_to_string(dir.join("display-expectations/summary.csv"))?;
+    assert!(display_summary.contains("\"expectation_met\",\"0\""));
+    assert!(display_summary.contains("\"expectation_not_met\",\"0\""));
     let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
     for metric in [
         "amount_precision",
@@ -68,9 +98,6 @@ async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percen
         "question_precision",
         "question_recall",
         "ambiguous_date_recall",
-        "display_tool_accuracy",
-        "display_block_accuracy",
-        "display_value_accuracy",
     ] {
         assert!(summary.contains(&format!("\"{metric}\",\"1\"")), "{metric}");
     }
@@ -93,8 +120,71 @@ async fn binary_mock_entry_point_emits_csv_and_success_exit_status() -> Result<(
         "mock CLI failed (output suppressed)"
     );
     let results = std::fs::read_to_string(dir.join("results.csv"))?;
-    assert_eq!(results.lines().count(), 85);
+    assert_eq!(results.lines().count(), 65);
+    let display = std::fs::read_to_string(dir.join("display-expectations/results.csv"))?;
+    assert_eq!(display.lines().count(), 21);
+    assert!(display.contains("mock_pipeline_completed"));
+    assert!(!display.contains("display_pass"));
+    assert!(!display.contains("clear_natural_expression"));
     assert!(dir.join("summary.csv").is_file());
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn binary_case_selection_runs_only_requested_cases_and_rejects_bad_ids() -> Result<()> {
+    let dir = std::env::temp_dir().join(format!("jiabu-eval-selected-{}", uuid::Uuid::now_v7()));
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ai-eval"))
+        .args([
+            "--provider",
+            "mock",
+            "--category",
+            "display",
+            "--case-ids",
+            "display-020,display-014",
+            "--out",
+        ])
+        .arg(&dir)
+        .output()
+        .await?;
+    assert!(
+        output.status.success(),
+        "selected Mock CLI failed (output suppressed)"
+    );
+    let results = std::fs::read_to_string(dir.join("results.csv"))?;
+    let ids = results
+        .lines()
+        .skip(1)
+        .map(|line| line.split(',').next().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["\"display-014\"", "\"display-020\""]);
+    assert_eq!(std::fs::read_dir(dir.join("evidence"))?.count(), 4);
+    for invalid in [
+        "",
+        "display-014,display-014",
+        "display-014,unknown",
+        "display-014,",
+    ] {
+        let bad_dir = dir.join(uuid::Uuid::now_v7().to_string());
+        let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_ai-eval"))
+            .args([
+                "--provider",
+                "mock",
+                "--category",
+                "display",
+                "--case-ids",
+                invalid,
+                "--out",
+            ])
+            .arg(&bad_dir)
+            .output()
+            .await?;
+        assert_eq!(output.status.code(), Some(2));
+        assert!(
+            !bad_dir.exists(),
+            "bad selector must fail before evaluation/reporting"
+        );
+    }
     std::fs::remove_dir_all(dir)?;
     Ok(())
 }

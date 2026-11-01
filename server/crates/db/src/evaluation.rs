@@ -15,10 +15,10 @@ impl SpaceTx {
             [space.0.into()])).await?.ok_or_else(|| DbErr::Custom("evaluation state missing".into()))?;
         row.try_get("", "data")
     }
-    /// Member and run scope match journal/calls; no credentials or model text.
+    /// Member and run scope match journal/calls; no credentials or model output text.
     pub async fn evaluation_calls(&self, space: SpaceId, run: Uuid) -> Result<Vec<Value>, DbErr> {
         self.tx.query_all_raw(Statement::from_sql_and_values(DbBackend::Postgres,
-            "select jsonb_build_object('call_kind',c.call_kind,'cached_input_tokens',c.cached_input_tokens,'cache_write_tokens',c.cache_write_tokens,'uncached_input_tokens',c.input_tokens-c.cached_input_tokens-c.cache_write_tokens,'cost_usd',c.cost_usd::text,'latency_ms',c.latency_ms,'outcome',c.outcome) data from ai_calls c join agent_runs r on r.id=c.run_id where r.space_id=$1 and r.member_id=$2 and r.id=$3 order by c.id",
+            "select jsonb_build_object('provider_id',c.provider_id,'model',c.model,'call_kind',c.call_kind,'cached_input_tokens',c.cached_input_tokens,'cache_write_tokens',c.cache_write_tokens,'uncached_input_tokens',c.input_tokens-c.cached_input_tokens-c.cache_write_tokens,'cost_usd',c.cost_usd::text,'latency_ms',c.latency_ms,'outcome',c.outcome) data from ai_calls c join agent_runs r on r.id=c.run_id where r.space_id=$1 and r.member_id=$2 and r.id=$3 order by c.id",
             vec![space.0.into(),self.member(space).id().0.into(),run.into()])).await?.into_iter().map(|r| r.try_get("", "data")).collect()
     }
     /// Stream events committed in the same transaction as a display tool result.

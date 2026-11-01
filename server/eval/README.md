@@ -102,19 +102,23 @@ expect:
 
 ## 数据格式 v2：genUI 展示
 
-v2 只用于 `category: display`，并保留与 v1 相同的 `input/setup` 结构。展示样例固定为
-`behavior: no_write` 且 `records: []`，因此任何账本写入、追问、确认或非完成终态都会使硬标准失败。
-`expect.display.hard` 在执行前声明；当前 20 条的组件选择、事实数值、能力降级、演示标记和安全
-约束都是硬标准，句式偏好仍单独体现在 prose 指标中。
+v2 只用于 `category: display`，保留与 v1 相同的 `input/setup` 结构。
+当前展示评测使用 `expectation-v1`：只判断回复是否满足原始用户请求和虚构账本事实，
+除用户明确要求外，不评价自然度、赘述、句数或内部组件偏好。`tier` 仅用于描述样例，不能直接判通过或绕开 Judge。
 
-每条样例可声明 `tier: core|integration|stress`，省略时为 `core`。`core` 测用户可合理
-指定的稳定行为，`integration` 测客户端能力降级等跨层契约，`stress` 测合成歧义或指令冲突。
-报告分别汇总各 tier；本切片不改变既有 hard pass 或 CLI 退出规则。
+规则返回 `pass/fail/needs_judge`。只有完整确定的契约才能直接 pass；可证明的写入、非法参数、
+不支持的持久组件或对象引用冲突可以直接 fail。自由文字金额/标签匹配、工具顺序、展示选择
+和模糊的支出/退款口径不作为硬反证；无法确定的交 AI Judge。现有 20 条均包含自然语言要求，
+通过协议检查后仍须 Judge。旧 alternatives/prose 字段保留供 Mock 和历史诊断使用，
+不得把旧精确匹配或内部 max_sentences 偏好当作新版本的判分条件。
 
-展示评分将组件选择、查询语义、参数合法性、最终 block、事实值和 prose 分层报告。
-等价的 direct query 与成功的 `query_stats/search_records -> from_call` 共用同一查询语义；
-数据集不应为了锁定传输路径而预注册任意一种等价轨迹。查询无法解析或引用失败时标为
-`not_assessable`，单独计数且不会让 hard pass 变绿。证据只导出有界、脱敏的规范字段。
+Judge 输入将独立测试 reference 与 actual candidate 分开：reference 包含虚构 setup、
+执行前记录和事实集合；candidate 包含实际可见文字、完整持久组件、真实读取调用及余额证据。
+固定 today/timezone/as_of（当日 UTC 12:00）、币种和 minorUnits/format 均保留。
+组件 fallback 与服务端降级证据单列，不当作额外可见回复。账户卡只有引用、名称和版本，
+不得凭空注入余额；缺失完整快照或关键输入是基础设施未完成。
+
+数据字段示例（prose 字段只兼容历史数据，不参与 expectation-v1 判分）：
 
 ```yaml
 schema_version: 2
@@ -136,41 +140,31 @@ expect:
   records: []
   display:
     hard: true
-    expected_invalid_calls: 0
-    expected_business_errors: 0
-    source_calls: [] # 可选：先执行 query_stats/search_records，供 from_call 复用
-    calls:
-      - {tool: show_metrics, args: {source: {query: null, from_call: null, demo: monthly_spending}}}
-    blocks:
-      - {kind: metric_group, labels: [餐饮, 居家, 购物, 交通, 其他], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
-    fallback_contains: ["【演示数据】"]
-    server_fallback_contains: ["【演示数据】"]
+    alternatives:
+      - id: metrics
+        expected_invalid_calls: 0
+        expected_business_errors: 0
+        source_calls: [] # 可选：先执行读取，供 from_call 或纯文字证据复用
+        calls:
+          - {tool: show_metrics, args: {source: {query: null, from_call: null, demo: monthly_spending}}}
+        blocks:
+          - {kind: metric_group, labels: [餐饮, 居家, 购物, 交通, 其他], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
+        fallback_contains: ["【演示数据】"]
+        server_fallback_contains: ["【演示数据】"]
+        facts:
+          - {kind: aggregate, label: 餐饮, value_minor: 142000}
     prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5, forbid_numeric_restatement: true}
 ```
 
-- `source_calls` 是可选的精确有序 `query_stats` / `search_records` 前置调用；`calls` 是精确有序展示
-  工具调用。评分同时核对工具名和完整参数，额外、重复、错序、错误期间/分组/账户/demo 均失败。
-  `calls` 可用 `$call:source-0` 断言 `from_call` 必须引用对应前置调用；`$account:<alias>` 会展开为
-  setup 中的真实 UUID。
-- `blocks` 是最终持久化 checkpoint 中的精确有序非 Markdown 组件序列；额外或重复组件不会被忽略。
-  比较 `metric/metric_group/dataset/time_series/breakdown/category_series/x-jiabu.account_card`
-  的服务端事实视图，而不是从生产 mapper 反推期望值。
-- `labels` 与 `values_minor` 来自数据集明确写下的虚构事实。金额一律用整数最小货币单位；趋势图
-  在协议中使用元时，评分器只做确定性的 ×100 还原。账户卡同时核对真实账户 UUID 与 setup 名称，
-  余额则由 `fallback_contains` 核对服务端拥有的 fallback，因为账户卡组件故意不携带余额。
-- `client_capabilities` 会在 enqueue 时冻结。受限客户端必须产生声明的降级组件，或在完全不支持
-  组件时只保留服务端 Markdown fallback；不支持的组件不得持久化。
-- `server_fallback_contains` 只检查由对应展示工具结果映射并实际持久化的服务端 fallback，模型 Markdown
-  不能冒充；`fallback_contains` 用于明确允许由最终文字回答满足的 no-data/错误兜底断言。
-- 演示组件必须有显式 `source.demo`，标题/fallback 必须带「【演示数据】」；无数据样例不得用
-  demo 冒充。`expected_invalid_calls/business_errors` 只用于一条故意触发参数校验并验证文字兜底的样例。
-- prose 只检查模型生成的 Markdown block，不把组件自带 fallback 当作模型赘述；Mermaid、连续三行
-  字符/ASCII 柱图及超过五个数据行的表格是硬安全约束。`max_sentences` 与
-  `forbid_numeric_restatement` 是单独报告、不改变进程退出码的软风格指标。
+- `source_calls` / `calls` / `blocks` / `facts` 为合成 Mock 和独立事实 reference 提供数据，
+  不强制真实回复照搬某条工具路径或组件方案。金额使用整数最小货币单位。
+- `client_capabilities` 在 enqueue 时冻结；Judge 看到与实际 Scenario 相同的有效能力。
+- `server_fallback_contains`、`fallback_contains`、`prose` 仍可用于历史诊断，不能替代原始用户要求。
 
 ## 隔离与提供方
 
-每条样例新建一个临时数据库，完整迁移、种子数据、独立用户/空间/会话；默认顺序跑。
+每条样例新建一个临时数据库，完整迁移、种子数据、独立用户/空间/会话；默认最多两条并发，可用 `--jobs 1` 顺序复现，`--jobs` 仅接受 1 或 2。
+Live 校准先单独完成，再调度样例；每条需要 Judge 的样例的三票 Judge 仍按原顺序逐票执行。结果始终按语料原顺序汇总，完成先后不改变 CSV 顺序。首次观察到基础设施错误（含结果写入或 worker 错误）后停止派发新样例，等待已开始样例正常收尾后退出 2；展示报告保留所有预期 ID，未完成项明确标为基础设施未完成，不能当作整套结果。不会主动取消已开始样例，以避免初始化中途取消留下测试库。
 复用 `tests/support/mod.rs::TestDb` 与 `tests/support/agent.rs::Fixture`，沿用原 runtime 测试的
 搭法。原测试名、脚本、断言不变。TestDb 有清理 Drop（正常错误和 unwind 均清理；强制杀进程
 需人工清掉 `jiabu_test_*`）。PG18 超级用户 URL 必须指向已有可丢弃集群，带
@@ -201,51 +195,57 @@ cargo run -p ai-eval -- --provider mock --out eval/results/2026-10-29-mock
 # DATABASE_URL 是现有 SIWC 配置/凭据源库的应用角色 URL；
 # EVAL_DATABASE_URL 是另一个可丢弃 PG18 集群的超级用户 URL。
 cargo run -p ai-eval --features live -- \
-  --provider live --out eval/results/2026-10-29-live
+  --provider live --judge-model <已启用的精确模型名或模型 UUID> \
+  --out eval/results/2026-10-29-live
 
 # 可用 --database-url 显式指定 live 源库，--scratch-database-url 显式指定 scratch。
 # 不在 shell 历史或报告中粘贴真实凭据。--dataset 可指定另一份格式兼容的数据目录。
 ```
 
+需要单独补齐未完成样例时，使用新的输出目录并显式选 ID，例如：
+
+```bash
+cargo run -p ai-eval --features live -- --provider live \
+  --judge-model gpt-6.1-sol --category display \
+  --case-ids display-014,display-017,display-018,display-019,display-020 \
+  --jobs 2 --out eval/results/expectation-recovery
+```
+
+`--case-ids` 在完整语料加载和校验、category 筛选之后生效，始终保留语料原顺序。
+拒绝空项、重复、未知或被 category 排除的 ID。不会重跑其他已完成样例，也不改变 Judge
+或请求内重试策略。补跑是独立批次：保留原始结果、未完成票据和两个源码版本，不能冒充一次完整运行。
+
 凭据、连接 URL、原始请求、模型文字和上游错误正文均不写 CSV 或日志。
 CLI 仅输出样例 ID 和固定错误码；配置/数据错误也不格式化底层异常。
 
-## CSV 与评分
+Live 启动时先用显式 `--judge-model` 绑定已加载配置中的唯一 enabled 模型和 provider，
+没有静默 fallback。先运行校准，再对 `needs_judge` 样例进行三次独立调用并取 2/3 多数。
+每票严格只有 `{"expectation_met": bool}`，不含质量维度、理由或 review 状态。
+Mock 不调用 Judge，也不能报告模型符合预期。
+Transport、超时、缺 usage、缺票或非法 schema 都是基础设施未完成，不折算为 true/false。
+仅原始 Transport 且尚无任何输出或 usage 时，对同一请求最多重试一次；两次共享原有每票
+120 秒期限，成功票不会重采样。认证/额度/限流/格式错误及部分输出不重试。
+每个闭合 bool 票立即保存，后续失败时仍保留已完成票；usage 只在进程内校验，不写报告。
 
-结果提交到 `server/eval/results/<日期>-<提供方>/`，例如 `2026-10-29-live/`。
-每完成一条覆盖写出当前 results/summary，硬失败继续跑，最后在 stderr 列出失败 ID。
-`0` = 没有硬失败，`1` = 存在硬失败，`2` = 配置/数据/基础设施错误（包括缺图）。
-软准确率不设退出门槛，luna.coco 逐条评审真实失败项后再决定提示词调整。
+## 报告与证据
 
-`results.csv` 每条一行：身份、期望/实际行为、终态、hard/hard_pass、行为/记录检查、
-展示 hard/pass、工具序列/组件序列/事实值的正确数与分母、prose 检查、确认前未写入、
-金额/日期/分类/工具的正确数及分母和比率、业务错误次数、延迟、成本、失败原因。
-`calls_json` 为按调用顺序排列的 JSON 数组，各项只有调用种类、缓存读取/写入 token、未缓存输入
-token、成本（USD 十进制字符串）、调用延迟与 outcome。未缓存输入沿用现有口径
-`input_tokens - cached_input_tokens - cache_write_tokens`，未知为 null。
+展示结果使用独立 `expectation-v1` CSV：每个预期样例一行，包含执行状态、
+`expectation_met`、规则/Judge 来源、规则理由码、Judge 模型快照、self-judge 和三票布尔值。
+混合语料时，根目录仅输出非 display 旧结果，展示结果位于 `display-expectations/`。
+不含旧质量、prose 或 display_pass 列。summary 只汇总符合/不符合/基础设施未完成及来源。
+Mock 单列为 pipeline 验证，符合/不符合计数均为零。旧历史报告保持原样。
+`0` = 全部完成且符合预期（Mock 为 pipeline 完成），`1` = 已判定不符合，
+`2` = 配置、数据或基础设施未完成；未完成优先于不符合退出码。
 
-行为以持久 interrupt 和运行终态判定，不靠模型文字。
-含糊日期/信息不足必须真正暂停于 ask_user 且没有任何业务变更；先写后撤仍失败。
-确认类必须出现**对应目标和操作**的确认卡，确认前所有实体事件和记录均与基线一致，
-确认后完成且目标写入正确。错误暂停、失败或中断不能通过硬标准。
+默认在 `--out/evidence`（可用 `--evidence-dir` 指定）保存虚构回复、完整组件、
+独立 Judge 输入和每票 bool。目录 0700、文件 0600，已存在文件拒绝覆写。
+证据只允许声明的合成字段，拒绝凭据、URL、headers、provider blob 和 reasoning；
+CSV/日志不含原始请求、回复、secret 或上游错误正文。使用新的输出目录保存每一版本。
 
-每条新增实体审计事件都纳入观测，非记录业务写入也被识别；实际字段从 SpaceTx 的最终记录读取。
-多笔使用确定性最小成本一对一匹配：旧记录绑定目标身份，新增先最大化完整匹配数，再最小化
-声明字段差异，固定升序打破平局。种类/操作/账户/用途/退款父身份参与完整匹配；
-金额与币种精确匹配，日期按公历日期，分类按真实预置标签身份集合。省略字段不计分。
-缺失记录保留在期望分母，额外记录同时增加各准确率分母；重复写入、额外操作不能被忽略。
-
-工具参数合法率覆盖**每个模型投递的工具调用**（包括 journal 提交前被拒绝者）：
-评测包装器复用工具 typed/schema 校验与 AskArgs::check，只保留总数和合法数，不留参数正文。
-业务校验失败另计，不当作参数 schema 错误。无工具调用的分母为 0，不冒充合法率 100%。
-
-`summary.csv` 是 `metric,value,numerator,denominator`：工具合法率、金额精确率、日期/分类准确率、
-展示工具序列/组件序列/事实值准确率、
-追问精确率 TP/(TP+FP)、召回率 TP/(TP+FN)、含糊日期子集召回率、nearest-rank P50/P95 延迟、
-平均成本、未知成本数、硬失败数及追问混淆矩阵计数。确认卡不算追问。
-比率为 0–1，分母为 0 时 value 留空；成本缺用量或费率也留空。全集任一成本未知则全集均值留空。
-临时库沿用 RuntimeMeter 的 PostgreSQL numeric 计费；Mock 使用明确的合成零费率。
-延迟排除建库/迁移/setup，包含提交、worker 和即时自动确认。
+原有非 display 的 64 条记账/追问场景继续使用原行为/记录/金额等确定性评分。
+含糊日期必须真正暂停且零写入，确认类须对应目标、确认前零写入、确认后正确完成。
+匹配使用最小成本一对一配对，绑定目标和退款等对象身份，额外/重复写入不能忽略。
+本切片不改变这些原有用例的语义。
 
 ## 离线测试与在线冒烟
 

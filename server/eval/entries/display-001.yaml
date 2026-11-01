@@ -1,87 +1,194 @@
+---
 schema_version: 2
-id: "display-001"
-locale: "zh-Hans"
-category: "display"
-today: "2026-10-21"
-timezone: "Asia/Shanghai"
+id: display-001
+locale: zh-Hans
+category: display
+today: '2026-10-21'
+timezone: Asia/Shanghai
 input:
-  text: "给我看看本月支出分布，只展示一次，不要再用文字重复列数字。金额均为人民币。"
+  text: 本月的钱主要花在哪些用途上？
 setup:
-  currency: "CNY"
+  currency: CNY
   accounts:
-    -
-      key: "bank"
-      kind: "real"
-      name: "虚构招行卡"
-      opening_on: "2026-01-01"
-    -
-      key: "daily"
-      kind: "purpose"
-      name: "虚构日常"
-      opening_on: "2026-01-01"
-    -
-      key: "saving"
-      kind: "purpose"
-      name: "虚构储备"
-      opening_on: "2026-01-01"
+  - key: bank
+    kind: real
+    name: 虚构招行卡
+    opening_on: '2026-01-01'
+  - key: daily
+    kind: purpose
+    name: 虚构日常
+    opening_on: '2026-01-01'
+  - key: saving
+    kind: purpose
+    name: 虚构储备
+    opening_on: '2026-01-01'
   records:
-    -
-      key: "oct-daily"
-      record:
-        operation: "create"
-        kind: "expense"
-        amount_minor: 6800
-        currency: "CNY"
-        occurred_on: "2026-10-01"
-        account: "bank"
-        purpose: "daily"
-        preset_key: "dining"
-    -
-      key: "oct-saving"
-      record:
-        operation: "create"
-        kind: "expense"
-        amount_minor: 3200
-        currency: "CNY"
-        occurred_on: "2026-10-02"
-        account: "bank"
-        purpose: "saving"
-        preset_key: "shopping"
+  - key: oct-daily
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 6800
+      currency: CNY
+      occurred_on: '2026-10-01'
+      account: bank
+      purpose: daily
+      preset_key: dining
+  - key: oct-saving
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 3200
+      currency: CNY
+      occurred_on: '2026-10-02'
+      account: bank
+      purpose: saving
+      preset_key: shopping
 expect:
-  behavior: "no_write"
+  behavior: no_write
   hard: false
   records: []
   display:
     hard: true
-    calls:
-      -
-        tool: "show_breakdown"
+    alternatives:
+    - id: breakdown
+      calls:
+      - tool: show_breakdown
         args:
           source:
             query:
-              measure: "sum"
-              kinds: ["expense"]
+              measure: sum
+              kinds:
+              - expense
               period:
-                from: "2026-10-01"
-                through: "2026-10-31"
-              group_by: "purpose"
-              account_id: null
-              purpose_id: null
-              tag_id: null
-              member_id: null
-            from_call: null
-            demo: null
-    blocks:
-      -
-        kind: "breakdown"
-        labels: ["虚构日常", "虚构储备"]
-        values_minor: [6800, 3200]
-        account: null
+                from: '2026-10-01'
+                through: '2026-10-31'
+              group_by: purpose
+              account_id:
+              purpose_id:
+              tag_id:
+              member_id:
+            from_call:
+            demo:
+      blocks:
+      - kind: breakdown
+        labels:
+        - 虚构日常
+        - 虚构储备
+        values_minor:
+        - 6800
+        - 3200
+        account:
         demo: false
-    fallback_contains: []
+      fallback_contains: []
+      facts:
+      - kind: aggregate
+        label: 虚构日常
+        value_minor: 6800
+      - kind: aggregate
+        label: 虚构储备
+        value_minor: 3200
+    - id: bars
+      calls:
+      - tool: show_bar_chart
+        args:
+          source:
+            query:
+              measure: sum
+              kinds:
+              - expense
+              period:
+                from: '2026-10-01'
+                through: '2026-10-31'
+              group_by: purpose
+              account_id:
+              purpose_id:
+              tag_id:
+              member_id:
+            from_call:
+            demo:
+      blocks:
+      - kind: category_series
+        labels:
+        - 虚构日常
+        - 虚构储备
+        values_minor:
+        - 6800
+        - 3200
+        account:
+        demo: false
+      fallback_contains: []
+      facts:
+      - kind: aggregate
+        label: 虚构日常
+        value_minor: 6800
+      - kind: aggregate
+        label: 虚构储备
+        value_minor: 3200
+    - id: metrics
+      calls:
+      - tool: show_metrics
+        args:
+          source:
+            query:
+              measure: sum
+              kinds:
+              - expense
+              period:
+                from: '2026-10-01'
+                through: '2026-10-31'
+              group_by: purpose
+              account_id:
+              purpose_id:
+              tag_id:
+              member_id:
+            from_call:
+            demo:
+      blocks:
+      - kind: metric_group
+        labels:
+        - 虚构日常
+        - 虚构储备
+        values_minor:
+        - 6800
+        - 3200
+        account:
+        demo: false
+      fallback_contains: []
+      facts:
+      - kind: aggregate
+        label: 虚构日常
+        value_minor: 6800
+      - kind: aggregate
+        label: 虚构储备
+        value_minor: 3200
+    - id: prose
+      source_calls:
+      - tool: query_stats
+        args:
+          measure: sum
+          kinds:
+          - expense
+          period:
+            from: '2026-10-01'
+            through: '2026-10-31'
+          group_by: purpose
+          filters:
+            account_id:
+            purpose_id:
+            tag_id:
+            member_id:
+      calls: []
+      blocks: []
+      fallback_contains: []
+      facts:
+      - kind: aggregate
+        label: 虚构日常
+        value_minor: 6800
+      - kind: aggregate
+        label: 虚构储备
+        value_minor: 3200
     prose:
       max_sentences: 2
       forbid_mermaid: true
       forbid_ascii_chart: true
       max_table_rows: 5
-      forbid_numeric_restatement: true

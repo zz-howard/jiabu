@@ -3,7 +3,7 @@ use crate::{
     audit::{AuditedProvider, ToolAudit},
     dataset::{Behavior, Entry},
     mock::{self, Identities},
-    scoring::{Observation, ResultRow, score},
+    scoring::{BalanceResult, Observation, ResultRow, score},
     support,
 };
 use anyhow::{Context, Result, ensure};
@@ -38,7 +38,7 @@ pub struct Scenario {
     pub capabilities: ClientCapabilities,
 }
 struct Images(BTreeMap<String, String>);
-fn capabilities(e: &Entry) -> ClientCapabilities {
+pub(crate) fn capabilities(e: &Entry) -> ClientCapabilities {
     if let Some(spec) = &e.client_capabilities {
         ClientCapabilities {
             protocol_versions: ["0.1".to_owned()].into_iter().collect(),
@@ -308,7 +308,23 @@ impl Scenario {
         .await?;
         let journal = tx.journal(self.f.space, run.id).await?;
         let call_rows = tx.calls(self.f.space, run.id).await?;
-        let calls = tx.evaluation_calls(self.f.space, run.id).await?;
+        let mut calls = tx.evaluation_calls(self.f.space, run.id).await?;
+        let tested_models = calls
+            .iter()
+            .filter_map(|call| {
+                Some(format!(
+                    "{}/{}",
+                    call["provider_id"].as_str()?,
+                    call["model"].as_str()?
+                ))
+            })
+            .collect::<BTreeSet<_>>();
+        for call in &mut calls {
+            if let Some(call) = call.as_object_mut() {
+                call.remove("provider_id");
+                call.remove("model");
+            }
+        }
         let display_events = tx.evaluation_display_events(self.f.space, run.id).await?;
         let final_state = tx.evaluation_state(self.f.space).await?;
         tx.commit().await?;
@@ -327,6 +343,31 @@ impl Scenario {
         let tool_results = call_rows
             .into_iter()
             .map(|call| (call.call_id, call.status == "succeeded"))
+            .collect();
+        let balance_results = journal
+            .iter()
+            .filter(|item| item.kind == "tool_result")
+            .filter_map(|item| {
+                let call_id = item.call_id.as_ref()?;
+                tool_calls.iter().find(|call| {
+                    call["call_id"].as_str() == Some(call_id.as_str())
+                        && call["tool"] == "query_balance"
+                })?;
+                let output = &item.payload["output"];
+                let currency = output["currency"].as_str()?.to_owned();
+                let mut balances = output["balances"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(|balance| {
+                        Some((
+                            balance["account_id"].as_str()?.to_owned(),
+                            balance["balance_minor"].as_i64()?,
+                        ))
+                    })
+                    .collect::<Vec<_>>();
+                balances.sort();
+                Some((call_id.clone(), BalanceResult { currency, balances }))
+            })
             .collect();
         let blocks = checkpoint.message.0["blocks"]
             .as_array()
@@ -381,6 +422,7 @@ impl Scenario {
             message: checkpoint.message.0,
             tool_calls,
             tool_results,
+            balance_results,
             display_audit: self
                 .audit
                 .display
@@ -392,6 +434,7 @@ impl Scenario {
             display_audit_discarded: self.audit.display_discarded.load(Ordering::Relaxed),
             server_fallbacks,
             calls,
+            tested_models,
             tool_total: self.audit.total.load(Ordering::Relaxed),
             tool_valid: self.audit.valid.load(Ordering::Relaxed),
             business_errors: journal
@@ -402,9 +445,28 @@ impl Scenario {
         })
     }
     pub async fn evaluate(&self, e: &Entry) -> Result<ResultRow> {
+        self.evaluate_with_judge_input(e).await.map(|value| value.0)
+    }
+    pub async fn evaluate_with_judge_input(
+        &self,
+        e: &Entry,
+    ) -> Result<(ResultRow, Option<crate::judge::JudgeInput>)> {
+        self.evaluate_with_capture(e, None).await
+    }
+    pub async fn evaluate_with_capture(
+        &self,
+        e: &Entry,
+        evidence_dir: Option<&Path>,
+    ) -> Result<(ResultRow, Option<crate::judge::JudgeInput>)> {
         let clock = Instant::now();
-        let message = self.submit(e).await?;
-        let mut timed_out = self.drive_scored(message).await?;
+        let message = self
+            .submit(e)
+            .await
+            .context(crate::diagnostic::Stage::Submit)?;
+        let mut timed_out = self
+            .drive_scored(message)
+            .await
+            .context(crate::diagnostic::Stage::Drive)?;
         let mut before = None;
         let mut confirmed = false;
         if e.expect.behavior == Behavior::ConfirmThenWrite
@@ -425,7 +487,8 @@ impl Scenario {
                 confirmed,
                 clock.elapsed().as_millis().min(u64::MAX as u128) as u64,
             )
-            .await?;
+            .await
+            .context(crate::diagnostic::Stage::Observe)?;
         let mut row = score(e, &self.ids, &obs);
         if timed_out {
             row.reasons.push("evaluation_timeout".into());
@@ -433,8 +496,29 @@ impl Scenario {
             if row.hard {
                 row.hard_pass = false;
             }
+            if e.category == "display" {
+                row.expectation_met = None;
+                row.judgment_source = "infrastructure".into();
+            }
         }
-        Ok(row)
+        let mut judge_input = crate::judge::JudgeInput::from_observation(e, &obs, &row);
+        if let Some(input) = &mut judge_input {
+            input.test_reference["fixture_identities"] =
+                json!({"accounts":self.ids.accounts,"tags":self.ids.tags});
+        }
+        if let Some(dir) = evidence_dir {
+            crate::evidence::write(
+                dir,
+                &e.id,
+                "observed",
+                &crate::evidence::capture(e, &obs, &row, judge_input.as_ref()),
+            )?;
+        }
+        if timed_out && e.category == "display" {
+            return Err(anyhow::Error::new(jiabu_ai::ProviderError::Timeout)
+                .context(crate::diagnostic::Stage::Drive));
+        }
+        Ok((row, judge_input))
     }
 }
 pub async fn state(f: &Fixture) -> Result<Value> {
