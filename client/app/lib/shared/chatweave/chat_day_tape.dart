@@ -5,9 +5,11 @@ import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 /// Local calendar day of a message; ChatWeave timestamps are UTC ISO 8601.
-DateTime? chatMessageDay(Message message) {
-  final at = DateTime.tryParse(message['createdAt'] as String? ?? '')
-      ?.toLocal();
+DateTime? chatMessageDay(Message message) =>
+    _localDay(message['createdAt'] as String?);
+
+DateTime? _localDay(String? createdAt) {
+  final at = DateTime.tryParse(createdAt ?? '')?.toLocal();
   return at == null ? null : DateTime(at.year, at.month, at.day);
 }
 
@@ -39,24 +41,47 @@ String chatDayLabel(DateTime day, DateTime now, AppLocalizations l) {
 /// list hands its builders one message at a time, so the breaks are computed
 /// once per store snapshot (snapshots are immutable maps) and looked up per
 /// message.
+///
+/// The chat holds a window of its history: when older messages are not
+/// loaded yet, `continuedId` names the window's oldest message and
+/// `continuesFrom` the creation time of the message just before it, so that
+/// message opens a day only if the day really starts there.
 class ChatDayBreaks {
   ChatDayBreaks(this.conversationId);
   final String conversationId;
   Map<String, Message>? _source;
+  String? _continuedId;
+  String? _continuesFrom;
   var _starts = const <String, DateTime>{};
 
-  DateTime? dayStartedBy(Map<String, Message> messages, String id) {
-    if (!identical(messages, _source)) {
+  DateTime? dayStartedBy(
+    Map<String, Message> messages,
+    String id, {
+    String? continuedId,
+    String? continuesFrom,
+  }) {
+    if (!identical(messages, _source) ||
+        continuedId != _continuedId ||
+        continuesFrom != _continuesFrom) {
       _source = messages;
-      _starts = dayStarts(messages.values, conversationId);
+      _continuedId = continuedId;
+      _continuesFrom = continuesFrom;
+      _starts = dayStarts(
+        messages.values,
+        conversationId,
+        continuedId: continuedId,
+        continuesFrom: continuesFrom,
+      );
     }
     return _starts[id];
   }
 
   static Map<String, DateTime> dayStarts(
     Iterable<Message> messages,
-    String conversationId,
-  ) {
+    String conversationId, {
+    String? continuedId,
+    String? continuesFrom,
+  }) {
     final ordered =
         messages.where((m) => m['conversationId'] == conversationId).toList()
           ..sort(
@@ -66,7 +91,11 @@ class ChatDayBreaks {
           );
     final starts = <String, DateTime>{};
     DateTime? last;
+    final before = _localDay(continuesFrom);
     for (final message in ordered) {
+      if (message.id == continuedId && before != null) {
+        last = before;
+      }
       final day = chatMessageDay(message);
       if (day != null && day != last) {
         starts[message.id] = day;

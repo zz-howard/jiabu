@@ -6,14 +6,14 @@ import 'package:jiabu/data/db/database.dart';
 import 'package:jiabu/data/db/tables.dart';
 
 void main() {
-  test('schema_v2_reopens_and_every_business_table_has_space_id', () async {
+  test('schema_v3_reopens_and_every_business_table_has_space_id', () async {
     final directory = await Directory.systemTemp.createTemp(
       'jiabu-migrations-',
     );
     final file = File('${directory.path}/schema.db');
     final first = JiabuDatabase(NativeDatabase(file));
     await first.customSelect('SELECT * FROM sync_runtime').get();
-    expect(first.schemaVersion, 2);
+    expect(first.schemaVersion, 3);
     await first.close();
     final reopened = JiabuDatabase(NativeDatabase(file));
     addTearDown(() async {
@@ -25,7 +25,7 @@ void main() {
           .data
           .values
           .single,
-      2,
+      3,
     );
     expect(
       (await reopened.customSelect('PRAGMA integrity_check').getSingle())

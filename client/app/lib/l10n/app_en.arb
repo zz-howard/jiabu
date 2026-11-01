@@ -468,6 +468,7 @@
   "chatAlreadyRecorded": "This message has saved records. Review the record cards first.",
   "chatError": "Unable to finish. Please retry.",
   "chatOpening": "Opening chat",
+  "chatLoadingHistory": "Loading more messages",
   "chatLimit": "Up to 8 photos and 32 KB of text per message",
   "chatRemovePhoto": "Remove photo",
   "chatPhotoCount": "{count} photos selected",

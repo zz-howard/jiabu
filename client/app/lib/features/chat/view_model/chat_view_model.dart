@@ -220,6 +220,25 @@ class ChatViewModel extends _$ChatViewModel {
     );
   }
 
+  /// Extends the chat history window by one older page.
+  Future<void> loadOlder() => _page((session) => session.loadOlder());
+
+  /// Extends a jumped window by one newer page.
+  Future<void> loadNewer() => _page((session) => session.loadNewer());
+
+  Future<void> _page(
+    Future<Result<void>> Function(ChatConversation session) load,
+  ) async {
+    final session = state.conversation;
+    if (session == null) {
+      return;
+    }
+    // Success arrives through the session's changes; a failure is shown.
+    if (await load(session) case Failure(:final code) when ref.mounted) {
+      state = state.copyWith(error: code);
+    }
+  }
+
   Future<void> command(Future<Result<void>> Function() action) async {
     final result = await action();
     if (ref.mounted) {

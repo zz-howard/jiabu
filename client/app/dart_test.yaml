@@ -4,3 +4,6 @@ tags:
     # Real-server integration tests: only tool/server-it.sh runs them
     # (flutter test has no --preset, so they are skipped rather than excluded).
     skip: Run tool/server-it.sh
+  benchmark:
+    # Chat paging benchmark (#70): run with --run-skipped --tags benchmark.
+    skip: Run with --run-skipped --tags benchmark

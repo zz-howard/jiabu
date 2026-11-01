@@ -71,6 +71,75 @@ Map<String, Object?> chatRow(
   'fallback_text': message['fallbackText'],
 };
 
+/// Message [i] of a fictional timeline: even ones are mine, odd ones the
+/// assistant's reply to the one before, a minute apart from 2026-01-01.
+Message timelineMessage(
+  int i, {
+  String? text,
+  String status = 'complete',
+  int rev = 1,
+  int seq = 0,
+  String conversation = 'conversation',
+  String? createdAt,
+}) {
+  final body = text ?? '消息 $i';
+  return Message.fromJson({
+    'id': timelineId(i),
+    'protocolVersion': '0.1',
+    'conversationId': conversation,
+    'role': i.isEven ? 'user' : 'assistant',
+    'status': status,
+    'rev': rev,
+    'lastSeq': seq,
+    'createdAt':
+        createdAt ??
+        DateTime.utc(2026).add(Duration(minutes: i)).toIso8601String(),
+    'fallbackText': body,
+    'blocks': [
+      if (i.isOdd)
+        {
+          'id': 'text',
+          'type': 'markdown',
+          'schemaVersion': 1,
+          'status': status == 'complete' ? 'complete' : 'pending',
+          'data': {'text': body},
+          'fallbackText': body,
+        },
+    ],
+    if (i.isEven)
+      'metadata': {
+        'input': {'text': body, 'images': <String>[]},
+      },
+  });
+}
+
+String timelineId(int i) => 'msg-${i.toString().padLeft(5, '0')}';
+
+/// The local row for [message]; replies link to the message before them.
+Map<String, Object?> timelineRow(Message message, {String member = 'm'}) {
+  final i = int.parse(message.id.substring(4));
+  return {
+    ...chatRow(message, member: member),
+    if (i.isOdd) 'reply_to_id': timelineId(i - 1),
+  };
+}
+
+/// Writes messages [from] until [count] in one transaction.
+Future<void> seedTimeline(
+  ChatHarness h,
+  int count, {
+  int from = 0,
+  Message Function(int i)? message,
+}) => h.h.store.transaction(() async {
+  for (var i = from; i < count; i++) {
+    await h.h.store.putChatEntry(
+      's',
+      timelineRow(message?.call(i) ?? timelineMessage(i)),
+      authoritative: true,
+    );
+  }
+});
+
 class FakeChatApi implements ChatApi {
   bool offline = false;
   ApiError? failure;
@@ -212,6 +281,25 @@ class ChatHarness {
         now: () => h.clock,
       ),
     );
+  }
+
+  /// A second session on the same database, as opening the chat again does.
+  Future<LocalChatSession> open({
+    int? pageSize,
+    Future<void> Function()? sync,
+  }) async {
+    final opened = LocalChatSession(
+      dao: h.store,
+      api: api,
+      fence: (await h.store.fence('s'))!,
+      memberId: 'm',
+      caps: session.caps,
+      sync: sync ?? () async {},
+      media: session.media,
+      pageSize: pageSize ?? LocalChatSession.defaultPageSize,
+    );
+    await opened.initialize();
+    return opened;
   }
 
   Future<String> owner() async {
