@@ -87,7 +87,7 @@ fn prompt_guarded_tools(block: &str) -> Vec<&str> {
 }
 #[test]
 fn rendered_static_prompt_matches_the_complete_golden() {
-    let catalog = br#"[{"id":"fake-template","label":"虚构模板 / Fake template"}]"#;
+    let catalog = r#"[{"id":"fake-template","label":"虚构模板 / Fake template"}]"#.as_bytes();
     let rendered = jiabu_agent::render::static_instructions(catalog);
     assert_eq!(
         rendered,
