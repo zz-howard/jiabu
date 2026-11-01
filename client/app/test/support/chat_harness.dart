@@ -284,14 +284,17 @@ class ChatHarness {
   }
 
   /// A second session on the same database, as opening the chat again does.
-  Future<LocalChatSession> open({int? pageSize}) async {
+  Future<LocalChatSession> open({
+    int? pageSize,
+    Future<void> Function()? sync,
+  }) async {
     final opened = LocalChatSession(
       dao: h.store,
       api: api,
       fence: (await h.store.fence('s'))!,
       memberId: 'm',
       caps: session.caps,
-      sync: () async {},
+      sync: sync ?? () async {},
       media: session.media,
       pageSize: pageSize ?? LocalChatSession.defaultPageSize,
     );

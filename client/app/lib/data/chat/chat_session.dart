@@ -333,12 +333,15 @@ final class LocalChatSession implements ChatConversation {
           rows = await _openLatest();
           states = await dao.chatClientStates(spaceId, rows.map(_idOf));
         } else {
-          rows =
-              (await dao.chatEntriesChangedSince(spaceId, memberId, _watermark))
-                  .where(
-                    (row) => _rows.containsKey(_idOf(row)) || _inWindow(row),
-                  )
-                  .toList();
+          if (_newest == null && await _catchUpTooLarge()) {
+            // More than a page arrived at once (an offline catch-up or a
+            // first sync): show the latest page instead of reading it all in.
+            await _reset(conversationId);
+            reopen = true;
+            again = true;
+            continue;
+          }
+          rows = await _changedRows();
           final ids = {..._rows.keys, ...rows.map(_idOf)};
           final changed = await dao.chatClientStatesChangedSince(
             spaceId,
@@ -357,30 +360,74 @@ final class LocalChatSession implements ChatConversation {
             ),
           };
         }
-        _watermark = watermark;
         if (!await _apply(rows, states, paged: false)) {
           await _reset(conversationId);
           reopen = true;
           again = true;
           continue;
         }
-        reopen = false;
         await _settle(queue);
+        // Only now: a failed pass reads the same changes again next time.
+        _watermark = watermark;
+        reopen = false;
         _notify();
       }
     } on Object {
+      // A failed reopen leaves a partial window: the next read reopens.
+      _fullPending = _fullPending || reopen;
       error = 'local_read_failed';
       _log(error!);
       _notify();
     }
   }
 
+  /// Rows written since the watermark that the window shows: inside its
+  /// bounds, or already loaded outside them (replies kept for resuming).
+  Future<List<Map<String, Object?>>> _changedRows() async {
+    final outside = [
+      for (final MapEntry(key: id, value: row) in _rows.entries)
+        if (!_inWindowAt(row.at)) id,
+    ];
+    return [
+      ...await dao.chatEntriesChangedSince(
+        spaceId,
+        memberId,
+        _watermark,
+        from: _oldest,
+        to: _newest,
+      ),
+      ...await dao.chatEntriesChangedSinceIn(
+        spaceId,
+        memberId,
+        _watermark,
+        outside,
+      ),
+    ]..sort((a, b) => compareChatCursors(chatCursorOf(a), chatCursorOf(b)));
+  }
+
+  /// More than a page of rows after the newest one the window holds: the
+  /// window would grow past its cap if it read them all.
+  Future<bool> _catchUpTooLarge() async {
+    ChatCursor? newest;
+    for (final row in _rows.values) {
+      if (newest == null || compareChatCursors(row.at, newest) > 0) {
+        newest = row.at;
+      }
+    }
+    return await dao.chatCountAfter(
+          spaceId,
+          memberId,
+          newest,
+          limit: pageSize + 1,
+        ) >
+        pageSize;
+  }
+
   static String _idOf(Map<String, Object?> row) => row['id']! as String;
 
   /// Inside the window's bounds; rows older than the window are read with
   /// their page, rows newer than a jumped window with theirs.
-  bool _inWindow(Map<String, Object?> row) {
-    final at = chatCursorOf(row);
+  bool _inWindowAt(ChatCursor at) {
     final oldest = _oldest;
     final newest = _newest;
     return (oldest == null || compareChatCursors(at, oldest) >= 0) &&
@@ -395,7 +442,9 @@ final class LocalChatSession implements ChatConversation {
     _paged.clear();
     _newest = null;
     final page = await dao.chatPage(spaceId, memberId, limit: pageSize + 1);
-    _bound(page, older: true, limit: pageSize);
+    final (oldest, preceding) = _trim(page, older: true, limit: pageSize);
+    _oldest = oldest;
+    _precedingCreatedAt = preceding;
     return await _withInFlight(page);
   }
 
@@ -410,25 +459,23 @@ final class LocalChatSession implements ChatConversation {
     ];
   }
 
-  /// Trims the look-ahead row a page query fetched past [limit] and moves the
-  /// window's bound: none left means the window reaches that end.
-  void _bound(
+  /// Trims the look-ahead row a page query fetched past [limit] and returns
+  /// the window's new bound on that side (null: the window reaches that end)
+  /// with, for older pages, the creation time of the row just before it.
+  (ChatCursor?, String?) _trim(
     List<Map<String, Object?>> page, {
     required bool older,
     required int limit,
   }) {
-    final more = page.length > limit;
-    if (older) {
-      _precedingCreatedAt = more
-          ? page.removeAt(0)['created_at'] as String?
-          : null;
-      _oldest = more ? chatCursorOf(page.first) : null;
-    } else {
-      if (more) {
-        page.removeLast();
-      }
-      _newest = more ? chatCursorOf(page.last) : null;
+    if (page.length <= limit) {
+      return (null, null);
     }
+    if (older) {
+      final preceding = page.removeAt(0)['created_at'] as String?;
+      return (chatCursorOf(page.first), preceding);
+    }
+    page.removeLast();
+    return (chatCursorOf(page.last), null);
   }
 
   /// Applies [rows] to [blocks] and caches their client states. False when an
@@ -488,7 +535,15 @@ final class LocalChatSession implements ChatConversation {
 
   /// Derives stop, delivery, resume subscriptions and action receipts for the
   /// messages in the window from their cached rows and client states.
-  Future<void> _settle(List<OutboxOperation> queue) async {
+  ///
+  /// Messages in [history] just came in with a page: their receipts and reply
+  /// links are recorded as handled without acting on them again (no retry,
+  /// resume or refresh for something settled long ago). Saved intents are
+  /// still restored, since those wait for this device to send them.
+  Future<void> _settle(
+    List<OutboxOperation> queue, {
+    Set<String> history = const {},
+  }) async {
     final nextDelivery = <String, ChatDelivery>{};
     final nextStops = <String>{};
     // The latest reply linked to each user message by reply_to_id.
@@ -511,22 +566,18 @@ final class LocalChatSession implements ChatConversation {
     for (final messageId in ids) {
       final row = _rows[messageId]!;
       final local = _states[messageId] ?? const <String, Object?>{};
+      final settled = history.contains(messageId);
       if (local['stopRequested'] == true) {
         nextStops.add(messageId);
       }
       final assistantId = local['assistantId'] as String?;
-      if (_attached &&
-          _foreground &&
-          assistantId != null &&
-          _discovered.add(assistantId)) {
-        unawaited(_subscribe(assistantId, ResumeTrigger.conversation));
-      }
       final retryId = local['retryMessageId'] as String?;
-      if (_attached &&
-          _foreground &&
-          retryId != null &&
-          _discovered.add(retryId)) {
-        unawaited(_subscribe(retryId, ResumeTrigger.conversation));
+      for (final replyId in [?assistantId, ?retryId]) {
+        if (settled) {
+          _discovered.add(replyId);
+        } else if (_attached && _foreground && _discovered.add(replyId)) {
+          unawaited(_subscribe(replyId, ResumeTrigger.conversation));
+        }
       }
       if (row.role == 'user') {
         final op = queue
@@ -572,7 +623,7 @@ final class LocalChatSession implements ChatConversation {
       }
       final receipts = local['receipts'] as Map<String, Object?>? ?? {};
       for (final receipt in receipts.entries) {
-        if (_receipts.add(receipt.key)) {
+        if (_receipts.add(receipt.key) && !settled) {
           await interactions.retryPending(messageId);
           final result = receipt.value! as Map<String, Object?>;
           if (result['resume'] case final Map<String, Object?> resume) {
@@ -664,13 +715,22 @@ final class LocalChatSession implements ChatConversation {
           before: older ? bound : null,
           after: older ? null : bound,
         );
-        _bound(page, older: older, limit: pageSize);
+        final (next, preceding) = _trim(page, older: older, limit: pageSize);
         final states = await dao.chatClientStates(spaceId, page.map(_idOf));
         if (!await _apply(page, states, paged: true)) {
           unawaited(_reopen());
           return const Ok(null);
         }
-        await _settle(queue);
+        // Old messages coming into view are history: their receipts and
+        // reply links were handled when they happened.
+        await _settle(queue, history: page.map(_idOf).toSet());
+        // Only now: a failed page is fetched again from the same bound.
+        if (older) {
+          _oldest = next;
+          _precedingCreatedAt = preceding;
+        } else {
+          _newest = next;
+        }
         return const Ok(null);
       });
     } on Object {
@@ -716,24 +776,33 @@ final class LocalChatSession implements ChatConversation {
           limit: older + 1,
           before: at,
         );
-        _bound(before, older: true, limit: older);
+        final (oldest, preceding) = _trim(before, older: true, limit: older);
         final after = await dao.chatPage(
           spaceId,
           memberId,
           limit: pageSize - older,
           after: at,
         );
-        _bound(after, older: false, limit: pageSize - older - 1);
+        final (newest, _) = _trim(
+          after,
+          older: false,
+          limit: pageSize - older - 1,
+        );
         final rows = await _withInFlight([...before, target, ...after]);
         final states = await dao.chatClientStates(spaceId, rows.map(_idOf));
-        _watermark = watermark;
+        _oldest = oldest;
+        _precedingCreatedAt = preceding;
+        _newest = newest;
         await _apply(rows, states, paged: false);
         await _settle(queue);
+        _watermark = watermark;
         _notify();
         return const Ok(null);
       });
     } on Object {
       _log('local_read_failed');
+      // The store was already reset: start over on the latest page.
+      unawaited(_reopen());
       return const Failure('local_read_failed');
     }
   }

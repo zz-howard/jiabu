@@ -491,17 +491,74 @@ final class LocalStore {
     return after == null ? rows.reversed.toList() : rows;
   }
 
-  /// [memberId]'s chat rows written after change revision [since], oldest
-  /// first. The caller keeps the rows its window holds.
+  /// [memberId]'s chat rows written after change revision [since] between
+  /// [from] and [to] (inclusive, either open), oldest first.
   Future<List<Map<String, Object?>>> chatEntriesChangedSince(
     String spaceId,
     String memberId,
-    int since,
-  ) => _read(
+    int since, {
+    ChatCursor? from,
+    ChatCursor? to,
+  }) => _read(
     'SELECT $_chatColumns FROM chat_entries WHERE space_id = ? AND '
-    'local_revision > ? AND member_id = ? ORDER BY created_at, id',
-    [spaceId, since, memberId],
+    'local_revision > ? AND member_id = ?'
+    '${from == null ? '' : ' AND (created_at, id) >= (?, ?)'}'
+    '${to == null ? '' : ' AND (created_at, id) <= (?, ?)'}'
+    ' ORDER BY created_at, id',
+    [
+      spaceId,
+      since,
+      memberId,
+      if (from != null) ...[from.createdAt, from.id],
+      if (to != null) ...[to.createdAt, to.id],
+    ],
   );
+
+  /// Rows among [ids] written after change revision [since].
+  Future<List<Map<String, Object?>>> chatEntriesChangedSinceIn(
+    String spaceId,
+    String memberId,
+    int since,
+    Iterable<String> ids,
+  ) async {
+    final all = ids.toSet().toList();
+    final rows = <Map<String, Object?>>[];
+    for (var i = 0; i < all.length; i += _inListChunk) {
+      final chunk = all.skip(i).take(_inListChunk).toList();
+      rows.addAll(
+        await _read(
+          'SELECT $_chatColumns FROM chat_entries WHERE space_id = ? AND '
+          'local_revision > ? AND member_id = ? AND id IN '
+          '(${chunk.map((_) => '?').join(',')})',
+          [spaceId, since, memberId, ...chunk],
+        ),
+      );
+    }
+    return rows;
+  }
+
+  /// How many of [memberId]'s chat rows come after [after] (all of them when
+  /// null), counting no further than [limit].
+  Future<int> chatCountAfter(
+    String spaceId,
+    String memberId,
+    ChatCursor? after, {
+    required int limit,
+  }) async {
+    final rows = await _read(
+      'SELECT COUNT(*) AS n FROM (SELECT 1 FROM chat_entries WHERE '
+      'space_id = ? AND member_id = ?'
+      '${after == null ? '' : ' AND (created_at, id) > (?, ?)'}'
+      ' LIMIT ?)',
+      [
+        spaceId,
+        memberId,
+        if (after != null) ...[after.createdAt, after.id],
+        limit,
+      ],
+    );
+    return rows.single['n']! as int;
+  }
 
   /// Replies still being produced or waiting for an answer, wherever they sit
   /// in the timeline.

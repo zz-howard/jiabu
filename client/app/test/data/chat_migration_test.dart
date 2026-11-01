@@ -159,4 +159,100 @@ void main() {
       'ok',
     );
   });
+  test('rerunning_upgrades_on_an_upgraded_schema_keeps_data', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'jiabu-chat-migration-rerun-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/db');
+    var db = JiabuDatabase(NativeDatabase(file));
+    var store = LocalStore(db);
+    await store.putChatEntry(
+      's',
+      timelineRow(timelineMessage(0)),
+      authoritative: true,
+    );
+    // A streamed checkpoint: synced but not authoritative. A second v2
+    // backfill would wrongly mark it authoritative.
+    await store.putChatEntry(
+      's',
+      timelineRow(timelineMessage(1)),
+      authoritative: false,
+    );
+    await store.updateChatClientState('s', timelineId(0), (_) => {'n': 1});
+    Future<List<Map<String, Object?>>> rows() async => [
+      for (final row
+          in await db
+              .customSelect(
+                'SELECT id, message_json, rev, last_seq, authoritative, '
+                'local_revision FROM chat_entries ORDER BY id',
+              )
+              .get())
+        row.data,
+    ];
+    final expected = await rows();
+    expect(expected.map((row) => row['authoritative']), [1, 0]);
+    for (final from in [2, 1]) {
+      // A downgrade and re-upgrade, or an upgrade that stopped half way and
+      // left user_version behind.
+      await db.customStatement('PRAGMA user_version = $from');
+      await db.close();
+      db = JiabuDatabase(NativeDatabase(file));
+      store = LocalStore(db);
+      expect(
+        (await db.customSelect('PRAGMA user_version').getSingle())
+            .data
+            .values
+            .single,
+        3,
+      );
+      expect(await rows(), expected);
+      expect(await store.chatClientStates('s', [timelineId(0)]), {
+        timelineId(0): {'n': 1},
+      });
+    }
+    await db.close();
+  });
+
+  test('interrupted_v3_upgrade_completes_on_next_open', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'jiabu-chat-migration-partial-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/db');
+    final old = v2.DatabaseAtV2(NativeDatabase(file));
+    await old.customStatement(
+      'INSERT INTO sync_runtime (id, space_ids_json) VALUES (1, ?)',
+      ['["s"]'],
+    );
+    // Part of v3 already applied, as an upgrade without a transaction could
+    // have left it.
+    await old.customStatement(
+      'ALTER TABLE chat_entries ADD COLUMN local_revision INTEGER NOT NULL '
+      'DEFAULT 0',
+    );
+    await old.customStatement(
+      'CREATE INDEX chat_entries_timeline ON chat_entries (space_id, '
+      'member_id, created_at, id)',
+    );
+    await old.close();
+    final db = JiabuDatabase(NativeDatabase(file));
+    addTearDown(db.close);
+    final store = LocalStore(db);
+    await store.putChatEntry(
+      's',
+      timelineRow(timelineMessage(0)),
+      authoritative: true,
+    );
+    expect((await store.chatPage('s', 'm', limit: 5)).map((row) => row['id']), [
+      timelineId(0),
+    ]);
+    expect(
+      (await db.customSelect('PRAGMA integrity_check').getSingle())
+          .data
+          .values
+          .single,
+      'ok',
+    );
+  });
 }

@@ -33,6 +33,15 @@ Message pausedReply({required String status, required int seq}) =>
       'lastSeq': seq,
     });
 
+/// Message [i] with a conversation id of the wrong type: applying it throws,
+/// standing in for any failure in the middle of a read.
+Map<String, Object?> brokenRow(int i) => {
+  ...timelineRow(
+    Message.fromJson({...timelineMessage(i).json, 'conversationId': 7}),
+  ),
+  'conversation_id': 'conversation',
+};
+
 Future<void> until(bool Function() condition, String description) async {
   for (var i = 0; i < 100; i++) {
     if (condition()) {
@@ -380,6 +389,289 @@ void main() {
         'failed delivery',
       );
       expect(session.delivery[timelineId(8)], ChatDelivery.complete);
+    });
+  });
+
+  group('session window failures and history', () {
+    test('a_failed_change_read_is_read_again_in_full', () async {
+      await seedTimeline(h, 10);
+      final session = await h.open(pageSize: 4);
+      addTearDown(session.dispose);
+      await h.h.store.transaction(() async {
+        await h.h.store.putChatEntry('s', brokenRow(10), authoritative: true);
+        await h.h.store.putChatEntry(
+          's',
+          timelineRow(timelineMessage(11)),
+          authoritative: true,
+        );
+      });
+      await until(() => session.error == 'local_read_failed', 'read fails');
+      expect(session.blocks.snapshot.messages[timelineId(11)], isNull);
+      await h.h.store.putChatEntry(
+        's',
+        timelineRow(timelineMessage(10, rev: 2)),
+        authoritative: true,
+      );
+      await until(
+        () => session.blocks.snapshot.messages.containsKey(timelineId(11)),
+        'the row written with the failed one arrives',
+      );
+      expect(loaded(session), range(6, 12));
+    });
+
+    test('a_failed_page_keeps_its_bound_and_loads_whole_later', () async {
+      await seedTimeline(h, 10);
+      await h.h.store.putChatEntry('s', brokenRow(3), authoritative: true);
+      final session = await h.open(pageSize: 4);
+      addTearDown(session.dispose);
+      expect(await session.loadOlder(), isA<Failure<void>>());
+      expect(session.history.oldestId, timelineId(6));
+      expect(session.blocks.snapshot.messages[timelineId(4)], isNull);
+      await h.h.store.putChatEntry(
+        's',
+        timelineRow(timelineMessage(3, rev: 2)),
+        authoritative: true,
+      );
+      expect(await session.loadOlder(), isA<Ok<void>>());
+      expect(loaded(session), range(2, 10));
+      expect(session.history.oldestId, timelineId(2));
+    });
+
+    test('first_sync_into_an_empty_chat_keeps_one_page', () async {
+      final session = await h.open();
+      addTearDown(session.dispose);
+      expect(session.blocks.snapshot.messages, isEmpty);
+      await seedTimeline(h, 500);
+      await until(
+        () => session.blocks.snapshot.messages.containsKey(timelineId(499)),
+        'latest message arrives',
+      );
+      expect(loaded(session), range(460, 500));
+      expect(session.history.hasOlder, isTrue);
+      expect(
+        session.history.precedingCreatedAt,
+        timelineMessage(459)['createdAt'],
+      );
+      expect(await session.loadOlder(), isA<Ok<void>>());
+      expect(loaded(session), range(420, 500));
+    });
+
+    test('offline_catch_up_past_a_page_keeps_the_window_capped', () async {
+      // The window starts at the first message and reaches the latest; then
+      // more than a page arrives in one sync.
+      await seedTimeline(h, 10);
+      final session = await h.open();
+      addTearDown(session.dispose);
+      expect(loaded(session), range(0, 10));
+      expect(session.history.hasOlder, isFalse);
+      await seedTimeline(h, 55, from: 10);
+      await until(
+        () => session.blocks.snapshot.messages.containsKey(timelineId(54)),
+        'latest message arrives',
+      );
+      expect(loaded(session), range(15, 55));
+      expect(session.history.hasOlder, isTrue);
+      expect(session.history.hasNewer, isFalse);
+      expect(session.history.oldestId, timelineId(15));
+      expect(await session.loadOlder(), isA<Ok<void>>());
+      expect(loaded(session), range(0, 55));
+    });
+
+    test('a_catch_up_within_a_page_extends_the_window', () async {
+      await seedTimeline(h, 10);
+      final session = await h.open();
+      addTearDown(session.dispose);
+      await seedTimeline(h, 50, from: 10);
+      await until(
+        () => session.blocks.snapshot.messages.containsKey(timelineId(49)),
+        'latest message arrives',
+      );
+      expect(loaded(session), range(0, 50));
+      expect(session.history.hasOlder, isFalse);
+    });
+
+    test('paging_back_to_the_start_keeps_the_window_on_new_messages', () async {
+      await seedTimeline(h, 10);
+      final session = await h.open(pageSize: 4);
+      addTearDown(session.dispose);
+      for (var page = 0; page < 3; page++) {
+        expect(await session.loadOlder(), isA<Ok<void>>());
+      }
+      expect(loaded(session), range(0, 10));
+      expect(session.history.hasOlder, isFalse);
+      await seedTimeline(h, 12, from: 10);
+      await until(
+        () => session.blocks.snapshot.messages.containsKey(timelineId(11)),
+        'new messages arrive',
+      );
+      expect(loaded(session), range(0, 12));
+      expect(session.history.paged, isNotEmpty);
+    });
+
+    test(
+      'large_sync_past_a_short_history_reopens_on_the_latest_page',
+      () async {
+        await seedTimeline(h, 3);
+        final session = await h.open(pageSize: 4);
+        addTearDown(session.dispose);
+        expect(loaded(session), range(0, 3));
+        await seedTimeline(h, 50, from: 3);
+        await until(
+          () => session.blocks.snapshot.messages.containsKey(timelineId(49)),
+          'latest message arrives',
+        );
+        expect(loaded(session), range(46, 50));
+        expect(session.history.oldestId, timelineId(46));
+      },
+    );
+
+    test('paged_in_receipts_and_reply_links_act_at_most_once', () async {
+      // The ids are replies that exist only on the server, so a resume opens
+      // a stream for them (a local finished reply would not).
+      final online = await ChatHarness.create(offline: false);
+      addTearDown(online.close);
+      await online.session.dispose();
+      await seedTimeline(online, 10);
+      await online.h.store.updateChatClientState(
+        's',
+        timelineId(2),
+        (_) => {
+          'assistantId': 'remote-reply',
+          'action_refresh': true,
+          'receipts': {
+            'receipt-1': {
+              'resume': {'messageId': 'remote-resume-1'},
+            },
+          },
+        },
+      );
+      var syncs = 0;
+      final session = await online.open(
+        pageSize: 4,
+        sync: () async {
+          syncs++;
+        },
+      );
+      addTearDown(session.dispose);
+      await session.recover();
+      Iterable<String> opened() => online.api.opens.map((open) => open.message);
+      final before = syncs;
+      expect(await session.loadOlder(), isA<Ok<void>>());
+      expect(session.blocks.snapshot.messages, contains(timelineId(2)));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(opened(), isNot(contains('remote-resume-1')));
+      expect(opened(), isNot(contains('remote-reply')));
+      // No retry and no action refresh for the settled receipt.
+      expect(syncs, before);
+      // A receipt that arrives now is new: it acts.
+      await online.h.store.updateChatClientState(
+        's',
+        timelineId(2),
+        (state) => {
+          ...state,
+          'receipts': {
+            ...state['receipts']! as Map<String, Object?>,
+            'receipt-2': {
+              'resume': {'messageId': 'remote-resume-2'},
+            },
+          },
+        },
+      );
+      await until(
+        () => opened().contains('remote-resume-2'),
+        'new receipt resumes',
+      );
+      await until(() => syncs > before, 'new receipt refreshes');
+      expect(await session.loadOlder(), isA<Ok<void>>());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(opened(), isNot(contains('remote-resume-1')));
+      expect(opened(), isNot(contains('remote-reply')));
+    });
+
+    test('authoritative_lower_rev_after_paging_reopens_the_window', () async {
+      await seedTimeline(h, 10);
+      final session = await h.open(pageSize: 4);
+      addTearDown(session.dispose);
+      await session.loadOlder();
+      expect(loaded(session), range(2, 10));
+      String? text() =>
+          session.blocks.snapshot.messages[timelineId(9)]?['fallbackText']
+              as String?;
+      await h.h.store.putChatEntry(
+        's',
+        timelineRow(timelineMessage(9, text: '第三版', rev: 3)),
+        authoritative: true,
+      );
+      await until(() => text() == '第三版', 'rev 3 applies');
+      await h.h.store.putChatEntry(
+        's',
+        timelineRow(timelineMessage(9, text: '第二版', rev: 2)),
+        authoritative: true,
+      );
+      await until(() => text() == '第二版', 'lower authoritative rev wins');
+      expect(loaded(session), range(6, 10));
+      expect(session.history.paged, isEmpty);
+      expect(session.history.oldestId, timelineId(6));
+    });
+
+    test('conversation_row_after_paging_reopens_the_window', () async {
+      for (var i = 0; i < 10; i++) {
+        await h.h.store.putChatEntry(
+          's',
+          timelineRow(timelineMessage(i, conversation: 'local:m')),
+          authoritative: false,
+          state: 'pending',
+        );
+      }
+      final session = await h.open(pageSize: 4);
+      addTearDown(session.dispose);
+      expect(session.conversationId, 'local:m');
+      await session.loadOlder();
+      expect(loaded(session), range(2, 10));
+      await h.h.store.putEntity('s', 'conversation', {
+        'id': 'conversation',
+        'member_id': 'm',
+        'created_at': '2026-01-01T00:00:00.000Z',
+      });
+      await until(
+        () => session.conversationId == 'conversation',
+        'conversation arrives',
+      );
+      await until(() => loaded(session).length == 4, 'window reopens');
+      expect(loaded(session), range(6, 10));
+      expect(session.history.paged, isEmpty);
+      expect(
+        session.blocks.snapshot.messages.values.map(
+          (message) => message['conversationId'],
+        ),
+        everyElement('conversation'),
+      );
+    });
+
+    test('saved_intents_restore_on_a_paged_in_message', () async {
+      await seedTimeline(h, 10);
+      await h.h.store.updateChatClientState(
+        's',
+        timelineId(3),
+        (_) => {
+          'intents': {'question': h.action('intent-1').json},
+        },
+      );
+      final session = await h.open(pageSize: 4);
+      addTearDown(session.dispose);
+      expect(
+        session.interactions.stateFor(timelineId(3), 'question').request,
+        isNull,
+      );
+      await session.loadOlder();
+      await until(
+        () =>
+            session.interactions
+                .stateFor(timelineId(3), 'question')
+                .request?['id'] ==
+            'intent-1',
+        'intent restored',
+      );
     });
   });
 

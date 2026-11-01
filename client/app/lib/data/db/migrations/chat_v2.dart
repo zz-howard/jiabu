@@ -1,32 +1,35 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:jiabu/data/db/migrations/migration_guards.dart';
 
 /// v1 retained the complete server projection in data_json. Preserve it and
 /// backfill the dedicated CW columns; no generated migration code is edited.
 Future<void> migrateChatV2(GeneratedDatabase db) async {
-  await db.customStatement(
-    'ALTER TABLE chat_entries ADD COLUMN message_json TEXT',
+  // Columns already there mean v2 completed before (a downgrade and
+  // re-upgrade): keep the rows as they are instead of backfilling again.
+  final backfill = !await hasColumn(db, 'chat_entries', 'message_json');
+  await addColumn(db, 'chat_entries', 'message_json', 'TEXT');
+  await addColumn(db, 'chat_entries', 'rev', 'INTEGER NOT NULL DEFAULT 0');
+  await addColumn(db, 'chat_entries', 'last_seq', 'INTEGER NOT NULL DEFAULT 0');
+  await addColumn(
+    db,
+    'chat_entries',
+    'authoritative',
+    'INTEGER NOT NULL DEFAULT 0',
   );
   await db.customStatement(
-    'ALTER TABLE chat_entries ADD COLUMN rev INTEGER NOT NULL DEFAULT 0',
+    'CREATE TABLE IF NOT EXISTS chat_client_states (space_id TEXT NOT NULL, '
+    "message_id TEXT NOT NULL, state_json TEXT NOT NULL DEFAULT '{}', "
+    'PRIMARY KEY (space_id, message_id))',
   );
   await db.customStatement(
-    'ALTER TABLE chat_entries ADD COLUMN last_seq INTEGER NOT NULL DEFAULT 0',
+    'CREATE INDEX IF NOT EXISTS chat_entries_conversation ON chat_entries '
+    '(space_id, member_id, conversation_id, created_at, id)',
   );
-  await db.customStatement(
-    'ALTER TABLE chat_entries ADD COLUMN authoritative INTEGER NOT NULL '
-    'DEFAULT 0',
-  );
-  await db.customStatement(
-    'CREATE TABLE chat_client_states (space_id TEXT NOT NULL, message_id '
-    "TEXT NOT NULL, state_json TEXT NOT NULL DEFAULT '{}', PRIMARY KEY "
-    '(space_id, message_id))',
-  );
-  await db.customStatement(
-    'CREATE INDEX chat_entries_conversation ON chat_entries (space_id, '
-    'member_id, conversation_id, created_at, id)',
-  );
+  if (!backfill) {
+    return;
+  }
   final runtimeRows = await db
       .customSelect('SELECT space_ids_json FROM sync_runtime WHERE id = 1')
       .get();

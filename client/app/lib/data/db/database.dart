@@ -17,10 +17,12 @@ class JiabuDatabase extends _$JiabuDatabase {
       await migrator.createAll();
       await customStatement('INSERT INTO sync_runtime (id) VALUES (1)');
     },
-    onUpgrade: (migrator, from, to) async {
+    // One transaction: an interrupted upgrade leaves the previous schema, and
+    // every step also tolerates a schema that already has it.
+    onUpgrade: (migrator, from, to) => transaction(() async {
       if (from < 2 && to >= 2) await migrateChatV2(this);
       if (from < 3 && to >= 3) await migrateChatV3(this);
-    },
+    }),
     beforeOpen: (_) async {
       await customStatement('PRAGMA foreign_keys = ON');
       await customStatement('PRAGMA busy_timeout = 5000');
