@@ -345,8 +345,22 @@ impl Judge {
     }
 
     pub async fn calibrate(&self) -> Result<()> {
-        for (input, expected) in calibration_cases() {
-            let outcome = self.evaluate(&input, false).await?;
+        for (index, (input, expected)) in calibration_cases().into_iter().enumerate() {
+            let outcome = match self.evaluate(&input, false).await {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    eprintln!("judge_calibration_case_{}_evaluation_error", index + 1);
+                    return Err(error);
+                }
+            };
+            eprintln!(
+                "judge_calibration_case_{}_expected={expected}_actual={}_pass_votes={}_fail_votes={}_votes={:?}",
+                index + 1,
+                outcome.pass,
+                outcome.pass_votes,
+                outcome.fail_votes,
+                outcome.votes
+            );
             ensure!(outcome.pass == expected, "judge calibration failed");
         }
         Ok(())
