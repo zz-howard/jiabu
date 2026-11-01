@@ -128,7 +128,7 @@ pub fn scripts(e: &Entry, ids: &Identities) -> Result<Vec<TurnScript>> {
     if let Some(display) = &e.expect.display {
         let display = &display.alternatives[0];
         let final_text = if display.fallback_contains.is_empty() {
-            if display.blocks.is_empty() {
+            if display.calls.is_empty() && display.blocks.is_empty() {
                 display
                     .facts
                     .iter()
