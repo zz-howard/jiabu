@@ -2,6 +2,7 @@
 #[path = "../../../tests/support/agent.rs"]
 pub mod agent_fixture;
 pub mod audit;
+pub mod batch;
 pub mod dataset;
 pub mod diagnostic;
 pub mod fixture;
