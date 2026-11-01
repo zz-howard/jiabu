@@ -1,6 +1,6 @@
 use crate::{
     agent_fixture::{call, done, text},
-    dataset::{Behavior, Entry, RecordSpec},
+    dataset::{Behavior, DisplayFact, Entry, RecordSpec},
 };
 use anyhow::{Context, Result};
 use jiabu_ai::mock::TurnScript;
@@ -128,7 +128,21 @@ pub fn scripts(e: &Entry, ids: &Identities) -> Result<Vec<TurnScript>> {
     if let Some(display) = &e.expect.display {
         let display = &display.alternatives[0];
         let final_text = if display.fallback_contains.is_empty() {
-            if e.locale == "en" {
+            if display.blocks.is_empty() {
+                display
+                    .facts
+                    .iter()
+                    .map(|fact| match fact {
+                        DisplayFact::Aggregate { label, value_minor } => {
+                            Ok(format!("{label} {}", cny(*value_minor)))
+                        }
+                        _ => anyhow::bail!(
+                            "prose-only mock requires an explicit renderer for {fact:?}"
+                        ),
+                    })
+                    .collect::<Result<Vec<_>>>()?
+                    .join("；")
+            } else if e.locale == "en" {
                 "Displayed.".to_owned()
             } else {
                 "已展示。".to_owned()
@@ -201,4 +215,10 @@ pub fn scripts(e: &Entry, ids: &Identities) -> Result<Vec<TurnScript>> {
             vec![turn, vec![text("已保存 / Saved"), done()]]
         }
     })
+}
+
+fn cny(value_minor: i64) -> String {
+    let sign = if value_minor < 0 { "-" } else { "" };
+    let absolute = value_minor.unsigned_abs();
+    format!("{sign}{}.{:02} 元", absolute / 100, absolute % 100)
 }
