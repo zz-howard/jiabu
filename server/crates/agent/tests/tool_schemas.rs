@@ -130,14 +130,8 @@ fn guarded_confirmation_inventory_matches_the_live_registry() {
 fn guarded_confirmation_examples_have_frozen_shape_and_boundaries() {
     let instructions = jiabu_agent::render::static_instructions(b"[]");
     let block = confirmation_block(&instructions);
-    let positives: Vec<_> = block
-        .lines()
-        .filter(|line| line.starts_with('P'))
-        .collect();
-    let negatives: Vec<_> = block
-        .lines()
-        .filter(|line| line.starts_with('N'))
-        .collect();
+    let positives: Vec<_> = block.lines().filter(|line| line.starts_with('P')).collect();
+    let negatives: Vec<_> = block.lines().filter(|line| line.starts_with('N')).collect();
     assert_eq!(positives.len(), 5);
     assert_eq!(negatives.len(), 2);
     assert!(
