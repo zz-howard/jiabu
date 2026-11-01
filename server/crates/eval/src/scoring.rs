@@ -1,9 +1,11 @@
 use crate::{
+    audit::DisplayAuditCall,
     dataset::{Behavior, Entry, RecordSpec},
     mock::Identities,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Count {
     pub correct: usize,
@@ -63,6 +65,11 @@ pub struct Observation {
     pub final_state: Value,
     pub message: Value,
     pub tool_calls: Vec<Value>,
+    pub tool_results: BTreeMap<String, bool>,
+    pub display_audit: Vec<DisplayAuditCall>,
+    pub display_audit_total: usize,
+    pub display_audit_valid: usize,
+    pub display_audit_discarded: usize,
     pub server_fallbacks: Vec<String>,
     pub calls: Vec<Value>,
     pub tool_total: usize,
@@ -75,6 +82,7 @@ pub struct ResultRow {
     pub id: String,
     pub category: String,
     pub locale: String,
+    pub tier: String,
     pub expected_behavior: String,
     pub actual_behavior: String,
     pub status: String,
@@ -85,6 +93,14 @@ pub struct ResultRow {
     pub display_hard: bool,
     pub display_pass: bool,
     pub display_tools: Count,
+    pub display_queries: Count,
+    pub display_query_not_assessable: usize,
+    pub display_arguments: Count,
+    pub display_expected: String,
+    pub display_actual: String,
+    pub display_query_summary: String,
+    pub display_audit_complete: bool,
+    pub display_audit_discarded: usize,
     pub display_blocks: Count,
     pub display_values: Count,
     pub prose_pass: bool,
@@ -106,10 +122,299 @@ struct DisplayScore {
     hard: bool,
     pass: bool,
     tools: Count,
+    queries: Count,
+    query_not_assessable: usize,
+    arguments: Count,
+    expected: String,
+    actual: String,
+    query_summary: String,
+    audit_complete: bool,
+    audit_discarded: usize,
     blocks: Count,
     values: Count,
     prose_pass: bool,
     reasons: Vec<String>,
+}
+const DISPLAY_TOOLS: &[&str] = &[
+    "show_metrics",
+    "show_breakdown",
+    "show_bar_chart",
+    "show_trend",
+    "show_records",
+    "show_account_card",
+];
+fn id_alias(value: &Value, ids: &Identities) -> Value {
+    let Some(value) = value.as_str() else {
+        return Value::Null;
+    };
+    if let Some((alias, _)) = ids.accounts.iter().find(|(_, id)| id.to_string() == value) {
+        json!(format!("account:{alias}"))
+    } else if let Some((alias, _)) = ids.tags.iter().find(|(_, id)| id.to_string() == value) {
+        json!(format!("tag:{alias}"))
+    } else {
+        json!(format!(
+            "unknown:{:016x}",
+            text_fingerprint(Some(value)).unwrap_or_default()
+        ))
+    }
+}
+fn text_fingerprint(value: Option<&str>) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    value.map(|value| {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        value.to_lowercase().hash(&mut hasher);
+        hasher.finish()
+    })
+}
+fn canonical_kinds(values: Vec<Value>) -> Vec<Value> {
+    let mut values = values;
+    values.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
+    values.dedup();
+    values
+}
+#[derive(Clone, Debug, PartialEq)]
+struct CanonicalQuery {
+    value: Value,
+    text: Option<u64>,
+}
+fn bounded_summary(value: &Value, discarded: &mut usize) -> Value {
+    match value {
+        Value::Array(values) => {
+            *discarded += values.len().saturating_sub(16);
+            Value::Array(
+                values
+                    .iter()
+                    .take(16)
+                    .map(|value| bounded_summary(value, discarded))
+                    .collect(),
+            )
+        }
+        Value::Object(values) => Value::Object(
+            values
+                .iter()
+                .map(|(key, value)| (key.clone(), bounded_summary(value, discarded)))
+                .collect(),
+        ),
+        Value::String(value) => {
+            let mut bytes = 0;
+            let bounded: String = value
+                .chars()
+                .take_while(|character| {
+                    let fits = bytes + character.len_utf8() <= 64;
+                    if fits {
+                        bytes += character.len_utf8();
+                    }
+                    fits
+                })
+                .collect();
+            *discarded += value.len().saturating_sub(bounded.len());
+            json!(bounded)
+        }
+        value => value.clone(),
+    }
+}
+impl CanonicalQuery {
+    fn summary(&self) -> Value {
+        let mut value = self.value.clone();
+        if let Some(ids) = value.get_mut("ids").and_then(Value::as_object_mut) {
+            for id in ids.values_mut() {
+                if id
+                    .as_str()
+                    .is_some_and(|value| value.starts_with("unknown:"))
+                {
+                    *id = json!("<redacted-id>");
+                }
+            }
+        }
+        if value.get("family") == Some(&json!("account"))
+            && value["account"]
+                .as_str()
+                .is_some_and(|value| value.starts_with("unknown:"))
+        {
+            value["account"] = json!("<redacted-id>");
+        }
+        if self.text.is_some() {
+            value["text_present"] = json!(true);
+        }
+        let mut discarded = 0;
+        let mut value = bounded_summary(&value, &mut discarded);
+        if discarded > 0 {
+            value["truncated"] = json!(true);
+            value["discarded"] = json!(discarded);
+        }
+        value
+    }
+}
+fn ids_value(query: &Value, ids: &Identities, nested: Option<&Value>) -> Value {
+    let mut out = serde_json::Map::new();
+    for key in ["account_id", "purpose_id", "tag_id", "member_id"] {
+        let value = nested
+            .and_then(|v| v.get(key))
+            .filter(|v| !v.is_null())
+            .or_else(|| query.get(key).filter(|v| !v.is_null()));
+        out.insert(
+            key.into(),
+            value.map(|v| id_alias(v, ids)).unwrap_or(Value::Null),
+        );
+    }
+    Value::Object(out)
+}
+fn canonical_stats(query: &Value, ids: &Identities, trend: bool) -> CanonicalQuery {
+    let filters = query.get("filters");
+    let top_kinds = query
+        .get("kinds")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let nested_kinds = filters
+        .and_then(|v| v.get("kinds"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let kinds = if top_kinds.is_empty() {
+        if nested_kinds.is_empty() {
+            vec![json!("expense")]
+        } else {
+            nested_kinds
+        }
+    } else if nested_kinds.is_empty() {
+        top_kinds
+    } else {
+        top_kinds
+            .into_iter()
+            .filter(|kind| nested_kinds.contains(kind))
+            .collect()
+    };
+    let kinds = canonical_kinds(kinds);
+    let period = query.get("period").cloned().unwrap_or_else(|| {
+        json!({
+            "from": filters.and_then(|v| v.get("from")).cloned().unwrap_or(Value::Null),
+            "through": filters.and_then(|v| v.get("through")).cloned().unwrap_or(Value::Null)
+        })
+    });
+    CanonicalQuery {
+        value: json!({
+            "family":"stats", "measure":query.get("measure").cloned().unwrap_or(Value::Null),
+            "kinds":kinds, "period":period,
+            "group_by":if trend { json!("month") } else { query.get("group_by").cloned().unwrap_or(Value::Null) },
+            "ids":ids_value(query, ids, filters),
+        }),
+        text: text_fingerprint(
+            filters
+                .and_then(|filters| filters.get("text"))
+                .and_then(Value::as_str),
+        ),
+    }
+}
+fn canonical_records(query: &Value, ids: &Identities, source: bool) -> CanonicalQuery {
+    let filters = if source {
+        query.get("filters").unwrap_or(query)
+    } else {
+        query
+    };
+    let period = if source {
+        let from = filters.get("from").cloned().unwrap_or(Value::Null);
+        let through = filters.get("through").cloned().unwrap_or(Value::Null);
+        if from.is_null() && through.is_null() {
+            Value::Null
+        } else {
+            json!({"from":from,"through":through})
+        }
+    } else {
+        query.get("period").cloned().unwrap_or(Value::Null)
+    };
+    let limit = if source {
+        query.pointer("/page/limit").cloned().unwrap_or(json!(50))
+    } else {
+        query.get("limit").cloned().unwrap_or(Value::Null)
+    };
+    let kinds = canonical_kinds(
+        filters
+            .get("kinds")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+    );
+    let offset = if source {
+        query.pointer("/page/offset").cloned().unwrap_or(json!(0))
+    } else {
+        json!(0)
+    };
+    let status = if source {
+        filters.get("status").cloned().unwrap_or(Value::Null)
+    } else {
+        json!("active")
+    };
+    CanonicalQuery {
+        value: json!({"family":"records","kinds":kinds,"period":period,"ids":ids_value(filters,ids,None),"limit":limit,"offset":offset,"status":status,"order":"newest"}),
+        text: text_fingerprint(filters.get("text").and_then(Value::as_str)),
+    }
+}
+fn direct_query(tool: &str, query: &Value, ids: &Identities) -> Option<CanonicalQuery> {
+    match tool {
+        "show_records" => Some(canonical_records(query, ids, false)),
+        "show_trend" => Some(canonical_stats(query, ids, true)),
+        "show_metrics" | "show_breakdown" | "show_bar_chart" => {
+            Some(canonical_stats(query, ids, false))
+        }
+        _ => None,
+    }
+}
+fn source_query(tool: &str, args: &Value, ids: &Identities) -> Option<CanonicalQuery> {
+    match tool {
+        "query_stats" => Some(canonical_stats(args, ids, false)),
+        "search_records" => Some(canonical_records(args, ids, true)),
+        _ => None,
+    }
+}
+fn canonical_call(
+    tool: &str,
+    args: &Value,
+    prior: &[&Value],
+    results: &BTreeMap<String, bool>,
+    ids: &Identities,
+) -> Option<CanonicalQuery> {
+    if tool == "show_account_card" {
+        return Some(CanonicalQuery {
+            value: json!({"family":"account","account":id_alias(&args["account_id"],ids)}),
+            text: None,
+        });
+    }
+    let source = args.get("source")?;
+    if let Some(demo) = source.get("demo").filter(|v| !v.is_null()) {
+        return Some(CanonicalQuery {
+            value: json!({"family":"demo","scene":demo}),
+            text: None,
+        });
+    }
+    if let Some(query) = source.get("query").filter(|v| !v.is_null()) {
+        return direct_query(tool, query, ids);
+    }
+    let call_id = source.get("from_call")?.as_str()?;
+    if !results.get(call_id).copied().unwrap_or(false) {
+        return None;
+    }
+    let source = prior.iter().find(|call| call["call_id"] == call_id)?;
+    let compatible = matches!(
+        (tool, source["tool"].as_str()?),
+        ("show_records", "search_records")
+            | (
+                "show_metrics" | "show_breakdown" | "show_bar_chart" | "show_trend",
+                "query_stats"
+            )
+    );
+    compatible
+        .then(|| {
+            source_query(
+                source["tool"].as_str().unwrap_or_default(),
+                &source["args"],
+                ids,
+            )
+        })
+        .flatten()
+}
+fn summary_string(values: &[Value]) -> String {
+    serde_json::to_string(values).unwrap_or_else(|_| "[]".into())
 }
 fn has_block_chart(prose: &str) -> bool {
     prose
@@ -232,6 +537,7 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         return DisplayScore {
             pass: true,
             prose_pass: true,
+            audit_complete: true,
             ..Default::default()
         };
     };
@@ -239,43 +545,144 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
         .tool_calls
         .iter()
         .filter(|call| {
-            call["tool"].as_str().is_some_and(|tool| {
-                tool.starts_with("show_") || matches!(tool, "query_stats" | "search_records")
-            })
+            call["tool"]
+                .as_str()
+                .is_some_and(|tool| tool.starts_with("show_"))
         })
         .collect();
-    let mut call_aliases = std::collections::BTreeMap::new();
-    for (index, _) in expect.source_calls.iter().enumerate() {
-        if let Some(call_id) = actual_calls
-            .get(index)
-            .and_then(|call| call["call_id"].as_str())
-        {
-            call_aliases.insert(format!("$call:source-{index}"), call_id.to_owned());
-        }
+    let mut expected_sources = Vec::new();
+    let mut call_aliases = BTreeMap::new();
+    let mut expected_results = BTreeMap::new();
+    for (index, call) in expect.source_calls.iter().enumerate() {
+        let id = format!("expected-source-{index}");
+        call_aliases.insert(format!("$call:source-{index}"), id.clone());
+        expected_results.insert(id.clone(), true);
+        expected_sources.push(json!({"tool":call.tool,"args":ids.display_args(&call.args).unwrap_or_else(|_|call.args.clone()),"call_id":id}));
     }
-    let expected_calls = expect
-        .source_calls
+    let expected_calls: Vec<_> = expect.calls.iter().map(|call| json!({"tool":call.tool,"args":ids.display_args_with_calls(&call.args,&call_aliases).unwrap_or_else(|_|call.args.clone())})).collect();
+    let expected_selection: Vec<_> = expected_calls
         .iter()
-        .chain(&expect.calls)
-        .map(|call| {
-            ids.display_args_with_calls(&call.args, &call_aliases)
-                .map(|args| json!({"tool":call.tool,"args":args}))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()
-        .unwrap_or_default();
-    let actual_calls: Vec<_> = actual_calls
-        .iter()
-        .map(|call| json!({"tool":call["tool"],"args":call["args"]}))
+        .filter_map(|call| call["tool"].as_str())
         .collect();
+    let actual_selection: Vec<_> = if o.display_audit.is_empty() {
+        actual_calls
+            .iter()
+            .filter_map(|call| {
+                call["tool"].as_str().map(|tool| {
+                    if DISPLAY_TOOLS.contains(&tool) {
+                        tool
+                    } else {
+                        "<unknown>"
+                    }
+                })
+            })
+            .collect()
+    } else {
+        o.display_audit
+            .iter()
+            .map(|call| call.tool.as_str())
+            .collect()
+    };
+    let audited_count = if o.display_audit_total == 0 && o.display_audit.is_empty() {
+        actual_selection.len()
+    } else {
+        o.display_audit_total
+    };
+    let width = expected_selection.len().max(audited_count);
     let mut result = DisplayScore {
         hard: expect.hard,
         tools: Count {
-            correct: usize::from(actual_calls == expected_calls),
-            total: 1,
+            correct: (0..width)
+                .filter(|index| expected_selection.get(*index) == actual_selection.get(*index))
+                .count(),
+            total: width,
         },
+        arguments: Count {
+            correct: if o.display_audit_total == 0 && o.display_audit.is_empty() {
+                actual_calls.len()
+            } else {
+                o.display_audit_valid
+            },
+            total: audited_count,
+        },
+        expected: expected_selection.join(","),
+        actual: actual_selection.join(","),
+        audit_complete: o.display_audit_discarded == 0
+            && o.display_audit.iter().all(|call| !call.truncated),
+        audit_discarded: o.display_audit_discarded
+            + o.display_audit
+                .iter()
+                .map(|call| call.discarded)
+                .sum::<usize>(),
         prose_pass: true,
         ..Default::default()
     };
+    let expected_prior: Vec<_> = expected_sources.iter().collect();
+    let mut summaries = Vec::new();
+    for index in 0..expected_calls.len() {
+        let expected_query = canonical_call(
+            expected_selection[index],
+            &expected_calls[index]["args"],
+            &expected_prior,
+            &expected_results,
+            ids,
+        );
+        let actual_call =
+            if o.display_audit.is_empty() || actual_calls.len() == o.display_audit.len() {
+                actual_calls.get(index).copied()
+            } else if o.display_audit.get(index).is_some_and(|audit| audit.valid) {
+                let rank = o.display_audit[..=index]
+                    .iter()
+                    .filter(|audit| audit.valid)
+                    .count()
+                    - 1;
+                actual_calls.get(rank).copied()
+            } else {
+                None
+            };
+        let actual_query = actual_call.and_then(|call| {
+            if o.display_audit.get(index).is_some_and(|audit| !audit.valid) {
+                return None;
+            }
+            let position = o
+                .tool_calls
+                .iter()
+                .position(|candidate| std::ptr::eq(candidate, call))
+                .unwrap_or(0);
+            let actual_prior: Vec<_> = o.tool_calls[..position]
+                .iter()
+                .filter(|candidate| {
+                    matches!(
+                        candidate["tool"].as_str(),
+                        Some("query_stats" | "search_records")
+                    )
+                })
+                .collect();
+            canonical_call(
+                call["tool"].as_str().unwrap_or_default(),
+                &call["args"],
+                &actual_prior,
+                &o.tool_results,
+                ids,
+            )
+        });
+        match (expected_query, actual_query) {
+            (Some(expected), Some(actual)) => {
+                result.queries.total += 1;
+                result.queries.correct += usize::from(expected == actual);
+                let mut summary = actual.summary();
+                if expected.text.is_some() || actual.text.is_some() {
+                    summary["text_equal"] = json!(expected.text == actual.text);
+                }
+                summaries.push(summary);
+            }
+            _ => {
+                result.query_not_assessable += 1;
+                summaries.push(json!({"state":"not_assessable"}));
+            }
+        }
+    }
+    result.query_summary = summary_string(&summaries);
     let blocks = o.message["blocks"]
         .as_array()
         .map(Vec::as_slice)
@@ -490,7 +897,16 @@ fn display_score(e: &Entry, ids: &Identities, o: &Observation) -> DisplayScore {
     }
     result.prose_pass = safety_pass && style_pass;
     if result.tools.correct != result.tools.total {
-        result.reasons.push("display_tool_mismatch".into());
+        result.reasons.push("display_selection_mismatch".into());
+    }
+    if result.queries.correct != result.queries.total {
+        result.reasons.push("display_query_mismatch".into());
+    }
+    if result.query_not_assessable != 0 {
+        result.reasons.push("display_query_not_assessable".into());
+    }
+    if result.arguments.correct != result.arguments.total {
+        result.reasons.push("display_argument_invalid".into());
     }
     if result.blocks.correct != result.blocks.total {
         result.reasons.push("display_block_mismatch".into());
@@ -563,6 +979,7 @@ fn expected_value(r: &RecordSpec, ids: &Identities) -> Value {
     }
     v
 }
+
 fn differences(expected: &Value, actual: &Value) -> usize {
     expected
         .as_object()
@@ -794,6 +1211,7 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         id: e.id.clone(),
         category: e.category.clone(),
         locale: e.locale.clone(),
+        tier: e.tier.as_str().into(),
         expected_behavior: e.expect.behavior.as_str().into(),
         actual_behavior: actual_behavior.into(),
         status: o.status.clone(),
@@ -804,6 +1222,14 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
         display_hard: display.hard,
         display_pass: display.pass,
         display_tools: display.tools,
+        display_queries: display.queries,
+        display_query_not_assessable: display.query_not_assessable,
+        display_arguments: display.arguments,
+        display_expected: display.expected,
+        display_actual: display.actual,
+        display_query_summary: display.query_summary,
+        display_audit_complete: display.audit_complete,
+        display_audit_discarded: display.audit_discarded,
         display_blocks: display.blocks,
         display_values: display.values,
         prose_pass: display.prose_pass,
@@ -843,4 +1269,23 @@ pub fn percentile(values: &[u64], percent: usize) -> Option<u64> {
             .saturating_sub(1)
             .min(v.len() - 1)],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_summary_truncates_utf8_strings_with_discarded_count() {
+        let query = CanonicalQuery {
+            value: json!({"family":"界".repeat(22)}),
+            text: None,
+        };
+        let summary = query.summary();
+        let family = summary["family"].as_str().unwrap();
+        assert_eq!(family.len(), 63);
+        assert_eq!(family.chars().count(), 21);
+        assert_eq!(summary["truncated"], true);
+        assert_eq!(summary["discarded"], 3);
+    }
 }

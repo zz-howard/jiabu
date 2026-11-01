@@ -4,6 +4,7 @@ locale: "zh-Hans"
 category: "display"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"
+tier: "integration"
 input: {text: "本月各用途支出；这个客户端只能显示文字。"}
 client_capabilities:
   blocks: {markdown: 1}

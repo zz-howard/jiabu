@@ -307,6 +307,7 @@ impl Scenario {
         )
         .await?;
         let journal = tx.journal(self.f.space, run.id).await?;
+        let call_rows = tx.calls(self.f.space, run.id).await?;
         let calls = tx.evaluation_calls(self.f.space, run.id).await?;
         let display_events = tx.evaluation_display_events(self.f.space, run.id).await?;
         let final_state = tx.evaluation_state(self.f.space).await?;
@@ -323,6 +324,10 @@ impl Scenario {
             .flat_map(|i| i.payload["calls"].as_array().into_iter().flatten())
             .cloned()
             .collect::<Vec<_>>();
+        let tool_results = call_rows
+            .into_iter()
+            .map(|call| (call.call_id, call.status == "succeeded"))
+            .collect();
         let blocks = checkpoint.message.0["blocks"]
             .as_array()
             .map(Vec::as_slice)
@@ -375,6 +380,16 @@ impl Scenario {
             final_state,
             message: checkpoint.message.0,
             tool_calls,
+            tool_results,
+            display_audit: self
+                .audit
+                .display
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+            display_audit_total: self.audit.display_total.load(Ordering::Relaxed),
+            display_audit_valid: self.audit.display_valid.load(Ordering::Relaxed),
+            display_audit_discarded: self.audit.display_discarded.load(Ordering::Relaxed),
             server_fallbacks,
             calls,
             tool_total: self.audit.total.load(Ordering::Relaxed),

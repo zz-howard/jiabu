@@ -4,6 +4,7 @@ locale: "zh-Hans"
 category: "display"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"
+tier: "integration"
 input: {text: "比较本月各用途支出；不支持柱状图时用数据表。"}
 client_capabilities:
   blocks: {markdown: 1, dataset: 1}

@@ -4,7 +4,7 @@ locale: "zh-Hans"
 category: "display"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"
-input: {text: "本月没有记账时如实告诉我，不要编造图表。"}
+input: {text: "请用指标卡汇总2026年10月的支出；如果没有记录，就只如实说明“本月没有记录”，不要编造图表。"}
 setup:
   currency: "CNY"
   accounts:

@@ -3,6 +3,52 @@ use ai_eval::dataset;
 fn corpus_schema_coverage_presets_and_real_jpegs() -> anyhow::Result<()> {
     let entries = dataset::load(&ai_eval::dataset_root())?;
     assert_eq!(entries.len(), 84);
+    for id in ["display-013", "display-014", "display-015", "display-016"] {
+        assert_eq!(
+            entries.iter().find(|entry| entry.id == id).unwrap().tier,
+            dataset::EvaluationTier::Integration
+        );
+    }
+    for id in [
+        "display-009",
+        "display-017",
+        "en-ambiguous-008",
+        "en-ambiguous-009",
+    ] {
+        assert_eq!(
+            entries.iter().find(|entry| entry.id == id).unwrap().tier,
+            dataset::EvaluationTier::Stress
+        );
+    }
+    assert_eq!(
+        entries
+            .iter()
+            .find(|entry| entry.id == "display-001")
+            .unwrap()
+            .tier,
+        dataset::EvaluationTier::Core
+    );
+    let case = |id: &str| entries.iter().find(|entry| entry.id == id).unwrap();
+    assert_eq!(
+        case("display-006").input.text,
+        "2026年5月到10月每个月分别花了多少？请用柱状图比较。"
+    );
+    assert!(case("display-008").input.text.contains("本月没有记录"));
+    assert!(case("display-009").input.text.contains("月度支出分类占比"));
+    let replacement = case("display-018");
+    assert_eq!(
+        replacement
+            .setup
+            .records
+            .iter()
+            .map(|record| record.record.amount_minor.unwrap())
+            .collect::<Vec<_>>(),
+        vec![5000, 6800]
+    );
+    let display = replacement.expect.display.as_ref().unwrap();
+    assert_eq!(display.expected_invalid_calls, 0);
+    assert_eq!(display.expected_business_errors, 0);
+    assert_eq!(display.calls[0].tool, "show_bar_chart");
     Ok(())
 }
 #[test]
@@ -16,6 +62,21 @@ fn rejects_duplicate_keys_multiple_documents_unknown_fields_and_non_string_keys(
     ] {
         assert!(dataset::parse(invalid).is_err());
     }
+}
+
+#[test]
+fn tier_defaults_to_core_and_rejects_unknown() {
+    let source =
+        std::fs::read_to_string(ai_eval::dataset_root().join("entries/display-001.yaml")).unwrap();
+    assert_eq!(
+        dataset::parse(&source).unwrap().tier,
+        dataset::EvaluationTier::Core
+    );
+    let invalid = source.replace(
+        "timezone: \"Asia/Shanghai\"",
+        "timezone: \"Asia/Shanghai\"\ntier: impossible",
+    );
+    assert!(dataset::parse(&invalid).is_err());
 }
 
 #[test]

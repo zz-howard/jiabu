@@ -4,7 +4,8 @@ locale: "zh-Hans"
 category: "display"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"
-input: {text: "演示一下你能画哪些图，用固定示例数据展示三种组件。"}
+tier: "stress"
+input: {text: "请用固定演示数据依次展示三种组件：月度支出指标卡、月度支出分类占比、半年支出柱状图。"}
 setup: {currency: "CNY", accounts: [], records: []}
 expect:
   behavior: "no_write"

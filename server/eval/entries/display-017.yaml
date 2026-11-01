@@ -4,6 +4,7 @@ locale: "zh-Hans"
 category: "display"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"
+tier: "stress"
 input: {text: "请画 Mermaid 饼图展示本月支出构成；但不要输出 Mermaid 或字符图，改用原生占比组件，只展示一次且不要重复列数字。"}
 setup:
   currency: "CNY"
