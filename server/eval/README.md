@@ -233,15 +233,20 @@ Judge 模型快照、self-judge、通过/失败票数及闭集布尔/枚举票�
 ## CSV 与评分
 
 结果提交到 `server/eval/results/<日期>-<提供方>/`，例如 `2026-10-29-live/`。
-每完成一条覆盖写出当前 results/summary，硬失败继续跑，最后在 stderr 列出失败 ID。
-`0` = 没有硬失败，`1` = 存在硬失败，`2` = 配置/数据/基础设施错误（包括缺图）。
-软准确率不设退出门槛，luna.coco 逐条评审真实失败项后再决定提示词调整。
+每完成一条覆盖写出当前 results/summary，失败后继续跑，最后在 stderr 列出失败 ID。
+`hard_pass` 只表示 deterministic 协议/事实/安全门禁，不会被 Judge 结果覆盖；eligible core display
+还需 Judge 三票多数通过才算 overall pass。`0` = 全部 overall pass，`1` = 至少一条 deterministic
+hard gate 或 Judge 多数失败，`2` = 配置/数据/基础设施错误（包括缺图）。软准确率不设退出门槛，
+luna.coco 逐条评审真实失败项后再决定提示词调整。
 
 `results.csv` 每条一行：身份、期望/实际行为、终态、hard/hard_pass、行为/记录检查、
 展示 hard/pass、工具序列/组件序列/事实值的正确数与分母、prose 检查、确认前未写入、
 金额/日期/分类/工具的正确数及分母和比率、业务错误次数、延迟、成本、失败原因。
 展示列还包含声明的可接受 alternative ID 集合和最终选中 ID；core、integration、stress 分层汇总，
 integration/stress 的硬失败仍是协议/安全失败，但不会被描述为普通用户的图表选择失败。
+eligible core 的 Judge 结果另写 `judge_model`、`judge_self`、pass/fail vote 数及闭集
+`judge_votes_json`；未调用 Judge 的行保持空值。Judge fail 会令展示与 overall 失败，但 deterministic
+`hard_pass` 仍保留原值，便于分别审计两层。
 `calls_json` 为按调用顺序排列的 JSON 数组，各项只有调用种类、缓存读取/写入 token、未缓存输入
 token、成本（USD 十进制字符串）、调用延迟与 outcome。未缓存输入沿用现有口径
 `input_tokens - cached_input_tokens - cache_write_tokens`，未知为 null。
@@ -264,7 +269,10 @@ token、成本（USD 十进制字符串）、调用延迟与 outcome。未缓存
 `summary.csv` 是 `metric,value,numerator,denominator`：工具合法率、金额精确率、日期/分类准确率、
 展示工具序列/组件序列/事实值准确率、
 追问精确率 TP/(TP+FP)、召回率 TP/(TP+FN)、含糊日期子集召回率、nearest-rank P50/P95 延迟、
-平均成本、未知成本数、硬失败数及追问混淆矩阵计数。确认卡不算追问。
+平均成本、未知成本数、deterministic 硬失败数及追问混淆矩阵计数。确认卡不算追问。
+Judge summary 另含 core pass/total、pass/fail/total votes、self-judge 数，以及去重排序的
+tested candidate model set 与 ranking/Judge model set。tested set 从全部结果行聚合，包括被 hard gate
+拦下而未调用 Judge 的场景；ranking set 只来自实际 judged 行。
 比率为 0–1，分母为 0 时 value 留空；成本缺用量或费率也留空。全集任一成本未知则全集均值留空。
 临时库沿用 RuntimeMeter 的 PostgreSQL numeric 计费；Mock 使用明确的合成零费率。
 延迟排除建库/迁移/setup，包含提交、worker 和即时自动确认。

@@ -282,7 +282,7 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
         .iter()
         .map(|row| row.judge_model.clone())
         .collect::<BTreeSet<_>>();
-    let tested_models = judged
+    let tested_models = rows
         .iter()
         .flat_map(|row| row.tested_models.iter().cloned())
         .collect::<BTreeSet<_>>();

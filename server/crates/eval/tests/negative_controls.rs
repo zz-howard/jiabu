@@ -487,6 +487,19 @@ fn balance_prose_requires_sanitized_target_currency_and_value_evidence() {
     let row = scoring::score(&entry, &ids, &observed);
     assert!(row.display_pass, "{:?}", row.reasons);
     assert_eq!(row.display_selected, "prose");
+    let judge_input = judge::JudgeInput::from_observation(&entry, &observed, &row)
+        .expect("display-015 prose judge input");
+    assert_eq!(judge_input.visible_prose, prose);
+    assert_eq!(judge_input.normalized_blocks, json!([]));
+    assert_eq!(
+        judge_input.verified_actual_typed_facts["facts"],
+        json!([{
+            "kind":"account_balance",
+            "account":"bank",
+            "currency":"CNY",
+            "balance_minor":-6800
+        }])
+    );
 
     let mut wrong_currency = observed.clone();
     wrong_currency.balance_results.get_mut("source-0").unwrap().currency = "USD".into();
@@ -971,6 +984,36 @@ fn judge_failure_preserves_the_deterministic_hard_gate() -> Result<()> {
 }
 
 #[test]
+fn summary_keeps_tested_models_when_hard_gate_skips_every_judge() -> Result<()> {
+    let event = json!({
+        "id":1,
+        "entity_kind":"record",
+        "entity_id":"fake",
+        "kind":"create",
+        "after":{"id":"fake","amount_minor":1800,"occurred_on":"2026-03-04"}
+    });
+    let mut row = scoring::score(
+        &ambiguity(),
+        &Identities::default(),
+        &observation(json!([event]), json!([])),
+    );
+    assert!(!row.hard_pass);
+    assert!(row.judge_self.is_none());
+    row.tested_models.insert("synthetic/candidate-only".into());
+    let dir = std::env::temp_dir().join(format!(
+        "jiabu-eval-unjudged-model-report-{}",
+        uuid::Uuid::now_v7()
+    ));
+    ai_eval::report::write(&dir, &[row])?;
+    let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
+    assert!(summary.contains("\"judge.core.pass_rate\",\"\",\"0\",\"0\""));
+    assert!(summary.contains("synthetic/candidate-only"));
+    assert!(summary.contains("\"judge.ranking_models_json\",\"[]\""));
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[test]
 fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutations() {
     let metric = display_entry("display-003.yaml");
     let good_metric = json!({"fallbackText":"ok","blocks":[{
@@ -1114,28 +1157,75 @@ fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutat
     let account_id = uuid::Uuid::now_v7();
     let mut identities = Identities::default();
     identities.accounts.insert("bank".into(), account_id);
+    let account_result = json!({
+        "display":"account_card",
+        "status":"shown",
+        "title":"虚构银行卡",
+        "demo":false,
+        "currency":"CNY",
+        "measure":"sum",
+        "total":-6800,
+        "items":[],
+        "rows":[],
+        "account_card":{
+            "account_id":account_id,
+            "version_at_reply":1,
+            "name_snapshot":"虚构银行卡",
+            "balance_minor":-6800,
+            "archived":false
+        },
+        "has_more":false,
+        "groups_may_overlap":false
+    });
+    let (account_kind, account_data, account_fallback) = jiabu_chat::map_tool_result(
+        "show_account_card",
+        &json!({}),
+        &account_result,
+    )
+    .expect("account mapper")
+    .expect("account component");
+    assert_eq!(account_kind, "x-jiabu.account_card");
     let mut account_observation = display_observation(
         &account,
-        json!({"fallbackText":"虚构银行卡：-¥68.00","blocks":[{
-            "type":"x-jiabu.account_card",
-            "data":{"accountId":account_id,"versionAtReply":1,"nameSnapshot":"虚构银行卡","balanceMinor":-6800,"currency":"CNY"},
-            "fallbackText":"虚构银行卡：-¥68.00"
+        json!({"fallbackText":account_fallback.clone(),"blocks":[{
+            "type":account_kind,
+            "data":account_data,
+            "fallbackText":account_fallback.clone()
         }]}),
     );
-    let judge_input = judge::JudgeInput::from_observation(&account, &account_observation)
-        .expect("display-007 judge input");
+    account_observation.tool_calls[0]["args"]["account_id"] = json!(account_id);
+    account_observation.server_fallbacks = vec![account_fallback];
+    let account_row = scoring::score(&account, &identities, &account_observation);
+    assert!(account_row.display_pass);
+    assert_eq!(account_row.display_selected, "exact");
+    let judge_input = judge::JudgeInput::from_observation(
+        &account,
+        &account_observation,
+        &account_row,
+    )
+    .expect("display-007 judge input");
     assert_eq!(
         judge_input.normalized_blocks[0],
         json!({
             "type":"x-jiabu.account_card",
             "name":"虚构银行卡",
-            "balance_minor":-6800,
-            "currency":"CNY"
+            "version_at_reply":1
         })
     );
-    account_observation.tool_calls[0]["args"]["account_id"] = json!(account_id);
-    account_observation.server_fallbacks = vec!["虚构银行卡：-¥68.00".into()];
-    assert!(scoring::score(&account, &identities, &account_observation).display_pass);
+    assert_eq!(
+        judge_input.verified_actual_typed_facts["facts"],
+        json!([{
+            "kind":"account_balance",
+            "account":"bank",
+            "currency":"CNY",
+            "balance_minor":-6800
+        }])
+    );
+    assert_eq!(judge_input.visible_prose, "");
+    assert_eq!(
+        judge_input.verified_actual_typed_facts["server_fallback_evidence"],
+        json!(["虚构银行卡：-¥68.00"])
+    );
     account_observation.server_fallbacks = vec!["虚构银行卡：+¥68.00".into()];
     assert!(!scoring::score(&account, &identities, &account_observation).display_pass);
     account_observation.server_fallbacks = vec!["虚构银行卡：-¥68.00".into()];
