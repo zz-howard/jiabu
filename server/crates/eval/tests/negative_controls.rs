@@ -779,6 +779,26 @@ fn prose_only_mock_uses_typed_facts_and_wrong_value_is_rejected() -> Result<()> 
 }
 
 #[test]
+fn component_mock_does_not_echo_typed_facts_as_prose() -> Result<()> {
+    use jiabu_ai::{mock::MockStep, types::TurnEvent};
+
+    let entry = display_entry("display-016.yaml");
+    let scripts = mock::scripts(&entry, &Identities::default())?;
+    let prose = scripts
+        .last()
+        .and_then(|script| script.first())
+        .and_then(|step| match step {
+            MockStep::Emit(TurnEvent::TextDelta(text)) => Some(text.as_str()),
+            _ => None,
+        })
+        .context("component mock trailing text")?;
+    assert_eq!(prose, "已展示。");
+    assert!(!prose.contains("虚构日常"));
+    assert!(!prose.contains("68.00"));
+    Ok(())
+}
+
+#[test]
 fn no_data_prose_accepts_natural_zero_and_rejects_conflicting_semantics() {
     let entry = display_entry("display-008.yaml");
     let score = |prose: &str| {
