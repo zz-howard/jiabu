@@ -254,7 +254,8 @@ final class LocalChatSession implements ChatConversation {
 
   Future<void> _reset(String id) async {
     final sameConversation = id == conversationId;
-    // Streams the disposed controller was following, reattached below.
+    // Streams the disposed controller was following, reattached below even
+    // when no loaded client state links them (found through recover).
     final streaming = [
       for (final MapEntry(key: messageId, value: row) in _rows.entries)
         if (row.status == 'streaming') messageId,
@@ -267,14 +268,15 @@ final class LocalChatSession implements ChatConversation {
     await blocks.dispose();
     blocks = BlockStore();
     conversationId = id;
-    // The new interaction controller needs its intents restored.
+    // New controllers: intents are restored and linked replies followed
+    // again (a re-attach, not a second action).
     _restored.clear();
+    _discovered.clear();
     if (!sameConversation) {
-      // Receipts and reply links act at most once per conversation: a
-      // reopen of the same one (a jump, a lower revision, a catch-up) does
-      // not retry, resume or refresh them again.
+      // Receipts act at most once per conversation: a reopen of the same
+      // one (a jump, a lower revision, a catch-up) does not retry, resume
+      // or refresh them again.
       _receipts.clear();
-      _discovered.clear();
     }
     _checkpointSeq.clear();
     _rows.clear();

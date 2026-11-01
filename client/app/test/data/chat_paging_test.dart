@@ -588,116 +588,123 @@ void main() {
       expect(opened(), isNot(contains('remote-reply')));
     });
 
-    test('receipts_and_reply_links_do_not_fire_again_after_a_reset', () async {
-      // Message 3 is a paused reply, so every reopen keeps it loaded and
-      // settles it again. Its receipt resumes a server-only message.
-      final online = await ChatHarness.create(offline: false);
-      addTearDown(online.close);
-      await online.session.dispose();
-      await seedTimeline(
-        online,
-        10,
-        message: (i) => i == 3
-            ? Message.fromJson({
-                ...c5Message('paused').json,
-                'id': timelineId(3),
-                'conversationId': 'conversation',
-                'createdAt': timelineMessage(3)['createdAt'],
-                'rev': 0,
-              })
-            : timelineMessage(i),
-      );
-      await online.h.store.updateChatClientState(
-        's',
-        timelineId(3),
-        (_) => {
-          'assistantId': 'remote-reply',
-          'action_refresh': true,
-          'receipts': {
-            'receipt-1': {
-              'resume': {'messageId': 'remote-resume-1'},
+    test(
+      'reply_streams_reattach_and_receipts_stay_quiet_after_a_reset',
+      () async {
+        // Message 3 is a paused reply, so every reopen keeps it loaded and
+        // settles it again. Its receipt resumes a server-only message, and its
+        // assistantId links a reply that is streaming on the server with no
+        // local row yet.
+        final online = await ChatHarness.create(offline: false);
+        addTearDown(online.close);
+        await online.session.dispose();
+        await seedTimeline(
+          online,
+          10,
+          message: (i) => i == 3
+              ? Message.fromJson({
+                  ...c5Message('paused').json,
+                  'id': timelineId(3),
+                  'conversationId': 'conversation',
+                  'createdAt': timelineMessage(3)['createdAt'],
+                  'rev': 0,
+                })
+              : timelineMessage(i),
+        );
+        await online.h.store.updateChatClientState(
+          's',
+          timelineId(3),
+          (_) => {
+            'assistantId': 'remote-reply',
+            'action_refresh': true,
+            'receipts': {
+              'receipt-1': {
+                'resume': {'messageId': 'remote-resume-1'},
+              },
             },
           },
-        },
-      );
-      final session = await online.open(pageSize: 4);
-      addTearDown(session.dispose);
-      await session.recover();
-      // Resume diagnostics live in the block store, which a reset replaces:
-      // after one, any id listed was resumed again.
-      Set<String> resumed() =>
-          ((session.blocks.inspect()['diagnostics']!
-                          as Map<String, Object?>)['resume']
-                      as Map<String, Object?>? ??
-                  const {})
-              .keys
-              .toSet();
-      await until(
-        () => resumed().containsAll(['remote-resume-1', 'remote-reply']),
-        'receipt and reply link act once',
-      );
-      Future<void> expectQuiet(String after) async {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        expect(
-          session.blocks.snapshot.messages,
-          contains(timelineId(3)),
-          reason: after,
         );
-        expect(
-          resumed(),
-          isNot(anyOf(contains('remote-resume-1'), contains('remote-reply'))),
-          reason: after,
+        final session = await online.open(pageSize: 4);
+        addTearDown(session.dispose);
+        await session.recover();
+        // Resume diagnostics live in the block store, which a reset replaces:
+        // after one, any id listed was resumed again.
+        Set<String> resumed() =>
+            ((session.blocks.inspect()['diagnostics']!
+                            as Map<String, Object?>)['resume']
+                        as Map<String, Object?>? ??
+                    const {})
+                .keys
+                .toSet();
+        await until(
+          () => resumed().containsAll(['remote-resume-1', 'remote-reply']),
+          'receipt and reply link act once',
         );
-      }
+        // A reset replaces the stream controller: the linked reply is followed
+        // again on the new one, while the receipt does not act again.
+        Future<void> expectQuiet(String after) async {
+          await until(
+            () => resumed().contains('remote-reply'),
+            'linked reply followed again after $after',
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          expect(
+            session.blocks.snapshot.messages,
+            contains(timelineId(3)),
+            reason: after,
+          );
+          expect(resumed(), isNot(contains('remote-resume-1')), reason: after);
+        }
 
-      String? text() =>
-          session.blocks.snapshot.messages[timelineId(9)]?['fallbackText']
-              as String?;
-      await online.h.store.putChatEntry(
-        's',
-        timelineRow(timelineMessage(9, text: '第三版', rev: 3)),
-        authoritative: true,
-      );
-      await until(() => text() == '第三版', 'rev 3 applies');
-      await online.h.store.putChatEntry(
-        's',
-        timelineRow(timelineMessage(9, text: '第二版', rev: 2)),
-        authoritative: true,
-      );
-      await until(() => text() == '第二版', 'lower rev reopens');
-      await expectQuiet('lower revision reopen');
+        String? text() =>
+            session.blocks.snapshot.messages[timelineId(9)]?['fallbackText']
+                as String?;
+        await online.h.store.putChatEntry(
+          's',
+          timelineRow(timelineMessage(9, text: '第三版', rev: 3)),
+          authoritative: true,
+        );
+        await until(() => text() == '第三版', 'rev 3 applies');
+        await online.h.store.putChatEntry(
+          's',
+          timelineRow(timelineMessage(9, text: '第二版', rev: 2)),
+          authoritative: true,
+        );
+        await until(() => text() == '第二版', 'lower rev reopens');
+        await expectQuiet('lower revision reopen');
 
-      await seedTimeline(online, 20, from: 10);
-      await until(
-        () => session.blocks.snapshot.messages.containsKey(timelineId(19)),
-        'catch-up reopens',
-      );
-      expect(loaded(session), [timelineId(3), ...range(16, 20)]);
-      await expectQuiet('catch-up reopen');
+        await seedTimeline(online, 20, from: 10);
+        await until(
+          () => session.blocks.snapshot.messages.containsKey(timelineId(19)),
+          'catch-up reopens',
+        );
+        expect(loaded(session), [timelineId(3), ...range(16, 20)]);
+        await expectQuiet('catch-up reopen');
 
-      expect(await session.jumpTo(timelineId(5)), isA<Ok<void>>());
-      await expectQuiet('jump');
+        expect(await session.jumpTo(timelineId(5)), isA<Ok<void>>());
+        await expectQuiet('jump');
 
-      // A receipt that arrives now is new and still acts.
-      await online.h.store.updateChatClientState(
-        's',
-        timelineId(3),
-        (state) => {
-          ...state,
-          'receipts': {
-            ...state['receipts']! as Map<String, Object?>,
-            'receipt-2': {
-              'resume': {'messageId': 'remote-resume-2'},
+        // A receipt that arrives now is new and still acts.
+        await online.h.store.updateChatClientState(
+          's',
+          timelineId(3),
+          (state) => {
+            ...state,
+            'receipts': {
+              ...state['receipts']! as Map<String, Object?>,
+              'receipt-2': {
+                'resume': {'messageId': 'remote-resume-2'},
+              },
             },
           },
-        },
-      );
-      await until(
-        () => resumed().contains('remote-resume-2'),
-        'new receipt resumes',
-      );
-      expect(resumed(), isNot(contains('remote-resume-1')));
-    });
+        );
+        await until(
+          () => resumed().contains('remote-resume-2'),
+          'new receipt resumes',
+        );
+        expect(resumed(), isNot(contains('remote-resume-1')));
+      },
+    );
 
     test('authoritative_lower_rev_after_paging_reopens_the_window', () async {
       await seedTimeline(h, 10);
