@@ -772,7 +772,10 @@ mod tests {
             .one_vote(&calibration_input("show it", "shown"))
             .await
             .unwrap_err();
-        assert!(matches!(error.downcast_ref::<ProviderError>(), Some(ProviderError::Transport)));
+        assert!(matches!(
+            error.downcast_ref::<ProviderError>(),
+            Some(ProviderError::Transport)
+        ));
         assert_eq!(provider.calls.load(Ordering::Relaxed), 2);
     }
 
