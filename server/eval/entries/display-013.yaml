@@ -4,6 +4,7 @@ locale: "zh-Hans"
 category: "display"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"
+tier: "integration"
 input: {text: "本月支出构成；客户端不支持占比图时保留数字。"}
 client_capabilities:
   blocks: {markdown: 1, metric_group: 1}

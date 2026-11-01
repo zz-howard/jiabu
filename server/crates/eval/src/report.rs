@@ -39,6 +39,17 @@ pub const RESULTS_HEADER: &[&str] = &[
     "display_value_correct",
     "display_value_total",
     "display_prose_pass",
+    "tier",
+    "display_expected_selection",
+    "display_actual_selection",
+    "display_query_summary",
+    "display_query_correct",
+    "display_query_total",
+    "display_query_not_assessable",
+    "display_argument_valid",
+    "display_argument_total",
+    "display_audit_complete",
+    "display_audit_discarded",
 ];
 /// RFC 4180; always quote cells to preserve empty fields and embedded JSON.
 pub fn csv_row(cells: &[String]) -> String {
@@ -106,6 +117,17 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
                 r.display_values.correct.to_string(),
                 r.display_values.total.to_string(),
                 r.prose_pass.to_string(),
+                r.tier.clone(),
+                r.display_expected.clone(),
+                r.display_actual.clone(),
+                r.display_query_summary.clone(),
+                r.display_queries.correct.to_string(),
+                r.display_queries.total.to_string(),
+                r.display_query_not_assessable.to_string(),
+                r.display_arguments.correct.to_string(),
+                r.display_arguments.total.to_string(),
+                r.display_audit_complete.to_string(),
+                r.display_audit_discarded.to_string(),
             ])
             .as_bytes(),
         )?;
@@ -120,8 +142,19 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
         Count::default(),
         Count::default(),
     );
-    let (mut display_tools, mut display_blocks, mut display_values) =
-        (Count::default(), Count::default(), Count::default());
+    let (
+        mut display_tools,
+        mut display_queries,
+        mut display_arguments,
+        mut display_blocks,
+        mut display_values,
+    ) = (
+        Count::default(),
+        Count::default(),
+        Count::default(),
+        Count::default(),
+        Count::default(),
+    );
     let (mut questions, mut ambiguous) = (Questions::default(), Questions::default());
     for r in rows {
         amount.add(&r.amount);
@@ -129,6 +162,8 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
         category.add(&r.category_accuracy);
         tools.add(&r.tools);
         display_tools.add(&r.display_tools);
+        display_queries.add(&r.display_queries);
+        display_arguments.add(&r.display_arguments);
         display_blocks.add(&r.display_blocks);
         display_values.add(&r.display_values);
         questions.add(r.expected_question, r.actual_question);
@@ -145,6 +180,8 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
         ("question_recall", questions.recall()),
         ("ambiguous_date_recall", ambiguous.recall()),
         ("display_tool_accuracy", display_tools),
+        ("display_query_accuracy", display_queries),
+        ("display_argument_validity", display_arguments),
         ("display_block_accuracy", display_blocks),
         ("display_value_accuracy", display_values),
     ] {
@@ -154,6 +191,55 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
                 opt(count.rate()),
                 count.correct.to_string(),
                 count.total.to_string(),
+            ])
+            .as_bytes(),
+        )?;
+    }
+    for tier in ["core", "integration", "stress"] {
+        let selected: Vec<_> = rows.iter().filter(|row| row.tier == tier).collect();
+        let mut selection = Count::default();
+        let mut query = Count::default();
+        let mut arguments = Count::default();
+        for row in &selected {
+            selection.add(&row.display_tools);
+            query.add(&row.display_queries);
+            arguments.add(&row.display_arguments);
+        }
+        for (name, count) in [
+            ("display_selection", selection),
+            ("display_query", query),
+            ("display_argument", arguments),
+        ] {
+            file.write_all(
+                csv_row(&[
+                    format!("tier.{tier}.{name}"),
+                    opt(count.rate()),
+                    count.correct.to_string(),
+                    count.total.to_string(),
+                ])
+                .as_bytes(),
+            )?;
+        }
+        let passed = selected.iter().filter(|row| row.hard_pass).count();
+        file.write_all(
+            csv_row(&[
+                format!("tier.{tier}.hard_pass"),
+                opt((!selected.is_empty()).then_some(passed as f64 / selected.len() as f64)),
+                passed.to_string(),
+                selected.len().to_string(),
+            ])
+            .as_bytes(),
+        )?;
+        let not_assessable: usize = selected
+            .iter()
+            .map(|row| row.display_query_not_assessable)
+            .sum();
+        file.write_all(
+            csv_row(&[
+                format!("tier.{tier}.display_query_not_assessable"),
+                not_assessable.to_string(),
+                String::new(),
+                String::new(),
             ])
             .as_bytes(),
         )?;
@@ -179,6 +265,13 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
         ("question_tp", questions.tp.to_string()),
         ("question_fp", questions.fp.to_string()),
         ("question_fn", questions.fn_.to_string()),
+        (
+            "display_query_not_assessable",
+            rows.iter()
+                .map(|row| row.display_query_not_assessable)
+                .sum::<usize>()
+                .to_string(),
+        ),
     ] {
         file.write_all(csv_row(&[name.into(), value, String::new(), String::new()]).as_bytes())?;
     }

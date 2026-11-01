@@ -33,12 +33,31 @@ pub struct Entry {
     pub category: String,
     pub today: NaiveDate,
     pub timezone: String,
+    #[serde(default)]
+    pub tier: EvaluationTier,
     pub input: Input,
     pub setup: Setup,
     pub expect: Expect,
     pub ambiguity_reason: Option<String>,
     #[serde(default)]
     pub client_capabilities: Option<ClientCapabilitiesSpec>,
+}
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum EvaluationTier {
+    #[default]
+    Core,
+    Integration,
+    Stress,
+}
+impl EvaluationTier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Core => "core",
+            Self::Integration => "integration",
+            Self::Stress => "stress",
+        }
+    }
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

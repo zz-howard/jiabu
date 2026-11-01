@@ -24,6 +24,11 @@ fn observation(events: Value, records: Value) -> Observation {
         final_state: json!({"records":records,"events":events}),
         message: json!({"fallbackText":"","blocks":[]}),
         tool_calls: vec![],
+        tool_results: Default::default(),
+        display_audit: vec![],
+        display_audit_total: 0,
+        display_audit_valid: 0,
+        display_audit_discarded: 0,
         server_fallbacks: vec![],
         calls: vec![],
         tool_total: 1,
@@ -275,7 +280,7 @@ fn unknown_costs_remain_blank_in_summary_and_calls_are_preserved() -> Result<()>
     ];
     assert_eq!(&ai_eval::report::RESULTS_HEADER[..legacy.len()], &legacy);
     assert_eq!(
-        &ai_eval::report::RESULTS_HEADER[legacy.len()..],
+        &ai_eval::report::RESULTS_HEADER[legacy.len()..legacy.len() + 9],
         &[
             "display_hard",
             "display_pass",
@@ -288,6 +293,21 @@ fn unknown_costs_remain_blank_in_summary_and_calls_are_preserved() -> Result<()>
             "display_prose_pass",
         ]
     );
+    for column in [
+        "tier",
+        "display_expected_selection",
+        "display_actual_selection",
+        "display_query_summary",
+        "display_query_correct",
+        "display_query_total",
+        "display_query_not_assessable",
+        "display_argument_valid",
+        "display_argument_total",
+        "display_audit_complete",
+        "display_audit_discarded",
+    ] {
+        assert!(ai_eval::report::RESULTS_HEADER.contains(&column));
+    }
     let mut o = observation(json!([]), json!([]));
     o.calls = vec![
         json!({"call_kind":"first","cached_input_tokens":null,"cache_write_tokens":null,"uncached_input_tokens":null,"cost_usd":null}),
@@ -299,6 +319,7 @@ fn unknown_costs_remain_blank_in_summary_and_calls_are_preserved() -> Result<()>
     let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
     assert!(summary.contains("\"mean_cost_usd\",\"\""));
     assert!(summary.contains("\"unknown_cost_count\",\"1\""));
+    assert!(summary.contains("\"tier.core.hard_pass\""));
     let results = std::fs::read_to_string(dir.join("results.csv"))?;
     assert!(results.contains("cached_input_tokens"));
     std::fs::remove_dir_all(dir)?;
@@ -334,6 +355,28 @@ fn display_observation(entry: &dataset::Entry, message: Value) -> Observation {
         .collect();
     observation.tool_total = observation.tool_calls.len();
     observation.tool_valid = observation.tool_calls.len();
+    observation.tool_results = observation
+        .tool_calls
+        .iter()
+        .filter_map(|call| call["call_id"].as_str().map(|id| (id.to_owned(), true)))
+        .collect();
+    observation.display_audit = entry
+        .expect
+        .display
+        .as_ref()
+        .unwrap()
+        .calls
+        .iter()
+        .map(|call| ai_eval::audit::DisplayAuditCall {
+            tool: call.tool.clone(),
+            valid: true,
+            summary: json!({}),
+            truncated: false,
+            discarded: 0,
+        })
+        .collect();
+    observation.display_audit_total = observation.display_audit.len();
+    observation.display_audit_valid = observation.display_audit.len();
     observation
 }
 
@@ -497,6 +540,260 @@ fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutat
 }
 
 #[test]
+fn display_selection_query_validity_and_transport_are_independent() {
+    let linked = display_entry("display-002.yaml");
+    let message = json!({"fallbackText":"ok","blocks":[{"type":"metric_group","data":{"metrics":[{"label":"虚构日常","value":6800},{"label":"虚构储备","value":3200}]},"fallbackText":"ok"}]});
+    let mut direct = display_observation(&linked, message.clone());
+    let source = direct.tool_calls.remove(0)["args"].clone();
+    direct.tool_calls[0]["args"]["source"] = json!({
+        "query": {"measure":source["measure"],"kinds":source["kinds"],"period":source["period"],"group_by":source["group_by"],"account_id":null,"purpose_id":null,"tag_id":null,"member_id":null},
+        "from_call":null,"demo":null
+    });
+    direct.tool_results.clear();
+    let good = scoring::score(&linked, &Identities::default(), &direct);
+    assert_eq!(good.display_queries.rate(), Some(1.0));
+    assert!(good.display_pass);
+
+    let mut wrong_selection = direct.clone();
+    wrong_selection.tool_calls[0]["tool"] = json!("show_breakdown");
+    wrong_selection.display_audit[0].tool = "show_breakdown".into();
+    let selected = scoring::score(&linked, &Identities::default(), &wrong_selection);
+    assert_eq!(selected.display_tools.rate(), Some(0.0));
+    assert_eq!(selected.display_queries.rate(), Some(1.0));
+
+    let mut invalid = direct.clone();
+    invalid.display_audit[0].valid = false;
+    invalid.display_audit_valid = 0;
+    let invalid = scoring::score(&linked, &Identities::default(), &invalid);
+    assert_eq!(invalid.display_arguments.rate(), Some(0.0));
+    assert_eq!(invalid.display_queries.total, 0);
+    assert_eq!(invalid.display_query_not_assessable, 1);
+
+    let mut unresolved = display_observation(&linked, message);
+    unresolved.tool_results.clear();
+    let unresolved = scoring::score(&linked, &Identities::default(), &unresolved);
+    assert_eq!(unresolved.display_queries.total, 0);
+    assert_eq!(unresolved.display_query_not_assessable, 1);
+    assert!(!unresolved.hard_pass);
+}
+
+#[test]
+fn legacy_global_invalid_and_business_error_invariants_still_gate_display() {
+    let mut entry = display_entry("display-003.yaml");
+    let display = entry.expect.display.as_mut().unwrap();
+    display.expected_invalid_calls = 1;
+    display.expected_business_errors = 1;
+    let message = json!({"fallbackText":"ok","blocks":[{"type":"metric","data":{"label":"2026年10月支出","value":9900},"fallbackText":"ok"}]});
+    let mut observed = display_observation(&entry, message);
+    observed.tool_total += 1;
+    observed.business_errors = 1;
+    assert!(scoring::score(&entry, &Identities::default(), &observed).display_pass);
+    observed.business_errors = 0;
+    let row = scoring::score(&entry, &Identities::default(), &observed);
+    assert!(!row.display_pass);
+    assert!(
+        row.reasons
+            .contains(&"display_business_error_mismatch".into())
+    );
+    assert!(!row.hard_pass);
+}
+
+#[test]
+fn display_call_pairing_covers_missing_extra_reordered_and_unpersisted_invalid_calls() {
+    let entry = display_entry("display-009.yaml");
+    let message = json!({"fallbackText":"","blocks":[]});
+    let base = display_observation(&entry, message);
+    let mut missing = base.clone();
+    missing.tool_calls.pop();
+    missing.display_audit.pop();
+    missing.display_audit_total = 2;
+    missing.display_audit_valid = 2;
+    let row = scoring::score(&entry, &Identities::default(), &missing);
+    assert_eq!(row.display_tools.total, 3);
+    assert_eq!(
+        row.display_arguments,
+        scoring::Count {
+            correct: 2,
+            total: 2
+        }
+    );
+    let mut extra = base.clone();
+    extra.tool_calls.push(json!({"tool":"show_metrics","call_id":"extra","args":entry.expect.display.as_ref().unwrap().calls[0].args.clone()}));
+    extra.display_audit.push(ai_eval::audit::DisplayAuditCall {
+        tool: "show_metrics".into(),
+        valid: true,
+        summary: json!({}),
+        truncated: false,
+        discarded: 0,
+    });
+    extra.display_audit_total = 4;
+    extra.display_audit_valid = 4;
+    assert_eq!(
+        scoring::score(&entry, &Identities::default(), &extra)
+            .display_tools
+            .total,
+        4
+    );
+    let mut reordered = base.clone();
+    reordered.tool_calls.swap(0, 1);
+    reordered.display_audit.swap(0, 1);
+    assert!(
+        scoring::score(&entry, &Identities::default(), &reordered)
+            .display_tools
+            .rate()
+            .unwrap()
+            < 1.0
+    );
+
+    let mut invalid = base;
+    invalid.display_audit[0].valid = false;
+    invalid.display_audit_valid = 2;
+    invalid.tool_calls.remove(0);
+    let row = scoring::score(&entry, &Identities::default(), &invalid);
+    assert_eq!(row.display_query_not_assessable, 1);
+    assert_eq!(row.display_queries.total, 2);
+    assert_eq!(row.display_queries.correct, 2);
+}
+
+#[test]
+fn source_reference_requires_earlier_compatible_succeeded_call() {
+    let entry = display_entry("display-002.yaml");
+    let message = json!({"fallbackText":"ok","blocks":[{"type":"metric_group","data":{"metrics":[{"label":"虚构日常","value":6800},{"label":"虚构储备","value":3200}]},"fallbackText":"ok"}]});
+    let base = display_observation(&entry, message);
+    for mutation in ["missing", "failed", "later", "incompatible"] {
+        let mut observed = base.clone();
+        match mutation {
+            "missing" => {
+                observed.tool_results.remove("source-0");
+            }
+            "failed" => {
+                observed.tool_results.insert("source-0".into(), false);
+            }
+            "later" => {
+                observed.tool_calls.swap(0, 1);
+            }
+            "incompatible" => {
+                observed.tool_calls[0]["tool"] = json!("search_records");
+            }
+            _ => unreachable!(),
+        }
+        let row = scoring::score(&entry, &Identities::default(), &observed);
+        assert_eq!(row.display_query_not_assessable, 1, "{mutation}");
+        assert_eq!(row.display_queries.total, 0, "{mutation}");
+    }
+}
+
+#[test]
+fn trend_source_reference_preserves_and_checks_grouping() {
+    let entry = display_entry("display-004.yaml");
+    let message = json!({"fallbackText":"ok","blocks":[]});
+    let mut observed = display_observation(&entry, message);
+    observed.tool_calls = vec![
+        json!({"tool":"query_stats","call_id":"stats","args":{"measure":"sum","kinds":["expense"],"period":{"from":"2026-08-01","through":"2026-10-31"},"group_by":"month","filters":{"account_id":null,"purpose_id":null,"tag_id":null,"member_id":null}}}),
+        json!({"tool":"show_trend","call_id":"display","args":{"source":{"query":null,"from_call":"stats","demo":null}}}),
+    ];
+    observed.tool_results = [("stats".to_owned(), true), ("display".to_owned(), true)]
+        .into_iter()
+        .collect();
+    assert_eq!(
+        scoring::score(&entry, &Identities::default(), &observed)
+            .display_queries
+            .rate(),
+        Some(1.0)
+    );
+    observed.tool_calls[0]["args"]["group_by"] = json!("purpose");
+    assert_eq!(
+        scoring::score(&entry, &Identities::default(), &observed)
+            .display_queries
+            .rate(),
+        Some(0.0)
+    );
+}
+
+#[test]
+fn stats_kinds_are_compared_as_a_sorted_deduplicated_set() {
+    let mut entry = display_entry("display-003.yaml");
+    entry.expect.display.as_mut().unwrap().calls[0].args["source"]["query"]["kinds"] =
+        json!(["income", "expense", "income"]);
+    let message = json!({"fallbackText":"ok","blocks":[{"type":"metric","data":{"label":"2026年10月支出","value":9900},"fallbackText":"ok"}]});
+    let mut observed = display_observation(&entry, message);
+    observed.tool_calls[0]["args"]["source"]["query"]["kinds"] = json!(["expense", "income"]);
+    assert_eq!(
+        scoring::score(&entry, &Identities::default(), &observed)
+            .display_queries
+            .rate(),
+        Some(1.0)
+    );
+}
+
+#[test]
+fn record_query_direct_and_successful_source_call_are_equivalent() {
+    let entry = display_entry("display-005.yaml");
+    let message = json!({"fallbackText":"ok","blocks":[{"type":"dataset","data":{"columns":[{"key":"date"}],"rows":[{"date":"2026-10-03","amount":3000},{"date":"2026-10-02","amount":2000},{"date":"2026-10-01","amount":1000}]},"fallbackText":"ok"}]});
+    let mut observed = display_observation(&entry, message);
+    observed.tool_calls = vec![
+        json!({"tool":"search_records","call_id":"records","args":{"filters":{"kinds":["expense"],"from":"2026-10-01","through":"2026-10-31","account_id":null,"purpose_id":null,"tag_id":null,"member_id":null,"text":null,"status":"active"},"page":{"limit":3,"offset":0}}}),
+        json!({"tool":"show_records","call_id":"display","args":{"source":{"query":null,"from_call":"records","demo":null}}}),
+    ];
+    observed.tool_results = [("records".to_owned(), true), ("display".to_owned(), true)]
+        .into_iter()
+        .collect();
+    let row = scoring::score(&entry, &Identities::default(), &observed);
+    assert_eq!(row.display_queries.rate(), Some(1.0));
+    assert!(row.display_pass);
+    for (pointer, value) in [
+        ("/args/page/limit", json!(2)),
+        ("/args/page/offset", json!(1)),
+        ("/args/filters/status", json!("voided")),
+    ] {
+        let mut wrong = observed.clone();
+        *wrong.tool_calls[0].pointer_mut(pointer).unwrap() = value;
+        assert_eq!(
+            scoring::score(&entry, &Identities::default(), &wrong)
+                .display_queries
+                .rate(),
+            Some(0.0),
+            "{pointer}"
+        );
+    }
+    observed.tool_calls[0]["args"]["filters"]["text"] = json!("different search");
+    let row = scoring::score(&entry, &Identities::default(), &observed);
+    assert_eq!(row.display_queries.rate(), Some(0.0));
+    assert!(!row.display_query_summary.contains("different search"));
+
+    let mut kinds_entry = entry.clone();
+    kinds_entry.expect.display.as_mut().unwrap().calls[0].args["source"]["query"]["kinds"] =
+        json!(["income", "expense", "income"]);
+    observed.tool_calls[0]["args"]["filters"]["text"] = Value::Null;
+    observed.tool_calls[0]["args"]["filters"]["kinds"] = json!(["expense", "income", "expense"]);
+    assert_eq!(
+        scoring::score(&kinds_entry, &Identities::default(), &observed)
+            .display_queries
+            .rate(),
+        Some(1.0)
+    );
+
+    let mut text_entry = entry.clone();
+    text_entry.expect.display.as_mut().unwrap().calls[0].args["source"]["query"]["text"] =
+        json!(" Lunch ");
+    observed.tool_calls[0]["args"]["filters"]["kinds"] = json!(["expense"]);
+    observed.tool_calls[0]["args"]["filters"]["text"] = json!(" lunch ");
+    assert_eq!(
+        scoring::score(&text_entry, &Identities::default(), &observed)
+            .display_queries
+            .rate(),
+        Some(1.0)
+    );
+    observed.tool_calls[0]["args"]["filters"]["text"] = json!("lunch");
+    assert_eq!(
+        scoring::score(&text_entry, &Identities::default(), &observed)
+            .display_queries
+            .rate(),
+        Some(0.0)
+    );
+}
+
+#[test]
 fn every_prose_guard_has_a_focused_negative_control() {
     let entry = display_entry("display-019.yaml");
     let assert_rejected = |prose: &str| {
@@ -645,6 +942,7 @@ async fn observe_credits_only_persisted_display_fallback_blocks() -> Result<()> 
     let message = positive.submit(&entry).await?;
     positive.drive(message).await?;
     let observed = positive.observe(message, None, false, 0).await?;
+    assert_eq!(observed.tool_results.get("display-0"), Some(&true));
     assert!(observed.server_fallbacks.iter().any(|fallback| {
         fallback.contains("虚构日常 ¥68.00") && fallback.contains("虚构储备 ¥32.00")
     }));
@@ -683,6 +981,42 @@ async fn observe_credits_only_persisted_display_fallback_blocks() -> Result<()> 
 }
 
 #[tokio::test]
+async fn invalid_display_call_fault_injection_keeps_one_sentence_text_fallback() -> Result<()> {
+    use ai_eval::agent_fixture::{call, done, text};
+    let entry = display_entry("display-018.yaml");
+    let scratch = std::env::var("DATABASE_URL")?;
+    let root = ai_eval::dataset_root();
+    let scenario=Scenario::new(&entry,&root,&scratch,None,Some(vec![
+        vec![call("invalid","show_metrics",json!({"source":{"query":{"measure":"sum","kinds":["expense"],"period":{"from":"2026-09-01","through":"2026-10-31"},"group_by":"month","account_id":null,"purpose_id":null,"tag_id":null,"member_id":null},"from_call":null,"demo":null}})),done()],
+        vec![text("展示参数不合规，改用文字说明。"),done()],
+    ])).await?;
+    let message = scenario.submit(&entry).await?;
+    scenario.drive(message).await?;
+    let observed = scenario.observe(message, None, false, 0).await?;
+    let blocks = observed.message["blocks"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    assert!(blocks.iter().all(|block| block["type"] == "markdown"));
+    let prose = blocks
+        .iter()
+        .filter_map(|block| block["data"]["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(prose.contains("改用文字说明"));
+    assert_eq!(
+        prose
+            .chars()
+            .filter(|character| matches!(character, '。' | '！' | '？'))
+            .count(),
+        1
+    );
+    assert_eq!(observed.display_audit_valid, 0);
+    assert_eq!(observed.tool_results.get("invalid"), Some(&false));
+    Ok(())
+}
+
+#[tokio::test]
 async fn tool_argument_audit_counts_invalid_calls_before_runtime_can_discard_them() -> Result<()> {
     use jiabu_ai::*;
     use std::sync::{Arc, atomic::Ordering};
@@ -694,6 +1028,34 @@ async fn tool_argument_audit_counts_invalid_calls_before_runtime_can_discard_the
         }
     }
     let audit = Arc::new(ai_eval::audit::ToolAudit::default());
+    let record_args = json!({"source":{"query":{"kinds":vec!["expense";17],"period":null,"account_id":null,"purpose_id":null,"tag_id":null,"member_id":null,"text":"Bearer secret-text https://example.invalid","limit":3},"from_call":null,"demo":null}});
+    let mut script = vec![
+        ai_eval::agent_fixture::call(
+            "invalid",
+            "create_record",
+            json!({"amount_minor":"not-an-integer"}),
+        ),
+        ai_eval::agent_fixture::call("unknown", "missing_tool", json!({})),
+        ai_eval::agent_fixture::call(
+            "unknown-display",
+            "show_bearer_secret",
+            json!({"token":"secret"}),
+        ),
+        ai_eval::agent_fixture::call("valid-display", "show_records", record_args.clone()),
+        ai_eval::agent_fixture::call(
+            "valid",
+            "ask_user",
+            json!({"prompt":"Please clarify","options":[],"fields":[]}),
+        ),
+    ];
+    for index in 0..17 {
+        script.push(ai_eval::agent_fixture::call(
+            &format!("repeat-{index}"),
+            "show_records",
+            record_args.clone(),
+        ));
+    }
+    script.push(ai_eval::agent_fixture::done());
     let inner = Arc::new(jiabu_ai::mock::MockProvider::scripted(
         "synthetic",
         Capabilities {
@@ -704,20 +1066,7 @@ async fn tool_argument_audit_counts_invalid_calls_before_runtime_can_discard_the
             max_files: 0,
             context_tokens: 8192,
         },
-        vec![vec![
-            ai_eval::agent_fixture::call(
-                "invalid",
-                "create_record",
-                json!({"amount_minor":"not-an-integer"}),
-            ),
-            ai_eval::agent_fixture::call("unknown", "missing_tool", json!({})),
-            ai_eval::agent_fixture::call(
-                "valid",
-                "ask_user",
-                json!({"prompt":"Please clarify","options":[],"fields":[]}),
-            ),
-            ai_eval::agent_fixture::done(),
-        ]],
+        vec![script],
     ));
     let provider = ai_eval::audit::AuditedProvider {
         inner,
@@ -740,7 +1089,31 @@ async fn tool_argument_audit_counts_invalid_calls_before_runtime_can_discard_the
             &mut Discard,
         )
         .await?;
-    assert_eq!(audit.total.load(Ordering::Relaxed), 3);
-    assert_eq!(audit.valid.load(Ordering::Relaxed), 1);
+    assert_eq!(audit.total.load(Ordering::Relaxed), 22);
+    assert_eq!(audit.valid.load(Ordering::Relaxed), 19);
+    let display = audit.display.lock().unwrap();
+    assert_eq!(display.len(), 16);
+    assert_eq!(display[0].tool, "<unknown>");
+    assert_eq!(display[1].tool, "show_records");
+    assert!(display[1].truncated);
+    assert_eq!(display[1].discarded, 1);
+    assert_eq!(display[1].summary["truncated"], true);
+    assert_eq!(display[1].summary["discarded"], 1);
+    let evidence = serde_json::to_string(&*display)?;
+    for secret in ["bearer_secret", "Bearer secret-text", "example.invalid"] {
+        assert!(!evidence.contains(secret));
+    }
+    assert_eq!(audit.display_discarded.load(Ordering::Relaxed), 3);
+    assert_eq!(audit.display_total.load(Ordering::Relaxed), 19);
+    assert_eq!(audit.display_valid.load(Ordering::Relaxed), 18);
+    let mut row_entry = display_entry("display-005.yaml");
+    row_entry.expect.display.as_mut().unwrap().calls[0].args["source"]["query"]["kinds"] =
+        json!(vec!["expense"; 17]);
+    let mut observed = display_observation(&row_entry, json!({"fallbackText":"","blocks":[]}));
+    observed.display_audit[0].truncated = true;
+    observed.display_audit[0].discarded = 3;
+    let row = scoring::score(&row_entry, &Identities::default(), &observed);
+    assert!(!row.display_audit_complete);
+    assert_eq!(row.display_audit_discarded, 3);
     Ok(())
 }

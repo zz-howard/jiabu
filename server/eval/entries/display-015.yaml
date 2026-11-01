@@ -4,6 +4,7 @@ locale: "zh-Hans"
 category: "display"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"
+tier: "integration"
 input: {text: "看看虚构银行卡余额；不支持账户卡时用指标。"}
 client_capabilities:
   blocks: {markdown: 1, metric: 1}

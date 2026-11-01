@@ -4,7 +4,7 @@ locale: "zh-Hans"
 category: "display"
 today: "2026-10-21"
 timezone: "Asia/Shanghai"
-input: {text: "最近半年每个月花了多少？请用柱状图比较。"}
+input: {text: "2026年5月到10月每个月分别花了多少？请用柱状图比较。"}
 setup:
   currency: "CNY"
   accounts:

@@ -107,6 +107,15 @@ v2 只用于 `category: display`，并保留与 v1 相同的 `input/setup` 结�
 `expect.display.hard` 在执行前声明；当前 20 条的组件选择、事实数值、能力降级、演示标记和安全
 约束都是硬标准，句式偏好仍单独体现在 prose 指标中。
 
+每条样例可声明 `tier: core|integration|stress`，省略时为 `core`。`core` 测用户可合理
+指定的稳定行为，`integration` 测客户端能力降级等跨层契约，`stress` 测合成歧义或指令冲突。
+报告分别汇总各 tier；本切片不改变既有 hard pass 或 CLI 退出规则。
+
+展示评分将组件选择、查询语义、参数合法性、最终 block、事实值和 prose 分层报告。
+等价的 direct query 与成功的 `query_stats/search_records -> from_call` 共用同一查询语义；
+数据集不应为了锁定传输路径而预注册任意一种等价轨迹。查询无法解析或引用失败时标为
+`not_assessable`，单独计数且不会让 hard pass 变绿。证据只导出有界、脱敏的规范字段。
+
 ```yaml
 schema_version: 2
 id: display-example

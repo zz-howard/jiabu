@@ -4,6 +4,7 @@ locale: "en"
 category: "ambiguous_date"
 today: "2026-10-21"
 timezone: "Asia/Singapore"
+tier: "stress"
 input:
   text: "Taxi 35 yesterday while crossing time zones; local date and zone unknown. All amounts are CNY; use Fable cash and Daily purpose for payments or receipts."
 setup:
