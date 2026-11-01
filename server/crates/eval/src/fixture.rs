@@ -489,7 +489,7 @@ impl Scenario {
                 row.hard_pass = false;
             }
         }
-        let judge_input = crate::judge::JudgeInput::from_observation(e, &obs);
+        let judge_input = crate::judge::JudgeInput::from_observation(e, &obs, &row);
         Ok((row, judge_input))
     }
 }
