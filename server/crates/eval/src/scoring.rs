@@ -643,6 +643,14 @@ fn prose_money_values_pass(
         .collect::<Vec<_>>();
     expected.sort_unstable();
     let actual = prose_money_values(prose);
+    if !alternative.facts.is_empty()
+        && alternative
+            .facts
+            .iter()
+            .all(|fact| matches!(fact, DisplayFact::NoData))
+    {
+        return actual.into_iter().all(|value| value == 0);
+    }
     if actual == expected {
         return true;
     }
@@ -878,15 +886,39 @@ fn prose_facts_pass(
                 })
         }
         DisplayFact::NoData => {
-            (lower.contains("no data")
+            let money = prose_money_values(prose);
+            let has_nonzero_money = money.iter().any(|value| *value != 0);
+            let claims_records_exist = lower.contains("records exist")
+                || prose.contains("存在记录")
+                || prose.contains("查到记录")
+                || prose.contains("已有记录");
+            let claims_demo_or_chart = lower.contains("demo")
+                || lower.contains("example")
+                || lower.contains("chart")
+                || prose.contains("演示")
+                || prose.contains("示例")
+                || prose.contains("样例")
+                || prose.contains("图表")
+                || prose.contains("假数据")
+                || prose.contains("模拟数据");
+            let explicit_no_data = lower.contains("no data")
                 || lower.contains("no records")
                 || prose.contains("没有记录")
                 || prose.contains("暂无记录")
-                || prose.contains("无记录"))
-                && prose_money_values(prose).is_empty()
-                && !lower.contains("records exist")
-                && !prose.contains("存在记录")
-                && !prose.contains("查到记录")
+                || prose.contains("无记录")
+                || prose.contains("暂无数据")
+                || prose.contains("没有数据");
+            let natural_zero_expense = !money.is_empty()
+                && money.iter().all(|value| *value == 0)
+                && (lower.contains("expense")
+                    || prose.contains("支出")
+                    || prose.contains("消费")
+                    || prose.contains("花了"))
+                && (lower.contains("month") || prose.contains('月'));
+            !has_nonzero_money
+                && !claims_records_exist
+                && !claims_demo_or_chart
+                && (explicit_no_data || natural_zero_expense)
         }
     })
 }
