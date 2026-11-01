@@ -467,6 +467,7 @@
   "chatWaitStop": "正在确认停止结果，请稍后重试",
   "chatAlreadyRecorded": "这条消息已有记录，请先查看上方记录卡",
   "chatError": "暂时无法完成，请重试",
+  "chatOpening": "正在打开聊天",
   "chatLimit": "每条消息最多 8 张照片，文字最多 32 KB",
   "chatRemovePhoto": "移除照片",
   "chatPhotoCount": "已选 {count} 张照片",
