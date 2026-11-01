@@ -14,6 +14,7 @@ class JiabuChatComposer extends StatefulWidget {
     required this.onAttach,
     this.busy = false,
     this.photoCount = 0,
+    this.fileCount = 0,
     this.stopActive = false,
     this.stopRequested = false,
     this.onStop,
@@ -25,10 +26,13 @@ class JiabuChatComposer extends StatefulWidget {
   final Future<bool> Function(String) onSend;
 
   /// The paperclip in the field: opens the attachment sheet (camera,
-  /// gallery, image files).
+  /// gallery, PDF files).
   final VoidCallback onAttach;
   final bool busy;
   final int photoCount;
+
+  /// Attached PDFs; like photos, they alone make the message sendable.
+  final int fileCount;
 
   /// The AI is processing a reply: with nothing typed the round button is the
   /// stop button (Telegram style); typing flips it back to send.
@@ -202,7 +206,8 @@ class _JiabuChatComposerState extends State<JiabuChatComposer> {
                     builder: (context, _) {
                       final hasInput =
                           _text.text.trim().isNotEmpty ||
-                          (!answering && widget.photoCount > 0);
+                          (!answering &&
+                              widget.photoCount + widget.fileCount > 0);
                       final stop =
                           widget.stopActive &&
                           widget.onStop != null &&

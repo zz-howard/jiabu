@@ -35,5 +35,15 @@ abstract interface class ApiClient {
     required String requestId,
   });
   Future<Uint8List> downloadBlob(String spaceId, String hash, String variant);
+
+  /// Generic space file (PDF) upload; raw bytes under their SHA-256.
+  Future<void> uploadFile({
+    required String spaceId,
+    required int joinEpoch,
+    required String hash,
+    required Uint8List bytes,
+    required String opId,
+    required String requestId,
+  });
   Future<void> uploadLogs(ClientLogsDto logs);
 }

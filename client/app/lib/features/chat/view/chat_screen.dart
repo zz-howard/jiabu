@@ -13,6 +13,7 @@ import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/chatweave/chat_attachment_sheet.dart';
 import 'package:jiabu/shared/chatweave/chat_block_revealer.dart';
 import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
+import 'package:jiabu/shared/chatweave/chat_file_chip.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chatweave_theme.dart';
 import 'package:jiabu/shared/chatweave/jiabu_message_view.dart';
 import 'package:jiabu/shared/ledger/ledger_forms.dart';
@@ -113,15 +114,14 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
 
     final days = _dayBreaks(session.conversationId);
     final now = ref.watch(ledgerClockProvider)();
-    // The paperclip's sheet: camera, system photo picker, or image files;
-    // all three go through the same JPEG pipeline.
+    // The paperclip's sheet: camera or system photo picker (JPEG pipeline),
+    // or images and PDFs from the system document picker.
     Future<void> attach() async {
       final source = await showChatAttachmentSheet(context);
-      if (source != null) {
-        await vm.photos(
-          camera: source == ChatAttachSource.camera,
-          files: source == ChatAttachSource.files,
-        );
+      if (source == ChatAttachSource.files) {
+        await vm.attachDocuments();
+      } else if (source != null) {
+        await vm.photos(camera: source == ChatAttachSource.camera);
       }
     }
 
@@ -213,21 +213,12 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
                         ),
                   ),
           ),
-          if (state.images.isNotEmpty)
-            SizedBox(
-              height: JiabuChatMetrics.action,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  for (final hash in state.images)
-                    InputChip(
-                      label: const JiabuIcon(JiabuIcons.uiImage),
-                      deleteIcon: const JiabuIcon(JiabuIcons.uiClose),
-                      deleteButtonTooltipMessage: l.chatRemovePhoto,
-                      onDeleted: () => vm.removePhoto(hash),
-                    ),
-                ],
-              ),
+          if (state.images.isNotEmpty || state.files.isNotEmpty)
+            ChatDraftAttachments(
+              images: state.images,
+              files: state.files,
+              onRemoveImage: vm.removePhoto,
+              onRemoveFile: vm.removeFile,
             ),
           JiabuChatComposer(
             composer: session.composer,
@@ -237,6 +228,7 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
             onAttach: () => unawaited(attach()),
             busy: state.busy,
             photoCount: state.images.length,
+            fileCount: state.files.length,
             stopActive: activeId != null && session.online,
             stopRequested:
                 activeId != null &&
@@ -258,5 +250,12 @@ String chatErrorLabel(AppLocalizations l, String? code) => switch (code) {
   'chat_wait_stop' => l.chatWaitStop,
   'chat_already_recorded' => l.chatAlreadyRecorded,
   'chat_too_large' => l.chatLimit,
+  'chat_files_too_many' => l.chatFilesTooMany,
+  'chat_file_too_large' => l.chatFileTooLarge,
+  'chat_files_too_large' => l.chatFilesTooLarge,
+  'chat_file_not_pdf' => l.chatFileNotPdf,
+  'chat_file_unsupported' => l.chatFileUnsupported,
+  'image_too_large' => l.chatImageTooLarge,
+  'invalid_image' || 'file_selection_failed' => l.chatFileUnreadable,
   _ => l.chatError,
 };

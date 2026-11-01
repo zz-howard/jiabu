@@ -416,14 +416,19 @@ void main() {
       }
     });
 
-    testWidgets('files tab: image files only, with the note', (tester) async {
+    testWidgets('files tab: images or PDFs, with the limits note', (
+      tester,
+    ) async {
       await pumpC3(tester, child: const C5Preview(state: 'attach_gallery'));
       await tester.tap(find.byKey(const ValueKey('paper-tab-1')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('chat-attach-files')), findsOneWidget);
       expect(find.byKey(const ValueKey('chat-attach-camera')), findsNothing);
-      expect(find.text('选择图片文件'), findsOneWidget);
-      expect(find.text('目前只支持图片文件，PDF 等文件稍后支持'), findsOneWidget);
+      expect(find.text('选择图片或 PDF 文件'), findsOneWidget);
+      expect(
+        find.text('可选图片或 PDF：每条最多 8 张图片、4 个 PDF，每个 PDF 不超过 10 MB，合计不超过 20 MB'),
+        findsOneWidget,
+      );
     });
 
     for (final (tab, key, source) in [
@@ -456,7 +461,86 @@ void main() {
       });
     }
 
-    test('the 文件 tab asks Android for image files, at most nine', () async {
+    test('the 文件 tab asks Android for images and PDFs', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const channel = MethodChannel('jiabu/image_files');
+      MethodCall? call;
+      Object? reply = {
+        'documents': [
+          {
+            'kind': 'pdf',
+            'name': '虚构发票.pdf',
+            'size': 3,
+            'path': '/fictional/cache/document-1.part',
+          },
+          {
+            'kind': 'image',
+            'name': null,
+            'size': 70,
+            'path': '/fictional/cache/document-2.part',
+          },
+        ],
+      };
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (request) async {
+            call = request;
+            return reply;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      Future<List<PickedDocument>> pick() =>
+          PlatformDocumentPicker().pickDocuments(
+            imageSlots: 8,
+            fileSlots: 3,
+            maxBytes: 10 * 1024 * 1024,
+            maxImageBytes: 64 * 1024 * 1024,
+          );
+      final picked = await pick();
+      expect(call?.method, 'pickDocuments');
+      expect(call?.arguments, {
+        'imageSlots': 8,
+        'fileSlots': 3,
+        'maxBytes': 10 * 1024 * 1024,
+        'maxImageBytes': 64 * 1024 * 1024,
+      });
+      expect(picked.first.name, '虚构发票.pdf');
+      expect(picked.first.isImage, isFalse);
+      expect(picked.first.path, '/fictional/cache/document-1.part');
+      expect(picked.last.isImage, isTrue);
+      expect(picked.last.name, isNull);
+      expect(picked.last.size, 70);
+      // The platform rejects an over-limit selection before copying it.
+      reply = {'rejected': 'chat_files_too_many'};
+      await expectLater(
+        pick(),
+        throwsA(
+          isA<DocumentSelectionRejected>().having(
+            (rejected) => rejected.code,
+            'code',
+            'chat_files_too_many',
+          ),
+        ),
+      );
+    });
+
+    test('without a native picker, PDFs are unsupported', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      await expectLater(
+        PlatformDocumentPicker(
+          channel: const MethodChannel('jiabu/fictional_missing'),
+        ).pickDocuments(
+          imageSlots: 1,
+          fileSlots: 1,
+          maxBytes: 1,
+          maxImageBytes: 1,
+        ),
+        throwsA(isA<DocumentPickerUnavailable>()),
+      );
+    });
+
+    test('image files from the document picker, at most nine', () async {
       TestWidgetsFlutterBinding.ensureInitialized();
       const channel = MethodChannel('jiabu/image_files');
       MethodCall? call;

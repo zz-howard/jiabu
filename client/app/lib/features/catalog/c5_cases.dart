@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:chatweave_flutter/chatweave_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:jiabu/domain/chat.dart';
+import 'package:jiabu/domain/chat_files.dart';
 import 'package:jiabu/features/catalog/c3_cases.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/chatweave/account_card_block.dart';
 import 'package:jiabu/shared/chatweave/chat_attachment_sheet.dart';
 import 'package:jiabu/shared/chatweave/chat_composer.dart';
 import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
+import 'package:jiabu/shared/chatweave/chat_file_chip.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chat_registry.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chatweave_theme.dart';
 import 'package:jiabu/shared/chatweave/jiabu_message_view.dart';
@@ -32,6 +34,7 @@ const c5States = [
   'user_failed',
   'user_waiting_ai',
   'user_photo',
+  'user_files',
   'user_manual_takeover',
   'user_offline',
   'user_menu',
@@ -40,6 +43,7 @@ const c5States = [
   'composer_answering',
   'composer_queued',
   'composer_closed_elsewhere',
+  'composer_files',
   'record_ready',
   'record_changed',
   'record_syncing',
@@ -64,6 +68,20 @@ const c5States = [
   'conversation',
   'attach_gallery',
   'attach_files',
+];
+
+/// Fictional PDFs for the attachment states (short name, long name).
+const c5Files = [
+  ChatFile(
+    sha256: '1111111111111111111111111111111111111111111111111111111111111111',
+    name: '虚构发票.pdf',
+    bytes: 245760,
+  ),
+  ChatFile(
+    sha256: '2222222222222222222222222222222222222222222222222222222222222222',
+    name: '2026年10月虚构信用卡账单明细（第一页至第三页）.pdf',
+    bytes: 1572864,
+  ),
 ];
 
 const accountCardPreviewSpaceId = 'fictional-account-card-space';
@@ -584,6 +602,11 @@ class _C5PreviewState extends State<C5Preview> {
               'images': state == 'user_photo'
                   ? ['fictional-photo']
                   : <String>[],
+              if (state == 'user_files')
+                'files': [
+                  for (final file in c5Files)
+                    {...file.toJson(), 'mime': 'application/pdf'},
+                ],
             },
           },
         }),
@@ -627,13 +650,30 @@ class _C5PreviewState extends State<C5Preview> {
               ),
             );
     } else if (state.startsWith('composer_')) {
-      body = JiabuChatComposer(
+      final composer = JiabuChatComposer(
         composer: _composer,
         draft: '',
         onDraft: (_) {},
         onSend: (_) async => true,
         onAttach: () {},
+        fileCount: state == 'composer_files' ? c5Files.length : 0,
       );
+      // The draft's PDF chips sit above the composer, as on the chat page.
+      body = state != 'composer_files'
+          ? composer
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ChatDraftAttachments(
+                  images: const [],
+                  files: c5Files,
+                  onRemoveImage: (_) {},
+                  onRemoveFile: (_) {},
+                ),
+                composer,
+              ],
+            );
     } else {
       body = JiabuMessageView(
         source: MessageView(

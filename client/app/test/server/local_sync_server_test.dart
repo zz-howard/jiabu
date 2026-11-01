@@ -109,6 +109,26 @@ class RecordedRealApi extends FakeApi {
     );
     events.add('blob:$hash');
   }
+
+  @override
+  Future<void> uploadFile({
+    required String spaceId,
+    required int joinEpoch,
+    required String hash,
+    required Uint8List bytes,
+    required String opId,
+    required String requestId,
+  }) async {
+    await real.uploadFile(
+      spaceId: spaceId,
+      joinEpoch: joinEpoch,
+      hash: hash,
+      bytes: bytes,
+      opId: opId,
+      requestId: requestId,
+    );
+    events.add('file:$hash');
+  }
 }
 
 class ServerFixture {

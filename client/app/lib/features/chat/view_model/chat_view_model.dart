@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:jiabu/app/chat_providers.dart';
 import 'package:jiabu/domain/chat.dart';
+import 'package:jiabu/domain/chat_files.dart';
 import 'package:jiabu/domain/result.dart';
 import 'package:jiabu/features/chat/view_model/chat_ui_state.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -41,6 +42,7 @@ class ChatViewModel extends _$ChatViewModel {
               conversation: value,
               draft: value.draft,
               images: value.draftImages,
+              files: value.draftFiles,
               error: null,
             );
             subscription = value.changes.listen((_) {
@@ -52,6 +54,7 @@ class ChatViewModel extends _$ChatViewModel {
                   conversation: null,
                   draft: '',
                   images: const [],
+                  files: const [],
                 );
                 unawaited(connect());
               } else {
@@ -84,14 +87,63 @@ class ChatViewModel extends _$ChatViewModel {
 
   void draft(String text) {
     state = state.copyWith(draft: text);
-    unawaited(state.conversation?.saveDraft(text, state.images));
+    unawaited(state.conversation?.saveDraft(text, state.images, state.files));
   }
 
   void removePhoto(String hash) {
     state = state.copyWith(
       images: state.images.where((image) => image != hash).toList(),
     );
-    unawaited(state.conversation?.saveDraft(state.draft, state.images));
+    unawaited(_saveDraft());
+  }
+
+  void removeFile(String sha256) {
+    state = state.copyWith(
+      files: state.files.where((file) => file.sha256 != sha256).toList(),
+    );
+    unawaited(_saveDraft());
+  }
+
+  Future<void> _saveDraft() async {
+    await state.conversation?.saveDraft(state.draft, state.images, state.files);
+  }
+
+  /// The 文件 tab: images and PDFs in one selection; limits count what the
+  /// draft holds already.
+  Future<void> attachDocuments() async {
+    final session = state.conversation;
+    if (session == null || state.busy) {
+      return;
+    }
+    if (state.files.length >= ChatFileLimits.maxFiles &&
+        state.images.length >= ChatFileLimits.maxImages) {
+      state = state.copyWith(error: 'chat_too_large');
+      return;
+    }
+    state = state.copyWith(busy: true);
+    final result = await session.documents(
+      images: state.images,
+      files: state.files,
+    );
+    if (!ref.mounted) {
+      return;
+    }
+    switch (result) {
+      case Ok(:final value):
+        final known = {for (final file in state.files) file.sha256};
+        state = state.copyWith(
+          busy: false,
+          images: {...state.images, ...value.images}.toList(),
+          files: [
+            ...state.files,
+            ...value.files.where((file) => known.add(file.sha256)),
+          ],
+          error: null,
+        );
+        await _saveDraft();
+      case Failure(:final code):
+        state = state.copyWith(busy: false, error: code);
+    }
   }
 
   Future<void> photos({required bool camera, bool files = false}) async {
@@ -120,7 +172,7 @@ class ChatViewModel extends _$ChatViewModel {
           images: images.take(8).toList(),
           error: images.length > 8 ? 'chat_too_large' : null,
         );
-        await session.saveDraft(state.draft, state.images);
+        await _saveDraft();
       case Failure(:final code):
         state = state.copyWith(busy: false, error: code);
     }
@@ -132,13 +184,18 @@ class ChatViewModel extends _$ChatViewModel {
       return false;
     }
     state = state.copyWith(busy: true, error: null);
-    final result = await session.send(text, state.images);
+    final result = await session.send(text, state.images, files: state.files);
     if (!ref.mounted) {
       return false;
     }
     if (result is Ok<void>) {
-      state = state.copyWith(busy: false, draft: '', images: const []);
-      await session.saveDraft('', const []);
+      state = state.copyWith(
+        busy: false,
+        draft: '',
+        images: const [],
+        files: const [],
+      );
+      await session.saveDraft('', const [], const []);
       return true;
     }
     state = state.copyWith(busy: false, error: (result as Failure<void>).code);

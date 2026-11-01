@@ -432,8 +432,8 @@
   "chatAttachGallery": "相册",
   "chatAttachFiles": "文件",
   "chatAttachChooseGallery": "从相册选择",
-  "chatAttachChooseFiles": "选择图片文件",
-  "chatAttachFilesNote": "目前只支持图片文件，PDF 等文件稍后支持",
+  "chatAttachChooseFiles": "选择图片或 PDF 文件",
+  "chatAttachFilesNote": "可选图片或 PDF：每条最多 8 张图片、4 个 PDF，每个 PDF 不超过 10 MB，合计不超过 20 MB",
   "chatInput": "记下文字或照片",
   "chatLocked": "先回答上面的问题",
   "chatReply": "回答：{question}",
@@ -475,6 +475,30 @@
     "placeholders": {
       "count": {
         "type": "int"
+      }
+    }
+  },
+  "chatRemoveFile": "移除文件",
+  "chatFilesTooMany": "每条消息最多 4 个 PDF 文件",
+  "chatFileTooLarge": "每个 PDF 不能超过 10 MB",
+  "chatFilesTooLarge": "PDF 合计不能超过 20 MB",
+  "chatFileNotPdf": "只支持图片或 PDF 文件",
+  "chatImageTooLarge": "图片太大，无法加入",
+  "chatFileUnreadable": "无法读取所选文件",
+  "chatFileUnsupported": "此设备暂不支持选择文件",
+  "chatFileSizeKb": "{size} KB",
+  "@chatFileSizeKb": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "chatFileSizeMb": "{size} MB",
+  "@chatFileSizeMb": {
+    "placeholders": {
+      "size": {
+        "type": "String"
       }
     }
   },

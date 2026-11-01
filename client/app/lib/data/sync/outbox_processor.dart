@@ -9,6 +9,7 @@ import 'package:jiabu/data/api/dto/sync_dto.dart';
 import 'package:jiabu/data/chat/chat_capabilities.dart';
 import 'package:jiabu/data/db/daos/local_store.dart';
 import 'package:jiabu/data/services/log_redactor_service.dart';
+import 'package:jiabu/data/services/media_service.dart';
 import 'package:jiabu/data/sync/conflict_service.dart';
 import 'package:jiabu/data/sync/sync_policy.dart';
 import 'package:jiabu/domain/outbox_operation.dart';
@@ -236,15 +237,28 @@ final class OutboxProcessor {
             // lease. Do not persist the exception or the private cache path.
             throw const ApiError('local_blob_unreadable');
           }
-          await api.uploadBlob(
-            spaceId: sent.op.spaceId,
-            joinEpoch: sent.fence.joinEpoch,
-            module: requireValue<String>(payload['module']),
-            hash: requireValue<String>(payload['sha256']),
-            bytes: bytes,
-            opId: sent.op.id,
-            requestId: sent.op.requestId,
-          );
+          final module = requireValue<String>(payload['module']);
+          if (module == chatFileModule) {
+            // Chat PDFs use the generic space file endpoint, raw bytes.
+            await api.uploadFile(
+              spaceId: sent.op.spaceId,
+              joinEpoch: sent.fence.joinEpoch,
+              hash: requireValue<String>(payload['sha256']),
+              bytes: bytes,
+              opId: sent.op.id,
+              requestId: sent.op.requestId,
+            );
+          } else {
+            await api.uploadBlob(
+              spaceId: sent.op.spaceId,
+              joinEpoch: sent.fence.joinEpoch,
+              module: module,
+              hash: requireValue<String>(payload['sha256']),
+              bytes: bytes,
+              opId: sent.op.id,
+              requestId: sent.op.requestId,
+            );
+          }
           await store.transaction(() async {
             if (!await _accepts(owner, sent)) {
               return;

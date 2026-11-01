@@ -1,4 +1,5 @@
 import 'package:chatweave_core/chatweave_core.dart';
+import 'package:jiabu/domain/chat_files.dart';
 import 'package:jiabu/domain/result.dart';
 
 enum ChatDelivery { pending, failed, waitingAi, complete, manual }
@@ -32,13 +33,29 @@ abstract interface class ChatConversation {
   );
   String get draft;
   List<String> get draftImages;
-  Future<void> saveDraft(String text, List<String> images);
-  Future<Result<void>> send(String text, List<String> images);
+  List<ChatFile> get draftFiles;
+  Future<void> saveDraft(
+    String text,
+    List<String> images,
+    List<ChatFile> files,
+  );
+  Future<Result<void>> send(
+    String text,
+    List<String> images, {
+    List<ChatFile> files = const [],
+  });
   Future<Result<List<int>>> image(String hash);
   Future<Result<List<String>>> photos({
     required bool camera,
     bool files = false,
     int limit = 8,
+  });
+
+  /// Images and PDFs from the 文件 tab, validated against the limits
+  /// together with the [images] and [files] in the draft already.
+  Future<Result<ChatAttachments>> documents({
+    List<String> images = const [],
+    List<ChatFile> files = const [],
   });
   Future<Result<void>> retry(String messageId);
   Future<Result<void>> retryUpload(String userMessageId);

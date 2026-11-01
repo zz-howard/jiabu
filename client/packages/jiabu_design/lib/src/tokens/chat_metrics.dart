@@ -54,6 +54,10 @@ abstract final class JiabuChatMetrics {
   static const double attachIcon = 20;
   static const double sendTilt = -8;
 
+  /// A PDF attachment chip (name, size) above the composer and on my note:
+  /// at most this wide; long names end in an ellipsis.
+  static const double fileChip = 240;
+
   /// Lifts the 48 round buttons so they centre on a one-line field.
   static const double roundLift = (fieldHeight - action) / 2;
 }

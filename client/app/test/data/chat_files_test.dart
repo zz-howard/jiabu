@@ -1,0 +1,579 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:jiabu/data/api/api_error.dart';
+import 'package:jiabu/data/chat/chat_capabilities.dart';
+import 'package:jiabu/data/chat/chat_session.dart';
+import 'package:jiabu/data/services/media_service.dart';
+import 'package:jiabu/domain/chat.dart';
+import 'package:jiabu/domain/chat_files.dart';
+import 'package:jiabu/domain/result.dart';
+
+import '../fixtures/jpeg_fixture.dart';
+import '../support/chat_harness.dart';
+
+/// A minimal fictional PDF: valid header and trailer, [pad] filler bytes.
+Uint8List pdf(String body, {int pad = 0, String trailer = '\n'}) =>
+    Uint8List.fromList([
+      ...ascii.encode('%PDF-1.7\n'),
+      ...ascii.encode(body),
+      ...List.filled(pad, 0x20),
+      ...ascii.encode('\n%%EOF$trailer'),
+    ]);
+
+String hashOf(List<int> bytes) => sha256.convert(bytes).toString();
+
+typedef Doc = ({bool image, String? name, Uint8List bytes});
+
+/// Mimics the Android picker: writes each document to a cache copy and
+/// returns its path; records every copy so tests can check cleanup.
+class FakeDocuments implements DocumentPickerPort {
+  FakeDocuments(this.directory);
+  final Directory directory;
+  List<Doc> documents = [];
+  Exception? error;
+  final copies = <String>[];
+  final requests =
+      <({int imageSlots, int fileSlots, int maxBytes, int maxImageBytes})>[];
+  @override
+  Future<List<PickedDocument>> pickDocuments({
+    required int imageSlots,
+    required int fileSlots,
+    required int maxBytes,
+    required int maxImageBytes,
+  }) async {
+    requests.add((
+      imageSlots: imageSlots,
+      fileSlots: fileSlots,
+      maxBytes: maxBytes,
+      maxImageBytes: maxImageBytes,
+    ));
+    if (error case final Exception thrown) {
+      throw thrown;
+    }
+    directory.createSync(recursive: true);
+    return [
+      for (final document in documents)
+        () {
+          final copy = File('${directory.path}/document-${copies.length}.part')
+            ..writeAsBytesSync(document.bytes);
+          copies.add(copy.path);
+          return PickedDocument(
+            isImage: document.image,
+            path: copy.path,
+            size: document.bytes.length,
+            name: document.name,
+          );
+        }(),
+    ];
+  }
+
+  bool get cleaned => copies.every((path) => !File(path).existsSync());
+}
+
+Doc picked(String name, Uint8List bytes) =>
+    (image: false, name: name, bytes: bytes);
+
+Doc photo(int seed) =>
+    (image: true, name: 'IMG_$seed.jpg', bytes: testJpeg(width: 3 + seed));
+
+void main() {
+  group('pdf signature', () {
+    test('accepts the server shape', () {
+      expect(looksLikePdf(pdf('fictional')), isTrue);
+      expect(looksLikePdf(pdf('fictional', trailer: '\r\n\u0000 \t')), isTrue);
+      // %%EOF only has to be in the last KiB; earlier ones do not count.
+      expect(looksLikePdf(pdf('%%EOF', pad: 2000)), isTrue);
+    });
+    test('rejects other headers and trailers', () {
+      expect(looksLikePdf(ascii.encode('%PDF-1.7')), isFalse);
+      expect(looksLikePdf(ascii.encode('%PDF-x.7\n%%EOF')), isFalse);
+      expect(looksLikePdf(ascii.encode('%PDF-17.\n%%EOF')), isFalse);
+      expect(looksLikePdf(ascii.encode('GIF89a fictional %%EOF')), isFalse);
+      expect(looksLikePdf(pdf('fictional', trailer: '\nx')), isFalse);
+      expect(looksLikePdf(pdf('fictional', trailer: '\u000b')), isFalse);
+      final early = Uint8List.fromList([
+        ...ascii.encode('%PDF-1.7\n%%EOF\n'),
+        ...List.filled(1100, 0x20),
+      ]);
+      expect(looksLikePdf(early), isFalse);
+    });
+  });
+
+  test('sniffing by magic bytes', () {
+    List<int> bytes(String text) => ascii.encode(text);
+    expect(sniffAttachment(pdf('x')), 'pdf');
+    expect(sniffAttachment(testJpeg()), 'image');
+    expect(sniffAttachment([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]), 'image');
+    expect(sniffAttachment(bytes('GIF89a')), 'image');
+    expect(sniffAttachment(bytes('RIFF\x00\x00\x00\x00WEBPVP8 ')), 'image');
+    expect(sniffAttachment(bytes('\x00\x00\x00\x18ftypheic')), 'image');
+    expect(sniffAttachment(bytes('\x00\x00\x00\x18ftypmp42')), isNull);
+    expect(sniffAttachment(bytes('PK\x03\x04')), isNull);
+    expect(sniffAttachment(const []), isNull);
+  });
+
+  group('file names', () {
+    test('trims and replaces separators and control characters', () {
+      expect(sanitizeChatFileName('  虚构发票.pdf \n'), '虚构发票.pdf');
+      expect(sanitizeChatFileName(r'a/b\c.pdf'), 'a_b_c.pdf');
+      expect(sanitizeChatFileName('a\u0000b\u007fc\u0085.pdf'), 'a_b_c_.pdf');
+    });
+    test('falls back for empty and dot names', () {
+      for (final name in [null, '', '   ', '.', '..']) {
+        expect(sanitizeChatFileName(name), ChatFileLimits.fallbackName);
+      }
+      expect(sanitizeChatFileName('...'), '...');
+    });
+    test('shortens to 255 UTF-8 bytes on a character boundary', () {
+      final long = '${'账' * 120}.pdf';
+      final name = sanitizeChatFileName(long);
+      expect(utf8.encode(name).length, lessThanOrEqualTo(255));
+      expect(name, endsWith('.pdf'));
+      expect(name, startsWith('账'));
+      expect(name.runes.where((rune) => rune == 0xfffd), isEmpty);
+      expect(utf8.encode(sanitizeChatFileName('a' * 400)).length, 255);
+    });
+  });
+
+  group('media import', () {
+    late ChatHarness h;
+    late FakeDocuments documents;
+    setUp(() async {
+      final cache = Directory.systemTemp.createTempSync('jiabu-picked-');
+      addTearDown(() => cache.deleteSync(recursive: true));
+      documents = FakeDocuments(cache);
+      h = await ChatHarness.create(documents: documents);
+    });
+    tearDown(() => h.close());
+
+    test('stores raw bytes as hash.pdf with one queued upload', () async {
+      final bytes = pdf('fictional invoice');
+      final result = await h.session.media.importFile('s', '发票.pdf', bytes);
+      final file = (result as Ok<ChatFile>).value;
+      expect(
+        file,
+        ChatFile(sha256: hashOf(bytes), name: '发票.pdf', bytes: bytes.length),
+      );
+      final blob = (await h.h.store.blobs('s')).single;
+      expect(blob['module'], chatFileModule);
+      expect(blob['sha256'], file.sha256);
+      expect(blob['path'], endsWith('${file.sha256}.pdf'));
+      expect(File(blob['path']! as String).readAsBytesSync(), bytes);
+      final op = (await h.h.store.outbox('s')).single;
+      expect(op.kind, 'blob');
+      expect(op.payload, {
+        'module': chatFileModule,
+        'sha256': file.sha256,
+        'path': blob['path'],
+      });
+      expect(op.entityIds, {'blob:chat_file:${file.sha256}'});
+      // Importing the same PDF again queues nothing new.
+      await h.session.media.importFile('s', 'again.pdf', bytes);
+      expect(await h.h.store.outbox('s'), hasLength(1));
+    });
+
+    test('orphaned PDFs are cleaned like orphaned JPEGs', () async {
+      final kept = (await h.session.media.importFile(
+        's',
+        'a.pdf',
+        pdf('a'),
+      ) as Ok<ChatFile>).value;
+      h.h.directory.createSync(recursive: true);
+      final orphan = File('${h.h.directory.path}/${'0' * 64}.pdf')
+        ..writeAsBytesSync(pdf('orphan'));
+      await h.h.cache.cleanPending();
+      expect(orphan.existsSync(), isFalse);
+      expect(
+        File('${h.h.directory.path}/${kept.sha256}.pdf').existsSync(),
+        isTrue,
+      );
+    });
+
+    test('pick validates limits before importing anything', () async {
+      final a = pdf('a');
+      final big = pdf('big', pad: 6 * 1024 * 1024);
+      Future<String> fails(
+        List<Doc> picked, {
+        List<ChatFile> attached = const [],
+        List<String> images = const [],
+      }) async {
+        documents.documents = picked;
+        final result = await h.session.documents(
+          images: images,
+          files: attached,
+        );
+        expect(await h.h.store.outbox('s'), isEmpty);
+        expect(await h.h.store.blobs('s'), isEmpty);
+        expect(documents.cleaned, isTrue);
+        return (result as Failure<ChatAttachments>).code;
+      }
+
+      expect(
+        await fails([for (var i = 0; i < 5; i++) picked('$i.pdf', a)]),
+        'chat_files_too_many',
+      );
+      expect(documents.requests.last, (
+        imageSlots: 8,
+        fileSlots: 4,
+        maxBytes: 10 * 1024 * 1024,
+        maxImageBytes: 64 * 1024 * 1024,
+      ));
+      const old = ChatFile(sha256: 'f', name: 'old.pdf', bytes: 1);
+      expect(
+        await fails(
+          [picked('a.pdf', a), picked('b.pdf', pdf('b'))],
+          attached: const [old, old, old],
+        ),
+        'chat_files_too_many',
+      );
+      expect(documents.requests.last.fileSlots, 1);
+      expect(
+        await fails([
+          picked('ok.pdf', a),
+          picked('huge.pdf', pdf('huge', pad: 10 * 1024 * 1024)),
+        ]),
+        'chat_file_too_large',
+      );
+      expect(
+        await fails([
+          picked('photo.pdf', Uint8List.fromList([0xff, 0xd8, 0xff, 0xe0])),
+        ]),
+        'chat_file_not_pdf',
+      );
+      expect(
+        await fails(
+          [picked('big.pdf', big)],
+          attached: const [
+            ChatFile(sha256: 'f', name: 'old.pdf', bytes: 15 * 1024 * 1024),
+          ],
+        ),
+        'chat_files_too_large',
+      );
+      expect(
+        await fails([picked('a.pdf', a)], attached: const [old, old, old, old]),
+        'chat_files_too_many',
+      );
+      // Photos count against the 8-image limit, the draft's included; a
+      // valid PDF in the same selection is not imported either.
+      expect(
+        await fails([picked('a.pdf', a), for (var i = 0; i < 9; i++) photo(i)]),
+        'chat_too_large',
+      );
+      expect(
+        await fails(
+          [photo(1), photo(2)],
+          images: const ['1', '2', '3', '4', '5', '6', '7'],
+        ),
+        'chat_too_large',
+      );
+      expect(documents.requests.last.imageSlots, 1);
+      // A later invalid PDF stops earlier, valid photos from importing.
+      expect(
+        await fails([photo(1), photo(2), picked('x.pdf', ascii.encode('x'))]),
+        'chat_file_not_pdf',
+      );
+      // A "photo" that is no image is caught before any import.
+      expect(
+        await fails([
+          photo(1),
+          (image: true, name: 'fake.jpg', bytes: ascii.encode('not an image')),
+        ]),
+        'invalid_image',
+      );
+      expect(
+        await fails(
+          [picked('a.pdf', a)],
+          attached: const [old, old, old, old],
+          images: const ['1', '2', '3', '4', '5', '6', '7', '8'],
+        ),
+        'chat_too_large',
+      );
+    });
+
+    test('platform rejections pass through untouched', () async {
+      for (final code in [
+        'chat_too_large',
+        'chat_files_too_many',
+        'chat_file_too_large',
+        'image_too_large',
+        'chat_file_not_pdf',
+      ]) {
+        documents.error = DocumentSelectionRejected(code);
+        expect(
+          (await h.session.documents() as Failure<ChatAttachments>).code,
+          code,
+        );
+      }
+      documents.error = Exception('fictional platform failure');
+      expect(
+        (await h.session.documents() as Failure<ChatAttachments>).code,
+        'file_selection_failed',
+      );
+      expect(await h.h.store.outbox('s'), isEmpty);
+    });
+
+    test('a failed import rolls back only what this selection added', () async {
+      // An earlier photo, already queued, survives the rollback.
+      final earlier = await h.session.media.importImage(
+        's',
+        'chat',
+        photo(1).bytes,
+      );
+      final kept = (earlier as Ok<String>).value;
+      // Passes the cheap magic check, fails in the JPEG pipeline.
+      final broken = Uint8List.fromList([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+      documents.documents = [
+        photo(1),
+        photo(2),
+        (image: true, name: 'broken.jpg', bytes: broken),
+      ];
+      final result = await h.session.documents();
+      expect(result, isA<Failure<ChatAttachments>>());
+      final blobs = await h.h.store.blobs('s');
+      expect(blobs.map((blob) => blob['sha256']), [kept]);
+      final queue = await h.h.store.outbox('s');
+      expect(queue.single.entityIds, {'blob:chat:$kept'});
+      expect(documents.cleaned, isTrue);
+    });
+
+    test('one selection routes photos and PDFs', () async {
+      documents.documents = [photo(1), picked('账单.pdf', pdf('bill')), photo(2)];
+      final result = await h.session.documents(images: const ['old']);
+      final value = (result as Ok<ChatAttachments>).value;
+      expect(documents.cleaned, isTrue);
+      expect(value.images, hasLength(2));
+      expect(value.files.single.name, '账单.pdf');
+      final blobs = await h.h.store.blobs('s');
+      expect(blobs.where((blob) => blob['module'] == 'chat'), hasLength(2));
+      expect(
+        blobs.where((blob) => blob['module'] == chatFileModule),
+        hasLength(1),
+      );
+      for (final hash in value.images) {
+        expect(
+          blobs.singleWhere((blob) => blob['sha256'] == hash)['path'],
+          endsWith('.jpg'),
+        );
+      }
+      expect(
+        (await h.h.store.outbox('s')).map((op) => op.payload['module']),
+        containsAll(['chat', chatFileModule]),
+      );
+    });
+
+    test('pick imports and skips duplicates', () async {
+      final a = pdf('a');
+      documents.documents = [
+        picked(' 账单/十月.pdf ', a),
+        picked('copy.pdf', a),
+        picked('', pdf('b')),
+      ];
+      final result = await h.session.documents();
+      final files = (result as Ok<ChatAttachments>).value.files;
+      expect(files.map((file) => file.name), ['账单_十月.pdf', 'document.pdf']);
+      expect(await h.h.store.outbox('s'), hasLength(2));
+      documents.documents = [picked('again.pdf', a)];
+      expect(
+        (await h.session.documents(
+          files: files,
+        ) as Ok<ChatAttachments>).value.files,
+        isEmpty,
+      );
+    });
+
+    test('unsupported platforms say so', () async {
+      documents.error = const DocumentPickerUnavailable();
+      expect(
+        (await h.session.documents() as Failure<ChatAttachments>).code,
+        'chat_file_unsupported',
+      );
+      final bare = await ChatHarness.create();
+      addTearDown(bare.close);
+      expect(
+        (await bare.session.documents() as Failure<ChatAttachments>).code,
+        'chat_file_unsupported',
+      );
+    });
+  });
+
+  group('upload and send', () {
+    late ChatHarness h;
+    setUp(() async {
+      h = await ChatHarness.create(offline: false);
+    });
+    tearDown(() => h.close());
+
+    Future<ChatFile> attach(String name, String body) async {
+      final result = await h.session.media.importFile('s', name, pdf(body));
+      return (result as Ok<ChatFile>).value;
+    }
+
+    test('message waits for its file upload, then sends files', () async {
+      final file = await attach('发票.pdf', 'invoice');
+      expect(
+        await h.session.send('看看这张发票', const [], files: [file]),
+        isA<Ok<void>>(),
+      );
+      final send = (await h.h.store.outbox('s'))
+          .singleWhere((op) => op.kind == 'chat_send');
+      expect(send.dependsOn, {'blob:chat_file:${file.sha256}'});
+      expect(send.payload['files'], [
+        {'sha256': file.sha256, 'name': '发票.pdf'},
+      ]);
+      final entry = await h.h.store.chatEntry('s', send.id);
+      final message = entry!['message_json'] is String
+          ? jsonDecode(entry['message_json']! as String) as Map<String, Object?>
+          : entry['message_json']! as Map<String, Object?>;
+      final input =
+          (message['metadata']! as Map<String, Object?>)['input']!
+              as Map<String, Object?>;
+      expect(input['files'], [
+        {
+          'sha256': file.sha256,
+          'name': '发票.pdf',
+          'mime': 'application/pdf',
+          'bytes': file.bytes,
+        },
+      ]);
+      // The upload goes first, through the file endpoint only.
+      await h.processor.drain(await h.owner());
+      expect(h.h.api.events, contains('file'));
+      expect(h.h.api.events, isNot(contains('blob')));
+      expect(h.h.api.files.single.hash, file.sha256);
+      expect(h.h.api.files.single.joinEpoch, 1);
+      expect((await h.h.store.blobs('s')).single['uploaded'], 1);
+      await h.processor.drain(await h.owner());
+      final write = h.api.writes.single;
+      expect(write.endpoint, 'messages');
+      expect(write.payload['files'], [
+        {'sha256': file.sha256, 'name': '发票.pdf'},
+      ]);
+      expect(write.payload.containsKey(chatCapabilitiesEnvelopeKey), isFalse);
+      expect(await h.h.store.outbox('s'), isEmpty);
+    });
+
+    test('images and files travel together; text is optional', () async {
+      final file = await attach('a.pdf', 'a');
+      expect(
+        await h.session.send('', const ['photo'], files: [file]),
+        isA<Ok<void>>(),
+      );
+      final send = (await h.h.store.outbox('s'))
+          .singleWhere((op) => op.kind == 'chat_send');
+      expect(send.dependsOn, {
+        'blob:chat:photo',
+        'blob:chat_file:${file.sha256}',
+      });
+      expect(send.payload['images'], ['photo']);
+    });
+
+    test('send enforces the file limits', () async {
+      ChatFile file(int i, int bytes) =>
+          ChatFile(sha256: '$i', name: '$i.pdf', bytes: bytes);
+      expect(
+        (await h.session.send(
+          '',
+          const [],
+          files: [for (var i = 0; i < 5; i++) file(i, 1)],
+        ) as Failure<void>).code,
+        'chat_files_too_many',
+      );
+      expect(
+        (await h.session.send(
+          '',
+          const [],
+          files: [file(1, 1), file(1, 1)],
+        ) as Failure<void>).code,
+        'chat_files_too_many',
+      );
+      expect(
+        (await h.session.send(
+          '',
+          const [],
+          files: [file(1, 10 * 1024 * 1024), file(2, 10 * 1024 * 1024 + 1)],
+        ) as Failure<void>).code,
+        'chat_files_too_large',
+      );
+      expect(await h.h.store.outbox('s'), isEmpty);
+    });
+
+    for (final (status, code) in [
+      (413, 'payload_too_large'),
+      (415, 'unsupported_media_type'),
+      (422, 'invalid'),
+    ]) {
+      test('upload $status fails permanently and blocks the message', () async {
+        h.h.api.onFile = () async => throw ApiError(code, status: status);
+        final file = await attach('a.pdf', 'a');
+        await h.session.send('x', const [], files: [file]);
+        await h.processor.drain(await h.owner());
+        final ops = await h.h.store.outbox('s');
+        final upload = ops.singleWhere((op) => op.kind == 'blob');
+        expect(upload.state, 'failed');
+        expect(upload.lastError?['status'], status);
+        expect(h.api.writes, isEmpty);
+        final user = ops.singleWhere((op) => op.kind == 'chat_send').id;
+        // The note reads the failed upload as a failed delivery.
+        for (
+          var i = 0;
+          i < 100 && h.session.delivery[user] != ChatDelivery.failed;
+          i++
+        ) {
+          await h.session.recover();
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(h.session.delivery[user], ChatDelivery.failed);
+        // Retry resets the failed upload together with the message.
+        h.h.api.onFile = null;
+        expect(await h.session.retryUpload(user), isA<Ok<void>>());
+        expect(
+          (await h.h.store.outbox('s'))
+              .singleWhere((op) => op.kind == 'blob')
+              .state,
+          'pending',
+        );
+        await h.processor.drain(await h.owner());
+        await h.processor.drain(await h.owner());
+        expect(h.api.writes.single.payload['files'], isNotEmpty);
+      });
+    }
+
+    test('upload 503 stays pending and honours Retry-After', () async {
+      h.h.api.onFile = () async =>
+          throw const ApiError('upload_busy', status: 503, retryAfter: 7);
+      await attach('a.pdf', 'a');
+      await h.processor.drain(await h.owner());
+      final upload = (await h.h.store.outbox('s')).single;
+      expect(upload.state, 'pending');
+      expect(upload.lastError?['code'], 'upload_busy');
+      expect(
+        upload.retryAt,
+        greaterThanOrEqualTo(h.h.clock.millisecondsSinceEpoch + 7000),
+      );
+    });
+
+    test('draft keeps attached files across sessions', () async {
+      final file = await attach('草稿.pdf', 'draft');
+      await h.session.saveDraft('稍后发送', const [], [file]);
+      final raw = await h.h.store.chatClientState('s', '@draft:m');
+      expect(raw['files'], [file.toJson()]);
+      final reopened = LocalChatSession(
+        dao: h.h.store,
+        api: h.api,
+        fence: h.session.fence,
+        memberId: 'm',
+        caps: h.session.caps,
+        sync: () async {},
+        media: h.session.media,
+      );
+      addTearDown(reopened.dispose);
+      await reopened.initialize();
+      expect(reopened.draftFiles, [file]);
+      expect(reopened.draft, '稍后发送');
+    });
+  });
+}

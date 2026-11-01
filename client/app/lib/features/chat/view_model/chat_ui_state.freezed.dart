@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ChatUiState {
 
- ChatConversation? get conversation; bool get busy; String get draft; List<String> get images; int get revision; Set<String> get stopping; String? get error;
+ ChatConversation? get conversation; bool get busy; String get draft; List<String> get images; List<ChatFile> get files; int get revision; Set<String> get stopping; String? get error;
 /// Create a copy of ChatUiState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $ChatUiStateCopyWith<ChatUiState> get copyWith => _$ChatUiStateCopyWithImpl<Chat
 @override
 bool operator ==(Object other) {
   final _this = this as ChatUiState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ChatUiState&&(identical(other.conversation, _this.conversation) || other.conversation == _this.conversation)&&(identical(other.busy, _this.busy) || other.busy == _this.busy)&&(identical(other.draft, _this.draft) || other.draft == _this.draft)&&const DeepCollectionEquality().equals(other.images, _this.images)&&(identical(other.revision, _this.revision) || other.revision == _this.revision)&&const DeepCollectionEquality().equals(other.stopping, _this.stopping)&&(identical(other.error, _this.error) || other.error == _this.error));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ChatUiState&&(identical(other.conversation, _this.conversation) || other.conversation == _this.conversation)&&(identical(other.busy, _this.busy) || other.busy == _this.busy)&&(identical(other.draft, _this.draft) || other.draft == _this.draft)&&const DeepCollectionEquality().equals(other.images, _this.images)&&const DeepCollectionEquality().equals(other.files, _this.files)&&(identical(other.revision, _this.revision) || other.revision == _this.revision)&&const DeepCollectionEquality().equals(other.stopping, _this.stopping)&&(identical(other.error, _this.error) || other.error == _this.error));
 }
 
 
 @override
 int get hashCode {
   final _this = this as ChatUiState;
-  return Object.hash(runtimeType,_this.conversation,_this.busy,_this.draft,const DeepCollectionEquality().hash(_this.images),_this.revision,const DeepCollectionEquality().hash(_this.stopping),_this.error);
+  return Object.hash(runtimeType,_this.conversation,_this.busy,_this.draft,const DeepCollectionEquality().hash(_this.images),const DeepCollectionEquality().hash(_this.files),_this.revision,const DeepCollectionEquality().hash(_this.stopping),_this.error);
 }
 
 @override
 String toString() {
   final _this = this as ChatUiState;
-  return 'ChatUiState(conversation: ${_this.conversation}, busy: ${_this.busy}, draft: ${_this.draft}, images: ${_this.images}, revision: ${_this.revision}, stopping: ${_this.stopping}, error: ${_this.error})';
+  return 'ChatUiState(conversation: ${_this.conversation}, busy: ${_this.busy}, draft: ${_this.draft}, images: ${_this.images}, files: ${_this.files}, revision: ${_this.revision}, stopping: ${_this.stopping}, error: ${_this.error})';
 }
 
 
@@ -51,7 +51,7 @@ abstract mixin class $ChatUiStateCopyWith<$Res>  {
   factory $ChatUiStateCopyWith(ChatUiState value, $Res Function(ChatUiState) _then) = _$ChatUiStateCopyWithImpl;
 @useResult
 $Res call({
- ChatConversation? conversation, bool busy, String draft, List<String> images, int revision, Set<String> stopping, String? error
+ ChatConversation? conversation, bool busy, String draft, List<String> images, List<ChatFile> files, int revision, Set<String> stopping, String? error
 });
 
 
@@ -68,13 +68,14 @@ class _$ChatUiStateCopyWithImpl<$Res>
 
 /// Create a copy of ChatUiState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? conversation = freezed,Object? busy = null,Object? draft = null,Object? images = null,Object? revision = null,Object? stopping = null,Object? error = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? conversation = freezed,Object? busy = null,Object? draft = null,Object? images = null,Object? files = null,Object? revision = null,Object? stopping = null,Object? error = freezed,}) {
   return _then(ChatUiState(
 conversation: freezed == conversation ? _self.conversation : conversation // ignore: cast_nullable_to_non_nullable
 as ChatConversation?,busy: null == busy ? _self.busy : busy // ignore: cast_nullable_to_non_nullable
 as bool,draft: null == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
 as String,images: null == images ? _self.images : images // ignore: cast_nullable_to_non_nullable
-as List<String>,revision: null == revision ? _self.revision : revision // ignore: cast_nullable_to_non_nullable
+as List<String>,files: null == files ? _self.files : files // ignore: cast_nullable_to_non_nullable
+as List<ChatFile>,revision: null == revision ? _self.revision : revision // ignore: cast_nullable_to_non_nullable
 as int,stopping: null == stopping ? _self.stopping : stopping // ignore: cast_nullable_to_non_nullable
 as Set<String>,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
 as String?,
@@ -162,10 +163,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( ChatConversation? conversation,  bool busy,  String draft,  List<String> images,  int revision,  Set<String> stopping,  String? error)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( ChatConversation? conversation,  bool busy,  String draft,  List<String> images,  List<ChatFile> files,  int revision,  Set<String> stopping,  String? error)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ChatUiState() when $default != null:
-return $default(_that.conversation,_that.busy,_that.draft,_that.images,_that.revision,_that.stopping,_that.error);case _:
+return $default(_that.conversation,_that.busy,_that.draft,_that.images,_that.files,_that.revision,_that.stopping,_that.error);case _:
   return orElse();
 
 }
@@ -183,10 +184,10 @@ return $default(_that.conversation,_that.busy,_that.draft,_that.images,_that.rev
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( ChatConversation? conversation,  bool busy,  String draft,  List<String> images,  int revision,  Set<String> stopping,  String? error)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( ChatConversation? conversation,  bool busy,  String draft,  List<String> images,  List<ChatFile> files,  int revision,  Set<String> stopping,  String? error)  $default,) {final _that = this;
 switch (_that) {
 case _ChatUiState():
-return $default(_that.conversation,_that.busy,_that.draft,_that.images,_that.revision,_that.stopping,_that.error);case _:
+return $default(_that.conversation,_that.busy,_that.draft,_that.images,_that.files,_that.revision,_that.stopping,_that.error);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -203,10 +204,10 @@ return $default(_that.conversation,_that.busy,_that.draft,_that.images,_that.rev
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( ChatConversation? conversation,  bool busy,  String draft,  List<String> images,  int revision,  Set<String> stopping,  String? error)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( ChatConversation? conversation,  bool busy,  String draft,  List<String> images,  List<ChatFile> files,  int revision,  Set<String> stopping,  String? error)?  $default,) {final _that = this;
 switch (_that) {
 case _ChatUiState() when $default != null:
-return $default(_that.conversation,_that.busy,_that.draft,_that.images,_that.revision,_that.stopping,_that.error);case _:
+return $default(_that.conversation,_that.busy,_that.draft,_that.images,_that.files,_that.revision,_that.stopping,_that.error);case _:
   return null;
 
 }
@@ -218,7 +219,7 @@ return $default(_that.conversation,_that.busy,_that.draft,_that.images,_that.rev
 
 
 class _ChatUiState implements ChatUiState {
-  const _ChatUiState({this.conversation, this.busy = false, this.draft = '',  List<String> images = const <String>[], this.revision = 0,  Set<String> stopping = const <String>{}, this.error}): _images = images,_stopping = stopping;
+  const _ChatUiState({this.conversation, this.busy = false, this.draft = '',  List<String> images = const <String>[],  List<ChatFile> files = const <ChatFile>[], this.revision = 0,  Set<String> stopping = const <String>{}, this.error}): _images = images,_files = files,_stopping = stopping;
   
 
 @override final  ChatConversation? conversation;
@@ -229,6 +230,13 @@ class _ChatUiState implements ChatUiState {
   if (_images is EqualUnmodifiableListView) return _images;
   // ignore: implicit_dynamic_type
   return EqualUnmodifiableListView(_images);
+}
+
+ final  List<ChatFile> _files;
+@override@JsonKey() List<ChatFile> get files {
+  if (_files is EqualUnmodifiableListView) return _files;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_files);
 }
 
 @override@JsonKey() final  int revision;
@@ -251,18 +259,18 @@ _$ChatUiStateCopyWith<_ChatUiState> get copyWith => __$ChatUiStateCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ChatUiState&&(identical(other.conversation, conversation) || other.conversation == conversation)&&(identical(other.busy, busy) || other.busy == busy)&&(identical(other.draft, draft) || other.draft == draft)&&const DeepCollectionEquality().equals(other.images, _images)&&(identical(other.revision, revision) || other.revision == revision)&&const DeepCollectionEquality().equals(other.stopping, _stopping)&&(identical(other.error, error) || other.error == error));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ChatUiState&&(identical(other.conversation, conversation) || other.conversation == conversation)&&(identical(other.busy, busy) || other.busy == busy)&&(identical(other.draft, draft) || other.draft == draft)&&const DeepCollectionEquality().equals(other.images, _images)&&const DeepCollectionEquality().equals(other.files, _files)&&(identical(other.revision, revision) || other.revision == revision)&&const DeepCollectionEquality().equals(other.stopping, _stopping)&&(identical(other.error, error) || other.error == error));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,conversation,busy,draft,const DeepCollectionEquality().hash(_images),revision,const DeepCollectionEquality().hash(_stopping),error);
+    return Object.hash(runtimeType,conversation,busy,draft,const DeepCollectionEquality().hash(_images),const DeepCollectionEquality().hash(_files),revision,const DeepCollectionEquality().hash(_stopping),error);
 }
 
 @override
 String toString() {
-    return 'ChatUiState(conversation: $conversation, busy: $busy, draft: $draft, images: $images, revision: $revision, stopping: $stopping, error: $error)';
+    return 'ChatUiState(conversation: $conversation, busy: $busy, draft: $draft, images: $images, files: $files, revision: $revision, stopping: $stopping, error: $error)';
 }
 
 
@@ -273,7 +281,7 @@ abstract mixin class _$ChatUiStateCopyWith<$Res> implements $ChatUiStateCopyWith
   factory _$ChatUiStateCopyWith(_ChatUiState value, $Res Function(_ChatUiState) _then) = __$ChatUiStateCopyWithImpl;
 @override @useResult
 $Res call({
- ChatConversation? conversation, bool busy, String draft, List<String> images, int revision, Set<String> stopping, String? error
+ ChatConversation? conversation, bool busy, String draft, List<String> images, List<ChatFile> files, int revision, Set<String> stopping, String? error
 });
 
 
@@ -290,13 +298,14 @@ class __$ChatUiStateCopyWithImpl<$Res>
 
 /// Create a copy of ChatUiState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? conversation = freezed,Object? busy = null,Object? draft = null,Object? images = null,Object? revision = null,Object? stopping = null,Object? error = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? conversation = freezed,Object? busy = null,Object? draft = null,Object? images = null,Object? files = null,Object? revision = null,Object? stopping = null,Object? error = freezed,}) {
   return _then(_ChatUiState(
 conversation: freezed == conversation ? _self.conversation : conversation // ignore: cast_nullable_to_non_nullable
 as ChatConversation?,busy: null == busy ? _self.busy : busy // ignore: cast_nullable_to_non_nullable
 as bool,draft: null == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
 as String,images: null == images ? _self._images : images // ignore: cast_nullable_to_non_nullable
-as List<String>,revision: null == revision ? _self.revision : revision // ignore: cast_nullable_to_non_nullable
+as List<String>,files: null == files ? _self._files : files // ignore: cast_nullable_to_non_nullable
+as List<ChatFile>,revision: null == revision ? _self.revision : revision // ignore: cast_nullable_to_non_nullable
 as int,stopping: null == stopping ? _self._stopping : stopping // ignore: cast_nullable_to_non_nullable
 as Set<String>,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
 as String?,

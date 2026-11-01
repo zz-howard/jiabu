@@ -35,10 +35,12 @@ final class BlobCacheService {
       }
       await store.finishDeletion(path);
     }
-    // Recover a crash after the JPEG rename but before the database commit.
+    // Recover a crash after the JPEG/PDF rename but before the database
+    // commit.
     if (directory.existsSync()) {
       await for (final entry in directory.list(followLinks: false)) {
-        if (entry is! File || !entry.path.endsWith('.jpg')) {
+        if (entry is! File ||
+            !(entry.path.endsWith('.jpg') || entry.path.endsWith('.pdf'))) {
           continue;
         }
         var referenced = false;

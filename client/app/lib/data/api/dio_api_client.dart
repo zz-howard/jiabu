@@ -354,6 +354,30 @@ final class DioApiClient implements ApiClient, ChatApi {
   }
 
   @override
+  Future<void> uploadFile({
+    required String spaceId,
+    required int joinEpoch,
+    required String hash,
+    required Uint8List bytes,
+    required String opId,
+    required String requestId,
+  }) async {
+    // 204 for both new and repeated uploads; 413/415/422 are permanent.
+    await _request<Object?>(
+      'v1/spaces/$spaceId/files/$hash',
+      method: 'PUT',
+      data: bytes,
+      blob: true,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'X-Jiabu-Join-Epoch': joinEpoch,
+        'Idempotency-Key': opId,
+        'X-Request-Id': requestId,
+      },
+    );
+  }
+
+  @override
   Future<Uint8List> downloadBlob(
     String spaceId,
     String hash,

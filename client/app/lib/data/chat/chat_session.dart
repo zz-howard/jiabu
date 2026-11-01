@@ -14,6 +14,8 @@ import 'package:jiabu/data/db/daos/local_store.dart';
 import 'package:jiabu/data/services/log_redactor_service.dart';
 import 'package:jiabu/data/services/media_service.dart';
 import 'package:jiabu/domain/chat.dart';
+import 'package:jiabu/domain/chat_files.dart';
+import 'package:jiabu/domain/entity_ref.dart';
 import 'package:jiabu/domain/outbox_operation.dart';
 import 'package:jiabu/domain/result.dart';
 import 'package:logging/logging.dart';
@@ -88,9 +90,16 @@ final class LocalChatSession implements ChatConversation {
   @override
   List<String> draftImages = [];
   @override
-  Future<void> saveDraft(String text, List<String> images) async {
+  List<ChatFile> draftFiles = [];
+  @override
+  Future<void> saveDraft(
+    String text,
+    List<String> images,
+    List<ChatFile> files,
+  ) async {
     draft = text;
     draftImages = List.unmodifiable(images);
+    draftFiles = List.unmodifiable(files);
     try {
       await dao.transaction(() async {
         await dao.lockRuntime();
@@ -98,7 +107,11 @@ final class LocalChatSession implements ChatConversation {
           await dao.updateChatClientState(
             spaceId,
             '@draft:$memberId',
-            (_) => {'text': text, 'images': images},
+            (_) => {
+              'text': text,
+              'images': images,
+              'files': [for (final file in files) file.toJson()],
+            },
           );
         }
       });
@@ -185,6 +198,10 @@ final class LocalChatSession implements ChatConversation {
     final saved = await dao.chatClientState(spaceId, '@draft:$memberId');
     draft = saved['text'] as String? ?? '';
     draftImages = (saved['images'] as List<Object?>? ?? []).cast<String>();
+    draftFiles = [
+      for (final file in saved['files'] as List<Object?>? ?? const [])
+        ?ChatFile.fromJson(file),
+    ];
     await _reload();
     _database = dao
         .watchChatChanges(spaceId)
@@ -233,6 +250,7 @@ final class LocalChatSession implements ChatConversation {
           await _reset(conversationId);
           draft = '';
           draftImages = [];
+          draftFiles = [];
           delivery = {};
           error = 'stale_response';
           _attached = false;
@@ -502,76 +520,110 @@ final class LocalChatSession implements ChatConversation {
   }
 
   @override
-  Future<Result<void>> send(String text, List<String> images) =>
-      _guard(() async {
-        if ((await dao.runtime())['write_allowed'] != 1) {
-          throw const ApiError('client_too_old');
-        }
-        if (composer.state.mode != ComposerMode.free) {
-          throw const ApiError('chat_answer_first');
-        }
-        if (text.trim().isEmpty && images.isEmpty) {
-          throw const ApiError('chat_empty');
-        }
-        if (utf8.encode(text).length > 32000 || images.length > 8) {
-          throw const ApiError('chat_too_large');
-        }
-        final id = const Uuid().v7();
-        await dao.transaction(() async {
-          await dao.lockRuntime();
-          if (!await dao.accepts(fence)) {
-            throw const ApiError('stale_response');
-          }
-          final message = {
-            'protocolVersion': '0.1',
+  Future<Result<void>> send(
+    String text,
+    List<String> images, {
+    List<ChatFile> files = const [],
+  }) => _guard(() async {
+    if ((await dao.runtime())['write_allowed'] != 1) {
+      throw const ApiError('client_too_old');
+    }
+    if (composer.state.mode != ComposerMode.free) {
+      throw const ApiError('chat_answer_first');
+    }
+    if (text.trim().isEmpty && images.isEmpty && files.isEmpty) {
+      throw const ApiError('chat_empty');
+    }
+    if (utf8.encode(text).length > 32000 || images.length > 8) {
+      throw const ApiError('chat_too_large');
+    }
+    if (files.length > ChatFileLimits.maxFiles ||
+        files.map((file) => file.sha256).toSet().length != files.length) {
+      throw const ApiError('chat_files_too_many');
+    }
+    if (files.fold<int>(0, (sum, file) => sum + file.bytes) >
+        ChatFileLimits.maxCombinedBytes) {
+      throw const ApiError('chat_files_too_large');
+    }
+    final id = const Uuid().v7();
+    await dao.transaction(() async {
+      await dao.lockRuntime();
+      if (!await dao.accepts(fence)) {
+        throw const ApiError('stale_response');
+      }
+      final message = {
+        'protocolVersion': '0.1',
+        'id': id,
+        'conversationId': conversationId,
+        'role': 'user',
+        'status': 'complete',
+        'rev': 0,
+        'createdAt': DateTime.now().toUtc().toIso8601String(),
+        'fallbackText': text,
+        'blocks': <Object?>[],
+        'metadata': {
+          'input': {
+            'text': text,
+            'images': images,
+            if (files.isNotEmpty)
+              'files': [
+                for (final file in files)
+                  {
+                    'sha256': file.sha256,
+                    'name': file.name,
+                    'mime': ChatFileLimits.mime,
+                    'bytes': file.bytes,
+                  },
+              ],
+          },
+        },
+      };
+      await dao.putChatEntry(
+        spaceId,
+        {
+          'id': id,
+          'member_id': memberId,
+          'conversation_id': conversationId,
+          'role': 'user',
+          'created_at': message['createdAt'],
+          'message_json': message,
+          'fallback_text': text,
+          'stream_status': 'complete',
+        },
+        authoritative: false,
+        state: 'pending',
+      );
+      await dao.enqueue(
+        OutboxOperation(
+          id: id,
+          spaceId: spaceId,
+          joinEpoch: fence.joinEpoch,
+          kind: 'chat_send',
+          payload: {
             'id': id,
-            'conversationId': conversationId,
-            'role': 'user',
-            'status': 'complete',
-            'rev': 0,
-            'createdAt': DateTime.now().toUtc().toIso8601String(),
-            'fallbackText': text,
-            'blocks': <Object?>[],
-            'metadata': {
-              'input': {'text': text, 'images': images},
-            },
-          };
-          await dao.putChatEntry(
-            spaceId,
-            {
-              'id': id,
-              'member_id': memberId,
-              'conversation_id': conversationId,
-              'role': 'user',
-              'created_at': message['createdAt'],
-              'message_json': message,
-              'fallback_text': text,
-              'stream_status': 'complete',
-            },
-            authoritative: false,
-            state: 'pending',
-          );
-          await dao.enqueue(
-            OutboxOperation(
-              id: id,
-              spaceId: spaceId,
-              joinEpoch: fence.joinEpoch,
-              kind: 'chat_send',
-              payload: {
-                'id': id,
-                'text': text,
-                'images': images,
-                chatCapabilitiesEnvelopeKey: chatCapabilitiesHeader(caps),
-              },
-              entityIds: {'chat_entry:$id'},
-              dependsOn: {for (final hash in images) 'blob:chat:$hash'},
-              requestId: const Uuid().v7(),
-              createdAt: DateTime.now().microsecondsSinceEpoch,
-            ),
-          );
-          dao.afterCommit(onEnqueued);
-        });
-      });
+            'text': text,
+            'images': images,
+            if (files.isNotEmpty)
+              'files': [
+                for (final file in files)
+                  {'sha256': file.sha256, 'name': file.name},
+              ],
+            chatCapabilitiesEnvelopeKey: chatCapabilitiesHeader(caps),
+          },
+          entityIds: {'chat_entry:$id'},
+          // The message waits for its photos and PDFs to be uploaded.
+          dependsOn: {
+            for (final hash in images) EntityRef.blob('chat', hash),
+            for (final file in files)
+              EntityRef.blob(chatFileModule, file.sha256),
+          },
+          requestId: const Uuid().v7(),
+          createdAt: DateTime.now().microsecondsSinceEpoch,
+        ),
+      );
+      dao.afterCommit(onEnqueued);
+    });
+  });
   @override
   Future<Result<List<int>>> image(String hash) => _guard(() async {
     final blob = (await dao.blobs(spaceId))
@@ -600,6 +652,11 @@ final class LocalChatSession implements ChatConversation {
     files: files,
     limit: limit.clamp(0, 8),
   );
+  @override
+  Future<Result<ChatAttachments>> documents({
+    List<String> images = const [],
+    List<ChatFile> files = const [],
+  }) => media.pickDocuments(spaceId, images: images, files: files);
   @override
   Future<Result<void>> retry(String messageId) => _guard(() async {
     if ((await dao.runtime())['write_allowed'] != 1) {

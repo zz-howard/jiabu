@@ -2,7 +2,9 @@
 @Timeout(Duration(minutes: 5))
 library;
 
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:chatweave_flutter/chatweave_flutter.dart';
 import 'package:dio/dio.dart';
@@ -17,6 +19,7 @@ import 'package:jiabu/data/repositories/ledger_repository.dart';
 import 'package:jiabu/data/services/media_service.dart';
 import 'package:jiabu/data/sync/outbox_processor.dart';
 import 'package:jiabu/data/sync/sync_engine.dart';
+import 'package:jiabu/domain/chat_files.dart';
 import 'package:jiabu/domain/result.dart';
 import 'package:jiabu/features/chat/blocks/record_card_block.dart';
 import 'package:jiabu/shared/chatweave/jiabu_chat_registry.dart';
@@ -456,6 +459,54 @@ void main() {
       );
     },
   );
+
+  test('chat_pdf_uploads_before_send_and_input_keeps_files', () async {
+    final bytes = Uint8List.fromList(
+      utf8.encode('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n'),
+    );
+    final imported = await a.media.importFile(f.space, ' 虚构账单.pdf', bytes);
+    final file = (imported as Ok<ChatFile>).value;
+    expect(file.name, '虚构账单.pdf');
+    await script('PDF账单', [
+      {'text': '已收到账单。'},
+    ]);
+    a.api.offline = true;
+    expect(
+      await a.session.send('PDF账单', const [], files: [file]),
+      isA<Ok<void>>(),
+    );
+    await a.sync();
+    expect(a.api.writes, isEmpty);
+    a.api.offline = false;
+    await a.sync();
+    await a.session.recover();
+    final events = (a.h.api as RecordedRealApi).events;
+    expect(
+      events.indexOf('file:${file.sha256}'),
+      allOf(isNonNegative, lessThan(events.indexOf('chat:messages'))),
+    );
+    expect(
+      (await a.h.store.blobs(f.space))
+          .singleWhere((blob) => blob['sha256'] == file.sha256)['uploaded'],
+      1,
+    );
+    // The server's stored input carries the resolved file metadata.
+    final user = a.session.blocks.snapshot.messages.values.singleWhere(
+      (message) => message['role'] == 'user',
+    );
+    expect(user.rev, greaterThanOrEqualTo(1));
+    final input =
+        (user['metadata']! as Map<String, Object?>)['input']!
+            as Map<String, Object?>;
+    expect(input['files'], [
+      {
+        'sha256': file.sha256,
+        'name': '虚构账单.pdf',
+        'mime': 'application/pdf',
+        'bytes': bytes.length,
+      },
+    ]);
+  });
 
   test('chat_two_devices_answer_same_reply_without_user_message', () async {
     final b = await _Device.create(f);

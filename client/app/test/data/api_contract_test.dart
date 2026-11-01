@@ -208,6 +208,82 @@ void main() {
     expect(adapter.requests.single.uri.path, '/v1/spaces/s/blobs/$uploadHash');
   });
 
+  test('pdf_upload_matches_the_space_file_contract', () async {
+    final adapter = CapturingAdapter()
+      ..body = Uint8List(0)
+      ..status = 204
+      ..headers = const {};
+    final dio = Dio()..httpClientAdapter = adapter;
+    final api = DioApiClient(
+      server: 'https://example.invalid/',
+      clientHeader: 'android/0.1.0+1; channel=beta',
+      token: () async => 'fictional-token',
+      dio: dio,
+    );
+    final hash = List.filled(64, 'a').join();
+    final bytes = Uint8List.fromList(utf8.encode('%PDF-1.7\n%%EOF\n'));
+    await api.uploadFile(
+      spaceId: 's',
+      joinEpoch: 3,
+      hash: hash,
+      bytes: bytes,
+      opId: 'fictional-op',
+      requestId: 'fictional-request',
+    );
+    final request = adapter.requests.single;
+    expect(request.method, 'PUT');
+    expect(request.uri.path, '/v1/spaces/s/files/$hash');
+    expect(request.uri.query, isEmpty);
+    expect(request.headers['Content-Type'], 'application/pdf');
+    expect(request.headers['X-Jiabu-Join-Epoch'], 3);
+    expect(request.headers['Idempotency-Key'], 'fictional-op');
+    expect(request.headers['X-Request-Id'], 'fictional-request');
+    expect(request.data, bytes);
+    // The documented route and status codes this client relies on.
+    final route = requireValue<Map<String, Object?>>(
+      requireValue<Map<String, Object?>>(
+        openapi()['paths'],
+      )['/v1/spaces/{space_id}/files/{sha256}'],
+    );
+    final put = requireValue<Map<String, Object?>>(route['put']);
+    final responses = requireValue<Map<String, Object?>>(put['responses']);
+    expect(responses.keys, containsAll(['204', '413', '415', '422', '503']));
+    expect(
+      requireValue<Map<String, Object?>>(
+        requireValue<Map<String, Object?>>(put['requestBody'])['content'],
+      ).keys,
+      ['application/pdf'],
+    );
+
+    adapter
+      ..status = 415
+      ..body = const {
+        'type': 'about:blank',
+        'title': 'Unsupported Media Type',
+        'status': 415,
+        'code': 'unsupported_media_type',
+        'request_id': 'fictional-request',
+      }
+      ..headers = const {
+        Headers.contentTypeHeader: ['application/problem+json'],
+      };
+    await expectLater(
+      api.uploadFile(
+        spaceId: 's',
+        joinEpoch: 3,
+        hash: hash,
+        bytes: bytes,
+        opId: 'fictional-op',
+        requestId: 'fictional-request',
+      ),
+      throwsA(
+        isA<ApiError>()
+            .having((error) => error.status, 'status', 415)
+            .having((error) => error.code, 'code', 'unsupported_media_type'),
+      ),
+    );
+  });
+
   test('DTOs roundtrip actual OpenAPI examples without '
       'API codegen', () {
     final paths = requireValue<Map<String, Object?>>(openapi()['paths']);
