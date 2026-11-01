@@ -39,8 +39,6 @@ expect:
     - id: prose
       calls: []
       blocks: []
-      fallback_contains:
-      - 本月总支出 68.00 元
       facts:
       - kind: aggregate
         label: 本月总支出

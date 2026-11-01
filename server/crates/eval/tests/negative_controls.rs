@@ -702,11 +702,8 @@ fn record_kind_is_bound_to_each_row_and_conflicts_are_rejected() {
 
 #[test]
 fn prose_money_accepts_trimmed_decimals_and_deduplicates_symbol_plus_unit() {
-    let mut entry = display_entry("display-019.yaml");
-    entry.expect.display.as_mut().unwrap().alternatives[0]
-        .fallback_contains
-        .clear();
-    for prose in ["本月总支出 68.5 元", "本月总支出 ¥68.00 元"] {
+    let entry = display_entry("display-019.yaml");
+    for prose in ["本月总支出：68 元。", "本月总支出 ¥68.00 元"] {
         let message = json!({
             "fallbackText":prose,
             "blocks":[{"type":"markdown","data":{"text":prose},"fallbackText":prose}]
@@ -717,6 +714,44 @@ fn prose_money_accepts_trimmed_decimals_and_deduplicates_symbol_plus_unit() {
             &display_observation(&entry, message),
         );
         assert!(row.display_pass, "{prose}: {:?}", row.reasons);
+    }
+    let wrong = "本月总支出：69 元。";
+    let message = json!({
+        "fallbackText":wrong,
+        "blocks":[{"type":"markdown","data":{"text":wrong},"fallbackText":wrong}]
+    });
+    assert!(
+        !scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation(&entry, message),
+        )
+        .display_pass
+    );
+}
+
+#[test]
+fn no_data_prose_accepts_natural_zero_and_rejects_conflicting_semantics() {
+    let entry = display_entry("display-008.yaml");
+    let score = |prose: &str| {
+        let message = json!({
+            "fallbackText":prose,
+            "blocks":[{"type":"markdown","data":{"text":prose},"fallbackText":prose}]
+        });
+        scoring::score(
+            &entry,
+            &Identities::default(),
+            &display_observation_for(&entry, 1, message),
+        )
+    };
+    assert!(score("本月支出为 0 元。").display_pass);
+    for prose in [
+        "本月支出为 1 元。",
+        "本月存在记录，支出为 0 元。",
+        "演示数据：本月支出为 0 元。",
+        "图表示例：本月支出为 0 元。",
+    ] {
+        assert!(!score(prose).display_pass, "{prose}");
     }
 }
 
