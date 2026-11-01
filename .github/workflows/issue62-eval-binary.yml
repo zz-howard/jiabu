@@ -1,0 +1,29 @@
+name: Issue 62 evaluation binary
+
+'on':
+  push:
+    branches: [ci/issue62-display-binary]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install fixed Rust
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup default 1.99.1
+      - name: Build live evaluator
+        run: cargo build -p ai-eval --features live --bin ai-eval
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue62-ai-eval
+          path: server/target/debug/ai-eval
+          if-no-files-found: error
+          retention-days: 1
