@@ -156,6 +156,9 @@ class AuthViewModel extends _$AuthViewModel {
         serverProbeSucceeded: false,
       );
       final runtime = ref.read(appRuntimeProvider);
+      // Choosing a server starts a new sign-in; the old reason no longer
+      // applies.
+      runtime.auth.clearSignOutCode();
       final handshake = VersionHandshakeService(
         runtime.api(server, null),
         build: runtime.device.build,

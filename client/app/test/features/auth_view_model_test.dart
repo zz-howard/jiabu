@@ -63,20 +63,28 @@ class RevokedAdapter extends RuntimeAdapter {
   RevokedAdapter(this.code);
   final String code;
 
+  /// Later sign-in attempts use a wrong password.
+  bool loginFails = false;
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) {
-    if (options.path != 'v1/me') {
+    final failure = switch (options.path) {
+      'v1/me' => code,
+      'v1/auth/login' when loginFails => 'unauthenticated',
+      _ => null,
+    };
+    if (failure == null) {
       status = 200;
       return super.fetch(options, requestStream, cancelFuture);
     }
     requests.add(options);
     return Future.value(
       ResponseBody.fromString(
-        jsonEncode({'code': code, 'status': 401}),
+        jsonEncode({'code': failure, 'status': 401}),
         401,
         headers: headers,
       ),
@@ -122,11 +130,14 @@ Future<void> _dispose(
 }
 
 void main() {
-  for (final (code, message) in [
-    ('account_disabled', 'account_disabled'),
-    ('unauthenticated', 'session_expired'),
+  for (final (code, message, then) in [
+    ('account_disabled', 'account_disabled', ''),
+    ('unauthenticated', 'session_expired', ''),
+    // The reason belongs to the session that ended, not to later attempts.
+    ('account_disabled', 'account_disabled', '_then_failed_login'),
+    ('account_disabled', 'account_disabled', '_then_server_selection'),
   ]) {
-    test('background_401_${code}_signs_out_with_$message', () async {
+    test('background_401_${code}_signs_out_with_$message$then', () async {
       final directory = await Directory.systemTemp.createTemp('jiabu-401-');
       final storage = MemorySettings();
       final sessions = MemorySessions();
@@ -153,7 +164,8 @@ void main() {
       await first.sessionWork;
       await first.close();
 
-      final cold = runtime(RevokedAdapter(code));
+      final adapter = RevokedAdapter(code);
+      final cold = runtime(adapter);
       final container = ProviderContainer(
         overrides: [appRuntimeProvider.overrideWith((ref) => cold)],
       );
@@ -171,6 +183,28 @@ void main() {
         expect(state.authenticated, isFalse);
         expect(state.page, AuthPage.login);
         expect(state.errorCode, message);
+        if (then.isEmpty) {
+          return;
+        }
+        final vm = container.read(authViewModelProvider.notifier);
+        if (then == '_then_failed_login') {
+          adapter.loginFails = true;
+          await vm.login('fictional', 'fictional-wrong-password');
+          expect(
+            container.read(authViewModelProvider).errorCode,
+            'unauthenticated',
+          );
+        } else {
+          await vm.selectServer('https://example.invalid/');
+        }
+        expect(cold.auth.signOutCode, isNull);
+        // A later runtime event must not bring the old reason back.
+        cold.notify();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          container.read(authViewModelProvider).errorCode,
+          isNot('account_disabled'),
+        );
       } finally {
         subscription.close();
         container.dispose();

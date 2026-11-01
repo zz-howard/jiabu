@@ -85,6 +85,8 @@ final class LocalAuthRepository implements AuthRepository {
     String username,
     String password,
   ) async {
+    // A new sign-in attempt supersedes how the previous session ended.
+    clearSignOutCode();
     try {
       final normalized = normalizeServer(server);
       final response = await apiFactory(normalized, null).login(
@@ -172,6 +174,7 @@ final class LocalAuthRepository implements AuthRepository {
   }
 
   Future<Result<AuthSession?>> _resume() async {
+    clearSignOutCode();
     final partition = await settings.current();
     if (partition == null || await sessions.read(partition) == null) {
       return const Ok(null);
@@ -574,6 +577,12 @@ final class LocalAuthRepository implements AuthRepository {
     }
   }
 
+  /// Forget why the last session ended (a new sign-in, server or account).
+  void clearSignOutCode() {
+    signOutCode = null;
+    _lastCleared = null;
+  }
+
   /// Detach an obsolete runtime without changing shared credentials or state.
   void clearLocalSession() {
     _lastCleared = current;
@@ -585,6 +594,7 @@ final class LocalAuthRepository implements AuthRepository {
 
   @override
   Future<void> logout() async {
+    clearSignOutCode();
     final session = current;
     if (session == null) {
       return;
@@ -622,8 +632,6 @@ final class LocalAuthRepository implements AuthRepository {
     if (!_sameSession(current, session)) {
       return;
     }
-    _lastCleared = null;
-    signOutCode = null;
     current = null;
     handle = null;
     onChanged?.call(null);
