@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use std::{
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, Mutex as StdMutex,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -15,6 +15,44 @@ use zeroize::Zeroizing;
 #[path = "../../../support/ai_secrets.rs"]
 pub mod encryption;
 pub use encryption::SecretKey;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CredentialTransportStage {
+    StoreReadUnavailable,
+    AccessTaskJoin,
+    RefreshTransport,
+    CredentialOther,
+}
+
+impl std::fmt::Display for CredentialTransportStage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::StoreReadUnavailable => "store-read-unavailable",
+            Self::AccessTaskJoin => "access-task-join",
+            Self::RefreshTransport => "refresh-transport",
+            Self::CredentialOther => "credential-other",
+        })
+    }
+}
+
+static CREDENTIAL_TRANSPORT_STAGE: StdMutex<Option<CredentialTransportStage>> = StdMutex::new(None);
+
+pub fn clear_credential_transport_stage() {
+    if let Ok(mut slot) = CREDENTIAL_TRANSPORT_STAGE.lock() {
+        *slot = None;
+    }
+}
+
+pub fn take_credential_transport_stage() -> Option<CredentialTransportStage> {
+    CREDENTIAL_TRANSPORT_STAGE.lock().ok()?.take()
+}
+
+fn record_credential_transport_stage(stage: CredentialTransportStage) {
+    if let Ok(mut slot) = CREDENTIAL_TRANSPORT_STAGE.lock() {
+        *slot = Some(stage);
+    }
+}
+
 #[derive(Clone)]
 pub struct VersionedToken {
     pub revision: i64,
@@ -133,7 +171,10 @@ impl CredentialManager {
                 self.refresh.usable.store(true, Ordering::Release);
                 Ok((revision, credentials))
             }
-            Ok(TokenRead::Unavailable) => Err(ProviderError::Transport),
+            Ok(TokenRead::Unavailable) => {
+                record_credential_transport_stage(CredentialTransportStage::StoreReadUnavailable);
+                Err(ProviderError::Transport)
+            }
             Ok(TokenRead::Cleared { .. }) | Err(_) => {
                 self.refresh.usable.store(false, Ordering::Release);
                 Err(ProviderError::Auth)
@@ -180,12 +221,18 @@ impl CredentialManager {
         let guard = self.refresh.lock.clone().lock_owned().await;
         let manager = self.clone();
         let rejected = rejected.map(str::to_owned);
-        tokio::spawn(async move {
+        match tokio::spawn(async move {
             let _guard = guard;
             manager.access_locked(rejected.as_deref()).await
         })
         .await
-        .unwrap_or(Err(ProviderError::Transport))
+        {
+            Ok(result) => result,
+            Err(_) => {
+                record_credential_transport_stage(CredentialTransportStage::AccessTaskJoin);
+                Err(ProviderError::Transport)
+            }
+        }
     }
     async fn access_locked(
         &self,
@@ -252,6 +299,9 @@ impl CredentialManager {
                     return if current.expires_at > chrono::Utc::now().timestamp() {
                         Ok(current)
                     } else {
+                        record_credential_transport_stage(
+                            CredentialTransportStage::RefreshTransport,
+                        );
                         Err(ProviderError::Transport)
                     };
                 }

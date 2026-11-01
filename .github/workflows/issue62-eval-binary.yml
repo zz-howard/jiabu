@@ -21,10 +21,13 @@ jobs:
           rustup default 1.99.1
       - name: Run focused mock regressions
         run: |
-          rustfmt --edition 2024 --check crates/ai/src/siwc/mod.rs
+          rustfmt --edition 2024 --check crates/ai/src/credentials.rs crates/ai/src/siwc/mod.rs crates/ai/tests/oauth.rs
           cargo test -p jiabu-ai --lib siwc::diagnostic_tests::transport_diagnostics_use_only_bounded_closed_fields -- --exact
           cargo test -p jiabu-ai --lib siwc::diagnostic_tests::credential_resolution_diagnostic_records_provenance_and_closed_variant -- --exact
           cargo test -p jiabu-ai --lib siwc::diagnostic_tests::response_stream_diagnostic_records_provenance_and_closed_variants -- --exact
+          cargo test -p jiabu-ai --test oauth temporary_store_read_failure_returns_transport_then_recovers -- --exact
+          cargo test -p jiabu-ai --test oauth access_task_join_failure_records_closed_stage -- --exact
+          cargo test -p jiabu-ai --test oauth expired_refresh_transport_records_closed_stage -- --exact
           cargo test -p ai-eval --lib judge::tests::bounded_diagnostics_use_only_closed_failure_classes -- --exact
           cargo test -p ai-eval --test negative_controls prose_only_mock_uses_typed_facts_and_wrong_value_is_rejected -- --exact
           cargo test -p ai-eval --test negative_controls component_mock_does_not_echo_typed_facts_as_prose -- --exact

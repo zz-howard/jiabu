@@ -68,6 +68,7 @@ fn classified_provider(error: &ProviderError) -> anyhow::Error {
             received_headers: false,
             provenance: None,
             variant: None,
+            credential_stage: None,
         })
     });
     anyhow::Error::new(ClassifiedFailure { class, transport })
@@ -462,7 +463,7 @@ impl Judge {
                     );
                     if let Some(transport) = failure_transport(&error) {
                         eprintln!(
-                            "judge_calibration_case_{}_transport_subclass={}_stage={}_status={}_headers={}_provenance={}_variant={}",
+                            "judge_calibration_case_{}_transport_subclass={}_stage={}_status={}_headers={}_provenance={}_variant={}_credential_stage={}",
                             index + 1,
                             transport.class,
                             transport.stage,
@@ -475,6 +476,11 @@ impl Judge {
                                 .unwrap_or("none"),
                             transport
                                 .variant
+                                .map(|value| value.to_string())
+                                .as_deref()
+                                .unwrap_or("none"),
+                            transport
+                                .credential_stage
                                 .map(|value| value.to_string())
                                 .as_deref()
                                 .unwrap_or("none")

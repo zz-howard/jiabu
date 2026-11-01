@@ -2,7 +2,10 @@ mod support;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jiabu_ai::{
     ProviderError,
-    credentials::{CredentialManager, TokenStore},
+    credentials::{
+        CredentialManager, CredentialTransportStage, TokenStore, clear_credential_transport_stage,
+        take_credential_transport_stage,
+    },
     siwc::oauth::{OAuthClient, REDIRECT, SCOPES},
 };
 use serde_json::json;
@@ -304,14 +307,91 @@ async fn temporary_store_read_failure_returns_transport_then_recovers() {
     .await;
     assert!(manager.available());
     store.fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    clear_credential_transport_stage();
     assert!(matches!(
         manager.access().await,
         Err(ProviderError::Transport)
     ));
+    assert_eq!(
+        take_credential_transport_stage(),
+        Some(CredentialTransportStage::StoreReadUnavailable)
+    );
     assert!(manager.available());
     assert_eq!(
         manager.access().await.unwrap().access_token,
         "synthetic-access"
+    );
+}
+
+struct PanickingRead {
+    tokens: Arc<Tokens>,
+    panic: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl TokenStore for PanickingRead {
+    async fn load(&self) -> Result<jiabu_ai::credentials::TokenRead, ProviderError> {
+        assert!(
+            !self.panic.load(std::sync::atomic::Ordering::SeqCst),
+            "synthetic access task failure"
+        );
+        self.tokens.load().await
+    }
+
+    async fn compare_exchange(
+        &self,
+        revision: i64,
+        next: &jiabu_ai::siwc::oauth::OAuthCredentials,
+    ) -> Result<bool, ProviderError> {
+        self.tokens.compare_exchange(revision, next).await
+    }
+
+    async fn invalidate(&self, revision: i64) -> Result<bool, ProviderError> {
+        self.tokens.invalidate(revision).await
+    }
+}
+
+#[tokio::test]
+async fn access_task_join_failure_records_closed_stage() {
+    let store = Arc::new(PanickingRead {
+        tokens: Tokens::new(chrono::Utc::now().timestamp() + 3600),
+        panic: std::sync::atomic::AtomicBool::new(false),
+    });
+    let manager = CredentialManager::new(
+        store.clone(),
+        OAuthClient::at("http://127.0.0.1:1").unwrap(),
+    )
+    .await;
+    store.panic.store(true, std::sync::atomic::Ordering::SeqCst);
+    clear_credential_transport_stage();
+    assert!(matches!(
+        manager.access().await,
+        Err(ProviderError::Transport)
+    ));
+    assert_eq!(
+        take_credential_transport_stage(),
+        Some(CredentialTransportStage::AccessTaskJoin)
+    );
+}
+
+#[tokio::test]
+async fn expired_refresh_transport_records_closed_stage() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(503))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let manager =
+        CredentialManager::new(Tokens::new(1), OAuthClient::at(&server.uri()).unwrap()).await;
+    clear_credential_transport_stage();
+    assert!(matches!(
+        manager.access().await,
+        Err(ProviderError::Transport)
+    ));
+    assert_eq!(
+        take_credential_transport_stage(),
+        Some(CredentialTransportStage::RefreshTransport)
     );
 }
 #[tokio::test]

@@ -1,7 +1,14 @@
 pub mod oauth;
 pub mod request;
 pub mod stream;
-use crate::{credentials::CredentialManager, provider::*, types::*};
+use crate::{
+    credentials::{
+        CredentialManager, CredentialTransportStage, clear_credential_transport_stage,
+        take_credential_transport_stage,
+    },
+    provider::*,
+    types::*,
+};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use std::{
@@ -116,6 +123,7 @@ pub struct TransportDiagnostic {
     pub received_headers: bool,
     pub provenance: Option<TransportDiagnosticProvenance>,
     pub variant: Option<TransportDiagnosticVariant>,
+    pub credential_stage: Option<CredentialTransportStage>,
 }
 
 static TRANSPORT_DIAGNOSTIC: Mutex<Option<TransportDiagnostic>> = Mutex::new(None);
@@ -137,9 +145,15 @@ fn record_transport_diagnostic(diagnostic: TransportDiagnostic) {
 }
 
 fn credential_resolution_diagnostic(error: &ProviderError) -> Option<TransportDiagnostic> {
-    let variant = match error {
-        ProviderError::Auth => TransportDiagnosticVariant::Auth,
-        ProviderError::Transport => TransportDiagnosticVariant::Transport,
+    let (variant, credential_stage) = match error {
+        ProviderError::Auth => (TransportDiagnosticVariant::Auth, None),
+        ProviderError::Transport => (
+            TransportDiagnosticVariant::Transport,
+            Some(
+                take_credential_transport_stage()
+                    .unwrap_or(CredentialTransportStage::CredentialOther),
+            ),
+        ),
         _ => return None,
     };
     Some(TransportDiagnostic {
@@ -149,6 +163,7 @@ fn credential_resolution_diagnostic(error: &ProviderError) -> Option<TransportDi
         received_headers: false,
         provenance: Some(TransportDiagnosticProvenance::CredentialResolution),
         variant: Some(variant),
+        credential_stage,
     })
 }
 
@@ -167,6 +182,7 @@ fn response_stream_diagnostic(error: &ProviderError) -> Option<TransportDiagnost
         received_headers: true,
         provenance: Some(TransportDiagnosticProvenance::ResponseStream),
         variant: Some(variant),
+        credential_stage: None,
     })
 }
 
@@ -325,6 +341,7 @@ impl ModelProvider for SiwcProvider {
         req: &TurnRequest,
         sink: &mut dyn TurnSink,
     ) -> Result<(), ProviderError> {
+        clear_credential_transport_stage();
         let mut creds = self.credentials.access().await.map_err(|error| {
             if let Some(diagnostic) = credential_resolution_diagnostic(&error) {
                 record_transport_diagnostic(diagnostic);
@@ -378,6 +395,7 @@ impl SiwcProvider {
                         received_headers: false,
                         provenance: None,
                         variant: None,
+                        credential_stage: None,
                     });
                     ProviderError::Transport
                 }
@@ -391,6 +409,7 @@ impl SiwcProvider {
                 received_headers: true,
                 provenance: None,
                 variant: None,
+                credential_stage: None,
             });
             if status.is_server_error() {
                 return Err(ProviderError::Transport);
@@ -443,6 +462,7 @@ impl SiwcProvider {
                         received_headers: true,
                         provenance: None,
                         variant: None,
+                        credential_stage: None,
                     });
                     ProviderError::Transport
                 }
@@ -462,6 +482,7 @@ impl SiwcProvider {
                             received_headers: true,
                             provenance: None,
                             variant: None,
+                            credential_stage: None,
                         });
                     }
                     return Err(error);
@@ -481,6 +502,7 @@ impl SiwcProvider {
                             received_headers: true,
                             provenance: None,
                             variant: None,
+                            credential_stage: None,
                         });
                     }
                     return result;
@@ -536,6 +558,7 @@ mod diagnostic_tests {
             received_headers: true,
             provenance: None,
             variant: None,
+            credential_stage: None,
         };
         record_transport_diagnostic(diagnostic);
         assert_eq!(take_transport_diagnostic(), Some(diagnostic));
@@ -553,12 +576,17 @@ mod diagnostic_tests {
                 received_headers: false,
                 provenance: Some(TransportDiagnosticProvenance::CredentialResolution),
                 variant: Some(TransportDiagnosticVariant::Auth),
+                credential_stage: None,
             })
         );
+        clear_credential_transport_stage();
         assert_eq!(
             credential_resolution_diagnostic(&ProviderError::Transport)
-                .and_then(|diagnostic| diagnostic.variant),
-            Some(TransportDiagnosticVariant::Transport)
+                .map(|diagnostic| (diagnostic.variant, diagnostic.credential_stage)),
+            Some((
+                Some(TransportDiagnosticVariant::Transport),
+                Some(CredentialTransportStage::CredentialOther)
+            ))
         );
         assert_eq!(
             credential_resolution_diagnostic(&ProviderError::Timeout),
