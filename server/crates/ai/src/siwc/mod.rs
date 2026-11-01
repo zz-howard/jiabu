@@ -385,10 +385,7 @@ impl SiwcProvider {
                         .await;
                     if matches!(
                         &result,
-                        Err(
-                            ProviderError::Incomplete { .. }
-                                | ProviderError::UpstreamFailed { .. }
-                        )
+                        Err(ProviderError::Incomplete { .. } | ProviderError::UpstreamFailed { .. })
                     ) {
                         record_transport_diagnostic(TransportDiagnostic {
                             class: TransportDiagnosticClass::OtherTransport,

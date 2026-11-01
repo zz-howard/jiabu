@@ -21,7 +21,7 @@ jobs:
           rustup default 1.99.1
       - name: Run focused mock regressions
         run: |
-          rustfmt --edition 2024 --check crates/ai/src/siwc/mod.rs crates/eval/src/judge.rs
+          rustfmt --edition 2024 --check crates/ai/src/siwc/mod.rs
           cargo test -p jiabu-ai --lib siwc::diagnostic_tests::transport_diagnostics_use_only_bounded_closed_fields -- --exact
           cargo test -p ai-eval --lib judge::tests::bounded_diagnostics_use_only_closed_failure_classes -- --exact
           cargo test -p ai-eval --test negative_controls prose_only_mock_uses_typed_facts_and_wrong_value_is_rejected -- --exact

@@ -61,14 +61,12 @@ fn classified(class: JudgeFailureClass) -> anyhow::Error {
 fn classified_provider(error: &ProviderError) -> anyhow::Error {
     let class = provider_failure_class(error);
     let transport = (class == JudgeFailureClass::Transport).then(|| {
-        jiabu_ai::siwc::take_transport_diagnostic().unwrap_or(
-            jiabu_ai::siwc::TransportDiagnostic {
-                class: jiabu_ai::siwc::TransportDiagnosticClass::OtherTransport,
-                stage: jiabu_ai::siwc::TransportDiagnosticStage::CredentialOrPreflight,
-                status: jiabu_ai::siwc::TransportStatusClass::None,
-                received_headers: false,
-            },
-        )
+        jiabu_ai::siwc::take_transport_diagnostic().unwrap_or(jiabu_ai::siwc::TransportDiagnostic {
+            class: jiabu_ai::siwc::TransportDiagnosticClass::OtherTransport,
+            stage: jiabu_ai::siwc::TransportDiagnosticStage::CredentialOrPreflight,
+            status: jiabu_ai::siwc::TransportStatusClass::None,
+            received_headers: false,
+        })
     });
     anyhow::Error::new(ClassifiedFailure { class, transport })
 }
