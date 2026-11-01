@@ -20,10 +20,12 @@ jobs:
           rustup toolchain install 1.99.1 --profile minimal
           rustup default 1.99.1
       - name: Build live evaluator
-        run: cargo build -p ai-eval --features live --bin ai-eval
+        run: |
+          cargo build --release -p ai-eval --features live --bin ai-eval
+          strip target/release/ai-eval
       - uses: actions/upload-artifact@v4
         with:
           name: issue62-ai-eval
-          path: server/target/debug/ai-eval
+          path: server/target/release/ai-eval
           if-no-files-found: error
           retention-days: 1
