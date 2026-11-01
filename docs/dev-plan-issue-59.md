@@ -8,7 +8,7 @@ Run one pre-registered prompt experiment that adds worked examples only for serv
 
 In scope:
 
-- Insert one compact `GUARDED_CONFIRMATION_EXAMPLES` block immediately after the existing opening line and before `UI`.
+- Insert one compact `GUARDED_CONFIRMATION` block immediately after the existing opening line and before `UI`.
 - Show five positive trajectories: record update, record void, record restore, zero-balance account archive, and document update.
 - Show two negative trajectories: an unresolved target/version must be read or clarified without a write; a fully specified new expense uses `create_record` without extra confirmation.
 - Add an exact rendered-prompt golden plus focused contract tests for the guarded and unguarded boundaries.

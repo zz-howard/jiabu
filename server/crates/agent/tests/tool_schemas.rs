@@ -64,6 +64,112 @@ fn prompt_display_tools(instructions: &str) -> Vec<&str> {
         .filter(|name| !name.is_empty())
         .collect()
 }
+fn confirmation_block(instructions: &str) -> &str {
+    let (_, rest) = instructions
+        .split_once("\nGUARDED_CONFIRMATION\n")
+        .expect("guarded confirmation block");
+    rest.split_once("\nUI\n")
+        .expect("UI follows guarded confirmation block")
+        .0
+}
+fn prompt_guarded_tools(block: &str) -> Vec<&str> {
+    block
+        .lines()
+        .find_map(|line| {
+            line.split_once("Only these tools are guarded: ")
+                .map(|(_, value)| value)
+        })
+        .and_then(|tools| tools.strip_suffix('.'))
+        .into_iter()
+        .flat_map(|tools| tools.split(',').map(str::trim))
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+#[test]
+fn rendered_static_prompt_matches_the_complete_golden() {
+    let catalog = br#"[{"id":"fake-template","label":"虚构模板 / Fake template"}]"#;
+    let rendered = jiabu_agent::render::static_instructions(catalog);
+    assert_eq!(
+        rendered,
+        include_str!("golden/static-instructions.txt").trim_end_matches('\n')
+    );
+    assert_eq!(rendered.matches("\nGUARDED_CONFIRMATION\n").count(), 1);
+    assert!(!rendered.contains("BEHAVIOR_RULES"));
+    assert!(!rendered.contains("Capability downgrade and fallback are server-owned"));
+    assert!(!rendered.contains("plain-text/text-only/no-card-or-chart"));
+}
+#[test]
+fn guarded_confirmation_inventory_matches_the_live_registry() {
+    let registry = jiabu_tools::builtin_registry();
+    let instructions = jiabu_agent::render::static_instructions(b"[]");
+    let prompt_names = prompt_guarded_tools(confirmation_block(&instructions));
+    let registered_names: Vec<_> = registry
+        .agent_tools()
+        .filter_map(|tool| {
+            let call = tool
+                .validate(tool.example_args())
+                .unwrap_or_else(|_| panic!("{} example args must validate", tool.name()));
+            tool.requires_confirmation(call.as_ref())
+                .then_some(tool.name())
+        })
+        .collect();
+    assert_eq!(prompt_names, registered_names);
+    for unguarded in [
+        "restore_document",
+        "update_account",
+        "get_record",
+        "create_record",
+    ] {
+        assert!(
+            !prompt_names.contains(&unguarded),
+            "{unguarded} is unguarded"
+        );
+    }
+}
+#[test]
+fn guarded_confirmation_examples_have_frozen_shape_and_boundaries() {
+    let instructions = jiabu_agent::render::static_instructions(b"[]");
+    let block = confirmation_block(&instructions);
+    let positives: Vec<_> = block
+        .lines()
+        .filter(|line| line.starts_with('P'))
+        .collect();
+    let negatives: Vec<_> = block
+        .lines()
+        .filter(|line| line.starts_with('N'))
+        .collect();
+    assert_eq!(positives.len(), 5);
+    assert_eq!(negatives.len(), 2);
+    assert!(
+        "GUARDED_CONFIRMATION\n".chars().count() + block.chars().count() <= 1_450,
+        "confirmation block exceeded the frozen size ceiling"
+    );
+    for (line, tool) in positives.iter().zip([
+        "update_record",
+        "void_record",
+        "restore_record",
+        "archive_account",
+        "update_document",
+    ]) {
+        assert!(line.contains(tool), "missing {tool}: {line}");
+        assert!(
+            !line.contains("ask_user"),
+            "positive example asks the user: {line}"
+        );
+    }
+    assert!(negatives[0].contains("search/read"));
+    assert!(negatives[0].contains("ask_user"));
+    assert!(negatives[0].contains("Never invent id/version or call a write"));
+    assert!(negatives[1].contains("create_record"));
+    assert!(!negatives[1].contains("ask_user"));
+    for guarded in prompt_guarded_tools(block) {
+        assert!(
+            !negatives[1].contains(&format!("=> {guarded}(")),
+            "create counterexample calls guarded tool {guarded}"
+        );
+    }
+    assert!(block.contains("Never call ask_user merely to ask “confirm?”"));
+}
 fn description_contract(tool: &dyn jiabu_tools::AgentTool, description: &str) -> bool {
     let headings = ["\n何时用：", "\n何时别用：", "\n例："];
     if headings
