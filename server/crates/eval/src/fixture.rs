@@ -308,7 +308,23 @@ impl Scenario {
         .await?;
         let journal = tx.journal(self.f.space, run.id).await?;
         let call_rows = tx.calls(self.f.space, run.id).await?;
-        let calls = tx.evaluation_calls(self.f.space, run.id).await?;
+        let mut calls = tx.evaluation_calls(self.f.space, run.id).await?;
+        let tested_models = calls
+            .iter()
+            .filter_map(|call| {
+                Some(format!(
+                    "{}/{}",
+                    call["provider_id"].as_str()?,
+                    call["model"].as_str()?
+                ))
+            })
+            .collect::<BTreeSet<_>>();
+        for call in &mut calls {
+            if let Some(call) = call.as_object_mut() {
+                call.remove("provider_id");
+                call.remove("model");
+            }
+        }
         let display_events = tx.evaluation_display_events(self.f.space, run.id).await?;
         let final_state = tx.evaluation_state(self.f.space).await?;
         tx.commit().await?;
@@ -424,6 +440,7 @@ impl Scenario {
             display_audit_discarded: self.audit.display_discarded.load(Ordering::Relaxed),
             server_fallbacks,
             calls,
+            tested_models,
             tool_total: self.audit.total.load(Ordering::Relaxed),
             tool_valid: self.audit.valid.load(Ordering::Relaxed),
             business_errors: journal
@@ -434,6 +451,12 @@ impl Scenario {
         })
     }
     pub async fn evaluate(&self, e: &Entry) -> Result<ResultRow> {
+        self.evaluate_with_judge_input(e).await.map(|value| value.0)
+    }
+    pub async fn evaluate_with_judge_input(
+        &self,
+        e: &Entry,
+    ) -> Result<(ResultRow, Option<crate::judge::JudgeInput>)> {
         let clock = Instant::now();
         let message = self.submit(e).await?;
         let mut timed_out = self.drive_scored(message).await?;
@@ -466,7 +489,8 @@ impl Scenario {
                 row.hard_pass = false;
             }
         }
-        Ok(row)
+        let judge_input = crate::judge::JudgeInput::from_observation(e, &obs, &row);
+        Ok((row, judge_input))
     }
 }
 pub async fn state(f: &Fixture) -> Result<Value> {

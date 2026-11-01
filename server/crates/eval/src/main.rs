@@ -29,6 +29,9 @@ struct Args {
     /// Run only entries in this category after loading and validating the complete corpus.
     #[arg(long)]
     category: Option<String>,
+    /// Exact enabled model name or model UUID used for the live display Judge.
+    #[arg(long)]
+    judge_model: Option<String>,
 }
 fn filter_entries(entries: Vec<Entry>, category: Option<&str>) -> Result<Vec<Entry>> {
     let Some(category) = category else {
@@ -74,11 +77,35 @@ async fn run(args: Args) -> Result<u8> {
             }
         }
     };
+    let judge = if matches!(args.provider, Provider::Live) {
+        let requested = args
+            .judge_model
+            .as_deref()
+            .context("--judge-model is required for live evaluation")?;
+        let judge = ai_eval::judge::Judge::select(
+            providers.as_ref().context("live providers missing")?,
+            requested,
+        )?;
+        if judge.calibrate().await.is_err() {
+            eprintln!("judge_calibration_infrastructure_error");
+            return Ok(2);
+        }
+        Some(judge)
+    } else {
+        None
+    };
     let mut rows = Vec::new();
     for e in entries {
         let result = async {
             let scenario = Scenario::new(&e, &root, &scratch, providers.as_ref(), None).await?;
-            scenario.evaluate(&e).await
+            let (mut row, input) = scenario.evaluate_with_judge_input(&e).await?;
+            if ai_eval::judge::should_judge(judge.is_some(), &e, &row) {
+                let judge = judge.as_ref().context("judge missing")?;
+                let input = input.as_ref().context("display judge input missing")?;
+                let outcome = judge.evaluate(input, judge.is_self_judge(&row)).await?;
+                ai_eval::judge::apply(&mut row, outcome)?;
+            }
+            anyhow::Ok(row)
         }
         .await;
         match result {
@@ -89,6 +116,8 @@ async fn run(args: Args) -> Result<u8> {
                         row.id,
                         row.reasons.join(";")
                     );
+                } else if !row.overall_pass() {
+                    eprintln!("{}: display_judge_failed", row.id);
                 }
                 rows.push(row);
                 report::write(&args.out, &rows)?;

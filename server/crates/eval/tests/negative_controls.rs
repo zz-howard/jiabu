@@ -1,10 +1,12 @@
 use ai_eval::{
     dataset::{self, Behavior, RecordSpec},
     fixture::{Scenario, invoke},
+    judge::{self, JudgeOutcome, JudgeVote, ReasonCode},
     mock::{self, Identities},
     scoring::{self, Observation, Questions},
 };
 use anyhow::{Context, Result};
+use jiabu_ai::Usage;
 use serde_json::{Value, json};
 fn ambiguity() -> dataset::Entry {
     dataset::parse(include_str!("../../../eval/entries/zh-ambiguous-001.yaml")).unwrap()
@@ -32,6 +34,7 @@ fn observation(events: Value, records: Value) -> Observation {
         display_audit_discarded: 0,
         server_fallbacks: vec![],
         calls: vec![],
+        tested_models: Default::default(),
         tool_total: 1,
         tool_valid: 1,
         business_errors: 0,
@@ -484,6 +487,19 @@ fn balance_prose_requires_sanitized_target_currency_and_value_evidence() {
     let row = scoring::score(&entry, &ids, &observed);
     assert!(row.display_pass, "{:?}", row.reasons);
     assert_eq!(row.display_selected, "prose");
+    let judge_input = judge::JudgeInput::from_observation(&entry, &observed, &row)
+        .expect("display-015 prose judge input");
+    assert_eq!(judge_input.visible_prose, prose);
+    assert_eq!(judge_input.normalized_blocks, json!([]));
+    assert_eq!(
+        judge_input.verified_actual_typed_facts["facts"],
+        json!([{
+            "kind":"account_balance",
+            "account":"bank",
+            "currency":"CNY",
+            "balance_minor":-6800
+        }])
+    );
 
     let mut wrong_currency = observed.clone();
     wrong_currency.balance_results.get_mut("source-0").unwrap().currency = "USD".into();
@@ -801,6 +817,203 @@ fn alternative_report_is_sanitized_and_contains_only_ids() -> Result<()> {
 }
 
 #[test]
+fn judge_report_allowlist_excludes_request_prose_and_usage() -> Result<()> {
+    let input = judge::JudgeInput {
+        schema_version: 1,
+        locale: "en-US".into(),
+        user_request: "raw-user-request-sentinel".into(),
+        explicit_display_constraints: json!({}),
+        verified_expected_typed_facts: json!([]),
+        verified_actual_typed_facts: json!({}),
+        client_capabilities: json!({}),
+        visible_prose: "raw-visible-prose-sentinel".into(),
+        normalized_blocks: json!([]),
+    };
+    let serialized_input = serde_json::to_string(&input)?;
+    assert!(serialized_input.contains("raw-user-request-sentinel"));
+    assert!(serialized_input.contains("raw-visible-prose-sentinel"));
+    let mut row = scoring::score(
+        &ambiguity(),
+        &Identities::default(),
+        &observation(json!([]), json!([])),
+    );
+    row.tested_models.insert("synthetic/candidate-z".into());
+    row.tested_models.insert("synthetic/candidate-a".into());
+    let vote = JudgeVote {
+        intent_satisfaction: true,
+        reasonable_display: true,
+        clear_natural_expression: true,
+        no_misleading_redundancy: true,
+        verdict: true,
+        reason_code: ReasonCode::Pass,
+    };
+    judge::apply(
+        &mut row,
+        JudgeOutcome {
+            model_snapshot: "synthetic/model@00000000-0000-0000-0000-000000000000".into(),
+            self_judge: false,
+            votes: vec![vote.clone(), vote.clone(), vote],
+            pass_votes: 3,
+            fail_votes: 0,
+            pass: true,
+            usage: vec![Usage {
+                input_tokens: 987_654,
+                output_tokens: 123_456,
+                cached_input_tokens: 456_789,
+                cache_write_tokens: 111_111,
+            }],
+        },
+    )?;
+    let dir = std::env::temp_dir().join(format!(
+        "jiabu-eval-judge-report-{}",
+        uuid::Uuid::now_v7()
+    ));
+    ai_eval::report::write(&dir, &[row])?;
+    let results = std::fs::read_to_string(dir.join("results.csv"))?;
+    let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
+    for forbidden in [
+        "raw-user-request-sentinel",
+        "raw-visible-prose-sentinel",
+        "987654",
+        "123456",
+        "456789",
+        "111111",
+    ] {
+        assert!(!results.contains(forbidden));
+        assert!(!summary.contains(forbidden));
+    }
+    let judge_columns = ai_eval::report::RESULTS_HEADER
+        .iter()
+        .filter(|column| column.starts_with("judge_"))
+        .copied()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        judge_columns,
+        [
+            "judge_model",
+            "judge_self",
+            "judge_pass_votes",
+            "judge_fail_votes",
+            "judge_votes_json",
+        ]
+    );
+    for expected in [
+        "judge.core.pass_rate",
+        "judge.pass_votes",
+        "judge.fail_votes",
+        "judge.total_votes",
+        "judge.self_judge_count",
+        "judge.tested_models_json",
+        "judge.ranking_models_json",
+        "synthetic/candidate-a",
+        "synthetic/candidate-z",
+        "synthetic/model@00000000-0000-0000-0000-000000000000",
+    ] {
+        assert!(summary.contains(expected));
+    }
+    assert!(summary.contains("\"judge.core.pass_rate\",\"1\",\"1\",\"1\""));
+    assert!(summary.contains("\"judge.pass_votes\",\"3\""));
+    assert!(summary.contains("\"judge.fail_votes\",\"0\""));
+    assert!(summary.contains("\"judge.total_votes\",\"3\""));
+    assert!(summary.contains("\"judge.self_judge_count\",\"0\""));
+    assert!(summary.contains(
+        "\"judge.tested_models_json\",\"[\"\"synthetic/candidate-a\"\",\"\"synthetic/candidate-z\"\"]\""
+    ));
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[test]
+fn judge_failure_preserves_the_deterministic_hard_gate() -> Result<()> {
+    let entry = display_entry("display-003.yaml");
+    let message = json!({"fallbackText":"ok","blocks":[{
+        "type":"metric",
+        "data":{"label":"2026年10月支出","value":9900},
+        "fallbackText":"2026年10月支出：99.00 元"
+    }]});
+    let mut row = scoring::score(
+        &entry,
+        &Identities::default(),
+        &display_observation(&entry, message),
+    );
+    assert!(row.hard_pass);
+    assert!(row.display_pass);
+    let fail_vote = JudgeVote {
+        intent_satisfaction: false,
+        reasonable_display: false,
+        clear_natural_expression: false,
+        no_misleading_redundancy: false,
+        verdict: false,
+        reason_code: ReasonCode::IntentMiss,
+    };
+    let pass_vote = JudgeVote {
+        intent_satisfaction: true,
+        reasonable_display: true,
+        clear_natural_expression: true,
+        no_misleading_redundancy: true,
+        verdict: true,
+        reason_code: ReasonCode::Pass,
+    };
+    judge::apply(
+        &mut row,
+        JudgeOutcome {
+            model_snapshot: "synthetic/judge@1".into(),
+            self_judge: false,
+            votes: vec![fail_vote.clone(), fail_vote, pass_vote],
+            pass_votes: 1,
+            fail_votes: 2,
+            pass: false,
+            usage: vec![],
+        },
+    )?;
+    assert!(row.hard_pass);
+    assert!(!row.display_pass);
+    assert!(!row.overall_pass());
+    assert_eq!(scoring::exit_code(std::slice::from_ref(&row)), 1);
+    let dir = std::env::temp_dir().join(format!(
+        "jiabu-eval-judge-layering-{}",
+        uuid::Uuid::now_v7()
+    ));
+    ai_eval::report::write(&dir, &[row])?;
+    let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
+    assert!(summary.contains("\"tier.core.hard_pass\",\"1\",\"1\",\"1\""));
+    assert!(summary.contains("\"judge.core.pass_rate\",\"0\",\"0\",\"1\""));
+    assert!(summary.contains("\"hard_failure_count\",\"0\""));
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[test]
+fn summary_keeps_tested_models_when_hard_gate_skips_every_judge() -> Result<()> {
+    let event = json!({
+        "id":1,
+        "entity_kind":"record",
+        "entity_id":"fake",
+        "kind":"create",
+        "after":{"id":"fake","amount_minor":1800,"occurred_on":"2026-03-04"}
+    });
+    let mut row = scoring::score(
+        &ambiguity(),
+        &Identities::default(),
+        &observation(json!([event]), json!([])),
+    );
+    assert!(!row.hard_pass);
+    assert!(row.judge_self.is_none());
+    row.tested_models.insert("synthetic/candidate-only".into());
+    let dir = std::env::temp_dir().join(format!(
+        "jiabu-eval-unjudged-model-report-{}",
+        uuid::Uuid::now_v7()
+    ));
+    ai_eval::report::write(&dir, &[row])?;
+    let summary = std::fs::read_to_string(dir.join("summary.csv"))?;
+    assert!(summary.contains("\"judge.core.pass_rate\",\"\",\"0\",\"0\""));
+    assert!(summary.contains("synthetic/candidate-only"));
+    assert!(summary.contains("\"judge.ranking_models_json\",\"[]\""));
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[test]
 fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutations() {
     let metric = display_entry("display-003.yaml");
     let good_metric = json!({"fallbackText":"ok","blocks":[{
@@ -944,17 +1157,75 @@ fn display_negative_controls_kill_kind_value_demo_capability_and_duplicate_mutat
     let account_id = uuid::Uuid::now_v7();
     let mut identities = Identities::default();
     identities.accounts.insert("bank".into(), account_id);
+    let account_result = json!({
+        "display":"account_card",
+        "status":"shown",
+        "title":"虚构银行卡",
+        "demo":false,
+        "currency":"CNY",
+        "measure":"sum",
+        "total":-6800,
+        "items":[],
+        "rows":[],
+        "account_card":{
+            "account_id":account_id,
+            "version_at_reply":1,
+            "name_snapshot":"虚构银行卡",
+            "balance_minor":-6800,
+            "archived":false
+        },
+        "has_more":false,
+        "groups_may_overlap":false
+    });
+    let (account_kind, account_data, account_fallback) = jiabu_chat::map_tool_result(
+        "show_account_card",
+        &json!({}),
+        &account_result,
+    )
+    .expect("account mapper")
+    .expect("account component");
+    assert_eq!(account_kind, "x-jiabu.account_card");
     let mut account_observation = display_observation(
         &account,
-        json!({"fallbackText":"虚构银行卡：-¥68.00","blocks":[{
-            "type":"x-jiabu.account_card",
-            "data":{"accountId":account_id,"versionAtReply":1,"nameSnapshot":"虚构银行卡"},
-            "fallbackText":"虚构银行卡：-¥68.00"
+        json!({"fallbackText":account_fallback.clone(),"blocks":[{
+            "type":account_kind,
+            "data":account_data,
+            "fallbackText":account_fallback.clone()
         }]}),
     );
     account_observation.tool_calls[0]["args"]["account_id"] = json!(account_id);
-    account_observation.server_fallbacks = vec!["虚构银行卡：-¥68.00".into()];
-    assert!(scoring::score(&account, &identities, &account_observation).display_pass);
+    account_observation.server_fallbacks = vec![account_fallback];
+    let account_row = scoring::score(&account, &identities, &account_observation);
+    assert!(account_row.display_pass);
+    assert_eq!(account_row.display_selected, "exact");
+    let judge_input = judge::JudgeInput::from_observation(
+        &account,
+        &account_observation,
+        &account_row,
+    )
+    .expect("display-007 judge input");
+    assert_eq!(
+        judge_input.normalized_blocks[0],
+        json!({
+            "type":"x-jiabu.account_card",
+            "name":"虚构银行卡",
+            "version_at_reply":1
+        })
+    );
+    assert_eq!(
+        judge_input.verified_actual_typed_facts["facts"],
+        json!([{
+            "kind":"account_balance",
+            "account":"bank",
+            "currency":"CNY",
+            "balance_minor":-6800
+        }])
+    );
+    assert_eq!(judge_input.visible_prose, "");
+    assert_eq!(
+        judge_input.verified_actual_typed_facts["server_fallback_evidence"],
+        json!(["虚构银行卡：-¥68.00"])
+    );
     account_observation.server_fallbacks = vec!["虚构银行卡：+¥68.00".into()];
     assert!(!scoring::score(&account, &identities, &account_observation).display_pass);
     account_observation.server_fallbacks = vec!["虚构银行卡：-¥68.00".into()];

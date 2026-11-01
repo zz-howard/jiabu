@@ -1,6 +1,6 @@
 use crate::scoring::{Count, Questions, ResultRow, percentile};
 use anyhow::Result;
-use std::{io::Write, path::Path};
+use std::{collections::BTreeSet, io::Write, path::Path};
 pub const RESULTS_HEADER: &[&str] = &[
     "id",
     "category",
@@ -52,6 +52,11 @@ pub const RESULTS_HEADER: &[&str] = &[
     "display_argument_total",
     "display_audit_complete",
     "display_audit_discarded",
+    "judge_model",
+    "judge_self",
+    "judge_pass_votes",
+    "judge_fail_votes",
+    "judge_votes_json",
 ];
 /// RFC 4180; always quote cells to preserve empty fields and embedded JSON.
 pub fn csv_row(cells: &[String]) -> String {
@@ -132,6 +137,11 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
                 r.display_arguments.total.to_string(),
                 r.display_audit_complete.to_string(),
                 r.display_audit_discarded.to_string(),
+                r.judge_model.clone(),
+                opt(r.judge_self),
+                opt(r.judge_pass_votes),
+                opt(r.judge_fail_votes),
+                r.judge_votes.clone(),
             ])
             .as_bytes(),
         )?;
@@ -247,6 +257,80 @@ pub fn write(out: &Path, rows: &[ResultRow]) -> Result<()> {
             ])
             .as_bytes(),
         )?;
+    }
+    let judged = rows
+        .iter()
+        .filter(|row| row.tier == "core" && row.judge_self.is_some())
+        .collect::<Vec<_>>();
+    let judge_passed = judged
+        .iter()
+        .filter(|row| row.judge_pass_votes.is_some_and(|votes| votes >= 2))
+        .count();
+    let judge_pass_votes = judged
+        .iter()
+        .filter_map(|row| row.judge_pass_votes)
+        .sum::<usize>();
+    let judge_fail_votes = judged
+        .iter()
+        .filter_map(|row| row.judge_fail_votes)
+        .sum::<usize>();
+    let judge_self_count = judged
+        .iter()
+        .filter(|row| row.judge_self == Some(true))
+        .count();
+    let judge_models = judged
+        .iter()
+        .map(|row| row.judge_model.clone())
+        .collect::<BTreeSet<_>>();
+    let tested_models = rows
+        .iter()
+        .flat_map(|row| row.tested_models.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    for (name, value, numerator, denominator) in [
+        (
+            "judge.core.pass_rate",
+            opt((!judged.is_empty()).then_some(judge_passed as f64 / judged.len() as f64)),
+            judge_passed.to_string(),
+            judged.len().to_string(),
+        ),
+        (
+            "judge.pass_votes",
+            judge_pass_votes.to_string(),
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.fail_votes",
+            judge_fail_votes.to_string(),
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.total_votes",
+            (judge_pass_votes + judge_fail_votes).to_string(),
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.self_judge_count",
+            judge_self_count.to_string(),
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.tested_models_json",
+            serde_json::to_string(&tested_models)?,
+            String::new(),
+            String::new(),
+        ),
+        (
+            "judge.ranking_models_json",
+            serde_json::to_string(&judge_models)?,
+            String::new(),
+            String::new(),
+        ),
+    ] {
+        file.write_all(csv_row(&[name.into(), value, numerator, denominator]).as_bytes())?;
     }
     let latency: Vec<_> = rows.iter().map(|r| r.elapsed_ms).collect();
     let known: Vec<_> = rows.iter().filter_map(|r| r.cost_usd).collect();
