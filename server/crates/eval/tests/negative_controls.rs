@@ -25,6 +25,7 @@ fn observation(events: Value, records: Value) -> Observation {
         message: json!({"fallbackText":"","blocks":[]}),
         tool_calls: vec![],
         tool_results: Default::default(),
+        balance_results: Default::default(),
         display_audit: vec![],
         display_audit_total: 0,
         display_audit_valid: 0,
@@ -297,6 +298,8 @@ fn unknown_costs_remain_blank_in_summary_and_calls_are_preserved() -> Result<()>
         "tier",
         "display_expected_selection",
         "display_actual_selection",
+        "display_acceptable_alternatives",
+        "display_selected_alternative",
         "display_query_summary",
         "display_query_correct",
         "display_query_total",
@@ -333,19 +336,29 @@ fn display_entry(name: &str) -> dataset::Entry {
 }
 
 fn display_observation(entry: &dataset::Entry, message: Value) -> Observation {
+    display_observation_for(entry, 0, message)
+}
+
+fn display_observation_for(
+    entry: &dataset::Entry,
+    alternative_index: usize,
+    message: Value,
+) -> Observation {
     let mut observation = observation(json!([]), json!([]));
-    observation.message = message;
-    observation.tool_calls = entry
+    let alternative = &entry
         .expect
         .display
         .as_ref()
         .unwrap()
+        .alternatives[alternative_index];
+    observation.message = message;
+    observation.tool_calls = alternative
         .source_calls
         .iter()
-        .chain(&entry.expect.display.as_ref().unwrap().calls)
+        .chain(&alternative.calls)
         .enumerate()
         .map(|(index, call)| {
-            let args = if index < entry.expect.display.as_ref().unwrap().source_calls.len() {
+            let args = if index < alternative.source_calls.len() {
                 call.args.clone()
             } else {
                 replace_call_aliases(&call.args)
@@ -360,11 +373,7 @@ fn display_observation(entry: &dataset::Entry, message: Value) -> Observation {
         .iter()
         .filter_map(|call| call["call_id"].as_str().map(|id| (id.to_owned(), true)))
         .collect();
-    observation.display_audit = entry
-        .expect
-        .display
-        .as_ref()
-        .unwrap()
+    observation.display_audit = alternative
         .calls
         .iter()
         .map(|call| ai_eval::audit::DisplayAuditCall {
@@ -394,6 +403,266 @@ fn replace_call_aliases(value: &Value) -> Value {
         ),
         value => value.clone(),
     }
+}
+
+#[test]
+fn flexible_display_alternatives_are_complete_and_never_mixed() {
+    let entry = display_entry("display-001.yaml");
+    let prose = "虚构日常 68.00 元，虚构储备 32.00 元。";
+    let message = json!({
+        "fallbackText": prose,
+        "blocks":[{"type":"markdown","data":{"text":prose},"fallbackText":prose}]
+    });
+    let row = scoring::score(
+        &entry,
+        &Identities::default(),
+        &display_observation_for(&entry, 3, message),
+    );
+    assert!(row.display_pass, "{:?}", row.reasons);
+    assert_eq!(row.display_selected, "prose");
+    assert_eq!(row.display_acceptable, "breakdown,bars,metrics,prose");
+
+    let invented = "虚构日常 68.00 元，虚构储备 32.00 元，另有 1.00 元。";
+    let message = json!({
+        "fallbackText": invented,
+        "blocks":[{"type":"markdown","data":{"text":invented},"fallbackText":invented}]
+    });
+    assert!(!scoring::score(
+        &entry,
+        &Identities::default(),
+        &display_observation_for(&entry, 3, message),
+    )
+    .display_pass);
+
+    let swapped = "虚构日常 32.00 元；虚构储备 68.00 元。";
+    let message = json!({
+        "fallbackText": swapped,
+        "blocks":[{"type":"markdown","data":{"text":swapped},"fallbackText":swapped}]
+    });
+    assert!(!scoring::score(
+        &entry,
+        &Identities::default(),
+        &display_observation_for(&entry, 3, message),
+    )
+    .display_pass);
+
+    let mixed = json!({"fallbackText":"ok","blocks":[{
+        "type":"metric_group",
+        "data":{"metrics":[
+            {"label":"虚构日常","value":6800},
+            {"label":"虚构储备","value":3200}
+        ]},
+        "fallbackText":"ok"
+    }]});
+    assert!(!scoring::score(
+        &entry,
+        &Identities::default(),
+        &display_observation_for(&entry, 1, mixed),
+    )
+    .display_pass);
+}
+
+#[test]
+fn balance_prose_requires_sanitized_target_currency_and_value_evidence() {
+    let entry = display_entry("display-015.yaml");
+    let account_id = uuid::Uuid::parse_str("00000000-0000-7000-8000-000000000015").unwrap();
+    let mut ids = Identities::default();
+    ids.accounts.insert("bank".into(), account_id);
+    let prose = "虚构银行卡余额为 -68.00 元。";
+    let message = json!({
+        "fallbackText":prose,
+        "blocks":[{"type":"markdown","data":{"text":prose},"fallbackText":prose}]
+    });
+    let mut observed = display_observation_for(&entry, 1, message);
+    observed.balance_results.insert(
+        "source-0".into(),
+        scoring::BalanceResult {
+            currency: "CNY".into(),
+            balances: vec![(account_id.to_string(), -6800)],
+        },
+    );
+    let row = scoring::score(&entry, &ids, &observed);
+    assert!(row.display_pass, "{:?}", row.reasons);
+    assert_eq!(row.display_selected, "prose");
+
+    let mut wrong_currency = observed.clone();
+    wrong_currency.balance_results.get_mut("source-0").unwrap().currency = "USD".into();
+    assert!(!scoring::score(&entry, &ids, &wrong_currency).display_pass);
+    let mut wrong_balance = observed.clone();
+    wrong_balance.balance_results.get_mut("source-0").unwrap().balances[0].1 = -6700;
+    assert!(!scoring::score(&entry, &ids, &wrong_balance).display_pass);
+    let mut wrong_account = observed.clone();
+    wrong_account.balance_results.get_mut("source-0").unwrap().balances[0].0 =
+        uuid::Uuid::nil().to_string();
+    assert!(!scoring::score(&entry, &ids, &wrong_account).display_pass);
+    let mut failed = observed.clone();
+    failed.tool_results.insert("source-0".into(), false);
+    assert!(!scoring::score(&entry, &ids, &failed).display_pass);
+    let mut missing = observed.clone();
+    missing.balance_results.clear();
+    assert!(!scoring::score(&entry, &ids, &missing).display_pass);
+    let extra = "虚构银行卡余额为 -68.00 元，另一个余额为 1.00 元。";
+    let mut invented = observed;
+    invented.message = json!({
+        "fallbackText":extra,
+        "blocks":[{"type":"markdown","data":{"text":extra},"fallbackText":extra}]
+    });
+    assert!(!scoring::score(&entry, &ids, &invented).display_pass);
+}
+
+fn alternative_message(entry: &dataset::Entry, index: usize) -> Value {
+    let alternative = &entry.expect.display.as_ref().unwrap().alternatives[index];
+    if alternative.blocks.is_empty() {
+        let prose = alternative
+            .facts
+            .iter()
+            .map(|fact| match fact {
+                dataset::DisplayFact::Aggregate { label, value_minor } => {
+                    format!("{label} {:.2} 元", *value_minor as f64 / 100.0)
+                }
+                dataset::DisplayFact::Record {
+                    date,
+                    record_kind,
+                    amount_minor,
+                    account,
+                    purpose,
+                    note,
+                    ..
+                } => {
+                    let name = |alias: &Option<String>| {
+                        alias
+                            .as_ref()
+                            .and_then(|alias| {
+                                entry
+                                    .setup
+                                    .accounts
+                                    .iter()
+                                    .find(|account| account.key == *alias)
+                            })
+                            .map(|account| account.name.clone())
+                            .unwrap_or_default()
+                    };
+                    format!(
+                        "{date} {record_kind} {} {} {:.2} 元 {}",
+                        name(account),
+                        name(purpose),
+                        *amount_minor as f64 / 100.0,
+                        note.as_deref().unwrap_or_default()
+                    )
+                }
+                dataset::DisplayFact::NoData => "本月没有记录。".into(),
+                dataset::DisplayFact::AccountBalance { .. } => unreachable!(),
+            })
+            .collect::<Vec<_>>()
+            .join("；");
+        return json!({
+            "fallbackText": prose,
+            "blocks":[{"type":"markdown","data":{"text":prose},"fallbackText":prose}]
+        });
+    }
+    let blocks = alternative
+        .blocks
+        .iter()
+        .map(|expected| {
+            let data = match expected.kind.as_str() {
+                "metric" => json!({
+                    "label":expected.labels[0],
+                    "value":expected.values_minor[0]
+                }),
+                "metric_group" => json!({"metrics":expected.labels.iter().zip(&expected.values_minor).map(|(label,value)|json!({"label":label,"value":value})).collect::<Vec<_>>()}),
+                "breakdown" => json!({"parts":expected.labels.iter().zip(&expected.values_minor).map(|(label,value)|json!({"label":label,"value":value})).collect::<Vec<_>>()}),
+                "category_series" => json!({"points":expected.labels.iter().zip(&expected.values_minor).map(|(label,value)|json!({"label":label,"value":value})).collect::<Vec<_>>()}),
+                "time_series" => json!({"yUnit":"元","series":[{"points":expected.labels.iter().zip(&expected.values_minor).map(|(label,value)|json!({"x":label,"y":*value as f64/100.0})).collect::<Vec<_>>()}]}),
+                "dataset" if expected.labels.first().is_some_and(|label| label.starts_with("2026-")) => json!({"columns":[{"key":"date"}],"rows":expected.labels.iter().zip(&expected.values_minor).map(|(date,amount)|json!({"date":date,"amount":amount})).collect::<Vec<_>>()}),
+                "dataset" => json!({"columns":[{"key":"label"}],"rows":expected.labels.iter().zip(&expected.values_minor).map(|(label,value)|json!({"label":label,"value":value})).collect::<Vec<_>>()}),
+                other => panic!("unsupported test block {other}"),
+            };
+            json!({"type":expected.kind,"data":data,"fallbackText":"ok"})
+        })
+        .collect::<Vec<_>>();
+    json!({"fallbackText":alternative.fallback_contains.join("；"),"blocks":blocks})
+}
+
+#[test]
+fn every_declared_flexible_path_passes_its_complete_contract() {
+    for (name, skip) in [
+        ("display-001.yaml", None),
+        ("display-004.yaml", None),
+        ("display-005.yaml", None),
+        ("display-008.yaml", None),
+        ("display-013.yaml", None),
+        ("display-014.yaml", None),
+        ("display-015.yaml", Some(1)),
+        ("display-016.yaml", None),
+        ("display-018.yaml", None),
+        ("display-020.yaml", None),
+    ] {
+        let entry = display_entry(name);
+        for index in 0..entry.expect.display.as_ref().unwrap().alternatives.len() {
+            if skip == Some(index) {
+                continue;
+            }
+            let mut observed = display_observation_for(
+                &entry,
+                index,
+                alternative_message(&entry, index),
+            );
+            observed.server_fallbacks = entry.expect.display.as_ref().unwrap().alternatives[index]
+                .server_fallback_contains
+                .clone();
+            let row = scoring::score(&entry, &Identities::default(), &observed);
+            assert!(row.display_pass, "{}[{index}] {:?}", entry.id, row.reasons);
+            assert_eq!(
+                row.display_selected,
+                entry.expect.display.as_ref().unwrap().alternatives[index].id
+            );
+        }
+    }
+}
+
+#[test]
+fn closest_failed_alternative_ties_use_fixture_order() {
+    let mut entry = display_entry("display-003.yaml");
+    let mut second = entry.expect.display.as_ref().unwrap().alternatives[0].clone();
+    entry.expect.display.as_mut().unwrap().alternatives[0].id = "first".into();
+    second.id = "second".into();
+    entry.expect.display.as_mut().unwrap().alternatives.push(second);
+    let wrong = json!({"fallbackText":"ok","blocks":[]});
+    let row = scoring::score(
+        &entry,
+        &Identities::default(),
+        &display_observation(&entry, wrong),
+    );
+    assert!(!row.display_pass);
+    assert_eq!(row.display_selected, "first");
+    assert_eq!(row.display_acceptable, "first,second");
+}
+
+#[test]
+fn alternative_report_is_sanitized_and_contains_only_ids() -> Result<()> {
+    let entry = display_entry("display-001.yaml");
+    let prose = "虚构日常 68.00 元；虚构储备 32.00 元。";
+    let message = json!({
+        "fallbackText":prose,
+        "blocks":[{"type":"markdown","data":{"text":prose},"fallbackText":prose}]
+    });
+    let row = scoring::score(
+        &entry,
+        &Identities::default(),
+        &display_observation_for(&entry, 3, message),
+    );
+    let dir = std::env::temp_dir().join(format!(
+        "jiabu-eval-alternative-report-{}",
+        uuid::Uuid::now_v7()
+    ));
+    ai_eval::report::write(&dir, &[row])?;
+    let results = std::fs::read_to_string(dir.join("results.csv"))?;
+    assert!(results.contains("breakdown,bars,metrics,prose"));
+    assert!(results.contains("\"prose\""));
+    assert!(!results.contains(&entry.input.text));
+    assert!(!results.contains(prose));
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
 }
 
 #[test]
@@ -581,8 +850,8 @@ fn display_selection_query_validity_and_transport_are_independent() {
 fn legacy_global_invalid_and_business_error_invariants_still_gate_display() {
     let mut entry = display_entry("display-003.yaml");
     let display = entry.expect.display.as_mut().unwrap();
-    display.expected_invalid_calls = 1;
-    display.expected_business_errors = 1;
+    display.alternatives[0].expected_invalid_calls = 1;
+    display.alternatives[0].expected_business_errors = 1;
     let message = json!({"fallbackText":"ok","blocks":[{"type":"metric","data":{"label":"2026年10月支出","value":9900},"fallbackText":"ok"}]});
     let mut observed = display_observation(&entry, message);
     observed.tool_total += 1;
@@ -618,7 +887,7 @@ fn display_call_pairing_covers_missing_extra_reordered_and_unpersisted_invalid_c
         }
     );
     let mut extra = base.clone();
-    extra.tool_calls.push(json!({"tool":"show_metrics","call_id":"extra","args":entry.expect.display.as_ref().unwrap().calls[0].args.clone()}));
+    extra.tool_calls.push(json!({"tool":"show_metrics","call_id":"extra","args":entry.expect.display.as_ref().unwrap().alternatives[0].calls[0].args.clone()}));
     extra.display_audit.push(ai_eval::audit::DisplayAuditCall {
         tool: "show_metrics".into(),
         valid: true,
@@ -713,7 +982,7 @@ fn trend_source_reference_preserves_and_checks_grouping() {
 #[test]
 fn stats_kinds_are_compared_as_a_sorted_deduplicated_set() {
     let mut entry = display_entry("display-003.yaml");
-    entry.expect.display.as_mut().unwrap().calls[0].args["source"]["query"]["kinds"] =
+    entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].args["source"]["query"]["kinds"] =
         json!(["income", "expense", "income"]);
     let message = json!({"fallbackText":"ok","blocks":[{"type":"metric","data":{"label":"2026年10月支出","value":9900},"fallbackText":"ok"}]});
     let mut observed = display_observation(&entry, message);
@@ -762,7 +1031,7 @@ fn record_query_direct_and_successful_source_call_are_equivalent() {
     assert!(!row.display_query_summary.contains("different search"));
 
     let mut kinds_entry = entry.clone();
-    kinds_entry.expect.display.as_mut().unwrap().calls[0].args["source"]["query"]["kinds"] =
+    kinds_entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].args["source"]["query"]["kinds"] =
         json!(["income", "expense", "income"]);
     observed.tool_calls[0]["args"]["filters"]["text"] = Value::Null;
     observed.tool_calls[0]["args"]["filters"]["kinds"] = json!(["expense", "income", "expense"]);
@@ -774,7 +1043,7 @@ fn record_query_direct_and_successful_source_call_are_equivalent() {
     );
 
     let mut text_entry = entry.clone();
-    text_entry.expect.display.as_mut().unwrap().calls[0].args["source"]["query"]["text"] =
+    text_entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].args["source"]["query"]["text"] =
         json!(" Lunch ");
     observed.tool_calls[0]["args"]["filters"]["kinds"] = json!(["expense"]);
     observed.tool_calls[0]["args"]["filters"]["text"] = json!(" lunch ");
@@ -1107,7 +1376,7 @@ async fn tool_argument_audit_counts_invalid_calls_before_runtime_can_discard_the
     assert_eq!(audit.display_total.load(Ordering::Relaxed), 19);
     assert_eq!(audit.display_valid.load(Ordering::Relaxed), 18);
     let mut row_entry = display_entry("display-005.yaml");
-    row_entry.expect.display.as_mut().unwrap().calls[0].args["source"]["query"]["kinds"] =
+    row_entry.expect.display.as_mut().unwrap().alternatives[0].calls[0].args["source"]["query"]["kinds"] =
         json!(vec!["expense"; 17]);
     let mut observed = display_observation(&row_entry, json!({"fallbackText":"","blocks":[]}));
     observed.display_audit[0].truncated = true;

@@ -1,26 +1,134 @@
+---
 schema_version: 2
-id: "display-009"
-locale: "zh-Hans"
-category: "display"
-today: "2026-10-21"
-timezone: "Asia/Shanghai"
-tier: "stress"
-input: {text: "请用固定演示数据依次展示三种组件：月度支出指标卡、月度支出分类占比、半年支出柱状图。"}
-setup: {currency: "CNY", accounts: [], records: []}
+id: display-009
+locale: zh-Hans
+category: display
+today: '2026-10-21'
+timezone: Asia/Shanghai
+tier: stress
+input:
+  text: 请用固定演示数据依次展示三种组件：月度支出指标卡、月度支出分类占比、半年支出柱状图。
+setup:
+  currency: CNY
+  accounts: []
+  records: []
 expect:
-  behavior: "no_write"
+  behavior: no_write
   hard: false
   records: []
   display:
     hard: true
-    calls:
-      - {tool: "show_metrics", args: {source: {query: null, from_call: null, demo: "monthly_spending"}}}
-      - {tool: "show_breakdown", args: {source: {query: null, from_call: null, demo: "monthly_spending"}}}
-      - {tool: "show_bar_chart", args: {source: {query: null, from_call: null, demo: "half_year_trend"}}}
-    blocks:
-      - {kind: "metric_group", labels: ["餐饮", "居家", "购物", "交通", "其他"], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
-      - {kind: "breakdown", labels: ["餐饮", "居家", "购物", "交通", "其他（2 项）"], values_minor: [142000, 98000, 75000, 41000, 72600], account: null, demo: true}
-      - {kind: "category_series", labels: ["第 1 月", "第 2 月", "第 3 月", "第 4 月", "第 5 月", "第 6 月"], values_minor: [382000, 405500, 361200, 452800, 418900, 428600], account: null, demo: true}
-    fallback_contains: []
-    server_fallback_contains: ["【演示数据】"]
-    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}
+    alternatives:
+    - id: exact
+      calls:
+      - tool: show_metrics
+        args:
+          source:
+            query:
+            from_call:
+            demo: monthly_spending
+      - tool: show_breakdown
+        args:
+          source:
+            query:
+            from_call:
+            demo: monthly_spending
+      - tool: show_bar_chart
+        args:
+          source:
+            query:
+            from_call:
+            demo: half_year_trend
+      blocks:
+      - kind: metric_group
+        labels:
+        - 餐饮
+        - 居家
+        - 购物
+        - 交通
+        - 其他
+        values_minor:
+        - 142000
+        - 98000
+        - 75000
+        - 41000
+        - 72600
+        account:
+        demo: true
+      - kind: breakdown
+        labels:
+        - 餐饮
+        - 居家
+        - 购物
+        - 交通
+        - 其他（2 项）
+        values_minor:
+        - 142000
+        - 98000
+        - 75000
+        - 41000
+        - 72600
+        account:
+        demo: true
+      - kind: category_series
+        labels:
+        - 第 1 月
+        - 第 2 月
+        - 第 3 月
+        - 第 4 月
+        - 第 5 月
+        - 第 6 月
+        values_minor:
+        - 382000
+        - 405500
+        - 361200
+        - 452800
+        - 418900
+        - 428600
+        account:
+        demo: true
+      fallback_contains: []
+      server_fallback_contains:
+      - "【演示数据】"
+      facts:
+      - kind: aggregate
+        label: 餐饮
+        value_minor: 142000
+      - kind: aggregate
+        label: 居家
+        value_minor: 98000
+      - kind: aggregate
+        label: 购物
+        value_minor: 75000
+      - kind: aggregate
+        label: 交通
+        value_minor: 41000
+      - kind: aggregate
+        label: 其他
+        value_minor: 72600
+      - kind: aggregate
+        label: 其他（2 项）
+        value_minor: 72600
+      - kind: aggregate
+        label: 第 1 月
+        value_minor: 382000
+      - kind: aggregate
+        label: 第 2 月
+        value_minor: 405500
+      - kind: aggregate
+        label: 第 3 月
+        value_minor: 361200
+      - kind: aggregate
+        label: 第 4 月
+        value_minor: 452800
+      - kind: aggregate
+        label: 第 5 月
+        value_minor: 418900
+      - kind: aggregate
+        label: 第 6 月
+        value_minor: 428600
+    prose:
+      max_sentences: 2
+      forbid_mermaid: true
+      forbid_ascii_chart: true
+      max_table_rows: 5

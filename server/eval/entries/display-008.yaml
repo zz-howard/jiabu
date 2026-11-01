@@ -1,25 +1,78 @@
+---
 schema_version: 2
-id: "display-008"
-locale: "zh-Hans"
-category: "display"
-today: "2026-10-21"
-timezone: "Asia/Shanghai"
-input: {text: "请用指标卡汇总2026年10月的支出；如果没有记录，就只如实说明“本月没有记录”，不要编造图表。"}
+id: display-008
+locale: zh-Hans
+category: display
+today: '2026-10-21'
+timezone: Asia/Shanghai
+input:
+  text: 我 2026 年 10 月花了多少钱？
 setup:
-  currency: "CNY"
+  currency: CNY
   accounts:
-    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
-    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+  - key: bank
+    kind: real
+    name: 虚构银行卡
+    opening_on: '2026-01-01'
+  - key: daily
+    kind: purpose
+    name: 虚构日常
+    opening_on: '2026-01-01'
   records: []
 expect:
-  behavior: "no_write"
+  behavior: no_write
   hard: false
   records: []
   display:
     hard: true
-    calls:
-      - tool: "show_metrics"
-        args: {source: {query: {measure: "sum", kinds: ["expense"], period: {from: "2026-10-01", through: "2026-10-31"}, group_by: null, account_id: null, purpose_id: null, tag_id: null, member_id: null}, from_call: null, demo: null}}
-    blocks: []
-    fallback_contains: ["本月没有记录"]
-    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}
+    alternatives:
+    - id: metric_no_data
+      calls:
+      - tool: show_metrics
+        args:
+          source:
+            query:
+              measure: sum
+              kinds:
+              - expense
+              period:
+                from: '2026-10-01'
+                through: '2026-10-31'
+              group_by:
+              account_id:
+              purpose_id:
+              tag_id:
+              member_id:
+            from_call:
+            demo:
+      blocks: []
+      fallback_contains:
+      - 本月没有记录
+      facts:
+      - kind: no_data
+    - id: prose_no_data
+      source_calls:
+      - tool: query_stats
+        args:
+          measure: sum
+          kinds:
+          - expense
+          period:
+            from: '2026-10-01'
+            through: '2026-10-31'
+          group_by:
+          filters:
+            account_id:
+            purpose_id:
+            tag_id:
+            member_id:
+      calls: []
+      blocks: []
+      fallback_contains: []
+      facts:
+      - kind: no_data
+    prose:
+      max_sentences: 2
+      forbid_mermaid: true
+      forbid_ascii_chart: true
+      max_table_rows: 5

@@ -1,30 +1,190 @@
+---
 schema_version: 2
-id: "display-018"
-locale: "zh-Hans"
-category: "display"
-today: "2026-10-21"
-timezone: "Asia/Shanghai"
-input: {text: "比较2026年9月和10月的支出，请用柱状图展示；如果这两个月都没有记录，就用一句普通文字说明，不要编造图表。"}
+id: display-018
+locale: zh-Hans
+category: display
+today: '2026-10-21'
+timezone: Asia/Shanghai
+input:
+  text: 比较一下 2026 年 9 月和 10 月的支出。
 setup:
-  currency: "CNY"
+  currency: CNY
   accounts:
-    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
-    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+  - key: bank
+    kind: real
+    name: 虚构银行卡
+    opening_on: '2026-01-01'
+  - key: daily
+    kind: purpose
+    name: 虚构日常
+    opening_on: '2026-01-01'
   records:
-    - key: "september"
-      record: {operation: "create", kind: "expense", amount_minor: 5000, currency: "CNY", occurred_on: "2026-09-03", account: "bank", purpose: "daily", preset_key: "dining"}
-    - key: "october"
-      record: {operation: "create", kind: "expense", amount_minor: 6800, currency: "CNY", occurred_on: "2026-10-03", account: "bank", purpose: "daily", preset_key: "dining"}
+  - key: september
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 5000
+      currency: CNY
+      occurred_on: '2026-09-03'
+      account: bank
+      purpose: daily
+      preset_key: dining
+  - key: october
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 6800
+      currency: CNY
+      occurred_on: '2026-10-03'
+      account: bank
+      purpose: daily
+      preset_key: dining
 expect:
-  behavior: "no_write"
+  behavior: no_write
   hard: false
   records: []
   display:
     hard: true
-    calls:
-      - tool: "show_bar_chart"
-        args: {source: {query: {measure: "sum", kinds: ["expense"], period: {from: "2026-09-01", through: "2026-10-31"}, group_by: "month", account_id: null, purpose_id: null, tag_id: null, member_id: null}, from_call: null, demo: null}}
-    blocks:
-      - {kind: "category_series", labels: ["9月", "10月"], values_minor: [5000, 6800], account: null, demo: false}
-    fallback_contains: []
-    prose: {max_sentences: 1, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}
+    alternatives:
+    - id: bars
+      calls:
+      - tool: show_bar_chart
+        args:
+          source:
+            query:
+              measure: sum
+              kinds:
+              - expense
+              period:
+                from: '2026-09-01'
+                through: '2026-10-31'
+              group_by: month
+              account_id:
+              purpose_id:
+              tag_id:
+              member_id:
+            from_call:
+            demo:
+      blocks:
+      - kind: category_series
+        labels:
+        - 9月
+        - 10月
+        values_minor:
+        - 5000
+        - 6800
+        account:
+        demo: false
+      fallback_contains: []
+      facts:
+      - kind: aggregate
+        label: 9月
+        value_minor: 5000
+      - kind: aggregate
+        label: 10月
+        value_minor: 6800
+    - id: trend
+      calls:
+      - tool: show_trend
+        args:
+          source:
+            query:
+              measure: sum
+              kinds:
+              - expense
+              period:
+                from: '2026-09-01'
+                through: '2026-10-31'
+              group_by: month
+              account_id:
+              purpose_id:
+              tag_id:
+              member_id:
+            from_call:
+            demo:
+      blocks:
+      - kind: time_series
+        labels:
+        - 9月
+        - 10月
+        values_minor:
+        - 5000
+        - 6800
+        account:
+        demo: false
+      fallback_contains: []
+      facts:
+      - kind: aggregate
+        label: 9月
+        value_minor: 5000
+      - kind: aggregate
+        label: 10月
+        value_minor: 6800
+    - id: metrics
+      calls:
+      - tool: show_metrics
+        args:
+          source:
+            query:
+              measure: sum
+              kinds:
+              - expense
+              period:
+                from: '2026-09-01'
+                through: '2026-10-31'
+              group_by: month
+              account_id:
+              purpose_id:
+              tag_id:
+              member_id:
+            from_call:
+            demo:
+      blocks:
+      - kind: metric_group
+        labels:
+        - 9月
+        - 10月
+        values_minor:
+        - 5000
+        - 6800
+        account:
+        demo: false
+      fallback_contains: []
+      facts:
+      - kind: aggregate
+        label: 9月
+        value_minor: 5000
+      - kind: aggregate
+        label: 10月
+        value_minor: 6800
+    - id: prose
+      source_calls:
+      - tool: query_stats
+        args:
+          measure: sum
+          kinds:
+          - expense
+          period:
+            from: '2026-09-01'
+            through: '2026-10-31'
+          group_by: month
+          filters:
+            account_id:
+            purpose_id:
+            tag_id:
+            member_id:
+      calls: []
+      blocks: []
+      fallback_contains: []
+      facts:
+      - kind: aggregate
+        label: 9月
+        value_minor: 5000
+      - kind: aggregate
+        label: 10月
+        value_minor: 6800
+    prose:
+      max_sentences: 1
+      forbid_mermaid: true
+      forbid_ascii_chart: true
+      max_table_rows: 5

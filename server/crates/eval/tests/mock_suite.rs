@@ -33,7 +33,7 @@ async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percen
             .expect
             .display
             .as_ref()
-            .map_or(0, |display| display.expected_invalid_calls);
+            .map_or(0, |display| display.alternatives[0].expected_invalid_calls);
         assert_eq!(
             row.tools.total - row.tools.correct,
             expected_invalid,
@@ -44,7 +44,7 @@ async fn full_mock_suite_uses_real_pg_agent_worker_and_scores_one_hundred_percen
             .expect
             .display
             .as_ref()
-            .map_or(0, |display| display.expected_business_errors);
+            .map_or(0, |display| display.alternatives[0].expected_business_errors);
         assert_eq!(row.business_errors, expected_business_errors, "{}", row.id);
         rows.push(row);
         drop(scenario);

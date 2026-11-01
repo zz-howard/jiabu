@@ -1,28 +1,63 @@
+---
 schema_version: 2
-id: "display-007"
-locale: "zh-Hans"
-category: "display"
-today: "2026-10-21"
-timezone: "Asia/Shanghai"
-input: {text: "看看虚构银行卡账户卡和余额。"}
+id: display-007
+locale: zh-Hans
+category: display
+today: '2026-10-21'
+timezone: Asia/Shanghai
+input:
+  text: 看看虚构银行卡余额，并能点进去看流水。
 setup:
-  currency: "CNY"
+  currency: CNY
   accounts:
-    - {key: "bank", kind: "real", name: "虚构银行卡", opening_on: "2026-01-01"}
-    - {key: "daily", kind: "purpose", name: "虚构日常", opening_on: "2026-01-01"}
+  - key: bank
+    kind: real
+    name: 虚构银行卡
+    opening_on: '2026-01-01'
+  - key: daily
+    kind: purpose
+    name: 虚构日常
+    opening_on: '2026-01-01'
   records:
-    - key: "expense"
-      record: {operation: "create", kind: "expense", amount_minor: 6800, currency: "CNY", occurred_on: "2026-10-01", account: "bank", purpose: "daily", preset_key: "dining"}
+  - key: expense
+    record:
+      operation: create
+      kind: expense
+      amount_minor: 6800
+      currency: CNY
+      occurred_on: '2026-10-01'
+      account: bank
+      purpose: daily
+      preset_key: dining
 expect:
-  behavior: "no_write"
+  behavior: no_write
   hard: false
   records: []
   display:
     hard: true
-    calls:
-      - {tool: "show_account_card", args: {account_id: "$account:bank"}}
-    blocks:
-      - {kind: "x-jiabu.account_card", labels: [], values_minor: [], account: "bank", demo: false}
-    fallback_contains: []
-    server_fallback_contains: ["虚构银行卡", "-¥68.00"]
-    prose: {max_sentences: 2, forbid_mermaid: true, forbid_ascii_chart: true, max_table_rows: 5}
+    alternatives:
+    - id: exact
+      calls:
+      - tool: show_account_card
+        args:
+          account_id: "$account:bank"
+      blocks:
+      - kind: x-jiabu.account_card
+        labels: []
+        values_minor: []
+        account: bank
+        demo: false
+      fallback_contains: []
+      server_fallback_contains:
+      - 虚构银行卡
+      - "-¥68.00"
+      facts:
+      - kind: account_balance
+        account: bank
+        currency: CNY
+        balance_minor: -6800
+    prose:
+      max_sentences: 2
+      forbid_mermaid: true
+      forbid_ascii_chart: true
+      max_table_rows: 5
