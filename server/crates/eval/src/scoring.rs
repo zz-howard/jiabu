@@ -133,6 +133,15 @@ pub struct ResultRow {
     pub judge_fail_votes: Option<usize>,
     pub judge_votes: String,
 }
+impl ResultRow {
+    pub fn overall_pass(&self) -> bool {
+        self.hard_pass
+            && self
+                .judge_pass_votes
+                .map(|votes| votes >= 2)
+                .unwrap_or(true)
+    }
+}
 #[derive(Default)]
 struct DisplayScore {
     hard: bool,
@@ -1789,7 +1798,7 @@ pub fn score(e: &Entry, ids: &Identities, o: &Observation) -> ResultRow {
     }
 }
 pub fn exit_code(rows: &[ResultRow]) -> u8 {
-    if rows.iter().any(|r| !r.hard_pass) {
+    if rows.iter().any(|r| !r.overall_pass()) {
         1
     } else {
         0

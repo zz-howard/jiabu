@@ -116,6 +116,8 @@ async fn run(args: Args) -> Result<u8> {
                         row.id,
                         row.reasons.join(";")
                     );
+                } else if !row.overall_pass() {
+                    eprintln!("{}: display_judge_failed", row.id);
                 }
                 rows.push(row);
                 report::write(&args.out, &rows)?;
