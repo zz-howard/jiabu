@@ -1,4 +1,8 @@
-use ai_eval::{dataset, fixture::Scenario, report, scoring};
+use ai_eval::{
+    dataset::{self, Entry},
+    fixture::Scenario,
+    report, scoring,
+};
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use std::{path::PathBuf, process::ExitCode};
@@ -22,10 +26,24 @@ struct Args {
     out: PathBuf,
     #[arg(long)]
     dataset: Option<PathBuf>,
+    /// Run only entries in this category after loading and validating the complete corpus.
+    #[arg(long)]
+    category: Option<String>,
+}
+fn filter_entries(entries: Vec<Entry>, category: Option<&str>) -> Result<Vec<Entry>> {
+    let Some(category) = category else {
+        return Ok(entries);
+    };
+    let filtered = entries
+        .into_iter()
+        .filter(|entry| entry.category == category)
+        .collect::<Vec<_>>();
+    anyhow::ensure!(!filtered.is_empty(), "category matched no entries");
+    Ok(filtered)
 }
 async fn run(args: Args) -> Result<u8> {
     let root = args.dataset.unwrap_or_else(ai_eval::dataset_root);
-    let entries = dataset::load(&root)?;
+    let entries = filter_entries(dataset::load(&root)?, args.category.as_deref())?;
     let scratch = args
         .scratch_database_url
         .or_else(|| std::env::var("EVAL_DATABASE_URL").ok())
@@ -83,6 +101,28 @@ async fn run(args: Args) -> Result<u8> {
         }
     }
     Ok(scoring::exit_code(&rows))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn category_argument_filters_the_validated_corpus_and_must_match() -> Result<()> {
+        let args = Args::try_parse_from([
+            "ai-eval",
+            "--out",
+            "unused",
+            "--category",
+            "display",
+        ])?;
+        let entries = dataset::load(&ai_eval::dataset_root())?;
+        let filtered = filter_entries(entries.clone(), args.category.as_deref())?;
+        assert_eq!(filtered.len(), 20);
+        assert!(filtered.iter().all(|entry| entry.category == "display"));
+        assert!(filter_entries(entries, Some("not-a-category")).is_err());
+        Ok(())
+    }
 }
 #[tokio::main]
 async fn main() -> ExitCode {
