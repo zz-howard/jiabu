@@ -25,6 +25,7 @@ class AuthViewModel extends _$AuthViewModel {
         return;
       }
       final session = runtime.auth.current;
+      final signOut = runtime.auth.signOutCode;
       state = state.copyWith(
         authenticated: session != null,
         forcedPassword: session?.passwordChangeRequired ?? false,
@@ -40,7 +41,14 @@ class AuthViewModel extends _$AuthViewModel {
             : AuthPage.session,
         partitionRevision: runtime.revision,
         syncStatus: runtime.status,
-        errorCode: session == null && runtime.status == SyncStatus.loginRequired
+        // Like a failed resume: a disabled account or another account's
+        // session keeps its own message instead of "session expired".
+        errorCode: session != null
+            ? state.errorCode
+            : signOut == 'account_disabled' ||
+                  signOut == 'session_user_mismatch'
+            ? signOut
+            : runtime.status == SyncStatus.loginRequired
             ? 'session_expired'
             : state.errorCode,
         spaceCleared: runtime.spaceCleared,
@@ -148,6 +156,9 @@ class AuthViewModel extends _$AuthViewModel {
         serverProbeSucceeded: false,
       );
       final runtime = ref.read(appRuntimeProvider);
+      // Choosing a server starts a new sign-in; the old reason no longer
+      // applies.
+      runtime.auth.clearSignOutCode();
       final handshake = VersionHandshakeService(
         runtime.api(server, null),
         build: runtime.device.build,

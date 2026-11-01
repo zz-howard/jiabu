@@ -67,7 +67,7 @@ class _ChatPageState extends ConsumerState<_ChatPage> {
     final registry = ref.watch(chatRegistryProvider(spaceId));
     if (session == null) {
       return Center(
-        child: Text(state.error == null ? l.ledgerLoading : l.chatError),
+        child: Text(state.error == null ? l.chatOpening : l.chatError),
       );
     }
     session.revealInterrupt = (message, block) =>

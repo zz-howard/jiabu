@@ -50,6 +50,7 @@ final class LocalAuthRepository implements AuthRepository {
     required this.sessions,
     required this.apiFactory,
     this.onChanged,
+    this.onSessionUpdated,
     this.activateOnResume = true,
   });
   final DatabaseManager databases;
@@ -57,11 +58,26 @@ final class LocalAuthRepository implements AuthRepository {
   final SessionStore sessions;
   final ApiClient Function(String server, Partition? partition) apiFactory;
   final void Function(AuthSession?)? onChanged;
+
+  /// Session details changed without a new runtime: a refreshed profile or a
+  /// recorded [signOutCode].
+  final void Function()? onSessionUpdated;
   final bool activateOnResume;
   AuthSession? current;
+
+  /// Why a background identity check signed the session out, when that is
+  /// more specific than an expired session (`account_disabled`,
+  /// `session_user_mismatch`, or the 401 code). Cleared on the next sign-out.
+  String? signOutCode;
+  AuthSession? _lastCleared;
+  int _profileWrites = 0;
   PartitionDatabase? handle;
   Future<void> _logoutWork = Future<void>.value();
   Future<void> get logoutWork => _logoutWork;
+  Future<void> _verificationWork = Future<void>.value();
+
+  /// Background identity checks started by local-first resumes.
+  Future<void> get verificationWork => _verificationWork;
 
   @override
   Future<Result<AuthSession>> login(
@@ -69,6 +85,8 @@ final class LocalAuthRepository implements AuthRepository {
     String username,
     String password,
   ) async {
+    // A new sign-in attempt supersedes how the previous session ended.
+    clearSignOutCode();
     try {
       final normalized = normalizeServer(server);
       final response = await apiFactory(normalized, null).login(
@@ -156,6 +174,7 @@ final class LocalAuthRepository implements AuthRepository {
   }
 
   Future<Result<AuthSession?>> _resume() async {
+    clearSignOutCode();
     final partition = await settings.current();
     if (partition == null || await sessions.read(partition) == null) {
       return const Ok(null);
@@ -171,6 +190,25 @@ final class LocalAuthRepository implements AuthRepository {
       return const Ok(null);
     }
     final resumeGeneration = requireValue<int>(resumeRow['generation']);
+    if (resumeRow['authenticated'] == 1 &&
+        resumeRow['session_kind'] == 'full' &&
+        _persistedUser(resumeRow, partition) != null) {
+      // Local-first: all data is local, so open it from the identity accepted
+      // earlier and confirm it online without blocking the first frame.
+      final session = await _resumePersisted(
+        resumeHandle,
+        partition,
+        resumeGeneration,
+      );
+      if (session == null) {
+        return const Failure('stale_response');
+      }
+      current = session;
+      onChanged?.call(session);
+      // Started after onChanged so the request belongs to this runtime.
+      _verifyInBackground(session, resumeHandle);
+      return Ok(session);
+    }
     try {
       final user = await apiFactory(partition.server, partition).me();
       if (user.id != partition.userId) {
@@ -209,31 +247,11 @@ final class LocalAuthRepository implements AuthRepository {
         );
       }
       if (error.code == 'network' || error.status == 426) {
-        final session = await resumeHandle.store.transaction(() async {
-          await resumeHandle.store.lockRuntime();
-          final persisted = await resumeHandle.store.runtime();
-          if (persisted['generation'] != resumeGeneration) {
-            return null;
-          }
-          final identity = persisted['identity_json'] as String?;
-          if (identity == null) {
-            return null;
-          }
-          final user = UserDto.fromJson(
-            (jsonDecode(identity) as Map<String, Object?>)
-                .cast<String, Object?>(),
-          );
-          final restricted = persisted['session_kind'] == 'password_change';
-          final generation = activateOnResume
-              ? await resumeHandle.store.activate(authenticated: !restricted)
-              : resumeGeneration;
-          return AuthSession(
-            user: user,
-            partition: partition,
-            passwordChangeRequired: restricted,
-            generation: generation,
-          );
-        });
+        final session = await _resumePersisted(
+          resumeHandle,
+          partition,
+          resumeGeneration,
+        );
         if (session != null) {
           current = session;
           onChanged?.call(session);
@@ -246,23 +264,14 @@ final class LocalAuthRepository implements AuthRepository {
       if (error.code == 'password_change_required') {
         // /me is forbidden for restricted sessions; allow only the password
         // page.
-        final generation = await resumeHandle.store.transaction(() async {
-          await resumeHandle.store.lockRuntime();
-          if ((await resumeHandle.store.runtime())['generation'] !=
-              resumeGeneration) {
-            return null;
-          }
-          return await resumeHandle.store.activate(authenticated: false);
-        });
-        if (generation == null) {
+        final session = await _restrict(
+          resumeHandle,
+          partition,
+          resumeGeneration,
+        );
+        if (session == null) {
           return const Failure('stale_response');
         }
-        final session = AuthSession(
-          user: UserDto(id: partition.userId, username: '', locale: 'system'),
-          partition: partition,
-          passwordChangeRequired: true,
-          generation: generation,
-        );
         current = session;
         onChanged?.call(session);
         return Ok(session);
@@ -272,6 +281,166 @@ final class LocalAuthRepository implements AuthRepository {
         status: error.status,
         requestId: error.requestId,
       );
+    }
+  }
+
+  /// Rebuilds the session from the identity persisted by an earlier online
+  /// check, or null when the generation moved or no identity was saved.
+  Future<AuthSession?> _resumePersisted(
+    PartitionDatabase opened,
+    Partition partition,
+    int expectedGeneration,
+  ) => opened.store.transaction(() async {
+    await opened.store.lockRuntime();
+    final persisted = await opened.store.runtime();
+    if (persisted['generation'] != expectedGeneration) {
+      return null;
+    }
+    final user = _persistedUser(persisted, partition);
+    if (user == null) {
+      return null;
+    }
+    final restricted = persisted['session_kind'] == 'password_change';
+    final generation = activateOnResume
+        ? await opened.store.activate(authenticated: !restricted)
+        : expectedGeneration;
+    return AuthSession(
+      user: user,
+      partition: partition,
+      passwordChangeRequired: restricted,
+      generation: generation,
+    );
+  });
+
+  /// The identity saved by an earlier online check, only when it belongs to
+  /// [partition]'s account.
+  static UserDto? _persistedUser(
+    Map<String, Object?> row,
+    Partition partition,
+  ) {
+    final identity = row['identity_json'] as String?;
+    if (identity == null) {
+      return null;
+    }
+    final user = UserDto.fromJson(
+      (jsonDecode(identity) as Map<String, Object?>).cast<String, Object?>(),
+    );
+    return user.id == partition.userId ? user : null;
+  }
+
+  /// Same accepted session, even when its profile object was replaced.
+  static bool _sameSession(AuthSession? a, AuthSession b) =>
+      a != null &&
+      a.partition.prefix == b.partition.prefix &&
+      a.generation == b.generation &&
+      a.user.id == b.user.id &&
+      a.passwordChangeRequired == b.passwordChangeRequired;
+
+  /// Activates a password-change-only session, or null when stale.
+  Future<AuthSession?> _restrict(
+    PartitionDatabase opened,
+    Partition partition,
+    int expectedGeneration,
+  ) async {
+    final generation = await opened.store.transaction(() async {
+      await opened.store.lockRuntime();
+      if ((await opened.store.runtime())['generation'] != expectedGeneration) {
+        return null;
+      }
+      return await opened.store.activate(authenticated: false);
+    });
+    if (generation == null) {
+      return null;
+    }
+    return AuthSession(
+      user: UserDto(id: partition.userId, username: '', locale: 'system'),
+      partition: partition,
+      passwordChangeRequired: true,
+      generation: generation,
+    );
+  }
+
+  void _verifyInBackground(AuthSession session, PartitionDatabase opened) {
+    // Late results are discarded by the guards below; a closed database or a
+    // dead network must never surface as an unhandled error.
+    final work = _verifyIdentity(session, opened).catchError((Object _) {});
+    _verificationWork = Future.wait<void>([_verificationWork, work])
+        .then((_) {});
+    unawaited(_verificationWork);
+  }
+
+  /// Applies the online identity check to [session] only while it is still
+  /// the current session and owns the runtime generation it was built with.
+  Future<void> _verifyIdentity(
+    AuthSession session,
+    PartitionDatabase opened,
+  ) async {
+    final partition = session.partition;
+    final profileWrites = _profileWrites;
+    bool owns() => _sameSession(current, session);
+    // A profile change made meanwhile (setLocale) is newer than this answer.
+    bool profileUnchanged() => owns() && _profileWrites == profileWrites;
+    try {
+      final user = await apiFactory(partition.server, partition).me();
+      if (!owns()) {
+        return;
+      }
+      if (user.id != partition.userId) {
+        await _dropSession(session, 'session_user_mismatch');
+        return;
+      }
+      final accepted = await opened.store.transaction(() async {
+        await opened.store.lockRuntime();
+        if (!profileUnchanged() ||
+            (await opened.store.runtime())['generation'] !=
+                session.generation) {
+          return false;
+        }
+        await opened.store.saveIdentity(user.toJson(), 'full');
+        return true;
+      });
+      final latest = current;
+      if (accepted &&
+          profileUnchanged() &&
+          latest != null &&
+          user != latest.user) {
+        // Same account and ownership; only the profile changed, so the
+        // runtime built for this session stays and only observers refresh.
+        current = AuthSession(
+          user: user,
+          partition: partition,
+          passwordChangeRequired: latest.passwordChangeRequired,
+          generation: latest.generation,
+          adminResetAt: latest.adminResetAt,
+        );
+        onSessionUpdated?.call();
+      }
+    } on ApiError catch (error) {
+      if (error.status == 401) {
+        await _dropSession(session, error.code);
+      }
+      // Network, 426, 403 and other errors keep the local session: sync
+      // reports them and the transport handles client-too-old.
+    }
+  }
+
+  /// The authentication-lost path: revoke this session's ownership, then
+  /// detach it even when another instance already moved the generation.
+  /// [code] is recorded when this session (and not a newer one) ended,
+  /// whether here or by the transport's own 401 handling.
+  Future<void> _dropSession(AuthSession session, String code) async {
+    if (_sameSession(current, session)) {
+      await invalidate(
+        session.partition,
+        expectedGeneration: session.generation,
+      );
+      if (_sameSession(current, session)) {
+        clearLocalSession();
+      }
+    }
+    if (current == null && _sameSession(_lastCleared, session)) {
+      signOutCode = code;
+      onSessionUpdated?.call();
     }
   }
 
@@ -300,7 +469,7 @@ final class LocalAuthRepository implements AuthRepository {
       final user = await api.me();
       final accepted = await opened.store.transaction(() async {
         await opened.store.lockRuntime();
-        if (!identical(current, session) ||
+        if (!_sameSession(current, session) ||
             (await opened.store.runtime())['generation'] !=
                 expectedGeneration) {
           return null;
@@ -344,6 +513,7 @@ final class LocalAuthRepository implements AuthRepository {
     if (session == null || opened == null) {
       return const Failure('unauthenticated');
     }
+    _profileWrites++;
     try {
       final body = await apiFactory(
         session.partition.server,
@@ -352,14 +522,14 @@ final class LocalAuthRepository implements AuthRepository {
       final user = UserDto.fromJson(body);
       await opened.store.transaction(() async {
         await opened.store.lockRuntime();
-        if (!identical(current, session) ||
+        if (!_sameSession(current, session) ||
             (await opened.store.runtime())['generation'] !=
                 session.generation) {
           throw const ApiError('stale_response');
         }
         await opened.store.saveIdentity(user.toJson(), 'full');
       });
-      if (!identical(current, session)) {
+      if (!_sameSession(current, session)) {
         return const Failure('stale_response');
       }
       current = AuthSession(
@@ -399,13 +569,24 @@ final class LocalAuthRepository implements AuthRepository {
       await sessions.delete(partition);
       invalidated = true;
     });
-    if (invalidated && identical(current, expectedSession)) {
+    if (invalidated &&
+        (expectedSession == null
+            ? current == null
+            : _sameSession(current, expectedSession))) {
       clearLocalSession();
     }
   }
 
+  /// Forget why the last session ended (a new sign-in, server or account).
+  void clearSignOutCode() {
+    signOutCode = null;
+    _lastCleared = null;
+  }
+
   /// Detach an obsolete runtime without changing shared credentials or state.
   void clearLocalSession() {
+    _lastCleared = current;
+    signOutCode = null;
     current = null;
     handle = null;
     onChanged?.call(null);
@@ -413,6 +594,7 @@ final class LocalAuthRepository implements AuthRepository {
 
   @override
   Future<void> logout() async {
+    clearSignOutCode();
     final session = current;
     if (session == null) {
       return;
@@ -447,7 +629,7 @@ final class LocalAuthRepository implements AuthRepository {
           .then((_) {});
       unawaited(_logoutWork);
     }
-    if (!identical(current, session)) {
+    if (!_sameSession(current, session)) {
       return;
     }
     current = null;

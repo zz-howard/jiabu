@@ -206,6 +206,9 @@ void main() {
         await worker.sessionWork;
         await foreground.sessionWork;
         await foreground.auth.logoutWork;
+        // Resume verifies identity in the background; let it settle (it is
+        // answered locally) before the databases close.
+        await worker.auth.verificationWork;
         await worker.close();
         await foreground.close();
         await directory.delete(recursive: true);
@@ -250,6 +253,68 @@ void main() {
       }
     },
   );
+
+  test(
+    'cold_start_builds_runtime_without_waiting_for_identity_check',
+    () async {
+      final directory = await Directory.systemTemp.createTemp('jiabu-cold-');
+      final storage = MemorySettings();
+      final sessions = MemorySessions();
+      final device = await loadTestDevice('stable');
+      final dead = DeadNetworkAdapter();
+      AppRuntime runtime(SessionRuntimeAdapter transport) => AppRuntime(
+        databases: DatabaseManager(directory),
+        settings: AppSettingsService(storage),
+        sessions: sessions,
+        device: device,
+        background: true,
+        createDio: () => Dio()..httpClientAdapter = transport,
+      );
+      final first = runtime(SessionRuntimeAdapter());
+      final cold = runtime(dead);
+      try {
+        final login = await first.auth.login(
+          'https://example.invalid/',
+          'fictional',
+          'fictional-password',
+        );
+        expect(login, isA<Ok<AuthSession>>());
+        await first.sessionWork;
+        await first.close();
+
+        final resumed = await cold.auth.resume().timeout(
+          const Duration(seconds: 10),
+        );
+        expect((resumed as Ok<AuthSession?>).value?.user.username, 'fictional');
+        await cold.sessionWork.timeout(const Duration(seconds: 10));
+        expect(cold.engine, isNotNull);
+        expect(cold.chat, isNotNull);
+        for (var i = 0; i < 100 && !dead.stalled.contains('v1/me'); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(dead.stalled, contains('v1/me'));
+        // The pending identity check must not hold shutdown either.
+        await cold.close().timeout(const Duration(seconds: 10));
+      } finally {
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+}
+
+/// A network that never answers anything.
+class DeadNetworkAdapter extends SessionRuntimeAdapter {
+  final stalled = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) {
+    stalled.add(options.path);
+    return Completer<ResponseBody>().future;
+  }
 }
 
 /// Answers sign-in, then behaves like a dead network: every other request

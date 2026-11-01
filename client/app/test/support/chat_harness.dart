@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:chatweave_core/chatweave_core.dart';
@@ -273,6 +274,22 @@ class FixedChatRepository implements ChatRepository {
   Future<void> foreground() async {}
   @override
   Future<void> disconnect() => session.disconnect();
+  @override
+  Future<void> dispose() async {}
+}
+
+/// A chat repository whose local conversation is still opening.
+class OpeningChatRepository implements ChatRepository {
+  final opened = Completer<Result<ChatConversation>>();
+  @override
+  Future<Result<ChatConversation>> open(
+    String spaceId,
+    ClientCapabilities caps,
+  ) => opened.future;
+  @override
+  Future<void> foreground() async {}
+  @override
+  Future<void> disconnect() async {}
   @override
   Future<void> dispose() async {}
 }

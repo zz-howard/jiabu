@@ -16,6 +16,25 @@ import '../support/chat_harness.dart';
 import '../support/ledger_fake.dart';
 
 void main() {
+  testWidgets('chat_opening_shows_chat_text_not_ledger_sync', (tester) async {
+    final chat = OpeningChatRepository();
+    final ledger = FakeLedgerRepository(c3Snapshot('card_recorded'));
+    addTearDown(ledger.changes.close);
+    await pumpC3(
+      tester,
+      repository: ledger,
+      settle: false,
+      overrides: [
+        chatRepositoryProvider.overrideWithValue(chat),
+        currentLedgerSpaceProvider.overrideWith(
+          (ref) => Stream.value('fictional-c3'),
+        ),
+      ],
+      child: const ChatScreen(),
+    );
+    expect(find.text('正在打开聊天'), findsOneWidget);
+    expect(find.text('记录同步中'), findsNothing);
+  });
   group('AI unavailable manual entry', () {
     late ChatHarness h;
     late FakeLedgerRepository ledger;

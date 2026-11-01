@@ -467,6 +467,7 @@
   "chatWaitStop": "Checking that processing stopped. Try again shortly.",
   "chatAlreadyRecorded": "This message has saved records. Review the record cards first.",
   "chatError": "Unable to finish. Please retry.",
+  "chatOpening": "Opening chat",
   "chatLimit": "Up to 8 photos and 32 KB of text per message",
   "chatRemovePhoto": "Remove photo",
   "chatPhotoCount": "{count} photos selected",
