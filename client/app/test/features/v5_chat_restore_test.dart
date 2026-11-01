@@ -465,46 +465,64 @@ void main() {
       TestWidgetsFlutterBinding.ensureInitialized();
       const channel = MethodChannel('jiabu/image_files');
       MethodCall? call;
+      Object? reply = {
+        'documents': [
+          {
+            'kind': 'pdf',
+            'name': '虚构发票.pdf',
+            'size': 3,
+            'path': '/fictional/cache/document-1.part',
+          },
+          {
+            'kind': 'image',
+            'name': null,
+            'size': 70,
+            'path': '/fictional/cache/document-2.part',
+          },
+        ],
+      };
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (request) async {
             call = request;
-            return [
-              {
-                'mime': 'application/pdf',
-                'name': '虚构发票.pdf',
-                'size': 3,
-                'bytes': Uint8List.fromList([1, 2, 3]),
-              },
-              {
-                'mime': 'image/jpeg',
-                'name': null,
-                'size': 70 * 1024 * 1024,
-                'bytes': null,
-              },
-            ];
+            return reply;
           });
       addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, null),
       );
-      final picked = await PlatformDocumentPicker().pickDocuments(
-        limit: 3,
-        maxBytes: 10 * 1024 * 1024,
-        maxImageBytes: 64 * 1024 * 1024,
-      );
+      Future<List<PickedDocument>> pick() =>
+          PlatformDocumentPicker().pickDocuments(
+            imageSlots: 8,
+            fileSlots: 3,
+            maxBytes: 10 * 1024 * 1024,
+            maxImageBytes: 64 * 1024 * 1024,
+          );
+      final picked = await pick();
       expect(call?.method, 'pickDocuments');
       expect(call?.arguments, {
-        'limit': 3,
+        'imageSlots': 8,
+        'fileSlots': 3,
         'maxBytes': 10 * 1024 * 1024,
         'maxImageBytes': 64 * 1024 * 1024,
       });
       expect(picked.first.name, '虚构发票.pdf');
       expect(picked.first.isImage, isFalse);
-      expect(picked.first.bytes, [1, 2, 3]);
+      expect(picked.first.path, '/fictional/cache/document-1.part');
       expect(picked.last.isImage, isTrue);
       expect(picked.last.name, isNull);
-      expect(picked.last.size, 70 * 1024 * 1024);
-      expect(picked.last.bytes, isNull);
+      expect(picked.last.size, 70);
+      // The platform rejects an over-limit selection before copying it.
+      reply = {'rejected': 'chat_files_too_many'};
+      await expectLater(
+        pick(),
+        throwsA(
+          isA<DocumentSelectionRejected>().having(
+            (rejected) => rejected.code,
+            'code',
+            'chat_files_too_many',
+          ),
+        ),
+      );
     });
 
     test('without a native picker, PDFs are unsupported', () async {
@@ -512,7 +530,12 @@ void main() {
       await expectLater(
         PlatformDocumentPicker(
           channel: const MethodChannel('jiabu/fictional_missing'),
-        ).pickDocuments(limit: 4, maxBytes: 1, maxImageBytes: 1),
+        ).pickDocuments(
+          imageSlots: 1,
+          fileSlots: 1,
+          maxBytes: 1,
+          maxImageBytes: 1,
+        ),
         throwsA(isA<DocumentPickerUnavailable>()),
       );
     });

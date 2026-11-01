@@ -482,8 +482,9 @@
   "chatFilesTooMany": "Up to 4 PDF files per message",
   "chatFileTooLarge": "Each PDF must be 10 MB or smaller",
   "chatFilesTooLarge": "PDFs must total 20 MB or less",
-  "chatFileNotPdf": "Only PDF files are supported",
+  "chatFileNotPdf": "Only images or PDF files are supported",
   "chatImageTooLarge": "This image is too large to add",
+  "chatFileUnreadable": "Could not read the selected file",
   "chatFileUnsupported": "Choosing files is not supported on this device yet",
   "chatFileSizeKb": "{size} KB",
   "@chatFileSizeKb": {

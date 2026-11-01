@@ -78,6 +78,36 @@ final class ChatAttachments {
   final List<ChatFile> files;
 }
 
+/// What a picked document is by its first bytes (mirrors the Android
+/// picker's sniffing): `pdf`, `image` for formats the JPEG pipeline decodes
+/// (JPEG, PNG, GIF, WebP, HEIC/HEIF), or null.
+String? sniffAttachment(List<int> head) {
+  bool at(int offset, List<int> bytes) =>
+      head.length >= offset + bytes.length &&
+      Iterable<int>.generate(bytes.length)
+          .every((i) => head[offset + i] == bytes[i]);
+  bool text(int offset, String value) => at(offset, value.codeUnits);
+  if (text(0, '%PDF-')) {
+    return 'pdf';
+  }
+  if (at(0, const [0xff, 0xd8, 0xff]) ||
+      at(0, const [0x89, 0x50, 0x4e, 0x47]) ||
+      text(0, 'GIF8') ||
+      (text(0, 'RIFF') && text(8, 'WEBP')) ||
+      (text(4, 'ftyp') &&
+          const [
+            'heic',
+            'heix',
+            'hevc',
+            'hevx',
+            'mif1',
+            'msf1',
+          ].any((brand) => text(8, brand)))) {
+    return 'image';
+  }
+  return null;
+}
+
 /// The server's PDF check: `%PDF-d.d` at the start and `%%EOF` within the last
 /// 1 KiB, followed only by NUL or ASCII whitespace (space, \t, \n, \f, \r).
 bool looksLikePdf(List<int> bytes) {

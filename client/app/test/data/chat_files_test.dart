@@ -26,44 +26,59 @@ Uint8List pdf(String body, {int pad = 0, String trailer = '\n'}) =>
 
 String hashOf(List<int> bytes) => sha256.convert(bytes).toString();
 
+typedef Doc = ({bool image, String? name, Uint8List bytes});
+
+/// Mimics the Android picker: writes each document to a cache copy and
+/// returns its path; records every copy so tests can check cleanup.
 class FakeDocuments implements DocumentPickerPort {
-  List<PickedDocument> documents = [];
+  FakeDocuments(this.directory);
+  final Directory directory;
+  List<Doc> documents = [];
   Exception? error;
-  final requests = <({int limit, int maxBytes, int maxImageBytes})>[];
+  final copies = <String>[];
+  final requests =
+      <({int imageSlots, int fileSlots, int maxBytes, int maxImageBytes})>[];
   @override
   Future<List<PickedDocument>> pickDocuments({
-    required int limit,
+    required int imageSlots,
+    required int fileSlots,
     required int maxBytes,
     required int maxImageBytes,
   }) async {
     requests.add((
-      limit: limit,
+      imageSlots: imageSlots,
+      fileSlots: fileSlots,
       maxBytes: maxBytes,
       maxImageBytes: maxImageBytes,
     ));
     if (error case final Exception thrown) {
       throw thrown;
     }
-    return documents;
+    directory.createSync(recursive: true);
+    return [
+      for (final document in documents)
+        () {
+          final copy = File('${directory.path}/document-${copies.length}.part')
+            ..writeAsBytesSync(document.bytes);
+          copies.add(copy.path);
+          return PickedDocument(
+            isImage: document.image,
+            path: copy.path,
+            size: document.bytes.length,
+            name: document.name,
+          );
+        }(),
+    ];
   }
+
+  bool get cleaned => copies.every((path) => !File(path).existsSync());
 }
 
-PickedDocument picked(String name, Uint8List bytes) => PickedDocument(
-  mime: 'application/pdf',
-  name: name,
-  size: bytes.length,
-  bytes: bytes,
-);
+Doc picked(String name, Uint8List bytes) =>
+    (image: false, name: name, bytes: bytes);
 
-PickedDocument photo(int seed) {
-  final bytes = testJpeg(width: 3 + seed);
-  return PickedDocument(
-    mime: 'image/jpeg',
-    name: 'IMG_$seed.jpg',
-    size: bytes.length,
-    bytes: bytes,
-  );
-}
+Doc photo(int seed) =>
+    (image: true, name: 'IMG_$seed.jpg', bytes: testJpeg(width: 3 + seed));
 
 void main() {
   group('pdf signature', () {
@@ -86,6 +101,19 @@ void main() {
       ]);
       expect(looksLikePdf(early), isFalse);
     });
+  });
+
+  test('sniffing by magic bytes', () {
+    List<int> bytes(String text) => ascii.encode(text);
+    expect(sniffAttachment(pdf('x')), 'pdf');
+    expect(sniffAttachment(testJpeg()), 'image');
+    expect(sniffAttachment([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]), 'image');
+    expect(sniffAttachment(bytes('GIF89a')), 'image');
+    expect(sniffAttachment(bytes('RIFF\x00\x00\x00\x00WEBPVP8 ')), 'image');
+    expect(sniffAttachment(bytes('\x00\x00\x00\x18ftypheic')), 'image');
+    expect(sniffAttachment(bytes('\x00\x00\x00\x18ftypmp42')), isNull);
+    expect(sniffAttachment(bytes('PK\x03\x04')), isNull);
+    expect(sniffAttachment(const []), isNull);
   });
 
   group('file names', () {
@@ -115,7 +143,9 @@ void main() {
     late ChatHarness h;
     late FakeDocuments documents;
     setUp(() async {
-      documents = FakeDocuments();
+      final cache = Directory.systemTemp.createTempSync('jiabu-picked-');
+      addTearDown(() => cache.deleteSync(recursive: true));
+      documents = FakeDocuments(cache);
       h = await ChatHarness.create(documents: documents);
     });
     tearDown(() => h.close());
@@ -167,7 +197,7 @@ void main() {
       final a = pdf('a');
       final big = pdf('big', pad: 6 * 1024 * 1024);
       Future<String> fails(
-        List<PickedDocument> picked, {
+        List<Doc> picked, {
         List<ChatFile> attached = const [],
         List<String> images = const [],
       }) async {
@@ -177,6 +207,8 @@ void main() {
           files: attached,
         );
         expect(await h.h.store.outbox('s'), isEmpty);
+        expect(await h.h.store.blobs('s'), isEmpty);
+        expect(documents.cleaned, isTrue);
         return (result as Failure<ChatAttachments>).code;
       }
 
@@ -185,7 +217,8 @@ void main() {
         'chat_files_too_many',
       );
       expect(documents.requests.last, (
-        limit: 12,
+        imageSlots: 8,
+        fileSlots: 4,
         maxBytes: 10 * 1024 * 1024,
         maxImageBytes: 64 * 1024 * 1024,
       ));
@@ -197,17 +230,17 @@ void main() {
         ),
         'chat_files_too_many',
       );
-      expect(documents.requests.last.limit, 9);
+      expect(documents.requests.last.fileSlots, 1);
       expect(
         await fails([
           picked('ok.pdf', a),
-          const PickedDocument(name: 'huge.pdf', size: 11 * 1024 * 1024),
+          picked('huge.pdf', pdf('huge', pad: 10 * 1024 * 1024)),
         ]),
         'chat_file_too_large',
       );
       expect(
         await fails([
-          picked('photo.pdf', Uint8List.fromList([0xff, 0xd8])),
+          picked('photo.pdf', Uint8List.fromList([0xff, 0xd8, 0xff, 0xe0])),
         ]),
         'chat_file_not_pdf',
       );
@@ -237,16 +270,19 @@ void main() {
         ),
         'chat_too_large',
       );
-      expect(documents.requests.last.limit, 5);
+      expect(documents.requests.last.imageSlots, 1);
+      // A later invalid PDF stops earlier, valid photos from importing.
+      expect(
+        await fails([photo(1), photo(2), picked('x.pdf', ascii.encode('x'))]),
+        'chat_file_not_pdf',
+      );
+      // A "photo" that is no image is caught before any import.
       expect(
         await fails([
-          const PickedDocument(
-            mime: 'image/png',
-            name: 'huge.png',
-            size: 70 * 1024 * 1024,
-          ),
+          photo(1),
+          (image: true, name: 'fake.jpg', bytes: ascii.encode('not an image')),
         ]),
-        'image_too_large',
+        'invalid_image',
       );
       expect(
         await fails(
@@ -258,10 +294,57 @@ void main() {
       );
     });
 
+    test('platform rejections pass through untouched', () async {
+      for (final code in [
+        'chat_too_large',
+        'chat_files_too_many',
+        'chat_file_too_large',
+        'image_too_large',
+        'chat_file_not_pdf',
+      ]) {
+        documents.error = DocumentSelectionRejected(code);
+        expect(
+          (await h.session.documents() as Failure<ChatAttachments>).code,
+          code,
+        );
+      }
+      documents.error = Exception('fictional platform failure');
+      expect(
+        (await h.session.documents() as Failure<ChatAttachments>).code,
+        'file_selection_failed',
+      );
+      expect(await h.h.store.outbox('s'), isEmpty);
+    });
+
+    test('a failed import rolls back only what this selection added', () async {
+      // An earlier photo, already queued, survives the rollback.
+      final earlier = await h.session.media.importImage(
+        's',
+        'chat',
+        photo(1).bytes,
+      );
+      final kept = (earlier as Ok<String>).value;
+      // Passes the cheap magic check, fails in the JPEG pipeline.
+      final broken = Uint8List.fromList([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+      documents.documents = [
+        photo(1),
+        photo(2),
+        (image: true, name: 'broken.jpg', bytes: broken),
+      ];
+      final result = await h.session.documents();
+      expect(result, isA<Failure<ChatAttachments>>());
+      final blobs = await h.h.store.blobs('s');
+      expect(blobs.map((blob) => blob['sha256']), [kept]);
+      final queue = await h.h.store.outbox('s');
+      expect(queue.single.entityIds, {'blob:chat:$kept'});
+      expect(documents.cleaned, isTrue);
+    });
+
     test('one selection routes photos and PDFs', () async {
       documents.documents = [photo(1), picked('账单.pdf', pdf('bill')), photo(2)];
       final result = await h.session.documents(images: const ['old']);
       final value = (result as Ok<ChatAttachments>).value;
+      expect(documents.cleaned, isTrue);
       expect(value.images, hasLength(2));
       expect(value.files.single.name, '账单.pdf');
       final blobs = await h.h.store.blobs('s');

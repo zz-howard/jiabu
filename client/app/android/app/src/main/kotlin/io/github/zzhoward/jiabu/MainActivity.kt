@@ -10,7 +10,8 @@ import android.os.Build
 import android.os.PersistableBundle
 import android.provider.OpenableColumns
 import android.view.WindowManager
-import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.util.TimeZone
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -21,7 +22,8 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingImageFiles: MethodChannel.Result? = null
     private var imageFileLimit = 9
     private var pendingDocuments: MethodChannel.Result? = null
-    private var documentLimit = 12
+    private var documentImageSlots = 8
+    private var documentFileSlots = 4
     private var documentMaxBytes = 10L * 1024 * 1024
     private var documentMaxImageBytes = 64L * 1024 * 1024
 
@@ -30,8 +32,9 @@ class MainActivity : FlutterFragmentActivity() {
         // System document picker (Storage Access Framework, no storage
         // permission). "pick": image files, raw bytes that Dart normalises
         // through the JPEG pipeline. "pickDocuments": the chat attachment
-        // sheet's 文件 tab, images and PDFs in one selection; per document
-        // its MIME type, display name, size and raw bytes.
+        // sheet's 文件 tab, images and PDFs in one selection; each document
+        // is copied (bounded) into the app cache and returned as a path with
+        // its kind, display name and size. Dart deletes the copies.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "jiabu/image_files")
             .setMethodCallHandler { call, result ->
                 if (call.method != "pick" && call.method != "pickDocuments") {
@@ -39,7 +42,8 @@ class MainActivity : FlutterFragmentActivity() {
                 } else if (pendingImageFiles != null || pendingDocuments != null) {
                     result.error("image_selection_busy", null, null)
                 } else if (call.method == "pickDocuments") {
-                    documentLimit = call.argument<Int>("limit") ?: 12
+                    documentImageSlots = call.argument<Int>("imageSlots") ?: 0
+                    documentFileSlots = call.argument<Int>("fileSlots") ?: 0
                     documentMaxBytes = call.argument<Number>("maxBytes")?.toLong()
                         ?: (10L * 1024 * 1024)
                     documentMaxImageBytes = call.argument<Number>("maxImageBytes")?.toLong()
@@ -141,82 +145,152 @@ class MainActivity : FlutterFragmentActivity() {
         return uris
     }
 
-    // Every picked document reports its type, name and size so Dart can
-    // reject a selection over a limit; bytes are read only for the first
-    // `limit` documents and never beyond the per-type maximum (null bytes =
-    // too large).
+    private class Picked(val uri: Uri, val kind: String?, val name: String?, val size: Long)
+
+    private class Rejected(val code: String) : Exception(code)
+
+    // Two passes, all off the UI thread. First every document's kind and
+    // reported size, rejecting an over-limit selection before reading any
+    // content (only a 16-byte header is sniffed when the provider reports
+    // no usable type). Then each document is streamed into the app cache
+    // with a hard byte cap, so nothing large is held in memory. Any failure,
+    // including OutOfMemoryError, ends in a clean channel error and no copies.
     private fun returnDocuments(result: MethodChannel.Result, uris: List<Uri>) {
-        val limit = documentLimit
+        val imageSlots = documentImageSlots
+        val fileSlots = documentFileSlots
         val maxPdfBytes = documentMaxBytes
         val maxImageBytes = documentMaxImageBytes
+        val directory = File(cacheDir, "picked-documents")
         Thread {
+            val copies = mutableListOf<File>()
             try {
-                val files = uris.mapIndexed { index, uri ->
-                    var name: String? = null
-                    var size = -1L
-                    contentResolver.query(
-                        uri,
-                        arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
-                        null,
-                        null,
-                        null,
-                    )?.use { cursor ->
-                        if (cursor.moveToFirst()) {
-                            val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                            val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
-                            if (nameColumn >= 0 && !cursor.isNull(nameColumn)) {
-                                name = cursor.getString(nameColumn)
-                            }
-                            if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) {
-                                size = cursor.getLong(sizeColumn)
-                            }
-                        }
+                directory.mkdirs()
+                // Copies left by an earlier, killed pick are never needed.
+                directory.listFiles()?.forEach { it.delete() }
+                val picked = uris.map { describe(it) }
+                if (picked.any { it.kind == null }) throw Rejected("chat_file_not_pdf")
+                if (picked.count { it.kind == "pdf" } > fileSlots) {
+                    throw Rejected("chat_files_too_many")
+                }
+                if (picked.count { it.kind == "image" } > imageSlots) {
+                    throw Rejected("chat_too_large")
+                }
+                for (document in picked) {
+                    val image = document.kind == "image"
+                    if (document.size > (if (image) maxImageBytes else maxPdfBytes)) {
+                        throw Rejected(if (image) "image_too_large" else "chat_file_too_large")
                     }
-                    val mime = contentResolver.getType(uri)
-                    val maxBytes = if (mime?.startsWith("image/") == true) {
-                        maxImageBytes
-                    } else {
-                        maxPdfBytes
-                    }
-                    val bytes = if (index < limit && size <= maxBytes) {
-                        readAtMost(uri, maxBytes)
-                    } else {
-                        null
-                    }
+                }
+                val files = picked.map { document ->
+                    val image = document.kind == "image"
+                    val copy = File.createTempFile("document-", ".part", directory)
+                    copies.add(copy)
+                    val bytes = copyAtMost(
+                        document.uri,
+                        copy,
+                        if (image) maxImageBytes else maxPdfBytes,
+                    ) ?: throw Rejected(if (image) "image_too_large" else "chat_file_too_large")
                     mapOf(
-                        "mime" to mime,
-                        "name" to name,
-                        "size" to (bytes?.size?.toLong() ?: size),
-                        "bytes" to bytes,
+                        "kind" to document.kind,
+                        "name" to document.name,
+                        "size" to bytes,
+                        "path" to copy.absolutePath,
                     )
                 }
-                runOnUiThread { result.success(files) }
-            } catch (error: Exception) {
+                runOnUiThread { result.success(mapOf("documents" to files)) }
+            } catch (rejected: Rejected) {
+                copies.forEach { it.delete() }
+                runOnUiThread { result.success(mapOf("rejected" to rejected.code)) }
+            } catch (error: Throwable) {
+                copies.forEach { it.delete() }
                 runOnUiThread { result.error("file_selection_failed", null, null) }
             }
         }.start()
     }
 
-    private fun readAtMost(uri: Uri, maxBytes: Long): ByteArray? {
+    private fun describe(uri: Uri): Picked {
+        var name: String? = null
+        var size = -1L
+        contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (nameColumn >= 0 && !cursor.isNull(nameColumn)) {
+                    name = cursor.getString(nameColumn)
+                }
+                if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) {
+                    size = cursor.getLong(sizeColumn)
+                }
+            }
+        }
+        val mime = contentResolver.getType(uri)
+        val kind = when {
+            mime == "application/pdf" -> "pdf"
+            mime != null && mime.startsWith("image/") -> "image"
+            else -> sniff(uri)
+        }
+        return Picked(uri, kind, name, size)
+    }
+
+    // Providers without a usable type (none, application/octet-stream):
+    // decide by magic bytes. Kinds the image pipeline decodes, or a PDF.
+    private fun sniff(uri: Uri): String? {
+        val head = ByteArray(16)
+        val read = contentResolver.openInputStream(uri)?.use { stream ->
+            var total = 0
+            while (total < head.size) {
+                val count = stream.read(head, total, head.size - total)
+                if (count < 0) break
+                total += count
+            }
+            total
+        } ?: 0
+        fun at(offset: Int, vararg bytes: Int) =
+            read >= offset + bytes.size &&
+                bytes.indices.all { head[offset + it] == bytes[it].toByte() }
+        fun text(offset: Int, value: String) = at(offset, *value.map { it.code }.toIntArray())
+        return when {
+            text(0, "%PDF-") -> "pdf"
+            at(0, 0xFF, 0xD8, 0xFF) -> "image"
+            at(0, 0x89, 0x50, 0x4E, 0x47) -> "image"
+            text(0, "GIF8") -> "image"
+            text(0, "RIFF") && text(8, "WEBP") -> "image"
+            text(4, "ftyp") && listOf("heic", "heix", "hevc", "hevx", "mif1", "msf1")
+                .any { text(8, it) } -> "image"
+            else -> null
+        }
+    }
+
+    // Streams at most maxBytes into target; null (and target deleted) when
+    // the document is larger. Never holds the document in memory.
+    private fun copyAtMost(uri: Uri, target: File, maxBytes: Long): Long? {
         val input = contentResolver.openInputStream(uri)
             ?: throw IOException("unreadable_document")
-        return input.use { stream ->
-            val out = ByteArrayOutputStream()
-            val buffer = ByteArray(64 * 1024)
-            var total = 0L
-            var tooLarge = false
-            while (true) {
-                val read = stream.read(buffer)
-                if (read < 0) break
-                total += read
-                if (total > maxBytes) {
-                    tooLarge = true
-                    break
+        val total = input.use { stream ->
+            FileOutputStream(target).use { out ->
+                val buffer = ByteArray(64 * 1024)
+                var copied = 0L
+                while (true) {
+                    val read = stream.read(buffer)
+                    if (read < 0) break
+                    copied += read
+                    if (copied > maxBytes) break
+                    out.write(buffer, 0, read)
                 }
-                out.write(buffer, 0, read)
+                copied
             }
-            if (tooLarge) null else out.toByteArray()
         }
+        if (total > maxBytes) {
+            target.delete()
+            return null
+        }
+        return total
     }
 
     private companion object {

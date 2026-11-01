@@ -256,5 +256,6 @@ String chatErrorLabel(AppLocalizations l, String? code) => switch (code) {
   'chat_file_not_pdf' => l.chatFileNotPdf,
   'chat_file_unsupported' => l.chatFileUnsupported,
   'image_too_large' => l.chatImageTooLarge,
+  'invalid_image' || 'file_selection_failed' => l.chatFileUnreadable,
   _ => l.chatError,
 };

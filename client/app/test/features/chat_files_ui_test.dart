@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:chatweave_core/chatweave_core.dart';
@@ -25,13 +26,27 @@ import '../support/c3_harness.dart';
 import '../support/chat_harness.dart';
 
 class _Documents implements DocumentPickerPort {
-  List<PickedDocument> documents = [];
+  _Documents(this.directory);
+  final Directory directory;
+  List<({bool image, String name, Uint8List bytes})> documents = [];
+  var _next = 0;
   @override
   Future<List<PickedDocument>> pickDocuments({
-    required int limit,
+    required int imageSlots,
+    required int fileSlots,
     required int maxBytes,
     required int maxImageBytes,
-  }) async => documents;
+  }) async => [
+    for (final document in documents)
+      PickedDocument(
+        isImage: document.image,
+        path: (File(
+          '${directory.path}/${_next++}.part',
+        )..writeAsBytesSync(document.bytes)).path,
+        size: document.bytes.length,
+        name: document.name,
+      ),
+  ];
 }
 
 class _Repository implements ChatRepository {
@@ -206,10 +221,14 @@ void main() {
     expect(chatErrorLabel(zh, 'chat_file_unsupported'), zh.chatFileUnsupported);
     expect(chatErrorLabel(zh, 'image_too_large'), zh.chatImageTooLarge);
     expect(chatErrorLabel(zh, 'chat_too_large'), zh.chatLimit);
+    expect(chatErrorLabel(zh, 'invalid_image'), zh.chatFileUnreadable);
+    expect(chatErrorLabel(zh, 'file_selection_failed'), zh.chatFileUnreadable);
   });
 
   test('view model attaches, removes and sends files', () async {
-    final documents = _Documents();
+    final cache = Directory.systemTemp.createTempSync('jiabu-picked-ui-');
+    addTearDown(() => cache.deleteSync(recursive: true));
+    final documents = _Documents(cache);
     final h = await ChatHarness.create(documents: documents);
     final container = ProviderContainer(
       overrides: [
@@ -228,14 +247,9 @@ void main() {
     final vm = container.read(provider.notifier);
     // One 文件-tab selection: a photo file and two PDFs.
     documents.documents = [
-      PickedDocument(
-        mime: 'image/jpeg',
-        size: 1,
-        name: 'a.jpg',
-        bytes: testJpeg(),
-      ),
-      PickedDocument(name: 'a.pdf', size: 1, bytes: _pdf('a')),
-      PickedDocument(name: 'b.pdf', size: 1, bytes: _pdf('b')),
+      (image: true, name: 'a.jpg', bytes: testJpeg()),
+      (image: false, name: 'a.pdf', bytes: _pdf('a')),
+      (image: false, name: 'b.pdf', bytes: _pdf('b')),
     ];
     await vm.attachDocuments();
     var state = container.read(provider);
@@ -247,7 +261,7 @@ void main() {
     // Too many in total: nothing more is attached, the error says why.
     documents.documents = [
       for (final name in ['c', 'd', 'e'])
-        PickedDocument(name: '$name.pdf', size: 1, bytes: _pdf(name)),
+        (image: false, name: '$name.pdf', bytes: _pdf(name)),
     ];
     await vm.attachDocuments();
     state = container.read(provider);

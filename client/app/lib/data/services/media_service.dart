@@ -10,6 +10,7 @@ import 'package:jiabu/data/services/jpeg_sanitizer_service.dart';
 import 'package:jiabu/domain/chat_files.dart';
 import 'package:jiabu/domain/entity_ref.dart';
 import 'package:jiabu/domain/outbox_operation.dart';
+import 'package:jiabu/domain/required_value.dart';
 import 'package:jiabu/domain/result.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -24,23 +25,19 @@ abstract interface class ImagePickerPort {
   Future<List<Uint8List>> pick({required bool camera, bool files = false});
 }
 
-/// One document from the system document picker. [bytes] is null when the
-/// document is larger than the requested maximum or beyond the requested
-/// count; [size] is then what the platform reported.
+/// One document from the system document picker, already copied (bounded)
+/// into a private cache file at [path]. The caller deletes that copy.
 final class PickedDocument {
   const PickedDocument({
-    required this.name,
+    required this.isImage,
+    required this.path,
     required this.size,
-    this.mime,
-    this.bytes,
+    this.name,
   });
-  final String? mime;
-  final String? name;
+  final bool isImage;
+  final String path;
   final int size;
-  final Uint8List? bytes;
-
-  /// Images go through the JPEG pipeline; everything else must be a PDF.
-  bool get isImage => mime?.startsWith('image/') ?? false;
+  final String? name;
 }
 
 /// The platform has no system document picker (yet).
@@ -48,14 +45,22 @@ final class DocumentPickerUnavailable implements Exception {
   const DocumentPickerUnavailable();
 }
 
+/// The platform rejected the whole selection before copying it (too many
+/// documents of a kind, too large, or not an image or PDF).
+final class DocumentSelectionRejected implements Exception {
+  const DocumentSelectionRejected(this.code);
+  final String code;
+}
+
 abstract interface class DocumentPickerPort {
   /// Images and PDFs from the system document picker (the 文件 tab of the
-  /// chat attachment sheet), in one selection. Bytes are read for the first
-  /// [limit] documents only, up to [maxBytes] for a PDF and [maxImageBytes]
-  /// for an image. Throws [DocumentPickerUnavailable] where the platform has
-  /// none.
+  /// chat attachment sheet), in one selection. More than [imageSlots] images
+  /// or [fileSlots] PDFs, a PDF over [maxBytes] or an image over
+  /// [maxImageBytes] throws [DocumentSelectionRejected] before anything is
+  /// read. Throws [DocumentPickerUnavailable] where the platform has none.
   Future<List<PickedDocument>> pickDocuments({
-    required int limit,
+    required int imageSlots,
+    required int fileSlots,
     required int maxBytes,
     required int maxImageBytes,
   });
@@ -108,30 +113,38 @@ final class PlatformDocumentPicker implements DocumentPickerPort {
   final MethodChannel _channel;
   @override
   Future<List<PickedDocument>> pickDocuments({
-    required int limit,
+    required int imageSlots,
+    required int fileSlots,
     required int maxBytes,
     required int maxImageBytes,
   }) async {
     // Android's Storage Access Framework (no storage permission). Other
     // platforms have no native side yet: say so instead of crashing.
-    final List<Object?>? picked;
+    final Map<Object?, Object?>? picked;
     try {
-      picked = await _channel.invokeListMethod<Object?>('pickDocuments', {
-        'limit': limit,
-        'maxBytes': maxBytes,
-        'maxImageBytes': maxImageBytes,
-      });
+      picked = await _channel.invokeMapMethod<Object?, Object?>(
+        'pickDocuments',
+        {
+          'imageSlots': imageSlots,
+          'fileSlots': fileSlots,
+          'maxBytes': maxBytes,
+          'maxImageBytes': maxImageBytes,
+        },
+      );
     } on MissingPluginException {
       throw const DocumentPickerUnavailable();
     }
+    if (picked?['rejected'] case final String code) {
+      throw DocumentSelectionRejected(code);
+    }
     return [
-      for (final item in picked ?? const <Object?>[])
-        if (item is Map<Object?, Object?>)
+      for (final item in picked?['documents'] as List<Object?>? ?? const [])
+        if (item is Map<Object?, Object?> && item['path'] is String)
           PickedDocument(
-            mime: item['mime'] as String?,
+            isImage: item['kind'] == 'image',
+            path: item['path']! as String,
+            size: (item['size'] as int?) ?? 0,
             name: item['name'] as String?,
-            size: (item['size'] as int?) ?? -1,
-            bytes: item['bytes'] as Uint8List?,
           ),
     ];
   }
@@ -283,8 +296,10 @@ final class MediaService {
 
   /// The 文件 tab: images and PDFs in one selection. Images go through the
   /// JPEG pipeline, PDFs through the file path. Limits count what the draft
-  /// already holds ([images], [files]); when any limit fails the whole
-  /// selection is rejected and nothing is imported.
+  /// already holds ([images], [files]). The whole selection is validated
+  /// before anything is imported; if an import still fails, what this
+  /// selection queued is rolled back. The picker's cache copies are always
+  /// deleted.
   Future<Result<ChatAttachments>> pickDocuments(
     String spaceId, {
     List<String> images = const [],
@@ -298,29 +313,66 @@ final class MediaService {
     if (picker == null) {
       return const Failure('chat_file_unsupported');
     }
-    final imageRoom = ChatFileLimits.maxImages - images.length;
-    final fileRoom = ChatFileLimits.maxFiles - files.length;
-    if (imageRoom <= 0 && fileRoom <= 0) {
+    final imageRoom = math.max(0, ChatFileLimits.maxImages - images.length);
+    final fileRoom = math.max(0, ChatFileLimits.maxFiles - files.length);
+    if (imageRoom == 0 && fileRoom == 0) {
       return const Failure('chat_too_large');
     }
     final List<PickedDocument> picked;
     try {
       picked = await picker.pickDocuments(
-        limit: math.max(0, imageRoom) + math.max(0, fileRoom),
+        imageSlots: imageRoom,
+        fileSlots: fileRoom,
         maxBytes: ChatFileLimits.maxFileBytes,
         maxImageBytes: ChatFileLimits.maxImageBytes,
       );
     } on DocumentPickerUnavailable {
       return const Failure('chat_file_unsupported');
+    } on DocumentSelectionRejected catch (rejected) {
+      return Failure(rejected.code);
     } on Object {
       return const Failure('file_selection_failed');
     }
-    if (!await store.accepts(fence)) {
-      return const Failure('stale_response');
+    try {
+      if (!await store.accepts(fence)) {
+        return const Failure('stale_response');
+      }
+      final validated = await _validate(picked, imageRoom, files);
+      switch (validated) {
+        case Failure(:final code):
+          return Failure(code);
+        case Ok(:final value):
+          return await _importAll(spaceId, fence, value);
+      }
+    } on Object {
+      return const Failure('file_selection_failed');
+    } finally {
+      for (final document in picked) {
+        try {
+          await File(document.path).delete();
+        } on FileSystemException {
+          // Already gone; the picker also clears its cache directory.
+        }
+      }
     }
+  }
+
+  /// Checks the whole selection without importing: counts, sizes, PDF
+  /// header/trailer, duplicate and combined PDF size, image magic bytes.
+  /// Reads PDFs (at most 4 × 10 MiB) but only the head of each image.
+  Future<
+    Result<
+      ({List<String> images, List<({String? name, Uint8List bytes})> pdfs})
+    >
+  >
+  _validate(
+    List<PickedDocument> picked,
+    int imageRoom,
+    List<ChatFile> files,
+  ) async {
     final pickedImages = picked.where((document) => document.isImage).toList();
     final pickedPdfs = picked.where((document) => !document.isImage).toList();
-    if (pickedPdfs.length > fileRoom) {
+    if (pickedPdfs.length > ChatFileLimits.maxFiles - files.length) {
       return const Failure('chat_files_too_many');
     }
     if (pickedImages.length > imageRoom) {
@@ -328,12 +380,13 @@ final class MediaService {
     }
     final known = {for (final file in files) file.sha256};
     var combined = files.fold<int>(0, (sum, file) => sum + file.bytes);
-    final accepted = <({String? name, Uint8List bytes})>[];
+    final pdfs = <({String? name, Uint8List bytes})>[];
     for (final document in pickedPdfs) {
-      final bytes = document.bytes;
-      if (bytes == null || bytes.length > ChatFileLimits.maxFileBytes) {
+      final file = File(document.path);
+      if (await file.length() > ChatFileLimits.maxFileBytes) {
         return const Failure('chat_file_too_large');
       }
+      final bytes = await file.readAsBytes();
       if (!looksLikePdf(bytes)) {
         return const Failure('chat_file_not_pdf');
       }
@@ -345,44 +398,109 @@ final class MediaService {
       if (combined > ChatFileLimits.maxCombinedBytes) {
         return const Failure('chat_files_too_large');
       }
-      accepted.add((name: document.name, bytes: bytes));
+      pdfs.add((name: document.name, bytes: bytes));
     }
-    final imageBytes = <Uint8List>[];
     for (final document in pickedImages) {
-      final bytes = document.bytes;
-      if (bytes == null) {
+      final file = File(document.path);
+      if (await file.length() > ChatFileLimits.maxImageBytes) {
         return const Failure('image_too_large');
       }
-      imageBytes.add(bytes);
+      final handle = await file.open();
+      final List<int> head;
+      try {
+        head = await handle.read(16);
+      } finally {
+        await handle.close();
+      }
+      if (sniffAttachment(head) != 'image') {
+        return const Failure('invalid_image');
+      }
     }
+    return Ok((
+      images: [for (final document in pickedImages) document.path],
+      pdfs: pdfs,
+    ));
+  }
+
+  /// Imports a validated selection one document at a time (an image's
+  /// bytes are read only for its own import). On a failure, removes the
+  /// blobs and uploads this selection added, never ones that existed before.
+  Future<Result<ChatAttachments>> _importAll(
+    String spaceId,
+    RequestFence fence,
+    ({List<String> images, List<({String? name, Uint8List bytes})> pdfs})
+    selection,
+  ) async {
+    final before = {
+      for (final blob in await store.blobs(spaceId))
+        EntityRef.blob(
+          requireValue<String>(blob['module']),
+          requireValue<String>(blob['sha256']),
+        ),
+    };
+    final added = <(String, String)>[];
+    Future<Result<ChatAttachments>> fail(String code) async {
+      await _rollback(spaceId, [
+        for (final (module, hash) in added)
+          if (!before.contains(EntityRef.blob(module, hash))) (module, hash),
+      ]);
+      return Failure(code);
+    }
+
     final hashes = <String>[];
-    for (final bytes in imageBytes) {
-      final result = await importImage(spaceId, 'chat', bytes, captured: fence);
+    for (final path in selection.images) {
+      final result = await importImage(
+        spaceId,
+        'chat',
+        await File(path).readAsBytes(),
+        captured: fence,
+      );
       switch (result) {
         case Ok<String>(:final value):
+          added.add(('chat', value));
           if (!hashes.contains(value)) {
             hashes.add(value);
           }
         case Failure<String>(:final code):
-          return Failure(code);
+          return await fail(code);
       }
     }
     final imported = <ChatFile>[];
-    for (final document in accepted) {
+    for (final pdf in selection.pdfs) {
       final result = await importFile(
         spaceId,
-        document.name,
-        document.bytes,
+        pdf.name,
+        pdf.bytes,
         captured: fence,
       );
       switch (result) {
         case Ok<ChatFile>(:final value):
+          added.add((chatFileModule, value.sha256));
           imported.add(value);
         case Failure<ChatFile>(:final code):
-          return Failure(code);
+          return await fail(code);
       }
     }
     return Ok(ChatAttachments(images: hashes, files: imported));
+  }
+
+  Future<void> _rollback(String spaceId, List<(String, String)> blobs) async {
+    if (blobs.isEmpty) {
+      return;
+    }
+    await store.transaction(() async {
+      for (final (module, hash) in blobs) {
+        final reference = EntityRef.blob(module, hash);
+        for (final op in await store.outbox(spaceId)) {
+          if (op.kind == 'blob' &&
+              op.state != 'sending' &&
+              op.entityIds.contains(reference)) {
+            await store.removeOp(spaceId, op.id);
+          }
+        }
+        await store.expireBlob(spaceId, module, hash);
+      }
+    });
   }
 
   /// Stores a PDF's raw bytes (never transformed: the server checks their
