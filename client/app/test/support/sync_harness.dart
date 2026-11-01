@@ -103,6 +103,8 @@ class FakeApi implements ApiClient {
   Future<PushResponseDto> Function(List<PushOpDto>)? onPush;
   Future<PullResponseDto> Function(PullRequestDto)? onPull;
   Future<void> Function()? onBlob;
+  Future<void> Function()? onFile;
+  final files = <({String hash, int joinEpoch, String opId, int bytes})>[];
   Future<SpacesDto> Function()? onSpaces;
 
   @override
@@ -199,6 +201,25 @@ class FakeApi implements ApiClient {
   }) async {
     events.add('blob');
     await onBlob?.call();
+  }
+
+  @override
+  Future<void> uploadFile({
+    required String spaceId,
+    required int joinEpoch,
+    required String hash,
+    required Uint8List bytes,
+    required String opId,
+    required String requestId,
+  }) async {
+    events.add('file');
+    await onFile?.call();
+    files.add((
+      hash: hash,
+      joinEpoch: joinEpoch,
+      opId: opId,
+      bytes: bytes.length,
+    ));
   }
 
   @override

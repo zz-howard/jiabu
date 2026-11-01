@@ -432,8 +432,8 @@
   "chatAttachGallery": "Gallery",
   "chatAttachFiles": "File",
   "chatAttachChooseGallery": "Choose from gallery",
-  "chatAttachChooseFiles": "Choose image files",
-  "chatAttachFilesNote": "Only image files for now; PDFs and other files are coming later.",
+  "chatAttachChooseFiles": "Choose PDF files",
+  "chatAttachFilesNote": "PDF only: up to 4 files, 10 MB each, 20 MB in total.",
   "chatInput": "Write a message or add photos",
   "chatLocked": "Answer the question above first",
   "chatReply": "Answer: {question}",
@@ -475,6 +475,28 @@
     "placeholders": {
       "count": {
         "type": "int"
+      }
+    }
+  },
+  "chatRemoveFile": "Remove file",
+  "chatFilesTooMany": "Up to 4 PDF files per message",
+  "chatFileTooLarge": "Each PDF must be 10 MB or smaller",
+  "chatFilesTooLarge": "PDFs must total 20 MB or less",
+  "chatFileNotPdf": "Only PDF files are supported",
+  "chatFileUnsupported": "Choosing files is not supported on this device yet",
+  "chatFileSizeKb": "{size} KB",
+  "@chatFileSizeKb": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "chatFileSizeMb": "{size} MB",
+  "@chatFileSizeMb": {
+    "placeholders": {
+      "size": {
+        "type": "String"
       }
     }
   },

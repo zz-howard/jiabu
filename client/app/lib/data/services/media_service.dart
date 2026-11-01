@@ -7,16 +7,46 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:jiabu/data/db/daos/local_store.dart';
 import 'package:jiabu/data/services/jpeg_sanitizer_service.dart';
+import 'package:jiabu/domain/chat_files.dart';
 import 'package:jiabu/domain/entity_ref.dart';
 import 'package:jiabu/domain/outbox_operation.dart';
 import 'package:jiabu/domain/result.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+/// Blob module of chat PDF attachments; uploaded through the space file
+/// endpoint instead of the JPEG blob endpoint.
+const chatFileModule = 'chat_file';
+
 abstract interface class ImagePickerPort {
   /// [files]: image files from the system file picker (the 文件 tab of the
   /// chat attachment sheet) instead of the photo picker. Same JPEG pipeline.
   Future<List<Uint8List>> pick({required bool camera, bool files = false});
+}
+
+/// One document from the system document picker. [bytes] is null when the
+/// document is larger than the requested maximum or beyond the requested
+/// count; [size] is then what the platform reported.
+final class PickedDocument {
+  const PickedDocument({required this.name, required this.size, this.bytes});
+  final String? name;
+  final int size;
+  final Uint8List? bytes;
+}
+
+/// The platform has no system document picker (yet).
+final class DocumentPickerUnavailable implements Exception {
+  const DocumentPickerUnavailable();
+}
+
+abstract interface class DocumentPickerPort {
+  /// PDFs from the system document picker (the 文件 tab of the chat
+  /// attachment sheet). Throws [DocumentPickerUnavailable] where the
+  /// platform has none.
+  Future<List<PickedDocument>> pickPdfs({
+    required int limit,
+    required int maxBytes,
+  });
 }
 
 abstract interface class ImageCompressorPort {
@@ -60,6 +90,38 @@ final class PlatformImagePicker implements ImagePickerPort {
   }
 }
 
+final class PlatformDocumentPicker implements DocumentPickerPort {
+  PlatformDocumentPicker({MethodChannel? channel})
+    : _channel = channel ?? const MethodChannel('jiabu/image_files');
+  final MethodChannel _channel;
+  @override
+  Future<List<PickedDocument>> pickPdfs({
+    required int limit,
+    required int maxBytes,
+  }) async {
+    // Android's Storage Access Framework (no storage permission). Other
+    // platforms have no native side yet: say so instead of crashing.
+    final List<Object?>? picked;
+    try {
+      picked = await _channel.invokeListMethod<Object?>('pickPdfs', {
+        'limit': limit,
+        'maxBytes': maxBytes,
+      });
+    } on MissingPluginException {
+      throw const DocumentPickerUnavailable();
+    }
+    return [
+      for (final item in picked ?? const <Object?>[])
+        if (item is Map<Object?, Object?>)
+          PickedDocument(
+            name: item['name'] as String?,
+            size: (item['size'] as int?) ?? -1,
+            bytes: item['bytes'] as Uint8List?,
+          ),
+    ];
+  }
+}
+
 final class PlatformImageCompressor implements ImageCompressorPort {
   @override
   Future<Uint8List> jpeg(
@@ -83,6 +145,7 @@ final class MediaService {
     required this.directory,
     required this.picker,
     required this.compressor,
+    this.documents,
     this.onEnqueued,
     DateTime Function()? now,
     JpegSanitizerService? sanitizer,
@@ -92,6 +155,9 @@ final class MediaService {
   final Directory directory;
   final ImagePickerPort picker;
   final ImageCompressorPort compressor;
+
+  /// The chat 文件 tab's PDF picker; null where there is none.
+  final DocumentPickerPort? documents;
   final JpegSanitizerService sanitizer;
   final DateTime Function() now;
   final void Function()? onEnqueued;
@@ -180,58 +246,15 @@ final class MediaService {
       await directory.create(recursive: true);
       temporary = File('$path.${const Uuid().v7()}.tmp');
       await temporary.writeAsBytes(clean, flush: true);
-      final staged = temporary;
-      final result = await store.transaction<Result<String>>(() async {
-        await store.lockFilesystem();
-        if (!await store.accepts(fence)) {
-          return const Failure('stale_response');
-        }
-        if ((await store.runtime())['write_allowed'] != 1) {
-          return const Failure('client_too_old');
-        }
-        final space = await store.entity(spaceId, 'space', spaceId);
-        final levels = space?.data['modules'] as Map<String, Object?>?;
-        if (module != 'chat' &&
-            !const {'write', 'manage'}.contains(levels?[module])) {
-          return const Failure('not_found');
-        }
-        final file = File(path);
-        if (!file.existsSync()) {
-          await staged.rename(path);
-        }
-        await store.putBlob(spaceId, module, hash, path, clean.length);
-        final already = (await store.blobs(spaceId)).any(
-          (b) =>
-              b['sha256'] == hash &&
-              b['module'] == module &&
-              b['uploaded'] == 1,
-        );
-        final queued = (await store.outbox(spaceId))
-            .any((op) => op.entityIds.contains(EntityRef.blob(module, hash)));
-        if (!already && !queued) {
-          await store.enqueue(
-            OutboxOperation(
-              id: const Uuid().v7(),
-              spaceId: spaceId,
-              joinEpoch: fence.joinEpoch,
-              kind: 'blob',
-              payload: {'module': module, 'sha256': hash, 'path': path},
-              entityIds: {EntityRef.blob(module, hash)},
-              dependsOn: const {},
-              requestId: const Uuid().v7(),
-              createdAt: now().microsecondsSinceEpoch,
-            ),
-          );
-          // Reimport can repair a missing upload receipt after dependent
-          // edits already exist. Put those edits after the new blob upload.
-          await store.deferDependents(spaceId, EntityRef.blob(module, hash));
-        }
-        return Ok(hash);
-      });
-      if (result is Ok<String>) {
-        store.afterCommit(onEnqueued);
-      }
-      return result;
+      return await _commit(
+        spaceId,
+        module,
+        hash,
+        path,
+        temporary,
+        clean.length,
+        fence,
+      );
     } on FormatException {
       return const Failure('invalid_image');
     } on Object {
@@ -241,5 +264,198 @@ final class MediaService {
         await temporary.delete();
       }
     }
+  }
+
+  /// Validates PDFs from the 文件 tab against the server's limits, counting
+  /// the files [attached] to the draft already, then imports them. Rejects
+  /// the whole selection when any limit fails; nothing is imported then.
+  Future<Result<List<ChatFile>>> pickFiles(
+    String spaceId, {
+    List<ChatFile> attached = const [],
+  }) async {
+    final fence = await store.fence(spaceId);
+    if (fence == null) {
+      return const Failure('unauthenticated');
+    }
+    final picker = documents;
+    if (picker == null) {
+      return const Failure('chat_file_unsupported');
+    }
+    final remaining = ChatFileLimits.maxFiles - attached.length;
+    if (remaining <= 0) {
+      return const Failure('chat_files_too_many');
+    }
+    final List<PickedDocument> picked;
+    try {
+      picked = await picker.pickPdfs(
+        limit: remaining,
+        maxBytes: ChatFileLimits.maxFileBytes,
+      );
+    } on DocumentPickerUnavailable {
+      return const Failure('chat_file_unsupported');
+    } on Object {
+      return const Failure('file_selection_failed');
+    }
+    if (!await store.accepts(fence)) {
+      return const Failure('stale_response');
+    }
+    if (picked.length > remaining) {
+      return const Failure('chat_files_too_many');
+    }
+    final known = {for (final file in attached) file.sha256};
+    var combined = attached.fold<int>(0, (sum, file) => sum + file.bytes);
+    final accepted = <({String? name, Uint8List bytes})>[];
+    for (final document in picked) {
+      final bytes = document.bytes;
+      if (bytes == null || bytes.length > ChatFileLimits.maxFileBytes) {
+        return const Failure('chat_file_too_large');
+      }
+      if (!looksLikePdf(bytes)) {
+        return const Failure('chat_file_not_pdf');
+      }
+      // The same PDF twice in one message is one attachment.
+      if (!known.add(sha256.convert(bytes).toString())) {
+        continue;
+      }
+      combined += bytes.length;
+      if (combined > ChatFileLimits.maxCombinedBytes) {
+        return const Failure('chat_files_too_large');
+      }
+      accepted.add((name: document.name, bytes: bytes));
+    }
+    final files = <ChatFile>[];
+    for (final document in accepted) {
+      final result = await importFile(
+        spaceId,
+        document.name,
+        document.bytes,
+        captured: fence,
+      );
+      switch (result) {
+        case Ok<ChatFile>(:final value):
+          files.add(value);
+        case Failure<ChatFile>(:final code):
+          return Failure(code);
+      }
+    }
+    return Ok(files);
+  }
+
+  /// Stores a PDF's raw bytes (never transformed: the server checks their
+  /// SHA-256) as `<hash>.pdf` and queues its upload in the same transaction.
+  Future<Result<ChatFile>> importFile(
+    String spaceId,
+    String? name,
+    Uint8List bytes, {
+    RequestFence? captured,
+  }) async {
+    if (bytes.length > ChatFileLimits.maxFileBytes) {
+      return const Failure('chat_file_too_large');
+    }
+    if (!looksLikePdf(bytes)) {
+      return const Failure('chat_file_not_pdf');
+    }
+    final fence = captured ?? await store.fence(spaceId);
+    if (fence == null) {
+      return const Failure('unauthenticated');
+    }
+    if (fence.spaceId != spaceId) {
+      return const Failure('invalid_space');
+    }
+    File? temporary;
+    try {
+      final hash = sha256.convert(bytes).toString();
+      final path = p.join(p.absolute(directory.path), '$hash.pdf');
+      await directory.create(recursive: true);
+      temporary = File('$path.${const Uuid().v7()}.tmp');
+      await temporary.writeAsBytes(bytes, flush: true);
+      final result = await _commit(
+        spaceId,
+        chatFileModule,
+        hash,
+        path,
+        temporary,
+        bytes.length,
+        fence,
+      );
+      return switch (result) {
+        Ok<String>() => Ok(
+          ChatFile(
+            sha256: hash,
+            name: sanitizeChatFileName(name),
+            bytes: bytes.length,
+          ),
+        ),
+        Failure<String>(:final code) => Failure(code),
+      };
+    } on Object {
+      return const Failure('file_processing_failed');
+    } finally {
+      if (temporary != null && temporary.existsSync()) {
+        await temporary.delete();
+      }
+    }
+  }
+
+  /// Moves a staged file into place, records the blob and queues its upload
+  /// (unless already uploaded or queued), all in one transaction.
+  Future<Result<String>> _commit(
+    String spaceId,
+    String module,
+    String hash,
+    String path,
+    File staged,
+    int length,
+    RequestFence fence,
+  ) async {
+    final result = await store.transaction<Result<String>>(() async {
+      await store.lockFilesystem();
+      if (!await store.accepts(fence)) {
+        return const Failure('stale_response');
+      }
+      if ((await store.runtime())['write_allowed'] != 1) {
+        return const Failure('client_too_old');
+      }
+      final space = await store.entity(spaceId, 'space', spaceId);
+      final levels = space?.data['modules'] as Map<String, Object?>?;
+      if (!const {'chat', chatFileModule}.contains(module) &&
+          !const {'write', 'manage'}.contains(levels?[module])) {
+        return const Failure('not_found');
+      }
+      final file = File(path);
+      if (!file.existsSync()) {
+        await staged.rename(path);
+      }
+      await store.putBlob(spaceId, module, hash, path, length);
+      final already = (await store.blobs(spaceId)).any(
+        (b) =>
+            b['sha256'] == hash && b['module'] == module && b['uploaded'] == 1,
+      );
+      final queued = (await store.outbox(spaceId))
+          .any((op) => op.entityIds.contains(EntityRef.blob(module, hash)));
+      if (!already && !queued) {
+        await store.enqueue(
+          OutboxOperation(
+            id: const Uuid().v7(),
+            spaceId: spaceId,
+            joinEpoch: fence.joinEpoch,
+            kind: 'blob',
+            payload: {'module': module, 'sha256': hash, 'path': path},
+            entityIds: {EntityRef.blob(module, hash)},
+            dependsOn: const {},
+            requestId: const Uuid().v7(),
+            createdAt: now().microsecondsSinceEpoch,
+          ),
+        );
+        // Reimport can repair a missing upload receipt after dependent
+        // edits already exist. Put those edits after the new blob upload.
+        await store.deferDependents(spaceId, EntityRef.blob(module, hash));
+      }
+      return Ok(hash);
+    });
+    if (result is Ok<String>) {
+      store.afterCommit(onEnqueued);
+    }
+    return result;
   }
 }

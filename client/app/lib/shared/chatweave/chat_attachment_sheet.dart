@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
-/// Where an attachment comes from; every source ends in the same JPEG
-/// pipeline (the server and AI accept JPEG only today).
+/// Where an attachment comes from: camera and gallery photos go through the
+/// JPEG pipeline; files are PDFs, uploaded as they are.
 enum ChatAttachSource { camera, gallery, files }
 
 /// The composer's paperclip opens this sheet (design-spec 4.17c, modelled on

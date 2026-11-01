@@ -175,7 +175,10 @@ class ChatHarness {
   final LocalChatSession session;
   final JiabuChatWeaveStore persistence;
   final OutboxProcessor processor;
-  static Future<ChatHarness> create({bool offline = true}) async {
+  static Future<ChatHarness> create({
+    bool offline = true,
+    DocumentPickerPort? documents,
+  }) async {
     final h = await SyncHarness.create();
     final api = FakeChatApi()..offline = offline;
     final fence = (await h.store.fence('s'))!;
@@ -184,6 +187,7 @@ class ChatHarness {
       directory: h.directory,
       picker: _Picker(),
       compressor: _Codec(),
+      documents: documents,
     );
     final session = LocalChatSession(
       dao: h.store,

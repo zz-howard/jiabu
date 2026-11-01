@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:jiabu/domain/chat.dart';
+import 'package:jiabu/domain/chat_files.dart';
 import 'package:jiabu/domain/result.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/chatweave/chat_day_tape.dart';
+import 'package:jiabu/shared/chatweave/chat_file_chip.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 
 /// What the long-press menu on my sticky note can do.
@@ -51,6 +53,11 @@ class UserMessageNote extends StatelessWidget {
     );
     final text = '${input['text'] ?? message['fallbackText'] ?? ''}';
     final images = (input['images'] as List<Object?>? ?? []).cast<String>();
+    // PDFs: from the optimistic local copy or the server's stored input.
+    final files = [
+      for (final file in input['files'] as List<Object?>? ?? const [])
+        ?ChatFile.fromJson(file),
+    ];
     final colors = context.jiabu.colors;
     // Normal flow (sending, queued online, waiting for / being answered by
     // AI, answered, switched to manual) says nothing here: the assistant's
@@ -125,7 +132,18 @@ class UserMessageNote extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(text, style: context.jiabu.type.body),
+                        if (text.isNotEmpty ||
+                            (images.isEmpty && files.isEmpty))
+                          Text(text, style: context.jiabu.type.body),
+                        for (final file in files)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              top: text.isEmpty && file == files.first
+                                  ? 0
+                                  : JiabuChatMetrics.gap,
+                            ),
+                            child: ChatFileChip(file: file),
+                          ),
                         for (final hash in images)
                           Padding(
                             padding: const EdgeInsets.only(
