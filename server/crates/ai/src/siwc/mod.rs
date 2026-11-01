@@ -4,7 +4,109 @@ pub mod stream;
 use crate::{credentials::CredentialManager, provider::*, types::*};
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportDiagnosticClass {
+    Dns,
+    Connect,
+    Tls,
+    Proxy,
+    HttpStatus,
+    StreamResetOrEof,
+    OtherTransport,
+}
+
+impl std::fmt::Display for TransportDiagnosticClass {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Dns => "dns",
+            Self::Connect => "connect",
+            Self::Tls => "tls",
+            Self::Proxy => "proxy",
+            Self::HttpStatus => "http-status",
+            Self::StreamResetOrEof => "stream-reset-or-eof",
+            Self::OtherTransport => "other-transport",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportDiagnosticStage {
+    CredentialOrPreflight,
+    RequestSend,
+    ResponseStatus,
+    ResponseStream,
+}
+
+impl std::fmt::Display for TransportDiagnosticStage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::CredentialOrPreflight => "credential-or-preflight",
+            Self::RequestSend => "request-send",
+            Self::ResponseStatus => "response-status",
+            Self::ResponseStream => "response-stream",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportStatusClass {
+    None,
+    FourXx,
+    FiveXx,
+    Other,
+}
+
+impl std::fmt::Display for TransportStatusClass {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::None => "none",
+            Self::FourXx => "4xx",
+            Self::FiveXx => "5xx",
+            Self::Other => "other",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransportDiagnostic {
+    pub class: TransportDiagnosticClass,
+    pub stage: TransportDiagnosticStage,
+    pub status: TransportStatusClass,
+    pub received_headers: bool,
+}
+
+static TRANSPORT_DIAGNOSTIC: Mutex<Option<TransportDiagnostic>> = Mutex::new(None);
+
+pub fn clear_transport_diagnostic() {
+    if let Ok(mut slot) = TRANSPORT_DIAGNOSTIC.lock() {
+        *slot = None;
+    }
+}
+
+pub fn take_transport_diagnostic() -> Option<TransportDiagnostic> {
+    TRANSPORT_DIAGNOSTIC.lock().ok()?.take()
+}
+
+fn record_transport_diagnostic(diagnostic: TransportDiagnostic) {
+    if let Ok(mut slot) = TRANSPORT_DIAGNOSTIC.lock() {
+        *slot = Some(diagnostic);
+    }
+}
+
+fn status_class(status: reqwest::StatusCode) -> TransportStatusClass {
+    if status.is_client_error() {
+        TransportStatusClass::FourXx
+    } else if status.is_server_error() {
+        TransportStatusClass::FiveXx
+    } else {
+        TransportStatusClass::Other
+    }
+}
 pub struct SiwcProvider {
     id: String,
     capabilities: Capabilities,
@@ -175,6 +277,7 @@ impl SiwcProvider {
         sink: &mut dyn TurnSink,
         creds: &oauth::OAuthCredentials,
     ) -> Result<(), ProviderError> {
+        clear_transport_diagnostic();
         let body = request::body(req, &self.id, &creds.account_id)?;
         let response = self
             .client
@@ -189,11 +292,25 @@ impl SiwcProvider {
                 if e.is_timeout() {
                     ProviderError::Timeout
                 } else {
+                    // reqwest deliberately collapses DNS, TCP, TLS and proxy setup
+                    // behind one connect error. Do not infer a narrower cause from text.
+                    record_transport_diagnostic(TransportDiagnostic {
+                        class: TransportDiagnosticClass::OtherTransport,
+                        stage: TransportDiagnosticStage::RequestSend,
+                        status: TransportStatusClass::None,
+                        received_headers: false,
+                    });
                     ProviderError::Transport
                 }
             })?;
         let status = response.status();
         if !status.is_success() {
+            record_transport_diagnostic(TransportDiagnostic {
+                class: TransportDiagnosticClass::HttpStatus,
+                stage: TransportDiagnosticStage::ResponseStatus,
+                status: status_class(status),
+                received_headers: true,
+            });
             if status.is_server_error() {
                 return Err(ProviderError::Transport);
             }
@@ -238,15 +355,49 @@ impl SiwcProvider {
                 if e.is_timeout() {
                     ProviderError::Timeout
                 } else {
+                    record_transport_diagnostic(TransportDiagnostic {
+                        class: TransportDiagnosticClass::StreamResetOrEof,
+                        stage: TransportDiagnosticStage::ResponseStream,
+                        status: TransportStatusClass::None,
+                        received_headers: true,
+                    });
                     ProviderError::Transport
                 }
             })?;
             for event in decoder.push(&chunk)? {
-                turn.accept(event, sink).await?;
+                if let Err(error) = turn.accept(event, sink).await {
+                    if matches!(
+                        &error,
+                        ProviderError::Incomplete { .. } | ProviderError::UpstreamFailed { .. }
+                    ) {
+                        record_transport_diagnostic(TransportDiagnostic {
+                            class: TransportDiagnosticClass::OtherTransport,
+                            stage: TransportDiagnosticStage::ResponseStream,
+                            status: TransportStatusClass::None,
+                            received_headers: true,
+                        });
+                    }
+                    return Err(error);
+                }
                 if turn.completed() {
-                    return turn
+                    let result = turn
                         .finish(&self.id, &req.snapshot.model, &creds.account_id, sink)
                         .await;
+                    if matches!(
+                        &result,
+                        Err(
+                            ProviderError::Incomplete { .. }
+                                | ProviderError::UpstreamFailed { .. }
+                        )
+                    ) {
+                        record_transport_diagnostic(TransportDiagnostic {
+                            class: TransportDiagnosticClass::OtherTransport,
+                            stage: TransportDiagnosticStage::ResponseStream,
+                            status: TransportStatusClass::None,
+                            received_headers: true,
+                        });
+                    }
+                    return result;
                 }
             }
         }
@@ -275,5 +426,31 @@ impl ModelProvider for HttpAttempt<'_> {
         self.provider
             .request_once(req, sink, self.credentials)
             .await
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn transport_diagnostics_use_only_bounded_closed_fields() {
+        assert_eq!(
+            status_class(reqwest::StatusCode::TOO_MANY_REQUESTS),
+            TransportStatusClass::FourXx
+        );
+        assert_eq!(
+            status_class(reqwest::StatusCode::BAD_GATEWAY),
+            TransportStatusClass::FiveXx
+        );
+        let diagnostic = TransportDiagnostic {
+            class: TransportDiagnosticClass::HttpStatus,
+            stage: TransportDiagnosticStage::ResponseStatus,
+            status: TransportStatusClass::FiveXx,
+            received_headers: true,
+        };
+        record_transport_diagnostic(diagnostic);
+        assert_eq!(take_transport_diagnostic(), Some(diagnostic));
+        assert_eq!(take_transport_diagnostic(), None);
     }
 }

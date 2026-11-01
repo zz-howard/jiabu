@@ -37,8 +37,40 @@ impl std::fmt::Display for JudgeFailureClass {
 
 impl std::error::Error for JudgeFailureClass {}
 
+#[derive(Clone, Copy, Debug)]
+struct ClassifiedFailure {
+    class: JudgeFailureClass,
+    transport: Option<jiabu_ai::siwc::TransportDiagnostic>,
+}
+
+impl std::fmt::Display for ClassifiedFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.class, formatter)
+    }
+}
+
+impl std::error::Error for ClassifiedFailure {}
+
 fn classified(class: JudgeFailureClass) -> anyhow::Error {
-    anyhow::Error::new(class)
+    anyhow::Error::new(ClassifiedFailure {
+        class,
+        transport: None,
+    })
+}
+
+fn classified_provider(error: &ProviderError) -> anyhow::Error {
+    let class = provider_failure_class(error);
+    let transport = (class == JudgeFailureClass::Transport).then(|| {
+        jiabu_ai::siwc::take_transport_diagnostic().unwrap_or(
+            jiabu_ai::siwc::TransportDiagnostic {
+                class: jiabu_ai::siwc::TransportDiagnosticClass::OtherTransport,
+                stage: jiabu_ai::siwc::TransportDiagnosticStage::CredentialOrPreflight,
+                status: jiabu_ai::siwc::TransportStatusClass::None,
+                received_headers: false,
+            },
+        )
+    });
+    anyhow::Error::new(ClassifiedFailure { class, transport })
 }
 
 fn provider_failure_class(error: &ProviderError) -> JudgeFailureClass {
@@ -61,9 +93,15 @@ fn provider_failure_class(error: &ProviderError) -> JudgeFailureClass {
 
 fn failure_class(error: &anyhow::Error) -> JudgeFailureClass {
     error
-        .downcast_ref::<JudgeFailureClass>()
-        .copied()
+        .downcast_ref::<ClassifiedFailure>()
+        .map(|failure| failure.class)
         .unwrap_or(JudgeFailureClass::Unknown)
+}
+
+fn failure_transport(error: &anyhow::Error) -> Option<jiabu_ai::siwc::TransportDiagnostic> {
+    error
+        .downcast_ref::<ClassifiedFailure>()
+        .and_then(|failure| failure.transport)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -366,9 +404,10 @@ impl Judge {
             .request(input)
             .map_err(|_| classified(JudgeFailureClass::Unknown))?;
         let mut sink = CollectSink::default();
+        jiabu_ai::siwc::clear_transport_diagnostic();
         match tokio::time::timeout(self.timeout, self.provider.run_turn(&request, &mut sink)).await {
             Err(_) => return Err(classified(JudgeFailureClass::Timeout)),
-            Ok(Err(error)) => return Err(classified(provider_failure_class(&error))),
+            Ok(Err(error)) => return Err(classified_provider(&error)),
             Ok(Ok(())) => {}
         }
         if !sink.done {
@@ -421,6 +460,16 @@ impl Judge {
                         index + 1,
                         failure_class(&error)
                     );
+                    if let Some(transport) = failure_transport(&error) {
+                        eprintln!(
+                            "judge_calibration_case_{}_transport_subclass={}_stage={}_status={}_headers={}",
+                            index + 1,
+                            transport.class,
+                            transport.stage,
+                            transport.status,
+                            transport.received_headers
+                        );
+                    }
                     return Err(error);
                 }
             };
@@ -794,6 +843,20 @@ mod tests {
             provider_failure_class(&ProviderError::Sink),
             JudgeFailureClass::Unknown
         );
+
+        let error = classified_provider(&ProviderError::Transport);
+        assert_eq!(failure_class(&error), JudgeFailureClass::Transport);
+        let detail = failure_transport(&error).expect("bounded transport detail");
+        assert_eq!(
+            detail.class,
+            jiabu_ai::siwc::TransportDiagnosticClass::OtherTransport
+        );
+        assert_eq!(
+            detail.stage,
+            jiabu_ai::siwc::TransportDiagnosticStage::CredentialOrPreflight
+        );
+        assert_eq!(detail.status, jiabu_ai::siwc::TransportStatusClass::None);
+        assert!(!detail.received_headers);
     }
 
     #[tokio::test]
