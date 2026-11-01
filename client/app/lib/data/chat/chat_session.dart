@@ -253,6 +253,12 @@ final class LocalChatSession implements ChatConversation {
   }
 
   Future<void> _reset(String id) async {
+    final sameConversation = id == conversationId;
+    // Streams the disposed controller was following, reattached below.
+    final streaming = [
+      for (final MapEntry(key: messageId, value: row) in _rows.entries)
+        if (row.status == 'streaming') messageId,
+    ];
     await _projection?.cancel();
     await _actions?.cancel();
     await composer.dispose();
@@ -261,14 +267,25 @@ final class LocalChatSession implements ChatConversation {
     await blocks.dispose();
     blocks = BlockStore();
     conversationId = id;
+    // The new interaction controller needs its intents restored.
     _restored.clear();
-    _receipts.clear();
-    _discovered.clear();
+    if (!sameConversation) {
+      // Receipts and reply links act at most once per conversation: a
+      // reopen of the same one (a jump, a lower revision, a catch-up) does
+      // not retry, resume or refresh them again.
+      _receipts.clear();
+      _discovered.clear();
+    }
     _checkpointSeq.clear();
     _rows.clear();
     _states.clear();
     _paged.clear();
     _makeControllers();
+    if (sameConversation && _attached && _foreground) {
+      for (final messageId in streaming) {
+        unawaited(_subscribe(messageId, ResumeTrigger.conversation));
+      }
+    }
   }
 
   /// Runs reads and page loads one at a time, in call order.
@@ -793,7 +810,11 @@ final class LocalChatSession implements ChatConversation {
         _oldest = oldest;
         _precedingCreatedAt = preceding;
         _newest = newest;
-        await _apply(rows, states, paged: false);
+        if (!await _apply(rows, states, paged: false)) {
+          // Same as a read: start over on the latest page, watermark kept.
+          unawaited(_reopen());
+          return const Failure<void>('stale_response');
+        }
         await _settle(queue);
         _watermark = watermark;
         _notify();

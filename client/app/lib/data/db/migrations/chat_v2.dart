@@ -5,10 +5,9 @@ import 'package:jiabu/data/db/migrations/migration_guards.dart';
 
 /// v1 retained the complete server projection in data_json. Preserve it and
 /// backfill the dedicated CW columns; no generated migration code is edited.
+/// Safe to run again: existing columns are kept and only rows still without
+/// message_json are backfilled.
 Future<void> migrateChatV2(GeneratedDatabase db) async {
-  // Columns already there mean v2 completed before (a downgrade and
-  // re-upgrade): keep the rows as they are instead of backfilling again.
-  final backfill = !await hasColumn(db, 'chat_entries', 'message_json');
   await addColumn(db, 'chat_entries', 'message_json', 'TEXT');
   await addColumn(db, 'chat_entries', 'rev', 'INTEGER NOT NULL DEFAULT 0');
   await addColumn(db, 'chat_entries', 'last_seq', 'INTEGER NOT NULL DEFAULT 0');
@@ -27,9 +26,6 @@ Future<void> migrateChatV2(GeneratedDatabase db) async {
     'CREATE INDEX IF NOT EXISTS chat_entries_conversation ON chat_entries '
     '(space_id, member_id, conversation_id, created_at, id)',
   );
-  if (!backfill) {
-    return;
-  }
   final runtimeRows = await db
       .customSelect('SELECT space_ids_json FROM sync_runtime WHERE id = 1')
       .get();
@@ -41,8 +37,10 @@ Future<void> migrateChatV2(GeneratedDatabase db) async {
   for (final space in spaces) {
     final rows = await db
         .customSelect(
+          // Only rows not backfilled yet: a re-upgrade keeps rows written
+          // since, and an interrupted run finishes the rest.
           'SELECT id, data_json, sync_state FROM chat_entries WHERE space_id '
-          '= ?',
+          '= ? AND message_json IS NULL',
           variables: [Variable<String>(space)],
         )
         .get();

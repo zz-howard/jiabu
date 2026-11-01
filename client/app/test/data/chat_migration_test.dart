@@ -255,4 +255,62 @@ void main() {
       'ok',
     );
   });
+  test('interrupted_v2_upgrade_backfills_the_rows_it_missed', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'jiabu-chat-migration-v2-partial-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/db');
+    final old = v1.DatabaseAtV1(NativeDatabase(file));
+    await old.customStatement(
+      'INSERT INTO sync_runtime (id, space_ids_json) VALUES (1, ?)',
+      ['["s"]'],
+    );
+    for (final (id, rev) in [('done', 1), ('missed', 2)]) {
+      await old.customStatement(
+        'INSERT INTO chat_entries (space_id, id, data_json, member_id, '
+        'conversation_id) VALUES (?, ?, ?, ?, ?)',
+        [
+          's',
+          id,
+          jsonEncode(chatRow(chatMessage(text: id, rev: rev, seq: 5))),
+          'm',
+          'conversation',
+        ],
+      );
+    }
+    // An older v2 run without a transaction stopped after adding the
+    // columns and backfilling one row; user_version stayed at 1.
+    for (final statement in [
+      'ALTER TABLE chat_entries ADD COLUMN message_json TEXT',
+      'ALTER TABLE chat_entries ADD COLUMN rev INTEGER NOT NULL DEFAULT 0',
+    ]) {
+      await old.customStatement(statement);
+    }
+    await old.customStatement(
+      "UPDATE chat_entries SET message_json = '{\"kept\":true}', rev = 1 "
+      "WHERE id = 'done'",
+    );
+    await old.close();
+    final db = JiabuDatabase(NativeDatabase(file));
+    addTearDown(db.close);
+    final rows = {
+      for (final row
+          in await db
+              .customSelect(
+                'SELECT id, message_json, rev, last_seq, authoritative FROM '
+                'chat_entries',
+              )
+              .get())
+        row.data['id']: row.data,
+    };
+    expect(rows['done']!['message_json'], '{"kept":true}');
+    expect(
+      jsonDecode(rows['missed']!['message_json']! as String),
+      chatMessage(text: 'missed', rev: 2, seq: 5).json,
+    );
+    expect(rows['missed']!['rev'], 2);
+    expect(rows['missed']!['last_seq'], 5);
+    expect(rows['missed']!['authoritative'], 1);
+  });
 }
