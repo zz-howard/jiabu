@@ -72,6 +72,8 @@ void main() {
     );
     AppRuntime? background;
     try {
+      expect(foreground.updatesEnabled, isFalse);
+      expect(foreground.updateDirectory, isNull);
       await foreground.api('https://example.invalid/', null).meta();
       final worker = await AppRuntime.create(
         background: true, // The same call used by backgroundDispatcher.
@@ -82,6 +84,8 @@ void main() {
         createDio: createDio,
       );
       background = worker;
+      expect(worker.updatesEnabled, isFalse);
+      expect(worker.updateDirectory, isNull);
       expect(worker.device.channel, 'stable');
       expect(worker.device.clientHeader, foreground.device.clientHeader);
       expect(

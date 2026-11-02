@@ -15,6 +15,8 @@ abstract final class SyncPolicy {
   static const lease = Duration(minutes: 12);
   static const heartbeat = Duration(seconds: 20);
   static const originalRetention = Duration(days: 30);
+  static const updateCheckInterval = Duration(hours: 24);
+  static const updateDismissInterval = Duration(days: 3);
   static const int maxBatchBytes = 2 * 1024 * 1024;
   static const maxBatchItems = 50;
   static Duration retry(int attempt, {int? retryAfter}) =>

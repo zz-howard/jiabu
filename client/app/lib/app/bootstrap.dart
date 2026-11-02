@@ -9,10 +9,16 @@ import 'package:jiabu/app/runtime.dart';
 import 'package:jiabu_design/jiabu_design.dart';
 import 'package:workmanager/workmanager.dart';
 
-Future<void> bootstrap({String channel = 'beta'}) async {
+Future<void> bootstrap({
+  String channel = 'beta',
+  bool updatesEnabled = false,
+}) async {
   WidgetsFlutterBinding.ensureInitialized();
   registerJiabuLicenses();
-  final runtime = await AppRuntime.create(channel: channel);
+  final runtime = await AppRuntime.create(
+    channel: channel,
+    updatesEnabled: updatesEnabled,
+  );
   final saved = await runtime.settings.current();
   // Before runApp: protection uses the Dart setting, no native persistence.
   await runtime.lock.load(saved?.prefix);

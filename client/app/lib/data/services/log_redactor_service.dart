@@ -20,6 +20,7 @@ final class LogRedactorService {
     'log_upload_failed',
     'background_sync',
     'chat_failed',
+    'update_check_failed',
   };
   static const _codes = {
     'network',
