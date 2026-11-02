@@ -15,27 +15,96 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - name: Check Android scaffold
-        id: android
-        run: |
-          if [[ -f app/android/settings.gradle.kts || -f app/android/settings.gradle ]]; then
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-            echo 'TODO(luna): Generate app/android with flutter create on the build host.'
-          fi
       - name: Resolve workspace
-        if: steps.android.outputs.ready == 'true'
         run: flutter pub get
+      - name: Test release metadata tool
+        run: python3 -I tool/test_release_app.py
+      - name: Resolve release channel
+        id: channel
+        run: |
+          channel="$(python3 -I tool/release_app.py --pubspec app/pubspec.yaml --tag "$GITHUB_REF_NAME" --print-channel)"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
       - name: Build debug APK
-        if: steps.android.outputs.ready == 'true'
         working-directory: client/app
         run: |
           flutter build apk --debug --flavor dev --target lib/main_dev.dart
-          # TODO(C7): Release signing, metadata, and publication.
       - uses: actions/upload-artifact@v4
-        if: steps.android.outputs.ready == 'true'
         with:
           name: jiabu-app-debug
           path: client/app/build/app/outputs/flutter-apk/app-dev-debug.apk
           if-no-files-found: error
+      - name: Restore release signing key
+        env:
+          JIABU_ANDROID_KEYSTORE_BASE64: ${{ secrets.JIABU_ANDROID_KEYSTORE_BASE64 }}
+          JIABU_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.JIABU_ANDROID_KEYSTORE_PASSWORD }}
+          JIABU_ANDROID_KEY_ALIAS: ${{ secrets.JIABU_ANDROID_KEY_ALIAS }}
+          JIABU_ANDROID_KEY_PASSWORD: ${{ secrets.JIABU_ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$JIABU_ANDROID_KEYSTORE_BASE64"
+          test -n "$JIABU_ANDROID_KEYSTORE_PASSWORD"
+          test -n "$JIABU_ANDROID_KEY_ALIAS"
+          test -n "$JIABU_ANDROID_KEY_PASSWORD"
+          install -d -m 700 "$RUNNER_TEMP/jiabu-signing"
+          printf '%s' "$JIABU_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/jiabu-signing/release.jks"
+          chmod 600 "$RUNNER_TEMP/jiabu-signing/release.jks"
+          {
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/jiabu-signing/release.jks"
+            printf 'storePassword=%s\n' "$JIABU_ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$JIABU_ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$JIABU_ANDROID_KEY_PASSWORD"
+          } > app/android/key.properties
+          chmod 600 app/android/key.properties
+      - name: Build signed prod APK
+        working-directory: client/app
+        env:
+          ORG_GRADLE_PROJECT_requireReleaseKey: 'true'
+        run: >-
+          flutter build apk --release --flavor prod --target lib/main_prod.dart
+          --target-platform android-arm64 --obfuscate
+          --dart-define=JIABU_CHANNEL=${{ steps.channel.outputs.channel }}
+          --split-debug-info=build/symbols
+      - name: Assemble release assets
+        run: >-
+          python3 -I tool/release_app.py
+          --pubspec app/pubspec.yaml
+          --metadata app/release-metadata.json
+          --tag "$GITHUB_REF_NAME"
+          --apk app/build/app/outputs/flutter-apk/app-prod-release.apk
+          --output-dir app/build/release-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jiabu-release-assets
+          path: client/app/build/release-assets/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jiabu-symbols
+          path: client/app/build/symbols/**
+          if-no-files-found: error
+      - name: Remove signing material
+        if: always()
+        run: |
+          rm -f app/android/key.properties
+          rm -f "$RUNNER_TEMP/jiabu-signing/release.jks"
+          rmdir "$RUNNER_TEMP/jiabu-signing" 2>/dev/null || true
+
+  publish:
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: jiabu-release-assets
+          path: release-assets
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          channel="$(python3 -c 'import json; print(json.load(open("release-assets/release.json"))["channel"])')"
+          args=(release create "$GITHUB_REF_NAME" release-assets/* --verify-tag --generate-notes)
+          if [[ "$channel" == beta ]]; then
+            args+=(--prerelease)
+          fi
+          gh "${args[@]}"

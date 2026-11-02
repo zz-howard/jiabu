@@ -13,6 +13,13 @@ val keyProperties = Properties().apply {
     val file = rootProject.file("key.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
+val requireReleaseKey = providers.gradleProperty("requireReleaseKey").orNull == "true"
+if (requireReleaseKey) {
+    val required = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+    if (required.any { keyProperties.getProperty(it).isNullOrBlank() }) {
+        throw GradleException("A complete release signing key is required")
+    }
+}
 
 android {
     namespace = "io.github.zzhoward.jiabu"

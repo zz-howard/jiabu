@@ -15,6 +15,7 @@ import 'package:jiabu/data/repositories/ledger_repository.dart';
 import 'package:jiabu/data/repositories/local_mutations_repository.dart';
 import 'package:jiabu/data/repositories/records_repository.dart';
 import 'package:jiabu/data/repositories/spaces_repository.dart';
+import 'package:jiabu/data/repositories/update_repository.dart';
 import 'package:jiabu/data/services/app_lock_service.dart';
 import 'package:jiabu/data/services/app_settings_service.dart';
 import 'package:jiabu/data/services/biometric_auth_service.dart';
@@ -27,6 +28,9 @@ import 'package:jiabu/data/services/media_service.dart';
 import 'package:jiabu/data/services/network_status_service.dart';
 import 'package:jiabu/data/services/secure_clipboard_service.dart';
 import 'package:jiabu/data/services/session_store_service.dart';
+import 'package:jiabu/data/services/update_installer.dart';
+import 'package:jiabu/data/services/update_service.dart';
+import 'package:jiabu/data/services/update_transport.dart';
 import 'package:jiabu/data/services/version_handshake_service.dart';
 import 'package:jiabu/data/services/window_privacy_service.dart';
 import 'package:jiabu/data/sync/conflict_service.dart';
@@ -40,8 +44,10 @@ import 'package:jiabu/domain/chat.dart';
 import 'package:jiabu/domain/ledger.dart';
 import 'package:jiabu/domain/partition.dart';
 import 'package:jiabu/domain/required_value.dart';
+import 'package:jiabu/domain/result.dart';
 import 'package:jiabu/domain/spaces.dart';
 import 'package:jiabu/domain/sync_state.dart';
+import 'package:jiabu/domain/update.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -52,6 +58,8 @@ final class AppRuntime {
     required this.settings,
     required this.sessions,
     required this.device,
+    this.updatesEnabled = false,
+    this.updateDirectory,
     this.background = false,
     this.createDio,
     this.beforeSessionInitialization,
@@ -90,6 +98,8 @@ final class AppRuntime {
   final AppSettingsService settings;
   final SessionStore sessions;
   final DeviceContext device;
+  final bool updatesEnabled;
+  final Directory? updateDirectory;
   final bool background;
   final Dio Function()? createDio;
 
@@ -120,6 +130,8 @@ final class AppRuntime {
   MediaService? media;
   ChatRepository? chat;
   ConflictService? conflicts;
+  UpdateRepository? updates;
+  ReleaseInfo? availableUpdate;
   FileLogSink? _logs;
   FileLogSink? _startupLogs;
   Future<void> sessionWork = Future<void>.value();
@@ -199,6 +211,7 @@ final class AppRuntime {
         await handle?.store.setWriteAllowed(allowed: false);
         await settings.clearMeta(server);
         notify();
+        unawaited(checkUpdates(UpdateCheckReason.clientTooOld));
         try {
           final compatible = await handshake.on426();
           if (capturedRevision != revision ||
@@ -235,6 +248,8 @@ final class AppRuntime {
     ledger = null;
     media = null;
     conflicts = null;
+    updates = null;
+    availableUpdate = null;
     notify();
     if (!background) {
       await lock.load(session?.partition.prefix);
@@ -282,6 +297,27 @@ final class AppRuntime {
       session.partition,
       sessionGeneration: generation,
     );
+    final updatesRoot = updateDirectory;
+    if (updatesEnabled && updatesRoot != null) {
+      updates = UpdateRepository(
+        UpdateService(
+          transport: DioUpdateTransport(client as DioApiClient),
+          settings: settings,
+          directory: updatesRoot,
+          server: session.partition.server,
+          channel: device.channel,
+          localBuild: device.build,
+        ),
+        PlatformUpdateInstaller(),
+      );
+      unawaited(
+        checkUpdates(
+          status == SyncStatus.clientTooOld
+              ? UpdateCheckReason.clientTooOld
+              : UpdateCheckReason.opening,
+        ),
+      );
+    }
     currentSpace = await settings.lastSpace(session.partition);
     final cache = BlobCacheService(store, handle.blobs);
     await cache.cleanPending();
@@ -332,7 +368,12 @@ final class AppRuntime {
         if (capturedRevision != revision) {
           return;
         }
+        final previous = status;
         status = next;
+        if (next == SyncStatus.clientTooOld &&
+            previous != SyncStatus.clientTooOld) {
+          unawaited(checkUpdates(UpdateCheckReason.clientTooOld));
+        }
         if (next == SyncStatus.idle) {
           network.reached();
         }
@@ -492,6 +533,9 @@ final class AppRuntime {
         onChatDisconnect: () async {
           await chat?.disconnect();
         },
+        onForeground: updatesEnabled
+            ? () => checkUpdates(UpdateCheckReason.resume)
+            : null,
         onDatabaseChanged: (row) async {
           if (capturedRevision != revision) {
             return;
@@ -577,6 +621,24 @@ final class AppRuntime {
     unawaited(engine?.runRound() ?? Future<void>.value());
   }
 
+  Future<ReleaseInfo?> checkUpdates(UpdateCheckReason reason) async {
+    final repository = updates;
+    if (!updatesEnabled || repository == null) return null;
+    final result = await repository.check(reason);
+    if (result case Ok<ReleaseInfo?>(:final value)) {
+      if (value != null) availableUpdate = value;
+      notify();
+      return value;
+    }
+    return null;
+  }
+
+  Future<void> dismissUpdate(ReleaseInfo release) async {
+    await updates?.dismiss(release);
+    if (availableUpdate?.build == release.build) availableUpdate = null;
+    notify();
+  }
+
   Future<void> close() async {
     await network.dispose();
     await lock.dispose();
@@ -608,6 +670,7 @@ final class AppRuntime {
   static Future<AppRuntime> create({
     bool background = false,
     String channel = 'beta',
+    bool updatesEnabled = false,
     DatabaseManager? databases,
     AppSettingsService? settings,
     SessionStore? sessions,
@@ -636,6 +699,10 @@ final class AppRuntime {
       device:
           await (loadDevice?.call(runtimeChannel) ??
               DeviceContext.load(channel: runtimeChannel)),
+      updatesEnabled: updatesEnabled && !background,
+      updateDirectory: updatesEnabled && !background
+          ? Directory(p.join((await getTemporaryDirectory()).path, 'updates'))
+          : null,
       background: background,
       createDio: createDio,
     );

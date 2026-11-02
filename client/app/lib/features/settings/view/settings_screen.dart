@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:jiabu/app/c4_providers.dart';
 import 'package:jiabu/app/ledger_providers.dart';
 import 'package:jiabu/app/providers.dart';
+import 'package:jiabu/domain/update.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/c4/c4_confirmation.dart';
 import 'package:jiabu/shared/c4/c4_form.dart';
@@ -191,6 +194,15 @@ class SettingsScreen extends ConsumerWidget {
                   l.c4Version(runtime.device.appVersion, runtime.device.build),
                 ),
               ),
+              if (runtime.updatesEnabled)
+                JiabuStackItem.action(
+                  child: TextButton(
+                    onPressed: () => unawaited(
+                      runtime.checkUpdates(UpdateCheckReason.manual),
+                    ),
+                    child: Text(l.c7CheckUpdates),
+                  ),
+                ),
               JiabuStackItem.action(
                 child: TextButton(
                   onPressed: () => showLicensePage(

@@ -1,14 +1,21 @@
 package io.github.zzhoward.jiabu
 
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PersistableBundle
 import android.provider.OpenableColumns
+import android.provider.Settings
+import android.util.Base64
 import android.view.WindowManager
 import java.io.File
 import java.io.FileOutputStream
@@ -26,9 +33,25 @@ class MainActivity : FlutterFragmentActivity() {
     private var documentFileSlots = 4
     private var documentMaxBytes = 10L * 1024 * 1024
     private var documentMaxImageBytes = 64L * 1024 * 1024
+    private var pendingInstall: MethodChannel.Result? = null
+    private var installGeneration = 0
+    private var installReceiverRegistered = false
+    private val installReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == INSTALL_ACTION) handleInstallStatus(intent)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        val installFilter = IntentFilter(INSTALL_ACTION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(installReceiver, installFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(installReceiver, installFilter)
+        }
+        installReceiverRegistered = true
         // System document picker (Storage Access Framework, no storage
         // permission). "pick": image files, raw bytes that Dart normalises
         // through the JPEG pipeline. "pickDocuments": the chat attachment
@@ -103,6 +126,138 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "jiabu/update_installer")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "verifySignature" -> {
+                        val path = call.argument<String>("path")
+                        result.success(path != null && signaturesMatch(path))
+                    }
+                    "canInstall" -> result.success(packageManager.canRequestPackageInstalls())
+                    "openInstallSettings" -> {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:$packageName"),
+                            ),
+                        )
+                        result.success(null)
+                    }
+                    "install" -> {
+                        val path = call.argument<String>("path")
+                        if (path == null) {
+                            result.error("invalid_install_path", null, null)
+                        } else {
+                            pendingInstall?.success("cancelled")
+                            pendingInstall = result
+                            installGeneration += 1
+                            installPackage(path, installGeneration)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    override fun onDestroy() {
+        if (installReceiverRegistered) {
+            unregisterReceiver(installReceiver)
+            installReceiverRegistered = false
+        }
+        super.onDestroy()
+    }
+
+    private fun signaturesMatch(path: String): Boolean {
+        return try {
+            @Suppress("DEPRECATION")
+            val archive = packageManager.getPackageArchiveInfo(
+                path,
+                PackageManager.GET_SIGNING_CERTIFICATES,
+            ) ?: return false
+            @Suppress("DEPRECATION")
+            val current = packageManager.getPackageInfo(
+                packageName,
+                PackageManager.GET_SIGNING_CERTIFICATES,
+            )
+            signatureSet(archive.signingInfo) == signatureSet(current.signingInfo) &&
+                signatureSet(archive.signingInfo).isNotEmpty()
+        } catch (error: Exception) {
+            false
+        }
+    }
+
+    private fun signatureSet(info: android.content.pm.SigningInfo?): Set<String> {
+        if (info == null) return emptySet()
+        val signatures = if (info.hasMultipleSigners()) {
+            info.apkContentsSigners
+        } else {
+            info.signingCertificateHistory
+        }
+        return signatures.map {
+            Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP)
+        }.toSet()
+    }
+
+    private fun installPackage(path: String, generation: Int) {
+        Thread {
+            var session: PackageInstaller.Session? = null
+            try {
+                val file = File(path)
+                val params = PackageInstaller.SessionParams(
+                    PackageInstaller.SessionParams.MODE_FULL_INSTALL,
+                ).apply { setAppPackageName(packageName) }
+                val sessionId = packageManager.packageInstaller.createSession(params)
+                val opened = packageManager.packageInstaller.openSession(sessionId)
+                session = opened
+                file.inputStream().use { input ->
+                    opened.openWrite("jiabu.apk", 0, file.length()).use { output ->
+                        input.copyTo(output)
+                        opened.fsync(output)
+                    }
+                }
+                val callback = Intent(INSTALL_ACTION)
+                    .setPackage(packageName)
+                    .putExtra(INSTALL_GENERATION, generation)
+                val pending = PendingIntent.getBroadcast(
+                    this,
+                    sessionId,
+                    callback,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                )
+                opened.commit(pending.intentSender)
+            } catch (error: Exception) {
+                session?.abandon()
+                runOnUiThread { finishInstall("failed", generation) }
+            } finally {
+                session?.close()
+            }
+        }.start()
+    }
+
+    private fun handleInstallStatus(intent: Intent) {
+        val generation = intent.getIntExtra(INSTALL_GENERATION, -1)
+        if (generation != installGeneration) return
+        when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
+            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                @Suppress("DEPRECATION")
+                val confirmation = intent.getParcelableExtra(Intent.EXTRA_INTENT) as? Intent
+                if (confirmation == null) {
+                    finishInstall("failed", generation)
+                } else {
+                    startActivity(confirmation)
+                }
+            }
+            PackageInstaller.STATUS_SUCCESS -> finishInstall("success", generation)
+            PackageInstaller.STATUS_FAILURE_ABORTED -> finishInstall("cancelled", generation)
+            else -> finishInstall("failed", generation)
+        }
+    }
+
+    private fun finishInstall(status: String, generation: Int) {
+        if (generation != installGeneration) return
+        val result = pendingInstall ?: return
+        pendingInstall = null
+        result.success(status)
     }
 
     @Deprecated("Activity result API; kept for FlutterFragmentActivity parity")
@@ -296,5 +451,7 @@ class MainActivity : FlutterFragmentActivity() {
     private companion object {
         const val IMAGE_FILES_REQUEST = 7301
         const val DOCUMENTS_REQUEST = 7302
+        const val INSTALL_ACTION = "io.github.zzhoward.jiabu.INSTALL_STATUS"
+        const val INSTALL_GENERATION = "jiabu.install_generation"
     }
 }

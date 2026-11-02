@@ -9,6 +9,9 @@ import 'package:jiabu/app/providers.dart';
 import 'package:jiabu/domain/spaces.dart';
 import 'package:jiabu/domain/sync_state.dart';
 import 'package:jiabu/features/spaces/view/spaces_screen.dart';
+import 'package:jiabu/features/update/view_model/update_view_model.dart';
+import 'package:jiabu/features/update/widgets/update_banner.dart';
+import 'package:jiabu/features/update/widgets/update_sheet.dart';
 import 'package:jiabu/l10n/generated/app_localizations.dart';
 import 'package:jiabu/shared/ledger/ledger_forms.dart';
 import 'package:jiabu/shared/ledger/ledger_labels.dart';
@@ -29,6 +32,10 @@ class MainShell extends ConsumerWidget {
         ? null
         : ref.watch(ledgerViewModelProvider(spaceId)).snapshot;
     final runtime = ref.watch(appRuntimeProvider);
+    final update = ref.watch(updateViewModelProvider);
+    final updateRelease = update.release;
+    final updateVm = ref.read(updateViewModelProvider.notifier);
+    final mandatory = updateVm.mandatory;
     final settingsRoute =
         path.startsWith('/settings') ||
         path.startsWith('/spaces') ||
@@ -90,8 +97,51 @@ class MainShell extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (runtime.status == SyncStatus.offline) Text(l.authOffline),
-          if (runtime.status == SyncStatus.clientTooOld)
+          if (runtime.status == SyncStatus.clientTooOld &&
+              (!runtime.updatesEnabled || updateRelease == null))
             Text(l.authClientTooOld),
+          if (runtime.updatesEnabled &&
+              update.bannerVisible &&
+              updateRelease != null)
+            UpdateBanner(
+              message: mandatory
+                  ? l.c7ForcedBanner(updateRelease.version)
+                  : l.c7Banner(updateRelease.version),
+              actionLabel: l.c7Update,
+              mandatory: mandatory,
+              onOpen: () async {
+                updateVm.open();
+                await JiabuSheet.show<void>(
+                  context: context,
+                  dismissible: !mandatory,
+                  builder: (sheetContext) => Consumer(
+                    builder: (context, ref, _) {
+                      final current = ref.watch(updateViewModelProvider);
+                      final vm = ref.read(updateViewModelProvider.notifier);
+                      return UpdateSheet(
+                        state: current,
+                        locale:
+                            Localizations.localeOf(context).languageCode == 'en'
+                            ? 'en'
+                            : 'zh-Hans',
+                        mandatory: vm.mandatory,
+                        onDownload: () => unawaited(vm.download()),
+                        onCancel: vm.cancelDownload,
+                        onRetry: () => unawaited(vm.retry()),
+                        onSettings: () => unawaited(vm.openSettings()),
+                        onInstall: () => unawaited(vm.install()),
+                        onLater: () {
+                          unawaited(vm.dismiss());
+                          Navigator.of(sheetContext).pop();
+                        },
+                      );
+                    },
+                  ),
+                );
+                updateVm.closeSheet();
+              },
+              onDismiss: () => unawaited(updateVm.dismiss()),
+            ),
           if (runtime.spaceCleared)
             Wrap(
               children: [

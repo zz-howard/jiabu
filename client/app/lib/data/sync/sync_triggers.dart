@@ -20,6 +20,7 @@ final class SyncTriggers {
     this.onDatabaseChanged,
     this.onChatForeground,
     this.onChatDisconnect,
+    this.onForeground,
     Timer Function(Duration, void Function())? timer,
   }) : timer = timer ?? Timer.new;
   final SyncEngine engine;
@@ -30,6 +31,7 @@ final class SyncTriggers {
   final bool observeLifecycle;
   final Future<void> Function()? onChatForeground;
   final Future<void> Function()? onChatDisconnect;
+  final Future<void> Function()? onForeground;
   final Future<void> Function(Map<String, Object?>)? onDatabaseChanged;
   final Timer Function(Duration, void Function()) timer;
   AppLifecycleListener? _lifecycle;
@@ -76,6 +78,7 @@ final class SyncTriggers {
     if (!_disposed) {
       await engine.runRound();
       await onChatForeground?.call();
+      await onForeground?.call();
     }
   }
 

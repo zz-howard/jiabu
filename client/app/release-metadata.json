@@ -1,0 +1,8 @@
+{
+  "min_server_api": 1,
+  "security_force": false,
+  "notes": {
+    "zh-Hans": "首个公开测试版本。",
+    "en": "First public test release."
+  }
+}

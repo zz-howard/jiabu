@@ -59,6 +59,8 @@ jobs:
         run: flutter analyze --fatal-infos
       - name: Project rules
         run: dart run tool/check_rules.dart
+      - name: Release metadata tool tests
+        run: python3 -I tool/test_release_app.py
       - name: Generated icon consistency
         run: dart run tool/icons/gen_icons.dart --check
       - name: Workspace tool tests

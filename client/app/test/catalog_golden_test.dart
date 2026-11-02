@@ -13,7 +13,8 @@ void main() {
         sample.component != 'c3' &&
         sample.component != 'c4' &&
         sample.component != 'c4b' &&
-        sample.component != 'c5',
+        sample.component != 'c5' &&
+        sample.component != 'c7',
   )) {
     final variants =
         sample.component.startsWith('ui1_') ||

@@ -102,4 +102,44 @@ final class AppSettingsService {
   );
   Future<void> clearMeta(String server) =>
       storage.write(_metaKey(server), null);
+
+  String _updateServerKey(String server, String channel) =>
+      'update:last_checked:'
+      '${sha256.convert(utf8.encode(normalizeServer(server)))}:$channel';
+  Future<DateTime?> updateLastChecked(String server, String channel) async {
+    final value = await storage.read(_updateServerKey(server, channel));
+    final millis = int.tryParse(value ?? '');
+    return millis == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(millis, isUtc: true);
+  }
+
+  Future<void> setUpdateLastChecked(
+    String server,
+    String channel,
+    DateTime value,
+  ) => storage.write(
+    _updateServerKey(server, channel),
+    value.toUtc().millisecondsSinceEpoch.toString(),
+  );
+
+  Future<({int build, DateTime at})?> dismissedUpdate(String channel) async {
+    final value = await storage.read('update:dismissed:$channel');
+    if (value == null) return null;
+    final json = (jsonDecode(value) as Map<String, Object?>)
+        .cast<String, Object?>();
+    return (
+      build: requireValue<int>(json['build']),
+      at: DateTime.fromMillisecondsSinceEpoch(
+        requireValue<int>(json['at']),
+        isUtc: true,
+      ),
+    );
+  }
+
+  Future<void> dismissUpdate(String channel, int build, DateTime at) =>
+      storage.write(
+        'update:dismissed:$channel',
+        jsonEncode({'build': build, 'at': at.toUtc().millisecondsSinceEpoch}),
+      );
 }
